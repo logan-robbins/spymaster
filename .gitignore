@@ -6,6 +6,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.py[oc]
 *$py.class
 *.so
 .Python
@@ -25,6 +26,7 @@ wheels/
 .installed.cfg
 *.egg
 .venv/
+.venv
 venv/
 ENV/
 env/
@@ -34,10 +36,25 @@ env/
 .coverage
 htmlcov/
 *.cover
+/coverage
+testem.log
+/typings
+__screenshots__/
 
 # IDEs
 .vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
 .idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 *.swp
 *.swo
 *~
@@ -48,15 +65,26 @@ Thumbs.db
 
 # Node
 node_modules/
+/node_modules
 npm-debug.log*
+npm-debug.log
 yarn-debug.log*
 yarn-error.log*
+yarn-error.log
 
 # Angular
 .angular/
+/.angular/cache
+.sass-cache/
 dist/
+/dist
 tmp/
+/tmp
 out-tsc/
+/out-tsc
+/bazel-out
+/connect.lock
+/libpeerconnection.log
 
 # Logs
 *.log
