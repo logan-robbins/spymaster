@@ -9,6 +9,7 @@ dependencies = [
     "fastapi[standard]>=0.124.4",
     "pandas>=2.3.3",
     "polygon-api-client>=1.16.3",
+    "pyarrow>=19.0.0",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
     "s3fs>=2025.12.0",

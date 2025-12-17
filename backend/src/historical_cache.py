@@ -53,10 +53,8 @@ class HistoricalDataCache:
             return []
         
         try:
-            # Use DuckDB for efficient querying
-            df = self.db.execute(f"""
-                SELECT * FROM read_parquet('{cache_path}')
-            """).df()
+            # Read directly with pandas (DuckDB renames 't' to 't_1')
+            df = pd.read_parquet(cache_path)
             
             # Filter by time if specified
             if start_time or end_time:

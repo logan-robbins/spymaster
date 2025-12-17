@@ -80,8 +80,8 @@ class ReplayEngine:
             
             if snap.underlying_asset and snap.underlying_asset.price:
                 spy_price = snap.underlying_asset.price
-                timeframe = getattr(snap.underlying_asset, 'timeframe', 'UNKNOWN')
-                print(f"✓ SPY Price from Options Chain: ${spy_price} ({timeframe})")
+                # In replay mode, we just need a reference price for strike selection
+                print(f"✓ SPY Reference Price: ${spy_price}")
             else:
                 raise ValueError("No underlying price in snapshot")
                 
