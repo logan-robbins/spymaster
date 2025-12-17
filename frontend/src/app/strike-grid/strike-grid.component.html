@@ -30,8 +30,15 @@
             <td class="px-2 py-2 font-mono" [class.text-gray-600]="!row.call?.cumulative_volume">
               {{ row.call?.cumulative_volume | number }}
             </td>
-            <td class="px-2 py-2 font-mono text-blue-300">
-              {{ row.call?.cumulative_premium | currency:'USD':'symbol':'1.0-0' }}
+            <td class="px-2 py-2" [style.backgroundColor]="getPremiumHeatBg(row.strike, 'call')">
+              <div class="flex flex-col items-center leading-tight">
+                <div class="font-mono text-blue-300">
+                  {{ row.call?.cumulative_premium | currency:'USD':'symbol':'1.0-0' }}
+                </div>
+                <div class="mt-0.5 font-mono text-[10px] text-gray-400">
+                  {{ getPremiumVelocity(row.strike, 'call') | number:'1.0-0' }}/s
+                </div>
+              </div>
             </td>
             <td class="px-2 py-2 font-mono font-bold" [ngClass]="getDeltaColor(row.call?.net_delta_flow)">
               {{ row.call?.net_delta_flow | number:'1.0-0' }}
@@ -46,8 +53,15 @@
             <td class="px-2 py-2 font-mono" [class.text-gray-600]="!row.put?.cumulative_volume">
               {{ row.put?.cumulative_volume | number }}
             </td>
-            <td class="px-2 py-2 font-mono text-blue-300">
-              {{ row.put?.cumulative_premium | currency:'USD':'symbol':'1.0-0' }}
+            <td class="px-2 py-2" [style.backgroundColor]="getPremiumHeatBg(row.strike, 'put')">
+              <div class="flex flex-col items-center leading-tight">
+                <div class="font-mono text-blue-300">
+                  {{ row.put?.cumulative_premium | currency:'USD':'symbol':'1.0-0' }}
+                </div>
+                <div class="mt-0.5 font-mono text-[10px] text-gray-400">
+                  {{ getPremiumVelocity(row.strike, 'put') | number:'1.0-0' }}/s
+                </div>
+              </div>
             </td>
             <td class="px-2 py-2 font-mono font-bold" [ngClass]="getDeltaColor(row.put?.net_delta_flow)">
               {{ row.put?.net_delta_flow | number:'1.0-0' }}

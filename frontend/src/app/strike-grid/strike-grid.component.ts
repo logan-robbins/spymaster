@@ -1,7 +1,8 @@
 import { Component, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DataStreamService, FlowMap } from '../data-stream.service';
+import { DataStreamService, FlowMetrics } from '../data-stream.service';
 import { DecimalPipe } from '@angular/common';
+import { FlowAnalyticsService } from '../flow-analytics.service';
 
 @Component({
     selector: 'app-strike-grid',
@@ -12,9 +13,21 @@ import { DecimalPipe } from '@angular/common';
 })
 export class StrikeGridComponent {
     private dataService = inject(DataStreamService);
+    private analytics = inject(FlowAnalyticsService);
 
     // Signal of all data
     flowData = this.dataService.flowData;
+    perStrikeVel = this.analytics.perStrikeVel;
+
+    heatMaxPremium = computed(() => {
+        const vel = this.perStrikeVel();
+        let max = 1;
+        for (const row of Object.values(vel)) {
+            if (row.call?.premium_vel != null) max = Math.max(max, Math.abs(row.call.premium_vel));
+            if (row.put?.premium_vel != null) max = Math.max(max, Math.abs(row.put.premium_vel));
+        }
+        return max;
+    });
 
     // Computed: Get Sorted Strikes
     // We need to group by Strike Price.
@@ -27,9 +40,9 @@ export class StrikeGridComponent {
        ]
     */
 
-    rows = computed(() => {
+    rows = computed((): Array<{ strike: number; call?: FlowMetrics; put?: FlowMetrics }> => {
         const data = this.flowData();
-        const map = new Map<number, { strike: number, call?: any, put?: any }>();
+        const map = new Map<number, { strike: number; call?: FlowMetrics; put?: FlowMetrics }>();
 
         // Group
         for (const key in data) {
@@ -53,8 +66,23 @@ export class StrikeGridComponent {
     });
 
     // Helper for Net Delta Color
-    getDeltaColor(val: number): string {
-        if (!val) return 'text-gray-500';
+    getDeltaColor(val: number | null | undefined): string {
+        if (val == null || !Number.isFinite(val) || val === 0) return 'text-gray-500';
         return val > 0 ? 'text-green-400' : 'text-red-400';
+    }
+
+    getPremiumVelocity(strike: number, side: 'call' | 'put'): number {
+        const row = this.perStrikeVel()[strike];
+        if (!row) return 0;
+        return side === 'call' ? row.call?.premium_vel ?? 0 : row.put?.premium_vel ?? 0;
+    }
+
+    getPremiumHeatBg(strike: number, side: 'call' | 'put'): string {
+        const v = this.getPremiumVelocity(strike, side);
+        const max = this.heatMaxPremium();
+        const intensity = Math.min(1, Math.abs(v) / max);
+        const alpha = 0.08 + intensity * 0.35;
+        // Calls = green, Puts = red
+        return side === 'call' ? `rgba(34,197,94,${alpha})` : `rgba(244,63,94,${alpha})`;
     }
 }

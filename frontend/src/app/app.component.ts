@@ -1,11 +1,11 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StrikeGridComponent } from './strike-grid/strike-grid.component';
+import { FlowDashboardComponent } from './flow-dashboard/flow-dashboard.component';
 
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [CommonModule, StrikeGridComponent],
+    imports: [CommonModule, FlowDashboardComponent],
     template: `
     <div class="min-h-screen bg-gray-950 text-white font-sans">
       <header class="p-4 border-b border-gray-800 bg-gray-900/50 backdrop-blur">
@@ -14,7 +14,7 @@ import { StrikeGridComponent } from './strike-grid/strike-grid.component';
         </h1>
       </header>
       <main>
-        <app-strike-grid></app-strike-grid>
+        <app-flow-dashboard></app-flow-dashboard>
       </main>
     </div>
   `,
