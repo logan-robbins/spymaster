@@ -1,6 +1,210 @@
-@import "tailwindcss";
-
 /* Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
-    @apply bg-gray-900 text-white font-sans;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #0f1419;
+  color: #e2e8f0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Trading Dashboard Styles */
+.dashboard-container {
+  padding: 1.5rem;
+  max-width: 100%;
+}
+
+.dashboard-header {
+  background: #1a1f2e;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.strike-table-container {
+  background: #1a1f2e;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.table-header {
+  background: #243447;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2d3748;
+}
+
+.table-header h3 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #e2e8f0;
+}
+
+.strike-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.strike-table thead {
+  background: #243447;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.strike-table th {
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #2d3748;
+}
+
+.strike-table td {
+  padding: 0.5rem 0.4rem;
+  text-align: center;
+  border-bottom: 1px solid #2d3748;
+}
+
+.strike-table.compact td {
+  padding: 0.4rem 0.3rem;
+}
+
+.strike-table.compact th {
+  padding: 0.5rem 0.3rem;
+}
+
+.strike-table tbody tr:hover {
+  background: #243447;
+}
+
+.strike-column {
+  background: #1e2a3a;
+  font-weight: 700;
+  font-size: 1rem;
+  border-left: 1px solid #2d3748;
+  border-right: 1px solid #2d3748;
+}
+
+.call-header {
+  color: #48bb78;
+}
+
+.put-header {
+  color: #f56565;
+}
+
+.money-cell {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-weight: 600;
+}
+
+.green-text {
+  color: #48bb78;
+}
+
+.red-text {
+  color: #f56565;
+}
+
+.gray-text {
+  color: #718096;
+}
+
+.control-panel {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-group {
+  display: inline-flex;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  background: #1a1f2e;
+  color: #cbd5e0;
+  border: none;
+  font-weight: 600;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border-right: 1px solid #2d3748;
+  transition: all 0.2s;
+}
+
+.btn:last-child {
+  border-right: none;
+}
+
+.btn:hover {
+  background: #243447;
+}
+
+.btn.active {
+  background: #3182ce;
+  color: white;
+}
+
+.stat-card {
+  background: #1a1f2e;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.stat-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #718096;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.wave-container {
+  background: #1a1f2e;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.wave-header {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+svg {
+  background: #0f1419;
+  border-radius: 4px;
 }

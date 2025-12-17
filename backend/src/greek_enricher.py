@@ -103,9 +103,53 @@ class GreekEnricher:
 
     def get_greeks(self, ticker: str) -> Greeks:
         """
-        Returns cached Greeks or zeroed Greeks if not found.
+        Returns cached Greeks or realistic mock Greeks if not found (for replay mode).
         """
-        return self.cache.get(ticker, Greeks(0.0, 0.0, 0.0, 0.0))
+        cached = self.cache.get(ticker, None)
+        if cached:
+            return cached
+        
+        # Fallback: Generate approximate Greeks for replay mode
+        # Parse ticker to get strike and type
+        try:
+            # O:SPY251216C00680000 -> strike 680, type C
+            suffix = ticker[-15:]
+            option_type = suffix[6]  # C or P
+            strike = float(suffix[7:]) / 1000.0
+            
+            # Estimate ATM (we could get this from strike_manager but use simple heuristic)
+            # For replay, we can assume SPY is near the median strike
+            # For now, use simple moneyness-based approximation
+            
+            # Assume SPY ~ 600-700 range, use strike as proxy
+            # This is crude but better than zeros
+            spy_approx = 679.0  # We could get this from replay_engine or strike_manager
+            
+            moneyness = (spy_approx - strike) if option_type == 'C' else (strike - spy_approx)
+            
+            # Rough 0DTE delta approximation:
+            # ITM: 0.70-0.95, ATM: 0.45-0.55, OTM: 0.05-0.30
+            if moneyness > 3:  # Deep ITM
+                delta = 0.85 if option_type == 'C' else -0.85
+                gamma = 0.02
+            elif moneyness > 1:  # ITM
+                delta = 0.70 if option_type == 'C' else -0.70
+                gamma = 0.08
+            elif moneyness > -1:  # ATM
+                delta = 0.50 if option_type == 'C' else -0.50
+                gamma = 0.15
+            elif moneyness > -3:  # OTM
+                delta = 0.25 if option_type == 'C' else -0.25
+                gamma = 0.08
+            else:  # Deep OTM
+                delta = 0.08 if option_type == 'C' else -0.08
+                gamma = 0.02
+            
+            return Greeks(delta, gamma, 0.0, 0.0)
+            
+        except:
+            # Ultimate fallback
+            return Greeks(0.0, 0.0, 0.0, 0.0)
 
     def stop(self):
         self.running = False

@@ -6,27 +6,26 @@ import { CommonModule } from '@angular/common';
     standalone: true,
     imports: [CommonModule],
     template: `
-    <div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+    <div class="rounded-lg border-2 border-gray-700 bg-gray-900/60 p-4">
       <div class="mb-2 flex items-center justify-between gap-2">
-        <div class="text-xs font-semibold text-gray-200">{{ label }}</div>
-        <div class="text-xs font-mono text-gray-400">
+        <div class="text-sm font-bold text-gray-100">{{ label }}</div>
+        <div class="text-sm font-mono text-gray-200 font-semibold">
           {{ latest | number:'1.0-2' }}
         </div>
       </div>
 
-      <svg viewBox="0 0 100 40" class="h-12 w-full">
+      <svg viewBox="0 0 100 40" class="h-16 w-full bg-gray-950/50 rounded">
         <!-- Midline -->
-        <line x1="0" y1="20" x2="100" y2="20" stroke="rgba(148,163,184,0.18)" stroke-width="0.8" />
+        <line x1="0" y1="20" x2="100" y2="20" stroke="rgba(148,163,184,0.4)" stroke-width="1" />
         <!-- Now marker (center) -->
-        <line x1="50" y1="0" x2="50" y2="40" stroke="rgba(148,163,184,0.12)" stroke-width="0.8" />
+        <line x1="50" y1="0" x2="50" y2="40" stroke="rgba(148,163,184,0.3)" stroke-width="1" />
         <path
           [attr.d]="pathD"
           [attr.stroke]="stroke"
-          stroke-width="1.6"
+          stroke-width="2.5"
           fill="none"
           stroke-linecap="round"
           stroke-linejoin="round"
-          opacity="0.95"
         />
       </svg>
     </div>
@@ -35,7 +34,7 @@ import { CommonModule } from '@angular/common';
 export class FlowWaveComponent implements OnChanges {
     @Input({ required: true }) series: readonly number[] = [];
     @Input() label = '';
-    @Input() stroke = 'rgba(34,197,94,0.9)';
+    @Input() stroke = 'rgb(34,197,94)';
 
     // Render style: keep "now" at center, draw history into the left half (wave "flows into" the now-line).
     @Input() nowMode: 'center' | 'right' = 'center';

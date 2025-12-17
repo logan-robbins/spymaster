@@ -67,8 +67,8 @@ export class StrikeGridComponent {
 
     // Helper for Net Delta Color
     getDeltaColor(val: number | null | undefined): string {
-        if (val == null || !Number.isFinite(val) || val === 0) return 'text-gray-500';
-        return val > 0 ? 'text-green-400' : 'text-red-400';
+        if (val == null || !Number.isFinite(val) || val === 0) return 'gray-text';
+        return val > 0 ? 'green-text' : 'red-text';
     }
 
     getPremiumVelocity(strike: number, side: 'call' | 'put'): number {
@@ -81,7 +81,7 @@ export class StrikeGridComponent {
         const v = this.getPremiumVelocity(strike, side);
         const max = this.heatMaxPremium();
         const intensity = Math.min(1, Math.abs(v) / max);
-        const alpha = 0.08 + intensity * 0.35;
+        const alpha = 0.15 + intensity * 0.55; // Increased visibility
         // Calls = green, Puts = red
         return side === 'call' ? `rgba(34,197,94,${alpha})` : `rgba(244,63,94,${alpha})`;
     }

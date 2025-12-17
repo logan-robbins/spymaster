@@ -26,7 +26,8 @@ class FlowAggregator:
             "gamma": 0.0,
             "strike_price": 0.0,
             "type": "",  # 'C' or 'P'
-            "expiration": ""
+            "expiration": "",
+            "last_timestamp": 0  # ms - for frontend time sync
         })
         
         # We need to know which tickers are active to filter?
@@ -95,6 +96,7 @@ class FlowAggregator:
         stats["net_gamma_flow"] += gamma_notional
         stats["delta"] = greeks.delta # Update current greeks
         stats["gamma"] = greeks.gamma
+        stats["last_timestamp"] = timestamp  # Track last update time
         
         # Parse extra info from ticker if needed (Strike, Type)
         # Ex: O:SPY251216C00572000

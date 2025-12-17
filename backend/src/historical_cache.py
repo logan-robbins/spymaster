@@ -56,17 +56,20 @@ class HistoricalDataCache:
             # Read directly with pandas (DuckDB renames 't' to 't_1')
             df = pd.read_parquet(cache_path)
             
+            # Ensure 't' column is treated as integer (not datetime64)
+            if 't' in df.columns:
+                df['t'] = df['t'].astype('int64')
+            
             # Filter by time if specified
             if start_time or end_time:
-                # Convert timestamp column (ms) to datetime for filtering
-                df['dt'] = pd.to_datetime(df['t'], unit='ms')
-                
+                # Cached `t` is epoch milliseconds (int). Filter numerically to avoid
+                # tz-aware vs tz-naive datetime comparison issues.
                 if start_time:
-                    df = df[df['dt'] >= start_time]
+                    start_ms = int(start_time.timestamp() * 1000)
+                    df = df[df["t"] >= start_ms]
                 if end_time:
-                    df = df[df['dt'] <= end_time]
-                
-                df = df.drop(columns=['dt'])
+                    end_ms = int(end_time.timestamp() * 1000)
+                    df = df[df["t"] <= end_ms]
             
             # Convert to list of dicts
             return df.to_dict('records')

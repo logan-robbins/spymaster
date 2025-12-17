@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Dict, Any
 from polygon import RESTClient
 from zoneinfo import ZoneInfo
@@ -36,82 +36,84 @@ class ReplayEngine:
         print(f"I am a Replay Engine! Preparing to replay last {minutes_back} minutes at {speed}x speed...")
         self.running = True
         
-        # 1. Get Reference Time and Trading Hours
+        # 1. Find the most recent cached trading day
+        cached_dates = self.cache.get_cache_stats()['cached_dates']
+        
+        if not cached_dates:
+            print("❌ No cached data found. Please run in live mode first to populate cache.")
+            return
+        
+        # Use the most recent cached date
+        most_recent_date_str = cached_dates[-1]
+        most_recent_date = datetime.strptime(most_recent_date_str, "%Y-%m-%d").date()
+        
+        print(f"📅 Using most recent cached date: {most_recent_date}")
+        
+        # 2. Define the last N minutes of the trading day (before market close at 4:00 PM ET)
         now = datetime.now(ZoneInfo("America/New_York"))
+        market_close = datetime.combine(most_recent_date, datetime.min.time()).replace(
+            hour=16, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo("America/New_York")
+        )
         
-        # Define market hours (9:30 AM - 4:00 PM ET)
-        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        # Last N minutes of the day
+        start_time = market_close - timedelta(minutes=minutes_back)
+        end_time = market_close
         
-        # Determine start time based on current time and minutes_back
-        if now < market_open:
-            # Before market open - use previous day's close to open
-            market_open = market_open - timedelta(days=1)
-            market_close = market_close - timedelta(days=1)
-            start_time = market_open
-            end_time = market_close
-        elif now > market_close:
-            # After market close - use today's market hours
-            start_time = market_open
-            end_time = market_close
+        print(f"📦 Replaying trades from {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%H:%M:%S')} (last {minutes_back} minutes)")
+        
+        # 3. Get reference SPY price from cached data (no API calls)
+        # We'll infer the ATM strike from the cached tickers themselves
+        cache_dir = self.cache.cache_dir / most_recent_date_str
+        
+        if not cache_dir.exists():
+            print(f"❌ Cache directory not found: {cache_dir}")
+            return
+        
+        # List cached parquet files to infer strikes
+        cached_files = list(cache_dir.glob("*.parquet"))
+        
+        if not cached_files:
+            print(f"❌ No cached trade files found in {cache_dir}")
+            return
+        
+        print(f"📦 Found {len(cached_files)} cached trade files")
+        
+        # Infer SPY price from the median of cached strikes
+        # Ticker format: O_SPY{date}{C/P}{strike}.parquet or O:SPY{date}{C/P}{strike}
+        strikes = []
+        for f in cached_files:
+            # Extract strike from filename (e.g., O_SPY251216C00600000.parquet)
+            fname = f.stem  # Remove .parquet
+            # Strike is last 8 digits before extension, divided by 1000
+            if len(fname) > 8:
+                try:
+                    strike_str = fname[-8:]
+                    strike = float(strike_str) / 1000.0
+                    strikes.append(strike)
+                except ValueError:
+                    continue
+        
+        if strikes:
+            spy_price = sorted(strikes)[len(strikes) // 2]  # Median strike as proxy for SPY price
+            print(f"✓ Inferred SPY Price from cached strikes: ${spy_price}")
         else:
-            # During market hours - use minutes_back from now
-            start_time = max(now - timedelta(minutes=minutes_back), market_open)
-            end_time = now
-        
-        print(f"Fetching trades from {start_time} to {end_time}")
-        
-        # Get Reference Price (already done above)
-        # Fetch last quote/trade for SPY at start_time? 
-        # Or just use current price to pick strikes that are relevant NOW (simplest for dev).
-        # But if we replay "history", we should pick strikes relevant THEN.
-        # Let's use current price as valid proxy for "active" attention.
-        
-        # Get current SPY price from options chain (included in Options Advanced plan)
-        spy_price = 0.0
-        try:
-            # Get underlying price from ANY options chain snapshot
-            # This is included with Options Advanced - no separate stocks plan needed!
-            from datetime import datetime as dt
-            today = dt.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-            
-            snapshots = self.client.list_snapshot_options_chain("SPY", params={"expiration_date": today})
-            snap = next(snapshots)
-            
-            if snap.underlying_asset and snap.underlying_asset.price:
-                spy_price = snap.underlying_asset.price
-                # In replay mode, we just need a reference price for strike selection
-                print(f"✓ SPY Reference Price: ${spy_price}")
-            else:
-                raise ValueError("No underlying price in snapshot")
-                
-        except Exception as e:
-            print(f"⚠️ Options chain price failed: {e}")
-            try:
-                # Fallback to previous close aggregate
-                aggs = self.client.get_previous_close_agg("SPY")
-                if aggs:
-                    spy_price = aggs[0].close
-                    print(f"✓ SPY Price (Prev Close Fallback): ${spy_price}")
-            except Exception as e2:
-                print(f"❌ All price methods failed: {e2}")
-                spy_price = 600.0
-                print(f"⚠️ Using Hard Fallback: ${spy_price}")
+            spy_price = 600.0
+            print(f"⚠️ Could not infer price from cache, using fallback: ${spy_price}")
 
-        # 2. Identify Strikes
-        # We force StrikeManager to calculate based on this price
-        add, _ = self.strike_manager.get_target_strikes(spy_price)
-        # We also want SPY trades
-        tickers_to_fetch = ["SPY"] + [t.replace("T.", "") for t in add] # separate T. prefix if present
-        # Note: StrikeManager returns "T.O:..." strings in `add`.
-        # We need "O:..." for REST API.
+        # 4. Use ALL cached tickers (no need to filter by ATM ± 3 in replay mode)
+        # This ensures we replay all the data we have cached
+        tickers_to_fetch = []
+        for f in cached_files:
+            # Extract ticker from filename
+            # O_SPY251216C00600000.parquet → O:SPY251216C00600000
+            fname = f.stem.replace("_", ":")
+            tickers_to_fetch.append(fname)
         
-        print(f"Fetching history for {len(tickers_to_fetch)} tickers...")
+        print(f"📊 Replaying {len(tickers_to_fetch)} cached tickers...")
         
-        # 3. Fetch Trades (using cache to avoid redundant API calls)
-        # loop.run_in_executor for blocking REST calls
-        loop = asyncio.get_running_loop()
-        all_trades = await loop.run_in_executor(None, self._fetch_all_trades_cached, tickers_to_fetch, start_time, end_time)
+        # 5. Load trades from cache ONLY (no API calls)
+        # Run synchronously since parquet reading is fast
+        all_trades = self._load_trades_from_cache_only(tickers_to_fetch, most_recent_date, start_time, end_time)
         
         # Show cache stats
         stats = self.cache.get_cache_stats()
@@ -151,10 +153,39 @@ class ReplayEngine:
             
         print("Replay Complete.")
 
+    def _load_trades_from_cache_only(self, tickers: List[str], trade_date: date, start: datetime, end: datetime) -> List[Dict]:
+        """
+        Load trades from cache ONLY - no API calls.
+        Used for replay mode to ensure we never hit Polygon API.
+        """
+        all_trades = []
+        
+        for ticker in tickers:
+            # Clean ticker if needed (remove T. prefix)
+            clean_ticker = ticker.replace("T.", "")
+            
+            # Load from cache only - no API calls
+            ticker_trades = self.cache.get_cached_trades(
+                clean_ticker,
+                trade_date,
+                start,
+                end
+            )
+            
+            if ticker_trades:
+                all_trades.extend(ticker_trades)
+            else:
+                print(f"⚠️ No cached data for {clean_ticker}")
+        
+        # Globally sort by time
+        all_trades.sort(key=lambda x: x['t'])
+        return all_trades
+    
     def _fetch_all_trades_cached(self, tickers: List[str], start: datetime, end: datetime) -> List[Dict]:
         """
         Fetch trades using cache-first strategy.
         Only hits Polygon API if data not cached.
+        (Kept for backward compatibility)
         """
         all_trades = []
         

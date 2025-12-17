@@ -3,14 +3,14 @@ import { DataStreamService, FlowMap, FlowMetrics } from './data-stream.service';
 
 export type FlowMetric = 'premium' | 'delta' | 'gamma';
 export type DerivativeOrder = 1 | 2 | 3;
-export type TimescaleMs = 1000 | 5000 | 30000;
+export type BarIntervalMs = 5000 | 30000 | 60000;
 export type BucketKey = 'call_above' | 'call_below' | 'put_above' | 'put_below';
 
-export const TIMESCALES_MS: readonly TimescaleMs[] = [1000, 5000, 30000] as const;
-export const TIMESCALE_LABEL: Record<TimescaleMs, string> = {
-    1000: '1s',
+export const BAR_INTERVALS_MS: readonly BarIntervalMs[] = [5000, 30000, 60000] as const;
+export const BAR_INTERVAL_LABEL: Record<BarIntervalMs, string> = {
     5000: '5s',
-    30000: '30s'
+    30000: '30s',
+    60000: '60s'
 };
 
 export interface BucketTriple {
@@ -43,12 +43,19 @@ export interface StrikeVelocityMap {
     [strike: number]: StrikeVelocityRow;
 }
 
-type DerivativeKey = `${BucketKey}|${FlowMetric}|${DerivativeOrder}|${TimescaleMs}`;
+type DerivativeKey = `${BucketKey}|${FlowMetric}|${DerivativeOrder}`;
 
-interface AggregatedCum {
-    t: number; // ms
+interface BarData {
+    barStartTime: number; // ms - start of bar interval
+    barEndTime: number;   // ms - end of bar interval
     atmStrike: number | null;
-    cum: Record<BucketKey, BucketTriple>;
+    flow: Record<BucketKey, BucketTriple>; // Net flow during this bar (not cumulative)
+}
+
+interface ActiveBar {
+    startTime: number;
+    startCum: Record<BucketKey, BucketTriple>; // Cumulative values at bar open
+    atmStrike: number | null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -82,10 +89,10 @@ function getBucket(type: string, strike: number, atmStrike: number): BucketKey |
 export class FlowAnalyticsService {
     private stream = inject(DataStreamService);
 
-    // UI selectors
+    // UI selectors (defaults: DELTA, d2 acceleration, 5s bars)
     public selectedMetric = signal<FlowMetric>('delta');
     public selectedOrder = signal<DerivativeOrder>(2);
-    public selectedTimescaleMs = signal<TimescaleMs>(5000);
+    public selectedBarInterval = signal<BarIntervalMs>(5000);
 
     private _tick = signal(0);
     private _atmStrike = signal<number | null>(null);
@@ -95,42 +102,46 @@ export class FlowAnalyticsService {
     public perStrikeVel = this._perStrikeVel.asReadonly();
 
     private prevSnapshot: FlowMap | null = null;
-    private prevTs = 0;
 
-    private history: AggregatedCum[] = [];
-    private readonly maxHistoryMs = 120_000; // 2 minutes
-    private readonly maxSeriesPoints = 260; // ~65s @ 250ms
-
-    private series = new Map<DerivativeKey, number[]>();
+    // Bar-based storage (one set of bars per interval)
+    private bars = new Map<BarIntervalMs, BarData[]>();
+    private activeBars = new Map<BarIntervalMs, ActiveBar | null>();
+    
+    private readonly maxBars = 50; // Keep last 50 bars per interval
+    
+    // Current derivative values for display
     private latest = new Map<DerivativeKey, number>();
-
-    // Store previous (per-update) derived values to compute accel/jerk
-    private prevVel = new Map<DerivativeKey, number>();
-    private prevAccel = new Map<DerivativeKey, number>();
+    
+    // Per-bucket bar series for the chart (for selected interval only)
+    private barSeries = new Map<BucketKey, Array<{time: number, value: number}>>();
 
     constructor() {
+        // Initialize bar storage
+        for (const interval of BAR_INTERVALS_MS) {
+            this.bars.set(interval, []);
+            this.activeBars.set(interval, null);
+        }
+        
         effect(() => {
             const snapshot = this.stream.flowData();
             this.ingestSnapshot(snapshot);
         });
     }
 
-    public getSeries(bucket: BucketKey): number[] {
-        // Depend on tick + selectors so Angular updates consumers.
+    public getSeries(bucket: BucketKey): Array<{time: number, value: number}> {
+        // Return bar series for this bucket
         this._tick();
-        const key = this.makeKey(bucket, this.selectedMetric(), this.selectedOrder(), this.selectedTimescaleMs());
-        return [...(this.series.get(key) ?? [])];
+        return [...(this.barSeries.get(bucket) ?? [])];
     }
 
     public getLatestByBucket(): LatestByBucket {
         this._tick();
         const metric = this.selectedMetric();
         const order = this.selectedOrder();
-        const ts = this.selectedTimescaleMs();
-        const callAbove = this.latest.get(this.makeKey('call_above', metric, order, ts)) ?? 0;
-        const callBelow = this.latest.get(this.makeKey('call_below', metric, order, ts)) ?? 0;
-        const putAbove = this.latest.get(this.makeKey('put_above', metric, order, ts)) ?? 0;
-        const putBelow = this.latest.get(this.makeKey('put_below', metric, order, ts)) ?? 0;
+        const callAbove = this.latest.get(this.makeKey('call_above', metric, order)) ?? 0;
+        const callBelow = this.latest.get(this.makeKey('call_below', metric, order)) ?? 0;
+        const putAbove = this.latest.get(this.makeKey('put_above', metric, order)) ?? 0;
+        const putBelow = this.latest.get(this.makeKey('put_below', metric, order)) ?? 0;
         return {
             call_above: callAbove,
             call_below: callBelow,
@@ -152,74 +163,102 @@ export class FlowAnalyticsService {
         );
     }
 
-    private makeKey(bucket: BucketKey, metric: FlowMetric, order: DerivativeOrder, timescaleMs: TimescaleMs): DerivativeKey {
-        return `${bucket}|${metric}|${order}|${timescaleMs}`;
+    private makeKey(bucket: BucketKey, metric: FlowMetric, order: DerivativeOrder): DerivativeKey {
+        return `${bucket}|${metric}|${order}`;
     }
 
     private ingestSnapshot(snapshot: FlowMap) {
-        const now = Date.now();
+        // Use actual data timestamp from trades, not browser time (critical for replay)
+        // Get timestamp from first ticker in snapshot, or fall back to Date.now()
+        let dataTimestamp = Date.now();
+        const firstTicker = Object.values(snapshot)[0];
+        if (firstTicker && firstTicker.last_timestamp && firstTicker.last_timestamp > 0) {
+            dataTimestamp = firstTicker.last_timestamp;
+        }
 
-        // Establish ATM strike from the current strike set (median strike).
+        // Establish ATM strike from the current strike set (median strike)
         const strikes = Object.values(snapshot)
             .map((m) => m.strike_price)
             .filter((s) => Number.isFinite(s) && s > 0);
         const atmStrike = median(Array.from(new Set(strikes)));
         this._atmStrike.set(atmStrike);
 
-        // Build per-strike instantaneous velocity map (dt based on websocket cadence).
-        if (this.prevSnapshot && this.prevTs > 0) {
-            const dt = (now - this.prevTs) / 1000;
-            if (dt > 0 && dt < 10) {
-                this._perStrikeVel.set(this.computePerStrikeVelocity(snapshot, this.prevSnapshot, dt));
-            }
+        if (atmStrike == null) return;
+
+        // Get current cumulative values aggregated by bucket
+        const currentCum = this.aggregateCumulative(snapshot, atmStrike);
+
+        // Process each bar interval using actual data timestamp
+        for (const interval of BAR_INTERVALS_MS) {
+            this.processBarInterval(interval, dataTimestamp, atmStrike, currentCum);
         }
 
-        // Aggregated cumulative state for multi-timescale slopes.
-        if (atmStrike != null) {
-            const aggregated = this.aggregateCumulative(snapshot, atmStrike, now);
-            this.history.push(aggregated);
-            this.pruneHistory(now);
-            this.updateDerivedSeries(now);
-        }
+        // Update chart series for selected interval
+        this.updateChartSeries();
 
         this.prevSnapshot = snapshot;
-        this.prevTs = now;
         this._tick.update((v) => v + 1);
     }
 
-    private computePerStrikeVelocity(nowSnap: FlowMap, prevSnap: FlowMap, dtSeconds: number): StrikeVelocityMap {
-        const map: StrikeVelocityMap = {};
+    private processBarInterval(interval: BarIntervalMs, dataTimestamp: number, atmStrike: number, currentCum: Record<BucketKey, BucketTriple>) {
+        let activeBar = this.activeBars.get(interval);
+        const barList = this.bars.get(interval)!;
 
-        for (const ticker of Object.keys(nowSnap)) {
-            const nowM = nowSnap[ticker];
-            const prevM = prevSnap[ticker];
-            if (!nowM || !prevM) continue;
-            const strike = nowM.strike_price;
-            if (!Number.isFinite(strike) || strike <= 0) continue;
+        // Determine bar boundaries based on actual data timestamp
+        const barStartTime = Math.floor(dataTimestamp / interval) * interval;
+        const barEndTime = barStartTime + interval;
 
-            const dPremium = safeDelta(nowM.cumulative_premium, prevM.cumulative_premium);
-            const dDelta = safeDelta(nowM.net_delta_flow, prevM.net_delta_flow);
-            const dGamma = safeDelta(nowM.net_gamma_flow, prevM.net_gamma_flow);
+        console.log(`Bar check [${interval}ms]: dataTimestamp=${new Date(dataTimestamp).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}, barStart=${new Date(barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
 
-            const vel: StrikeSideVelocity = {
-                premium_vel: dPremium / dtSeconds,
-                delta_vel: dDelta / dtSeconds,
-                gamma_vel: dGamma / dtSeconds
-            };
-
-            const key = strike;
-            if (!map[key]) {
-                map[key] = { strike: key };
+        // Check if we need to start a new bar
+        if (!activeBar || activeBar.startTime !== barStartTime) {
+            // Close previous bar if it exists
+            if (activeBar && this.prevSnapshot) {
+                const closedBar = this.closeBar(activeBar, currentCum, dataTimestamp, atmStrike);
+                console.log(`Closed bar [${interval}ms]: ${new Date(closedBar.barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})} - ${new Date(closedBar.barEndTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
+                barList.push(closedBar);
+                
+                // Prune old bars
+                if (barList.length > this.maxBars) {
+                    barList.shift();
+                }
             }
 
-            if (nowM.type === 'C') map[key].call = vel;
-            if (nowM.type === 'P') map[key].put = vel;
+            // Start new bar
+            activeBar = {
+                startTime: barStartTime,
+                startCum: { ...currentCum },
+                atmStrike
+            };
+            this.activeBars.set(interval, activeBar);
         }
-
-        return map;
     }
 
-    private aggregateCumulative(snapshot: FlowMap, atmStrike: number, now: number): AggregatedCum {
+    private closeBar(activeBar: ActiveBar, endCum: Record<BucketKey, BucketTriple>, endTime: number, atmStrike: number): BarData {
+        const zero: BucketTriple = { premium: 0, delta: 0, gamma: 0 };
+        const netFlow: Record<BucketKey, BucketTriple> = {
+            call_above: { ...zero },
+            call_below: { ...zero },
+            put_above: { ...zero },
+            put_below: { ...zero }
+        };
+
+        // Compute net flow during this bar
+        for (const bucket of Object.keys(netFlow) as BucketKey[]) {
+            netFlow[bucket].premium = safeDelta(endCum[bucket].premium, activeBar.startCum[bucket].premium);
+            netFlow[bucket].delta = safeDelta(endCum[bucket].delta, activeBar.startCum[bucket].delta);
+            netFlow[bucket].gamma = safeDelta(endCum[bucket].gamma, activeBar.startCum[bucket].gamma);
+        }
+
+        return {
+            barStartTime: activeBar.startTime,
+            barEndTime: endTime,
+            atmStrike,
+            flow: netFlow
+        };
+    }
+
+    private aggregateCumulative(snapshot: FlowMap, atmStrike: number): Record<BucketKey, BucketTriple> {
         const zero: BucketTriple = { premium: 0, delta: 0, gamma: 0 };
         const cum: Record<BucketKey, BucketTriple> = {
             call_above: { ...zero },
@@ -241,83 +280,73 @@ export class FlowAnalyticsService {
             cum[bucket].gamma += m.net_gamma_flow;
         }
 
-        return { t: now, atmStrike, cum };
+        return cum;
     }
 
-    private pruneHistory(now: number) {
-        const minT = now - this.maxHistoryMs;
-        while (this.history.length && this.history[0].t < minT) {
-            this.history.shift();
-        }
-    }
+    private updateChartSeries() {
+        const interval = this.selectedBarInterval();
+        const metric = this.selectedMetric();
+        const order = this.selectedOrder();
+        const barList = this.bars.get(interval);
 
-    private findLookbackSample(now: number, timescaleMs: TimescaleMs): AggregatedCum | null {
-        const target = now - timescaleMs;
-        // Find the first sample with t <= target (search backwards).
-        for (let i = this.history.length - 1; i >= 0; i--) {
-            const s = this.history[i];
-            if (s.t <= target) return s;
-        }
-        return null;
-    }
+        if (!barList || barList.length < 2) return;
 
-    private updateDerivedSeries(now: number) {
-        if (this.history.length < 2) return;
-        const latest = this.history[this.history.length - 1];
+        // Clear existing series
+        this.barSeries.clear();
 
-        const dtUpdate = (latest.t - this.history[this.history.length - 2].t) / 1000;
-        if (!(dtUpdate > 0 && dtUpdate < 10)) return;
+        const buckets: BucketKey[] = ['call_above', 'call_below', 'put_above', 'put_below'];
 
-        for (const ts of TIMESCALES_MS) {
-            const lookback = this.findLookbackSample(now, ts);
-            if (!lookback) continue;
+        for (const bucket of buckets) {
+            const points: Array<{time: number, value: number}> = [];
 
-            const dtWindow = (latest.t - lookback.t) / 1000;
-            if (!(dtWindow > 0.05)) continue;
+            // Compute derivatives bar-to-bar
+            for (let i = 1; i < barList.length; i++) {
+                const currentBar = barList[i];
+                const prevBar = barList[i - 1];
 
-            for (const bucket of Object.keys(latest.cum) as BucketKey[]) {
-                const nowCum = latest.cum[bucket];
-                const oldCum = lookback.cum[bucket];
+                const current = this.getMetricValue(currentBar.flow[bucket], metric);
+                const prev = this.getMetricValue(prevBar.flow[bucket], metric);
+                const dt = (currentBar.barEndTime - prevBar.barEndTime) / 1000;
 
-                this.appendDerived(bucket, 'premium', ts, (nowCum.premium - oldCum.premium) / dtWindow, dtUpdate);
-                this.appendDerived(bucket, 'delta', ts, (nowCum.delta - oldCum.delta) / dtWindow, dtUpdate);
-                this.appendDerived(bucket, 'gamma', ts, (nowCum.gamma - oldCum.gamma) / dtWindow, dtUpdate);
+                let value = 0;
+
+                if (order === 1) {
+                    // Velocity: flow per second during this bar
+                    const barDuration = (currentBar.barEndTime - currentBar.barStartTime) / 1000;
+                    value = current / barDuration;
+                } else if (order === 2) {
+                    // Acceleration: change in velocity bar-to-bar
+                    const currentVel = current / ((currentBar.barEndTime - currentBar.barStartTime) / 1000);
+                    const prevVel = prev / ((prevBar.barEndTime - prevBar.barStartTime) / 1000);
+                    value = (currentVel - prevVel) / dt;
+                } else if (order === 3) {
+                    // Jerk: would need 3+ bars, skip for now
+                    value = 0;
+                }
+
+                const timeSeconds = currentBar.barEndTime / 1000;
+                console.log(`Adding chart point: time=${new Date(currentBar.barEndTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}, value=${value.toFixed(1)}`);
+                points.push({
+                    time: timeSeconds, // Convert to seconds for TradingView
+                    value
+                });
+            }
+
+            this.barSeries.set(bucket, points);
+
+            // Update latest value
+            if (points.length > 0) {
+                const key = this.makeKey(bucket, metric, order);
+                this.latest.set(key, points[points.length - 1].value);
             }
         }
     }
 
-    private appendDerived(bucket: BucketKey, metric: FlowMetric, ts: TimescaleMs, velocity: number, dtUpdate: number) {
-        // Order 1: velocity
-        const keyVel = this.makeKey(bucket, metric, 1, ts);
-        const prevVel = this.prevVel.get(keyVel) ?? 0;
-        this.prevVel.set(keyVel, velocity);
-
-        // Order 2: acceleration (Δvelocity / Δt)
-        const accel = (velocity - prevVel) / dtUpdate;
-        const keyAccel = this.makeKey(bucket, metric, 2, ts);
-        const prevAccel = this.prevAccel.get(keyAccel) ?? 0;
-        this.prevAccel.set(keyAccel, accel);
-
-        // Order 3: jerk (Δaccel / Δt)
-        const jerk = (accel - prevAccel) / dtUpdate;
-        const keyJerk = this.makeKey(bucket, metric, 3, ts);
-
-        this.pushSeries(keyVel, velocity);
-        this.pushSeries(keyAccel, accel);
-        this.pushSeries(keyJerk, jerk);
-
-        this.latest.set(keyVel, velocity);
-        this.latest.set(keyAccel, accel);
-        this.latest.set(keyJerk, jerk);
-    }
-
-    private pushSeries(key: DerivativeKey, value: number) {
-        const existing = this.series.get(key) ?? [];
-        existing.push(value);
-        if (existing.length > this.maxSeriesPoints) {
-            existing.splice(0, existing.length - this.maxSeriesPoints);
-        }
-        this.series.set(key, existing);
+    private getMetricValue(triple: BucketTriple, metric: FlowMetric): number {
+        if (metric === 'premium') return triple.premium;
+        if (metric === 'delta') return triple.delta;
+        if (metric === 'gamma') return triple.gamma;
+        return 0;
     }
 }
 

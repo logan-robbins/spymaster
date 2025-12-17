@@ -48,6 +48,7 @@ export interface FlowMetrics {
     strike_price: number;
     type: string;
     expiration: string;
+    last_timestamp: number; // ms Unix epoch
 }
 
 export interface FlowMap {
