@@ -1,0 +1,59 @@
+//@version=5
+indicator("Confluence Strategy: PM + ORB + SMA (Styled)", overlay=true)
+
+// --- 1. INPUTS ---
+orb_duration = input.int(15, title="Opening Range (minutes)")
+show_pm      = input.bool(true, title="Show Pre-Market Levels?")
+sma_fast_len = input.int(200, title="Fast SMA")
+sma_slow_len = input.int(400, title="Slow SMA")
+
+// --- 2. DATA CALCULATIONS ---
+
+// A. Moving Averages
+sma200 = ta.sma(close, sma_fast_len)
+sma400 = ta.sma(close, sma_slow_len)
+
+// B. PRE-MARKET LOGIC
+is_premarket = not na(time(timeframe.period, "0400-0930:1234567"))
+var float pm_high = na
+var float pm_low = na
+
+if is_premarket
+    if not is_premarket[1]
+        pm_high := high
+        pm_low := low
+    else
+        pm_high := math.max(pm_high, high)
+        pm_low := math.min(pm_low, low)
+
+// C. 15-Minute OPENING RANGE (ORB)
+is_market_open_window = not na(time(timeframe.period, "0930-0945:1234567"))
+var float orb_high = na
+var float orb_low = na
+
+if is_market_open_window
+    if not is_market_open_window[1]
+        orb_high := high
+        orb_low := low
+    else
+        orb_high := math.max(orb_high, high)
+        orb_low := math.min(orb_low, low)
+
+// --- 3. VISUALIZATION (Updated) ---
+
+// Plot SMAs (Dotted & Colored)
+// style=plot.style_circles creates the "dotted" look
+plot(sma200, color=color.yellow, title="200 SMA (Yellow)", linewidth=2, style=plot.style_circles)
+plot(sma400, color=color.fuchsia, title="400 SMA (Pink)", linewidth=2, style=plot.style_circles)
+
+// Plot Pre-Market Levels (Gray, Dashed Track Lines)
+plot(show_pm ? pm_high : na, color=color.gray, style=plot.style_circles, linewidth=3, title="PM High", trackprice=true, offset=-9999)
+plot(show_pm ? pm_low : na, color=color.gray, style=plot.style_circles, linewidth=3, title="PM Low", trackprice=true, offset=-9999)
+
+// Plot Opening Range Levels (Green/Red Solid Lines)
+plot(not is_market_open_window ? orb_high : na, color=color.green, style=plot.style_linebr, linewidth=2, title="ORB High")
+plot(not is_market_open_window ? orb_low : na, color=color.red, style=plot.style_linebr, linewidth=2, title="ORB Low")
+
+// --- 4. CONFLUENCE SIGNAL ---
+strong_breakout = close > orb_high and close > pm_high
+bgcolor(strong_breakout ? color.new(color.green, 90) : na)
