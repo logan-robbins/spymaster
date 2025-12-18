@@ -11,8 +11,6 @@ class PersistenceEngine:
     """
     def __init__(self, db_path: str = ":memory:"):
         # We use DuckDB for its Parquet writing capabilities.
-        # Although we might write directly using pandas to parquet,
-        # APP.md specifies DuckDB.
         
         self.buffer: List[Dict[str, Any]] = []
         self.buffer_limit = 5000
@@ -20,12 +18,15 @@ class PersistenceEngine:
         self.last_flush_time = datetime.now()
         
         # S3 Configuration
+        # Default to LOCAL STORAGE for M4 environment unless explicitly overridden
+        self.force_s3 = os.getenv("FORCE_S3", "false").lower() == "true"
+        
         self.s3_bucket = os.getenv("S3_BUCKET")
         self.s3_endpoint = os.getenv("S3_ENDPOINT")
         self.s3_key = os.getenv("S3_ACCESS_KEY")
         self.s3_secret = os.getenv("S3_SECRET_KEY")
         
-        if self.s3_bucket and self.s3_key:
+        if self.force_s3 and self.s3_bucket and self.s3_key:
              print(f"💾 PersistenceEngine: Configured for S3 ({self.s3_bucket})")
              self.base_path = f"s3://{self.s3_bucket}/data/raw/flow"
              self.storage_options = {
@@ -36,9 +37,11 @@ class PersistenceEngine:
                  }
              }
         else:
-             print("💾 PersistenceEngine: Configured for Local Disk")
+             print("💾 PersistenceEngine: Configured for Local Disk (M4 Optimized)")
              self.base_path = "data/raw/flow"
              self.storage_options = None
+             # Ensure directory exists
+             os.makedirs(self.base_path, exist_ok=True)
 
         self._lock = asyncio.Lock()
         
@@ -93,10 +96,9 @@ class PersistenceEngine:
             if self.storage_options:
                 df.to_parquet(file_path, engine='pyarrow', index=False, storage_options=self.storage_options)
             else:
-                os.makedirs(dir_path, exist_ok=True)
                 df.to_parquet(file_path, engine='pyarrow', index=False)
             
-            # print(f"💾 Flushed {len(df)} rows to {file_path}")
+            print(f"💾 Flushed {len(df)} rows to {file_path}")
             
         except Exception as e:
             print(f"❌ Persistence Error: {e}") 

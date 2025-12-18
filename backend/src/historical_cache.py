@@ -6,105 +6,137 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from polygon import RESTClient
 
-
 class HistoricalDataCache:
     """
-    Local cache for raw historical trade data.
-    Fetch once from Polygon, store in Parquet, reuse forever.
+    Unified Data Lake Access Layer.
+    Reads/Writes to `data/raw/flow` using Hive Partitioning.
+    Schema Standard: ticker, price, size, timestamp (ms), [greeks...]
     """
     
-    def __init__(self, cache_dir: str = "data/historical/trades"):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, base_dir: str = "data/raw/flow"):
+        self.base_dir = Path(base_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         
-        # DuckDB connection for efficient querying
+        # DuckDB connection for efficient querying across partitions
         self.db = duckdb.connect(":memory:")
-        
-        print(f"📦 HistoricalDataCache: Using {self.cache_dir.absolute()}")
+        print(f"📦 Data Lake Access: {self.base_dir.absolute()}")
     
-    def _get_cache_path(self, ticker: str, trade_date: date) -> Path:
-        """Generate cache file path: data/historical/trades/YYYY-MM-DD/{ticker}.parquet"""
-        date_dir = self.cache_dir / trade_date.strftime("%Y-%m-%d")
-        date_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Clean ticker for filename (remove special chars)
-        safe_ticker = ticker.replace(":", "_")
-        return date_dir / f"{safe_ticker}.parquet"
+    def _get_partition_path(self, trade_date: date) -> Path:
+        """
+        Get the hive partition directory for a date.
+        Format: year=YYYY/month=MM/day=DD
+        """
+        return self.base_dir / f"year={trade_date.year}/month={trade_date.month}/day={trade_date.day}"
     
-    def has_cached_data(self, ticker: str, trade_date: date) -> bool:
-        """Check if we have cached data for this ticker and date."""
-        cache_path = self._get_cache_path(ticker, trade_date)
-        return cache_path.exists()
+    def has_cached_data(self, trade_date: date) -> bool:
+        """
+        Check if data exists for this DATE partition.
+        Note: We define 'cached' as 'the directory exists and contains parquet files'.
+        We cannot easily check for a specific ticker without opening the files, 
+        so we assume if the partition exists, we have data.
+        """
+        partition_path = self._get_partition_path(trade_date)
+        if not partition_path.exists():
+            return False
+        
+        # Check for any parquet files
+        files = list(partition_path.glob("*.parquet"))
+        return len(files) > 0
     
     def get_cached_trades(
         self, 
-        ticker: str, 
+        ticker: Optional[str], 
         trade_date: date, 
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
         """
-        Read cached trades from Parquet.
-        Optionally filter by time range.
+        Query the Data Lake for trades.
+        Uses DuckDB to scan all parquet files in the daily partition effectively.
         """
-        cache_path = self._get_cache_path(ticker, trade_date)
-        
-        if not cache_path.exists():
+        partition_path = self._get_partition_path(trade_date)
+        if not partition_path.exists():
             return []
+            
+        # Construct Query
+        # We query ALL parquet files in the partition
+        # DuckDB requires string path
+        partition_glob = str(partition_path / "*.parquet")
+        
+        query = f"SELECT * FROM read_parquet('{partition_glob}') WHERE 1=1"
+        params = []
+        
+        if ticker:
+            query += " AND ticker = ?"
+            params.append(ticker)
+            
+        if start_time:
+            # Timestamp in ms expected in parquet
+            start_ms = int(start_time.timestamp() * 1000)
+            query += " AND timestamp >= ?"
+            params.append(start_ms)
+            
+        if end_time:
+            end_ms = int(end_time.timestamp() * 1000)
+            query += " AND timestamp <= ?"
+            params.append(end_ms)
+            
+        # Sort by time
+        query += " ORDER BY timestamp ASC"
         
         try:
-            # Read directly with pandas (DuckDB renames 't' to 't_1')
-            df = pd.read_parquet(cache_path)
-            
-            # Ensure 't' column is treated as integer (not datetime64)
-            if 't' in df.columns:
-                df['t'] = df['t'].astype('int64')
-            
-            # Filter by time if specified
-            if start_time or end_time:
-                # Cached `t` is epoch milliseconds (int). Filter numerically to avoid
-                # tz-aware vs tz-naive datetime comparison issues.
-                if start_time:
-                    start_ms = int(start_time.timestamp() * 1000)
-                    df = df[df["t"] >= start_ms]
-                if end_time:
-                    end_ms = int(end_time.timestamp() * 1000)
-                    df = df[df["t"] <= end_ms]
-            
-            # Convert to list of dicts
+            # Execute
+            df = self.db.execute(query, params).df()
             return df.to_dict('records')
-            
         except Exception as e:
-            print(f"⚠️ Error reading cache for {ticker}: {e}")
+            print(f"⚠️ Error querying data lake: {e}")
             return []
-    
-    def save_trades(self, ticker: str, trade_date: date, trades: List[Dict[str, Any]]):
+            
+    def save_trades(self, trade_date: date, trades: List[Dict[str, Any]], source_tag: str = "backfill"):
         """
-        Save trades to Parquet cache.
-        Only saves if there's data to save.
+        Save a batch of trades to the Data Lake.
+        Auto-normalizes schema to: ticker, price, size, timestamp.
         """
         if not trades:
             return
-        
-        cache_path = self._get_cache_path(ticker, trade_date)
+            
+        partition_path = self._get_partition_path(trade_date)
+        partition_path.mkdir(parents=True, exist_ok=True)
         
         try:
             df = pd.DataFrame(trades)
             
-            # Ensure we have the required columns
-            required_cols = ['T', 'p', 's', 't']
-            if not all(col in df.columns for col in required_cols):
-                print(f"⚠️ Missing required columns for {ticker}, skipping cache")
-                return
+            # Normalize Columns if coming from Polygon API directly (T, p, s, t)
+            rename_map = {
+                'T': 'ticker',
+                'p': 'price',
+                's': 'size',
+                't': 'timestamp'
+            }
+            # Only rename if columns exist
+            df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns}, inplace=True)
             
-            # Write to Parquet
-            df.to_parquet(cache_path, engine='pyarrow', index=False)
-            print(f"💾 Cached {len(trades)} trades for {ticker} on {trade_date}")
+            # Ensure timestamp is int (ms)
+            if 'timestamp' in df.columns:
+                 df['timestamp'] = df['timestamp'].astype('int64')
+
+            # Required columns validation
+            required = {'ticker', 'price', 'size', 'timestamp'}
+            if not required.issubset(df.columns):
+                print(f"❌ Schema alignment failed. Missing: {required - set(df.columns)}")
+                return
+
+            # Filename: flow_{source_tag}_{timestamp}.parquet
+            ts_str = datetime.now().strftime("%H%M%S_%f")
+            file_path = partition_path / f"flow_{source_tag}_{ts_str}.parquet"
+            
+            df.to_parquet(file_path, engine='pyarrow', index=False)
+            print(f"💾 Saved {len(df)} records to {file_path}")
             
         except Exception as e:
-            print(f"❌ Error caching trades for {ticker}: {e}")
-    
-    def fetch_or_get_trades(
+             print(f"❌ Error saving to Data Lake: {e}")
+
+    def fetch_backfill(
         self,
         client: RESTClient,
         ticker: str,
@@ -112,116 +144,99 @@ class HistoricalDataCache:
         end_time: datetime
     ) -> List[Dict[str, Any]]:
         """
-        Smart fetch: Check cache first, fetch from Polygon only if needed.
-        Handles multi-day ranges by caching each day separately.
-        
-        Intelligence:
-        - If cache exists for a day, use it (already has full trading session)
-        - If no cache, fetch ONLY the exact time range requested
-        - This avoids fetching future data during live trading hours
+        Fetch from Polygon and write to Data Lake.
+        Checks existence largely by DATE, not granular ticker/time, 
+        so manual backfills might duplicate if repeated.
         """
-        # Determine which days we need
+        # Simple Date Loop
         current_date = start_time.date()
         end_date = end_time.date()
         
         all_trades = []
         
         while current_date <= end_date:
-            # Determine the time boundaries we need for this specific day
+            # Define day constraints
             if current_date == start_time.date():
-                day_start = start_time
+                t_start = start_time
             else:
-                # For days after the first, start from market open
-                day_start = datetime.combine(current_date, datetime.min.time())
-                if start_time.tzinfo:
-                    day_start = day_start.replace(tzinfo=start_time.tzinfo)
-                # Set to market open (9:30 AM ET)
-                day_start = day_start.replace(hour=9, minute=30)
-            
+                t_start = datetime.combine(current_date, datetime.min.time()).replace(hour=9, minute=30)
+                
             if current_date == end_time.date():
-                day_end = end_time
+                t_end = end_time
             else:
-                # For days before the last, end at market close
-                day_end = datetime.combine(current_date, datetime.max.time())
-                if end_time.tzinfo:
-                    day_end = day_end.replace(tzinfo=end_time.tzinfo)
-                # Set to market close (4:00 PM ET)
-                day_end = day_end.replace(hour=16, minute=0, second=0, microsecond=0)
-            
-            # Check if we have this day cached
-            if self.has_cached_data(ticker, current_date):
-                print(f"✓ Using cached data for {ticker} on {current_date}")
-                
-                cached_trades = self.get_cached_trades(ticker, current_date, day_start, day_end)
-                all_trades.extend(cached_trades)
+                 t_end = datetime.combine(current_date, datetime.min.time()).replace(hour=16, minute=0)
+
+            # Check if this DATE partition exists. 
+            # If so, we assume we might have data. 
+            # BUT, since we are requesting a specific TICKER, 
+            # and our partition check is generic, we might miss.
+            # For robustness: We Query first.
+            existing = self.get_cached_trades(ticker, current_date, t_start, t_end)
+            if existing:
+                print(f"✓ Found {len(existing)} cached trades for {ticker} on {current_date}")
+                all_trades.extend(existing)
             else:
-                # Fetch from Polygon for the EXACT time range requested
-                # This prevents fetching future data during live trading
-                print(f"⬇️ Fetching {ticker} from Polygon: {day_start.strftime('%Y-%m-%d %H:%M')} to {day_end.strftime('%H:%M')}")
+                # Fetch
+                print(f"⬇️ Fetching {ticker} from Polygon for {current_date}")
+                ts_start_ns = int(t_start.timestamp() * 1e9)
+                ts_end_ns = int(t_end.timestamp() * 1e9)
                 
-                ts_start = int(day_start.timestamp() * 1_000_000_000)
-                ts_end = int(day_end.timestamp() * 1_000_000_000)
-                
-                day_trades = []
-                
+                new_trades = []
                 try:
-                    resp = client.list_trades(
-                        ticker, 
-                        timestamp_gte=ts_start, 
-                        timestamp_lte=ts_end, 
-                        limit=50000
-                    )
-                    
-                    for t in resp:
-                        ts = t.sip_timestamp
-                        if ts > 10**14:  # Convert ns to ms
-                            ts = int(ts / 1000000)
-                        
-                        day_trades.append({
-                            'T': ticker,
-                            'p': t.price,
-                            's': t.size,
-                            't': ts
+                    for t in client.list_trades(ticker, timestamp_gte=ts_start_ns, timestamp_lte=ts_end_ns, limit=50000):
+                        ts_ms = int(t.sip_timestamp / 1e6)
+                        new_trades.append({
+                            'ticker': ticker,
+                            'price': t.price,
+                            'size': t.size,
+                            'timestamp': ts_ms
                         })
                     
-                    # Only cache if this represents a complete trading session
-                    # Complete = ends at or after market close (4:00 PM)
-                    is_complete_session = day_end.hour >= 16
-                    
-                    if day_trades and is_complete_session:
-                        self.save_trades(ticker, current_date, day_trades)
-                        print(f"💾 Cached {len(day_trades)} trades (complete session)")
-                    elif day_trades and not is_complete_session:
-                        print(f"⚠️ Not caching {len(day_trades)} trades (incomplete session, market still open)")
-                    
-                    all_trades.extend(day_trades)
-                    
+                    if new_trades:
+                        self.save_trades(current_date, new_trades, source_tag=f"backfill_{ticker}")
+                        all_trades.extend(new_trades)
+                        
                 except Exception as e:
-                    print(f"Error fetching {ticker} for {current_date}: {e}")
+                    print(f"Error fetching: {e}")
             
-            # Move to next day
-            current_date = datetime.combine(current_date, datetime.min.time()) + pd.Timedelta(days=1)
-            current_date = current_date.date()
-        
+            # Next day
+            current_date = (datetime.combine(current_date, datetime.min.time()) + pd.Timedelta(days=1)).date()
+            
         return all_trades
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get statistics about cached data."""
-        total_files = 0
-        total_size = 0
-        dates = set()
-        
-        for date_dir in self.cache_dir.iterdir():
-            if date_dir.is_dir():
-                dates.add(date_dir.name)
-                for file in date_dir.glob("*.parquet"):
-                    total_files += 1
-                    total_size += file.stat().st_size
-        
-        return {
-            "total_files": total_files,
-            "total_size_mb": round(total_size / 1024 / 1024, 2),
-            "cached_dates": sorted(dates),
-            "cache_dir": str(self.cache_dir.absolute())
-        }
 
+    def get_latest_available_date(self) -> Optional[date]:
+        """Find the most recent populated date partition."""
+        # Walk directory
+        # Structure: base/year=Y/month=M/day=D
+        # We can implement a smart finder or just recursive glob?
+        # recursive glob is easy.
+        
+        try:
+            # Find all 'day=DD' folders
+            days = list(self.base_dir.glob("year=*/month=*/day=*"))
+            if not days:
+                return None
+                
+            # Parse dates
+            found_dates = []
+            for d in days:
+                try:
+                    # path parts
+                    parts = d.parts
+                    # Expecting .../year=2025/month=12/day=16
+                    # Use string searching to be safer than index if path varies
+                    y_str = next(p for p in parts if p.startswith("year=")).split('=')[1]
+                    m_str = next(p for p in parts if p.startswith("month=")).split('=')[1]
+                    d_str = next(p for p in parts if p.startswith("day=")).split('=')[1]
+                    dt = date(int(y_str), int(m_str), int(d_str))
+                    found_dates.append(dt)
+                except:
+                    continue
+            
+            if not found_dates:
+                return None
+                
+            return max(found_dates)
+            
+        except Exception:
+            return None

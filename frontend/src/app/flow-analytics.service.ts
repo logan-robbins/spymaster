@@ -1,4 +1,5 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { DataStreamService, FlowMap, FlowMetrics } from './data-stream.service';
 
 export type FlowMetric = 'premium' | 'delta' | 'gamma';
@@ -88,6 +89,7 @@ function getBucket(type: string, strike: number, atmStrike: number): BucketKey |
 @Injectable({ providedIn: 'root' })
 export class FlowAnalyticsService {
     private stream = inject(DataStreamService);
+    private http = inject(HttpClient);
 
     // UI selectors (defaults: DELTA, d2 acceleration, 5s bars)
     public selectedMetric = signal<FlowMetric>('delta');
@@ -98,6 +100,9 @@ export class FlowAnalyticsService {
     private _atmStrike = signal<number | null>(null);
     public atmStrike = this._atmStrike.asReadonly();
 
+    // New: Hotzone Anchor (User defined). If null, falls back to ATM.
+    public anchorStrike = signal<number | null>(null);
+
     private _perStrikeVel = signal<StrikeVelocityMap>({});
     public perStrikeVel = this._perStrikeVel.asReadonly();
 
@@ -106,14 +111,14 @@ export class FlowAnalyticsService {
     // Bar-based storage (one set of bars per interval)
     private bars = new Map<BarIntervalMs, BarData[]>();
     private activeBars = new Map<BarIntervalMs, ActiveBar | null>();
-    
+
     private readonly maxBars = 50; // Keep last 50 bars per interval
-    
+
     // Current derivative values for display
     private latest = new Map<DerivativeKey, number>();
-    
+
     // Per-bucket bar series for the chart (for selected interval only)
-    private barSeries = new Map<BucketKey, Array<{time: number, value: number}>>();
+    private barSeries = new Map<BucketKey, Array<{ time: number, value: number }>>();
 
     constructor() {
         // Initialize bar storage
@@ -121,14 +126,23 @@ export class FlowAnalyticsService {
             this.bars.set(interval, []);
             this.activeBars.set(interval, null);
         }
-        
+
         effect(() => {
             const snapshot = this.stream.flowData();
             this.ingestSnapshot(snapshot);
         });
     }
 
-    public getSeries(bucket: BucketKey): Array<{time: number, value: number}> {
+    public setAnchor(strike: number | null) {
+        this.anchorStrike.set(strike);
+        // Sync with backend
+        this.http.post('/api/config/hotzone', { strike }).subscribe({
+            next: (res) => console.log('Hotzone synced:', res),
+            error: (err) => console.error('Hotzone sync failed:', err)
+        });
+    }
+
+    public getSeries(bucket: BucketKey): Array<{ time: number, value: number }> {
         // Return bar series for this bucket
         this._tick();
         return [...(this.barSeries.get(bucket) ?? [])];
@@ -183,14 +197,17 @@ export class FlowAnalyticsService {
         const atmStrike = median(Array.from(new Set(strikes)));
         this._atmStrike.set(atmStrike);
 
-        if (atmStrike == null) return;
+        // Determine Pivot Strike: Anchor (Hotzone) takes precedence over ATM
+        const pivotStrike = this.anchorStrike() ?? atmStrike;
+
+        if (pivotStrike == null) return;
 
         // Get current cumulative values aggregated by bucket
-        const currentCum = this.aggregateCumulative(snapshot, atmStrike);
+        const currentCum = this.aggregateCumulative(snapshot, pivotStrike);
 
         // Process each bar interval using actual data timestamp
         for (const interval of BAR_INTERVALS_MS) {
-            this.processBarInterval(interval, dataTimestamp, atmStrike, currentCum);
+            this.processBarInterval(interval, dataTimestamp, pivotStrike, currentCum);
         }
 
         // Update chart series for selected interval
@@ -200,7 +217,7 @@ export class FlowAnalyticsService {
         this._tick.update((v) => v + 1);
     }
 
-    private processBarInterval(interval: BarIntervalMs, dataTimestamp: number, atmStrike: number, currentCum: Record<BucketKey, BucketTriple>) {
+    private processBarInterval(interval: BarIntervalMs, dataTimestamp: number, pivotStrike: number, currentCum: Record<BucketKey, BucketTriple>) {
         let activeBar = this.activeBars.get(interval);
         const barList = this.bars.get(interval)!;
 
@@ -208,27 +225,34 @@ export class FlowAnalyticsService {
         const barStartTime = Math.floor(dataTimestamp / interval) * interval;
         const barEndTime = barStartTime + interval;
 
-        console.log(`Bar check [${interval}ms]: dataTimestamp=${new Date(dataTimestamp).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}, barStart=${new Date(barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
+        // console.log(`Bar check [${interval}ms]: dataTimestamp=${new Date(dataTimestamp).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}, barStart=${new Date(barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
 
         // Check if we need to start a new bar
-        if (!activeBar || activeBar.startTime !== barStartTime) {
-            // Close previous bar if it exists
-            if (activeBar && this.prevSnapshot) {
-                const closedBar = this.closeBar(activeBar, currentCum, dataTimestamp, atmStrike);
-                console.log(`Closed bar [${interval}ms]: ${new Date(closedBar.barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})} - ${new Date(closedBar.barEndTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
+        // Condition: Time boundary crossed OR Pivot changed (to avoid mixing buckets)
+        const pivotChanged = activeBar && activeBar.atmStrike !== pivotStrike;
+
+        if (!activeBar || activeBar.startTime !== barStartTime || pivotChanged) {
+            // Close previous bar if it exists AND pivot hasn't changed
+            // If pivot changed, we cannot validly close the bar because 'endCum' is based on new pivot
+            // while 'startCum' was based on old pivot. The delta would be meaningless.
+            if (activeBar && this.prevSnapshot && !pivotChanged) {
+                const closedBar = this.closeBar(activeBar, currentCum, dataTimestamp, pivotStrike);
+                // console.log(`Closed bar [${interval}ms]: ${new Date(closedBar.barStartTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})} - ${new Date(closedBar.barEndTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}`);
                 barList.push(closedBar);
-                
+
                 // Prune old bars
                 if (barList.length > this.maxBars) {
                     barList.shift();
                 }
+            } else if (pivotChanged) {
+                console.log(`Pivot changed from ${activeBar?.atmStrike} to ${pivotStrike}. Resetting active bar.`);
             }
 
             // Start new bar
             activeBar = {
                 startTime: barStartTime,
                 startCum: { ...currentCum },
-                atmStrike
+                atmStrike: pivotStrike // Storing pivot as 'atmStrike' property in ActiveBar interface
             };
             this.activeBars.set(interval, activeBar);
         }
@@ -297,7 +321,7 @@ export class FlowAnalyticsService {
         const buckets: BucketKey[] = ['call_above', 'call_below', 'put_above', 'put_below'];
 
         for (const bucket of buckets) {
-            const points: Array<{time: number, value: number}> = [];
+            const points: Array<{ time: number, value: number }> = [];
 
             // Compute derivatives bar-to-bar
             for (let i = 1; i < barList.length; i++) {
@@ -325,7 +349,7 @@ export class FlowAnalyticsService {
                 }
 
                 const timeSeconds = currentBar.barEndTime / 1000;
-                console.log(`Adding chart point: time=${new Date(currentBar.barEndTime).toLocaleTimeString('en-US', {timeZone: 'America/New_York'})}, value=${value.toFixed(1)}`);
+                console.log(`Adding chart point: time=${new Date(currentBar.barEndTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })}, value=${value.toFixed(1)}`);
                 points.push({
                     time: timeSeconds, // Convert to seconds for TradingView
                     value

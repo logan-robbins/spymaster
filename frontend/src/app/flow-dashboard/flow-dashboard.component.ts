@@ -1,21 +1,21 @@
 import { Component, computed, inject } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import {
-    FlowAnalyticsService,
-    FlowMetric,
-    BAR_INTERVALS_MS,
-    BAR_INTERVAL_LABEL,
-    BarIntervalMs,
-    DerivativeOrder
+  FlowAnalyticsService,
+  FlowMetric,
+  BAR_INTERVALS_MS,
+  BAR_INTERVAL_LABEL,
+  BarIntervalMs,
+  DerivativeOrder
 } from '../flow-analytics.service';
 import { StrikeGridComponent } from '../strike-grid/strike-grid.component';
 import { FlowChartComponent } from '../flow-chart/flow-chart.component';
 
 @Component({
-    selector: 'app-flow-dashboard',
-    standalone: true,
-    imports: [CommonModule, DecimalPipe, StrikeGridComponent, FlowChartComponent],
-    template: `
+  selector: 'app-flow-dashboard',
+  standalone: true,
+  imports: [CommonModule, DecimalPipe, StrikeGridComponent, FlowChartComponent],
+  template: `
     <div class="dashboard-container">
       <div class="dashboard-header">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -23,6 +23,17 @@ import { FlowChartComponent } from '../flow-chart/flow-chart.component';
             <div class="stat-card">
               <div class="stat-label">ATM Strike (derived)</div>
               <div class="stat-value">{{ analytics.atmStrike() ?? '—' }}</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">Hotzone Anchor</div>
+              <input 
+                type="number" 
+                placeholder="ATM"
+                [value]="analytics.anchorStrike() ?? ''"
+                (change)="updateAnchor($any($event.target).value)"
+                style="background: transparent; border: 1px solid #4a5568; color: white; padding: 2px 6px; border-radius: 4px; width: 80px; font-family: inherit; font-size: 0.875rem;"
+              >
             </div>
 
             <div class="stat-card">
@@ -91,14 +102,23 @@ import { FlowChartComponent } from '../flow-chart/flow-chart.component';
   `
 })
 export class FlowDashboardComponent {
-    public analytics = inject(FlowAnalyticsService);
+  public analytics = inject(FlowAnalyticsService);
 
-    public metrics: readonly FlowMetric[] = ['premium', 'delta', 'gamma'] as const;
-    public orders: readonly DerivativeOrder[] = [1, 2, 3] as const;
-    public barIntervals: readonly BarIntervalMs[] = BAR_INTERVALS_MS;
-    public barIntervalLabel = BAR_INTERVAL_LABEL;
+  public metrics: readonly FlowMetric[] = ['premium', 'delta', 'gamma'] as const;
+  public orders: readonly DerivativeOrder[] = [1, 2, 3] as const;
+  public barIntervals: readonly BarIntervalMs[] = BAR_INTERVALS_MS;
+  public barIntervalLabel = BAR_INTERVAL_LABEL;
 
-    public latest = computed(() => this.analytics.getLatestByBucket());
+  public latest = computed(() => this.analytics.getLatestByBucket());
+
+  updateAnchor(value: string) {
+    const num = parseFloat(value);
+    if (!isNaN(num) && num > 0) {
+      this.analytics.setAnchor(num);
+    } else {
+      this.analytics.setAnchor(null);
+    }
+  }
 }
 
 

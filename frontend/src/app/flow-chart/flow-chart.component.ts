@@ -50,19 +50,19 @@ import { FlowAnalyticsService, FlowMetric, DerivativeOrder, BarIntervalMs, Bucke
       </div>
       <div class="chart-stats">
         <div class="stat call-above">
-          <span class="label">🟢 Bullish OTM ({{ 'Strike >' + atmStrike() }}):</span>
+          <span class="label">🟢 Bullish (> Anchor):</span>
           <span class="value">{{ latestValues().call_above | number:'1.1-1' }} {{ units() }}</span>
         </div>
         <div class="stat call-below">
-          <span class="label">🟢 Bullish ITM ({{ 'Strike <' + atmStrike() }}):</span>
+          <span class="label">🟢 Bullish (< Anchor):</span>
           <span class="value">{{ latestValues().call_below | number:'1.1-1' }} {{ units() }}</span>
         </div>
         <div class="stat put-above">
-          <span class="label">🔴 Bearish ITM ({{ 'Strike >' + atmStrike() }}):</span>
+          <span class="label">🔴 Bearish (> Anchor):</span>
           <span class="value">{{ latestValues().put_above | number:'1.1-1' }} {{ units() }}</span>
         </div>
         <div class="stat put-below">
-          <span class="label">🔴 Bearish OTM ({{ 'Strike <' + atmStrike() }}):</span>
+          <span class="label">🔴 Bearish (< Anchor):</span>
           <span class="value">{{ latestValues().put_below | number:'1.1-1' }} {{ units() }}</span>
         </div>
         <div class="stat net">
@@ -206,34 +206,34 @@ import { FlowAnalyticsService, FlowMetric, DerivativeOrder, BarIntervalMs, Bucke
 })
 export class FlowChartComponent implements OnInit, OnDestroy {
   @ViewChild('chartContainer', { static: true }) chartContainer!: ElementRef;
-  
+
   private dataService = inject(DataStreamService);
   private analytics = inject(FlowAnalyticsService);
-  
+
   private chart: IChartApi | null = null;
   private series: Map<BucketKey, ISeriesApi<'Line'>> = new Map();
-  
+
   // Expose analytics selectors as signals
   public selectedMetric = this.analytics.selectedMetric;
   public selectedOrder = this.analytics.selectedOrder;
   public selectedBarInterval = this.analytics.selectedBarInterval;
   public atmStrike = this.analytics.atmStrike;
-  
+
   // Computed signal for latest values
   public latestValues = computed(() => this.analytics.getLatestByBucket());
-  
+
   // Computed signal for units label
   public units = computed(() => {
     const metric = this.selectedMetric();
     const order = this.selectedOrder();
     const interval = this.selectedBarInterval() / 1000; // Convert to seconds
     const metricSymbol = metric === 'delta' ? 'Δ' : metric === 'gamma' ? 'Γ' : '$';
-    
+
     if (order === 1) return `${metricSymbol}/s`; // Velocity: flow rate per second
     if (order === 2) return `${metricSymbol}/s² per ${interval}s bar`; // Acceleration per bar
     return `${metricSymbol}/s³`; // Jerk
   });
-  
+
   // Computed signal for chart title
   public chartTitle = computed(() => {
     const metric = this.selectedMetric();
@@ -252,15 +252,15 @@ export class FlowChartComponent implements OnInit, OnDestroy {
       this.updateChart();
     });
   }
-  
+
   public setMetric(metric: FlowMetric) {
     this.analytics.selectedMetric.set(metric);
   }
-  
+
   public setOrder(order: DerivativeOrder) {
     this.analytics.selectedOrder.set(order);
   }
-  
+
   public setBarInterval(interval: BarIntervalMs) {
     this.analytics.selectedBarInterval.set(interval);
   }
@@ -277,7 +277,7 @@ export class FlowChartComponent implements OnInit, OnDestroy {
 
   private initializeChart() {
     const container = this.chartContainer.nativeElement;
-    
+
     this.chart = createChart(container, {
       layout: {
         background: { color: '#0f1419' },
@@ -318,25 +318,26 @@ export class FlowChartComponent implements OnInit, OnDestroy {
       height: container.clientHeight,
     });
 
-    // Create 4 line series for each bucket
-    const bucketConfig: Array<{ bucket: BucketKey; color: string; title: string }> = [
-      { bucket: 'call_above', color: '#48bb78', title: '🟢 Bullish OTM' },
-      { bucket: 'call_below', color: '#68d391', title: '🟢 Bullish ITM' },
-      { bucket: 'put_above', color: '#fc8181', title: '🔴 Bearish ITM' },
-      { bucket: 'put_below', color: '#f56565', title: '🔴 Bearish OTM' },
+    // Create 4 line series for each bucket with distinct styles
+    const bucketConfig: Array<{ bucket: BucketKey; color: string; title: string; style: number }> = [
+      { bucket: 'call_above', color: '#48bb78', title: '🟢 Bullish (> Anchor)', style: 0 }, // Solid
+      { bucket: 'call_below', color: '#48bb78', title: '🟢 Bullish (< Anchor)', style: 2 }, // Dashed
+      { bucket: 'put_above', color: '#f56565', title: '🔴 Bearish (> Anchor)', style: 0 }, // Solid
+      { bucket: 'put_below', color: '#f56565', title: '🔴 Bearish (< Anchor)', style: 2 }, // Dashed
     ];
 
     for (const config of bucketConfig) {
       const series = this.chart.addLineSeries({
         color: config.color,
         lineWidth: 2,
+        lineStyle: config.style,
         title: config.title,
         priceFormat: {
           type: 'custom',
           formatter: (price: number) => price.toFixed(1),
         },
       });
-      
+
       // Add zero reference line to first series for visual reference
       if (config.bucket === 'call_above') {
         series.createPriceLine({
@@ -348,7 +349,7 @@ export class FlowChartComponent implements OnInit, OnDestroy {
           title: 'Zero',
         });
       }
-      
+
       this.series.set(config.bucket, series);
     }
 
@@ -375,7 +376,7 @@ export class FlowChartComponent implements OnInit, OnDestroy {
 
       // Get bar data from analytics (already has time and value)
       const barData = this.analytics.getSeries(bucket);
-      
+
       // Convert to TradingView LineData format
       const lineData: LineData[] = barData.map(point => ({
         time: point.time as any,
