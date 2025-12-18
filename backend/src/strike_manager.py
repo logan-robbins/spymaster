@@ -12,12 +12,26 @@ class StrikeManager:
         self.current_subscriptions = set()
         self.focus_strike = None # Optional: User-defined "Hotzone" strike
 
+        self.last_update_price = 0.0
+
     def set_focus_strike(self, strike: float | None):
         """
         Sets a specific strike to always monitor (Hotzone).
         """
         self.focus_strike = strike
         print(f"🎯 StrikeManager: Focus strike set to {self.focus_strike}")
+        # Reset last update price to force update on next check
+        self.last_update_price = 0.0
+
+    def should_update(self, current_price: float) -> bool:
+        """
+        Returns True if price has moved enough to warrant a strike update.
+        Threshold: $0.50 deviation.
+        """
+        if abs(current_price - self.last_update_price) >= 0.50:
+            return True
+        return False
+
 
     def get_target_strikes(self, current_price: float) -> tuple[list[str], list[str]]:
         """
@@ -66,5 +80,6 @@ class StrikeManager:
         
         # Update active state
         self.current_subscriptions = target_subs
+        self.last_update_price = current_price
         
         return to_add, to_remove

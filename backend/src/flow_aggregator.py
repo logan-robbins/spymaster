@@ -117,7 +117,10 @@ class FlowAggregator:
                 strike_str = suffix[7:]
                 stats["type"] = type_
                 stats["strike_price"] = float(strike_str) / 1000.0
-            except:
+                if stats["type"] == 'P':
+                    print(f"🐻 PUT: {ticker} | Size: {size} | Delta: {greeks.delta} | Flow: {delta_notional}")
+            except Exception as e:
+                print(f"FAILED PARSING TICKER: {ticker} | Error: {e}")
                 pass
 
         # Persist

@@ -71,17 +71,35 @@ function median(values: number[]): number | null {
     return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function safeDelta(now: number, prev: number): number {
+// For monotonically increasing metrics (Premium)
+// Returns 0 if diff is negative (implies reset)
+function safeMonotonicDiff(now: number, prev: number): number {
     const d = now - prev;
-    // If the backend restarted, cumulative can jump backwards.
     if (!Number.isFinite(d) || d < 0) return 0;
     return d;
 }
 
+// For signed metrics that can go up or down (Delta, Gamma)
+// Allows negative diffs (e.g. accumulating more negative delta)
+function safeSignedDiff(now: number, prev: number): number {
+    const d = now - prev;
+    if (!Number.isFinite(d)) return 0;
+
+    // Heuristic for Reset:
+    // If we jumped from a large magnitude to near zero, it's likely a reset.
+    // E.g. -50,000 to 0 -> Diff +50,000.
+    // If we assume resets happen to 0.
+    if (Math.abs(prev) > 1000 && Math.abs(now) < 10) return 0;
+
+    return d;
+}
+
 function getBucket(type: string, strike: number, atmStrike: number): BucketKey | null {
-    // Treat ATM as neutral (excluded from above/below buckets).
-    if (strike === atmStrike) return null;
-    if (type === 'C') return strike > atmStrike ? 'call_above' : 'call_below';
+    // ATM Logic:
+    // Calls at ATM are generally considered "Bullish" -> Group with call_above
+    // Puts at ATM are generally considered "Bearish" -> Group with put_below
+
+    if (type === 'C') return strike >= atmStrike ? 'call_above' : 'call_below';
     if (type === 'P') return strike > atmStrike ? 'put_above' : 'put_below';
     return null;
 }
@@ -269,9 +287,13 @@ export class FlowAnalyticsService {
 
         // Compute net flow during this bar
         for (const bucket of Object.keys(netFlow) as BucketKey[]) {
-            netFlow[bucket].premium = safeDelta(endCum[bucket].premium, activeBar.startCum[bucket].premium);
-            netFlow[bucket].delta = safeDelta(endCum[bucket].delta, activeBar.startCum[bucket].delta);
-            netFlow[bucket].gamma = safeDelta(endCum[bucket].gamma, activeBar.startCum[bucket].gamma);
+            netFlow[bucket].premium = safeMonotonicDiff(endCum[bucket].premium, activeBar.startCum[bucket].premium);
+            netFlow[bucket].delta = safeSignedDiff(endCum[bucket].delta, activeBar.startCum[bucket].delta);
+            netFlow[bucket].gamma = safeSignedDiff(endCum[bucket].gamma, activeBar.startCum[bucket].gamma);
+
+            if (bucket.startsWith('put') && Math.abs(netFlow[bucket].delta) > 0) {
+                console.log(`🐻 [${bucket}] Delta Diff: ${netFlow[bucket].delta}`);
+            }
         }
 
         return {
@@ -291,7 +313,7 @@ export class FlowAnalyticsService {
             put_below: { ...zero }
         };
 
-        for (const m of Object.values(snapshot)) {
+        for (const [ticker, m] of Object.entries(snapshot)) {
             if (!m) continue;
             const strike = m.strike_price;
             if (!Number.isFinite(strike) || strike <= 0) continue;
@@ -302,6 +324,10 @@ export class FlowAnalyticsService {
             cum[bucket].premium += m.cumulative_premium;
             cum[bucket].delta += m.net_delta_flow;
             cum[bucket].gamma += m.net_gamma_flow;
+
+            if (bucket === 'put_below' && m.net_delta_flow !== 0) {
+                console.log(`Aggregating ${ticker}: DeltaFlow=${m.net_delta_flow} -> put_below (Total: ${cum[bucket].delta})`);
+            }
         }
 
         return cum;

@@ -16,35 +16,58 @@ class StreamIngestor:
         self.strike_manager = strike_manager
         self.running = False
         
-        self.last_spy_price = 0.0
-        self.last_check_price = 0.0
-        self.last_check_time = 0
-        
-        # Initialize client immediately 
+        # Options Client (Flow)
         self.client = WebSocketClient(
             api_key=self.api_key,
             market='options', 
             subscriptions=[], 
             verbose=False
         )
-
-    async def start(self):
-        self.running = True
-        # Client already initialized in __init__
-        initial_subs = ["T.SPY"] # Stocks trade for SPY
-        pass
-    
-    def handle_msg(self, msgs: List[WebSocketMessage]):
-        pass
+        
+        # Stocks Client (Price/ATM tracking)
+        self.stock_client = WebSocketClient(
+            api_key=self.api_key,
+            market='stocks',
+            subscriptions=["T.SPY"], # Trade ticks for SPY
+            verbose=False
+        )
 
     async def run_async(self):
-        # Allow running in async mode
-        # self.client.connect(...) calls the async loop of the client
-        await self.client.connect(self.handle_msg_async)
+        self.running = True
+        print("🔌 StreamIngestor: Connecting to Polygon Options + Stocks...")
+        
+        # Run both clients concurrently
+        await asyncio.gather(
+            self.client.connect(self.handle_msg_async),
+            self.stock_client.connect(self.handle_stock_msg_async)
+        )
 
     async def handle_msg_async(self, msgs: List[WebSocketMessage]):
+        """Handle Options Trades"""
         for m in msgs:
             await self.queue.put(m)
+
+    async def handle_stock_msg_async(self, msgs: List[WebSocketMessage]):
+        """Handle Stock Trades (SPY) for ATM updates"""
+        for m in msgs:
+            # We expect T.SPY messages
+            # m.symbol should be 'SPY'
+            # m.price should be the trade price
+            if hasattr(m, 'price') and m.price:
+                price = m.price
+                
+                # Check for dynamic strike update
+                if self.strike_manager.should_update(price):
+                    print(f"⚡️ Dynamic Strike Update triggered at ${price}")
+                    add, remove = self.strike_manager.get_target_strikes(price)
+                    self.update_subs(add, remove)
+            
+            # Optional: Forward SPY price to frontend via queue?
+            # If we want the frontend to display EXACT underlying price.
+            # But FlowAggregator expects Options tickers.
+            # We can send it if FlowAggregator can handle it. 
+            # For now, let's keep it clean and NOT send stock trades to FlowAggregator to avoid parsing errors.
+            # The Strike update will generate new Options subs, which will generate new Options flow.
 
     def update_subs(self, add: List[str], remove: List[str]):
         if add:
