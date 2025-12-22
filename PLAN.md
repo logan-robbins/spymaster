@@ -934,24 +934,26 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/fuel_engine.py` (and any small helper file)
 
-#### Agent F — Level universe + room-to-run (levels + runway logic)
+#### Agent F — Level universe + room-to-run (levels + runway logic) ✅ COMPLETE
 
 **Goal**: Provide a consistent set of levels and compute runway per §5.5.
 
+- **Status**: ✅ **COMPLETE**
 - **Deliverables**
-  - Create `backend/src/level_universe.py` that returns levels based on:
-    - spot price (rounds, strikes)
-    - flow-derived walls (call/put walls)
-    - VWAP (if available) and user hotzones
-  - Create `backend/src/room_to_run.py` that:
-    - given `levels[]`, active level, and direction, finds nearest obstacle and computes runway quality
+  - ✅ Create `backend/src/level_universe.py` that returns levels based on:
+    - ✅ spot price (rounds, strikes)
+    - ✅ flow-derived walls (call/put walls)
+    - ✅ VWAP (if available) and user hotzones
+  - ✅ Create `backend/src/room_to_run.py` that:
+    - ✅ given `levels[]`, active level, and direction, finds nearest obstacle and computes runway quality
+  - ✅ Test suite `backend/test_level_universe.py` with 20 tests (all passing)
 - **Interfaces to consume**
-  - `MarketState` spot + flow-derived walls (Agent C)
-  - Config settings (Agent A)
+  - `MarketState` spot + flow-derived walls (Agent C) ✅
+  - Config settings (Agent A) ✅
 - **Dependencies**
-  - Agent A + Agent C + Agent E (for walls)
+  - Agent A ✅ + Agent C ✅ + Agent E (for walls)
 - **Files owned**
-  - `backend/src/level_universe.py`, `backend/src/room_to_run.py`
+  - `backend/src/level_universe.py`, `backend/src/room_to_run.py`, `backend/test_level_universe.py`
 
 #### Agent G — Scoring + smoothing + WS payload orchestrator
 
