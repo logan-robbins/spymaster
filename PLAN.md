@@ -855,19 +855,22 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/event_types.py`, `backend/src/config.py`, optional `backend/src/schemas/*`
 
-#### Agent B — Ingestion + routing (SPY quotes/trades into the bus)
+#### Agent B — Ingestion + routing (SPY quotes/trades into the bus) ✅ COMPLETE
 
 **Goal**: Ensure SPY `T.SPY` and `Q.SPY` are subscribed and routed into the internal queue with normalized event types.
 
+- **Status**: ✅ **COMPLETE** (commits: 9b6e38a, 3397749)
 - **Deliverables**
-  - Modify `backend/src/stream_ingestor.py` to subscribe to `Q.SPY` and keep `T.SPY`.
-  - Route incoming events into `msg_queue` with explicit type tags or dataclass instances.
+  - ✅ Modify `backend/src/stream_ingestor.py` to subscribe to `Q.SPY` and keep `T.SPY`.
+  - ✅ Route incoming events into `msg_queue` with explicit type tags or dataclass instances.
+  - ✅ Add normalization logic in `handle_msg_async` (options) and `handle_stock_msg_async` (stocks).
+  - ✅ Update `backend/src/flow_aggregator.py` to handle normalized event types and skip stock events.
 - **Interfaces to consume**
   - `StockTrade`, `StockQuote` from Agent A.
 - **Dependencies**
   - Agent A types.
 - **Files owned**
-  - `backend/src/stream_ingestor.py` (and any narrow helper you create under `backend/src/`)
+  - `backend/src/stream_ingestor.py`, `backend/src/flow_aggregator.py` (updated)
 
 #### Agent C — `MarketState` + ring buffers (state backbone) ✅ COMPLETE
 
