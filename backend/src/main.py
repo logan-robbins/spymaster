@@ -15,7 +15,7 @@ from .market_state import MarketState
 from .level_signal_service import LevelSignalService
 from .bronze_writer import BronzeWriter
 from .gold_writer import GoldWriter
-from .event_types import StockTrade, StockQuote, OptionTrade
+from .event_types import FuturesTrade, MBP10, OptionTrade
 
 # Load environment
 load_dotenv()
@@ -64,24 +64,29 @@ else:
 async def processing_loop():
     """
     Consumes from queue, feeds aggregator, market_state, and Bronze writer.
+
+    Handles:
+    - FuturesTrade (ES trades from DBN)
+    - MBP10 (ES MBP-10 from DBN)
+    - OptionTrade (SPY options from Polygon)
     """
     while True:
         try:
             msg = await msg_queue.get()
 
-            # Feed Aggregator (handles OptionTrade, skips stock events)
+            # Feed Aggregator (handles OptionTrade, skips other events)
             await aggregator.process_message(msg)
 
             # Feed MarketState and Bronze writer based on event type
-            if isinstance(msg, StockTrade):
-                market_state.update_stock_trade(msg)
+            if isinstance(msg, FuturesTrade):
+                market_state.update_es_trade(msg)
                 if bronze_writer:
-                    await bronze_writer.write_stock_trade(msg)
+                    await bronze_writer.write_futures_trade(msg)
 
-            elif isinstance(msg, StockQuote):
-                market_state.update_stock_quote(msg)
+            elif isinstance(msg, MBP10):
+                market_state.update_es_mbp10(msg)
                 if bronze_writer:
-                    await bronze_writer.write_stock_quote(msg)
+                    await bronze_writer.write_mbp10(msg)
 
             elif isinstance(msg, OptionTrade):
                 # Option trades need greeks for gamma transfer
@@ -115,13 +120,14 @@ async def broadcast_loop():
             # Get level signals from level service
             levels_payload = level_signal_service.compute_level_signals()
 
-            # Get current SPY quote for payload
-            last_quote = market_state.last_quote
-            spy_snapshot = {
-                "spot": (last_quote.bid_px + last_quote.ask_px) / 2 if last_quote else None,
-                "bid": last_quote.bid_px if last_quote else None,
-                "ask": last_quote.ask_px if last_quote else None
-            } if last_quote else {}
+            # Get current ES quote for payload (from MBP-10 top of book)
+            spot = market_state.get_spot()
+            bid_ask = market_state.get_bid_ask()
+            es_snapshot = {
+                "spot": spot,
+                "bid": bid_ask[0] if bid_ask else None,
+                "ask": bid_ask[1] if bid_ask else None
+            }
 
             ts_ms = int(time.time() * 1000)
 
@@ -129,7 +135,7 @@ async def broadcast_loop():
             merged_payload = {
                 "ts": ts_ms,
                 "flow": flow_snapshot if flow_snapshot else {},
-                "spy": spy_snapshot,
+                "es": es_snapshot,
                 "levels": levels_payload
             }
 
@@ -139,7 +145,7 @@ async def broadcast_loop():
             if gold_writer and levels_payload:
                 await gold_writer.write_level_signals({
                     "ts": ts_ms,
-                    "spy": spy_snapshot,
+                    "es": es_snapshot,
                     "levels": levels_payload
                 })
 
@@ -219,9 +225,9 @@ async def lifespan(app: FastAPI):
             source_task = asyncio.create_task(data_source.run(
                 date=REPLAY_DATE,
                 speed=REPLAY_SPEED,
-                include_spy=True,
+                include_spy=False,  # ES MBP-10 is now the primary data source
                 include_options=True,
-                include_es=False  # Enable when ES barrier physics is ready
+                include_es=True  # ES barrier physics enabled
             ))
         else:
             # Legacy ReplayEngine

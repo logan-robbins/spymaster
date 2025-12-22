@@ -307,8 +307,30 @@ class UnifiedReplayEngine:
         if trade_count > 0:
             print(f"  Unified Replay: Loaded {trade_count} ES trades")
 
-        # Note: MBP-10 data is very large (GBs), only load if specifically requested
-        # and consider sampling or limiting to specific time windows
+        # Load MBP-10 data (streaming for memory efficiency)
+        # Note: MBP-10 files are large (GBs), we sample to reduce memory
+        mbp_count = 0
+        sample_rate = 100  # Only keep every 100th update for memory efficiency
+
+        for mbp in self.dbn_ingestor.read_mbp10(
+            date=date,
+            start_ns=start_ns,
+            end_ns=end_ns
+        ):
+            mbp_count += 1
+
+            # Sample to reduce memory usage (full file can be 7-10GB)
+            if mbp_count % sample_rate != 0:
+                continue
+
+            events.append(TimestampedEvent(
+                ts_event_ns=mbp.ts_event_ns,
+                event_type=EventType.MBP10,
+                event=mbp
+            ))
+
+        if mbp_count > 0:
+            print(f"  Unified Replay: Loaded {mbp_count // sample_rate} MBP-10 snapshots (sampled 1:{sample_rate} from {mbp_count})")
 
     def stop(self) -> None:
         """Stop the replay."""

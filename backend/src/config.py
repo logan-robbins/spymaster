@@ -31,27 +31,27 @@ class Config:
     W_v: float = 3.0   # Velocity: window for slope calculation
     W_wall: float = 300.0  # Call/Put wall lookback window (5 minutes)
     
-    # ========== Monitoring bands (dollars) ==========
-    MONITOR_BAND: float = 0.50  # compute full signals if |spot - L| <= this
-    TOUCH_BAND: float = 0.05    # tight band for "touching level" (reject trigger)
+    # ========== Monitoring bands (SPY dollars) ==========
+    MONITOR_BAND: float = 0.50  # compute full signals if |spot - L| <= $0.50
+    TOUCH_BAND: float = 0.05    # tight band for "touching level"
     
     # Barrier engine: price zone around level for grouping quotes (optional refinement)
     BARRIER_ZONE_TICKS: int = 2  # e.g., ± 2 ticks around level for zone-based calcs
     
-    # ========== Barrier thresholds ==========
+    # ========== Barrier thresholds (ES contracts) ==========
     R_vac: float = 0.3   # Replenishment ratio threshold for VACUUM
     R_wall: float = 1.5  # Replenishment ratio threshold for WALL/ABSORPTION
-    F_thresh: int = 5000 # Delta liquidity threshold (shares)
+    F_thresh: int = 100  # Delta liquidity threshold (ES contracts, not shares)
     
     # Optional: percentile for WEAK state
     WEAK_PERCENTILE: float = 0.20  # bottom 20th percentile of defending size
     WEAK_LOOKBACK: float = 1800.0  # 30 minutes
     
-    # ========== Tape thresholds ==========
-    TAPE_BAND: float = 0.10  # price band around level for tape imbalance (dollars)
-    SWEEP_MIN_NOTIONAL: float = 100_000.0  # minimum notional for sweep detection
+    # ========== Tape thresholds (SPY scale - converted to ES internally) ==========
+    TAPE_BAND: float = 0.10  # price band around level for tape imbalance (SPY dollars)
+    SWEEP_MIN_NOTIONAL: float = 500_000.0  # minimum notional for sweep detection (ES = $50/pt)
     SWEEP_MAX_GAP_MS: int = 100  # max gap between prints in a sweep cluster
-    SWEEP_MIN_VENUES: int = 2    # require prints on >= N venues (if available)
+    SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
     
     # ========== Fuel thresholds ==========
     FUEL_STRIKE_RANGE: float = 2.0  # consider strikes within ±N dollars of level
@@ -76,7 +76,7 @@ class Config:
     # ========== Snap tick cadence ==========
     SNAP_INTERVAL_MS: int = 250  # publish level signals every 250ms
     
-    # ========== Level universe settings ==========
+    # ========== Level universe settings (SPY ~600 price) ==========
     ROUND_LEVELS_SPACING: float = 1.0  # generate round levels every $1
     STRIKE_RANGE: float = 5.0          # monitor strikes within ±$5 of spot
     VWAP_ENABLED: bool = True

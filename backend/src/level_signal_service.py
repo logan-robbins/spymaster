@@ -306,7 +306,9 @@ class LevelSignalService:
                 "added": barrier_metrics.added_size,
                 "canceled": barrier_metrics.canceled_size,
                 "filled": barrier_metrics.filled_size,
-                "defending_quote": barrier_metrics.defending_quote
+                "defending_quote": barrier_metrics.defending_quote,
+                "churn": barrier_metrics.churn,
+                "depth_in_zone": barrier_metrics.depth_in_zone
             },
             tape={
                 "imbalance": tape_metrics.imbalance,
