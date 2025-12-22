@@ -955,27 +955,28 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/level_universe.py`, `backend/src/room_to_run.py`, `backend/test_level_universe.py`
 
-#### Agent G — Scoring + smoothing + WS payload orchestrator
+#### Agent G — Scoring + smoothing + WS payload orchestrator ✅ COMPLETE
 
 **Goal**: Combine Barrier/Tape/Fuel into score + triggers, smooth it, and publish `levels` payload (merged or separate WS).
 
+- **Status**: ✅ **COMPLETE** (commits: TBD)
 - **Deliverables**
-  - Create `backend/src/score_engine.py` (component scores + composite + trigger timers).
-  - Create `backend/src/smoothing.py` (EWMA + optional robust smoothing).
-  - Create `backend/src/level_signal_service.py` to orchestrate:
-    - build levels from Agent F
-    - compute states from Agents D/E
-    - compute score + smoothing + runway
-    - emit payload shaped like §6.4
-  - Integrate into broadcaster path (`socket_broadcaster.py` or equivalent) with chosen WS option (A or B).
+  - ✅ Create `backend/src/score_engine.py` (component scores + composite + trigger timers).
+  - ✅ Create `backend/src/smoothing.py` (EWMA + optional robust smoothing).
+  - ✅ Create `backend/src/level_signal_service.py` to orchestrate:
+    - ✅ build levels from Agent F
+    - ✅ compute states from Agents D/E
+    - ✅ compute score + smoothing + runway
+    - ✅ emit payload shaped like §6.4
+  - ✅ Integrate into broadcaster path (`main.py`) with WS Option A (merged payload).
 - **Interfaces to consume**
-  - Engines outputs (Agents D/E)
-  - Level universe + runway (Agent F)
-  - Config (Agent A)
+  - Engines outputs (Agents D/E) ✅
+  - Level universe + runway (Agent F) ✅
+  - Config (Agent A) ✅
 - **Dependencies**
-  - Agent A + C + D + E + F
+  - Agent A ✅ + C ✅ + D ✅ + E ✅ + F ✅
 - **Files owned**
-  - `backend/src/score_engine.py`, `backend/src/smoothing.py`, `backend/src/level_signal_service.py`, and minimal edits to WS publisher code
+  - `backend/src/score_engine.py`, `backend/src/smoothing.py`, `backend/src/level_signal_service.py`, and minimal edits to `backend/src/main.py`
 
 #### Agent H — Frontend (Angular UI for levels)
 

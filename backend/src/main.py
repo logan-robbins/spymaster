@@ -11,6 +11,8 @@ from .persistence_engine import PersistenceEngine
 from .flow_aggregator import FlowAggregator
 from .stream_ingestor import StreamIngestor
 from .socket_broadcaster import SocketBroadcaster
+from .market_state import MarketState
+from .level_signal_service import LevelSignalService
 
 # Load environment
 load_dotenv()
@@ -26,6 +28,10 @@ aggregator = FlowAggregator(greek_enricher, persistence)
 broadcaster = SocketBroadcaster()
 msg_queue = asyncio.Queue()
 
+# Level physics engine (Agent G)
+market_state = MarketState(max_buffer_window_seconds=120.0)
+level_signal_service = LevelSignalService(market_state=market_state)
+
 # Mode Selection
 REPLAY_MODE = os.getenv("REPLAY_MODE", "false").lower() == "true"
 
@@ -40,8 +46,10 @@ else:
 # Background Tasks
 async def processing_loop():
     """
-    Consumes from queue, feeds aggregator, and broadcasts updates.
+    Consumes from queue, feeds aggregator and market_state, and broadcasts updates.
     """
+    from .event_types import StockTrade, StockQuote, OptionTrade
+    
     throttle_interval = 0.25 # 250ms
     last_broadcast = 0
     
@@ -54,6 +62,25 @@ async def processing_loop():
             
             # Feed Aggregator
             await aggregator.process_message(msg)
+            
+            # Feed MarketState (for level physics engine)
+            # Check message type and route appropriately
+            if isinstance(msg, StockTrade):
+                market_state.update_stock_trade(msg)
+            elif isinstance(msg, StockQuote):
+                market_state.update_stock_quote(msg)
+            elif isinstance(msg, OptionTrade):
+                # Option trades need greeks for gamma transfer
+                # Get greeks from enricher cache
+                greeks = greek_enricher.get_cached_greeks(msg.option_symbol)
+                if greeks:
+                    market_state.update_option_trade(
+                        msg, 
+                        delta=greeks.get('delta', 0.0),
+                        gamma=greeks.get('gamma', 0.0)
+                    )
+                else:
+                    market_state.update_option_trade(msg, delta=0.0, gamma=0.0)
             
             # Broadcast limit check
             # Real-time broadcast might be too much. 
@@ -74,9 +101,20 @@ async def broadcast_loop():
     while True:
         try:
             await asyncio.sleep(0.25) # 250ms
-            snapshot = aggregator.get_snapshot()
-            if snapshot:
-                await broadcaster.broadcast(snapshot)
+            
+            # Get flow snapshot from aggregator
+            flow_snapshot = aggregator.get_snapshot()
+            
+            # Get level signals from level service
+            levels_payload = level_signal_service.compute_level_signals()
+            
+            # Merge payloads (Option A per §6.4)
+            merged_payload = {
+                "flow": flow_snapshot if flow_snapshot else {},
+                "levels": levels_payload
+            }
+            
+            await broadcaster.broadcast(merged_payload)
         except asyncio.CancelledError:
             break
         except Exception as e:
