@@ -30,20 +30,28 @@ We are moving to an event-driven architecture using **NATS JetStream** as the ba
 
 **CRITICAL**: Agents can work in parallel. Do not modify shared code (`src/common`) without coordination. Use `src/common/bus.py` for all NATS interaction.
 
-### AGENT A: Ingestor Service (The Source)
+### AGENT A: Ingestor Service (The Source) ✅ COMPLETE
 **Goal**: Create a standalone process that reads feed data and publishes to NATS.
 
-1.  **Modify `src/ingestor/stream_ingestor.py`**:
+**Status**: ✅ **COMPLETE**
+
+1.  **Modify `src/ingestor/stream_ingestor.py`**: ✅
     *   Remove `asyncio.Queue` dependency.
     *   Inject `NATSBus`.
     *   Publish normalized events to NATS subjects (e.g., `market.options.trades`).
-2.  **Create `src/ingestor/main.py`**:
+2.  **Create `src/ingestor/main.py`**: ✅
     *   Initialize `NATSBus`.
     *   Initialize `StreamIngestor`.
     *   Run the event loop.
-3.  **Update `DBNIngestor` (Replay)**:
+3.  **Update `DBNIngestor` (Replay)**: ✅
     *   Create a `ReplayPublisher` that reads DBN files and publishes to NATS at `REPLAY_SPEED`.
     *   This allows "Replay Mode" to just be a NATS publisher, so other services don't know the difference.
+
+**Deliverables**:
+- `src/ingestor/stream_ingestor.py` - Updated to publish to NATS
+- `src/ingestor/main.py` - Service entry point
+- `src/ingestor/replay_publisher.py` - DBN replay with configurable speed
+- `src/common/config.py` - Added NATS_URL, S3 settings, REPLAY_SPEED
 
 ### AGENT B: Lake Service (The Memory)
 **Goal**: Create a standalone process that archives everything from NATS to MinIO/S3.
@@ -59,18 +67,19 @@ We are moving to an event-driven architecture using **NATS JetStream** as the ba
 3.  **Create `src/lake/main.py`**:
     *   Entry point to run writers.
 
-### AGENT C: Core Service (The Brain) ✅ COMPLETE
+### AGENT C: Core Service (The Brain)
 **Goal**: The physics engine. Consumes raw data, calculates state, emits signals.
 
-**Status**: ✅ **COMPLETE**
-- ✅ Created `src/core/service.py` - CoreService orchestrator
-- ✅ Implemented snap loop (250ms cadence)
-- ✅ Created `src/core/main.py` - entry point
-- ✅ NATS subscriptions: `market.futures.trades`, `market.futures.mbp10`, `market.options.trades`
-- ✅ NATS publishing: `levels.signals`
-- ✅ Integration with all engines (Barrier, Tape, Fuel, Score, Smoothing)
-- ✅ Comprehensive tests (8/8 passing) in `tests/test_core_service.py`
-- ✅ Docker support via `backend/Dockerfile` (Python 3.12)
+1.  **Create `src/core/service.py`**:
+    *   Wraps `MarketState`, `BarrierEngine`, `ScoreEngine`, etc.
+    *   Subscribes to `market.*`.
+    *   Updates `MarketState` on every message.
+2.  **Implement Snap Loop**:
+    *   Run a periodic task (every 100-250ms).
+    *   Run logic: `LevelSignalService.compute_level_signals()`.
+    *   Publish result to `levels.signals` on NATS.
+3.  **Create `src/core/main.py`**:
+    *   Initialize and run the service.
 
 ### AGENT D: Gateway Service (The Interface)
 **Goal**: Serve the frontend via WebSockets.
@@ -98,13 +107,14 @@ We are moving to an event-driven architecture using **NATS JetStream** as the ba
 
 ---
 
-## Shared Configuration (`src/common/config.py`)
+## Shared Configuration (`src/common/config.py`) ✅ COMPLETE
 Ensure these env vars are supported:
-- `NATS_URL`: default `nats://localhost:4222`
-- `S3_ENDPOINT`: default `http://localhost:9000`
-- `S3_BUCKET`: default `spymaster-lake`
-- `S3_ACCESS_KEY`: `minioadmin`
-- `S3_SECRET_KEY`: `minioadmin`
+- `NATS_URL`: default `nats://localhost:4222` ✅
+- `S3_ENDPOINT`: default `http://localhost:9000` ✅
+- `S3_BUCKET`: default `spymaster-lake` ✅
+- `S3_ACCESS_KEY`: `minioadmin` ✅
+- `S3_SECRET_KEY`: `minioadmin` ✅
+- `REPLAY_SPEED`: default `1.0` ✅
 
 ## Development Workflow
 To run a service locally without Docker (for debugging):

@@ -11,6 +11,7 @@ Per §9 of PLAN.md, this centralizes:
 All values are tunable mechanical constants (no trained calibration in v1).
 """
 
+import os
 from dataclasses import dataclass
 
 
@@ -87,6 +88,18 @@ class Config:
     
     # ========== Out-of-order tolerance ==========
     LATENESS_BUFFER_MS: int = 500  # tolerate events up to 500ms late
+    
+    # ========== NATS settings (Phase 2) ==========
+    NATS_URL: str = os.getenv("NATS_URL", "nats://localhost:4222")
+    
+    # ========== S3/MinIO settings (Phase 2) ==========
+    S3_ENDPOINT: str = os.getenv("S3_ENDPOINT", "http://localhost:9000")
+    S3_BUCKET: str = os.getenv("S3_BUCKET", "spymaster-lake")
+    S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "minioadmin")
+    S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "minioadmin")
+    
+    # ========== Replay settings ==========
+    REPLAY_SPEED: float = float(os.getenv("REPLAY_SPEED", "1.0"))  # 1.0 = realtime, 0 = fast as possible
 
 
 # Singleton instance

@@ -2,19 +2,32 @@ import asyncio
 import time
 from polygon import WebSocketClient
 from polygon.websocket.models import WebSocketMessage
-from typing import Callable, List, Set
+from typing import Callable, List, Set, Optional
 from src.core.strike_manager import StrikeManager
 from src.common.event_types import StockTrade, StockQuote, OptionTrade, EventSource, Aggressor
+from src.common.bus import NATSBus
 import logging
 
 class StreamIngestor:
     """
-    Manages the WebSocket connection to Polygon without blocking.
-    Feeds an asyncio.Queue for processing with normalized event types.
+    Manages the WebSocket connection to Polygon.
+    Publishes normalized events to NATS JetStream.
+    
+    NATS Subjects:
+    - market.stocks.trades (StockTrade)
+    - market.stocks.quotes (StockQuote)
+    - market.options.trades (OptionTrade)
     """
-    def __init__(self, api_key: str, queue: asyncio.Queue, strike_manager: StrikeManager):
+    def __init__(
+        self, 
+        api_key: str, 
+        bus: NATSBus, 
+        strike_manager: StrikeManager,
+        queue: Optional[asyncio.Queue] = None  # Backward compat for transition
+    ):
         self.api_key = api_key
-        self.queue = queue
+        self.bus = bus
+        self.queue = queue  # Optional: for backward compatibility during transition
         self.strike_manager = strike_manager
         self.running = False
 
@@ -45,14 +58,13 @@ class StreamIngestor:
         )
 
     async def handle_msg_async(self, msgs: List[WebSocketMessage]):
-        """Handle Options Trades - normalize to OptionTrade events"""
+        """Handle Options Trades - normalize to OptionTrade events and publish to NATS"""
         ts_recv_ns = time.time_ns()
         for m in msgs:
             # Parse option ticker: O:SPY251216C00676000
             ticker = getattr(m, "symbol", "")
             if not ticker or not ticker.startswith("O:"):
-                # Forward raw message for other event types
-                await self.queue.put(m)
+                # Skip non-option messages
                 continue
 
             try:
@@ -87,14 +99,19 @@ class StreamIngestor:
                     conditions=getattr(m, "conditions", None),
                     seq=getattr(m, "sequence_number", None)
                 )
-                await self.queue.put(normalized)
+                
+                # Publish to NATS
+                await self.bus.publish("market.options.trades", normalized)
+                
+                # Backward compatibility: also put in queue if provided
+                if self.queue:
+                    await self.queue.put(normalized)
+                    
             except Exception as e:
-                # Fallback: forward raw message
                 logging.warning(f"Failed to normalize option trade {ticker}: {e}")
-                await self.queue.put(m)
 
     async def handle_stock_msg_async(self, msgs: List[WebSocketMessage]):
-        """Handle Stock Trades and Quotes (SPY) - normalize to StockTrade/StockQuote"""
+        """Handle Stock Trades and Quotes (SPY) - normalize and publish to NATS"""
         ts_recv_ns = time.time_ns()
         for m in msgs:
             event_type = getattr(m, "event_type", None)
@@ -124,7 +141,13 @@ class StreamIngestor:
                     conditions=getattr(m, "conditions", None),
                     seq=getattr(m, "sequence_number", None)
                 )
-                await self.queue.put(normalized)
+                
+                # Publish to NATS
+                await self.bus.publish("market.stocks.trades", normalized)
+                
+                # Backward compatibility
+                if self.queue:
+                    await self.queue.put(normalized)
 
             # Handle Quote messages (Q.SPY)
             elif hasattr(m, 'bid_price') and hasattr(m, 'ask_price'):
@@ -144,7 +167,13 @@ class StreamIngestor:
                     ask_exch=getattr(m, "ask_exchange", None),
                     seq=getattr(m, "sequence_number", None)
                 )
-                await self.queue.put(normalized)
+                
+                # Publish to NATS
+                await self.bus.publish("market.stocks.quotes", normalized)
+                
+                # Backward compatibility
+                if self.queue:
+                    await self.queue.put(normalized)
 
     def update_subs(self, add: List[str], remove: List[str]):
         if add:
