@@ -1,0 +1,314 @@
+"""
+Core Service: The Brain of Spymaster.
+
+Agent C deliverable per NEXT.md.
+
+This service:
+- Subscribes to market data streams from NATS (market.*)
+- Updates MarketState on every message
+- Runs a periodic snap loop (100-250ms) to compute level signals
+- Publishes level signals to NATS (levels.signals)
+
+The Core Service is the physics engine orchestrator.
+"""
+
+import asyncio
+import json
+import os
+from typing import Optional
+from dataclasses import asdict
+
+from src.common.bus import NATSBus
+from src.common.config import CONFIG
+from src.common.event_types import (
+    FuturesTrade, MBP10, OptionTrade, 
+    EventSource, Aggressor
+)
+from src.core.market_state import MarketState
+from src.core.level_signal_service import LevelSignalService
+from src.core.greek_enricher import GreekEnricher
+
+
+class CoreService:
+    """
+    The Brain: orchestrates market state updates and level signal computation.
+    
+    Usage:
+        service = CoreService(bus)
+        await service.start()
+        # Service runs until stopped
+    """
+    
+    def __init__(
+        self, 
+        bus: NATSBus,
+        greek_enricher: Optional[GreekEnricher] = None,
+        config=None,
+        user_hotzones: Optional[list] = None
+    ):
+        """
+        Initialize Core Service.
+        
+        Args:
+            bus: NATSBus instance (must be connected)
+            greek_enricher: Optional GreekEnricher instance (will create if not provided)
+            config: Config object (defaults to global CONFIG)
+            user_hotzones: Optional user-defined levels
+        """
+        self.bus = bus
+        self.config = config or CONFIG
+        self.user_hotzones = user_hotzones
+        
+        # Initialize market state
+        self.market_state = MarketState(
+            max_buffer_window_seconds=self.config.W_b * 2  # 2x barrier window for safety
+        )
+        
+        # Initialize greek enricher (for option trades)
+        if greek_enricher is None:
+            # Try to get API key from environment
+            api_key = os.environ.get("POLYGON_API_KEY")
+            if api_key:
+                self.greek_enricher = GreekEnricher(api_key=api_key)
+                print("✅ GreekEnricher initialized with API key from environment")
+            else:
+                print("⚠️  No POLYGON_API_KEY found - greek enrichment disabled")
+                self.greek_enricher = None
+        else:
+            self.greek_enricher = greek_enricher
+        
+        # Initialize level signal service
+        self.level_signal_service = LevelSignalService(
+            market_state=self.market_state,
+            user_hotzones=user_hotzones,
+            config=self.config
+        )
+        
+        # Snap loop control
+        self.snap_task: Optional[asyncio.Task] = None
+        self.running = False
+        
+        print("✅ CoreService initialized")
+    
+    async def start(self):
+        """
+        Start the Core Service.
+        
+        This will:
+        1. Subscribe to market data streams
+        2. Start the snap loop
+        3. Run until stopped
+        """
+        if self.running:
+            print("⚠️  CoreService already running")
+            return
+        
+        self.running = True
+        print("🚀 CoreService starting...")
+        
+        # Subscribe to market data streams
+        await self._subscribe_to_market_data()
+        
+        # Start snap loop
+        self.snap_task = asyncio.create_task(self._snap_loop())
+        
+        print("✅ CoreService running")
+        
+        # Keep running
+        try:
+            await self.snap_task
+        except asyncio.CancelledError:
+            print("🛑 CoreService stopped")
+    
+    async def stop(self):
+        """Stop the Core Service."""
+        print("🛑 Stopping CoreService...")
+        self.running = False
+        
+        if self.snap_task:
+            self.snap_task.cancel()
+            try:
+                await self.snap_task
+            except asyncio.CancelledError:
+                pass
+        
+        print("✅ CoreService stopped")
+    
+    async def _subscribe_to_market_data(self):
+        """Subscribe to all market data streams from NATS."""
+        print("🎧 Subscribing to market data streams...")
+        
+        # Subscribe to futures trades (ES)
+        await self.bus.subscribe(
+            subject="market.futures.trades",
+            callback=self._handle_futures_trade,
+            durable_name="core-futures-trades"
+        )
+        
+        # Subscribe to futures MBP-10 (ES)
+        await self.bus.subscribe(
+            subject="market.futures.mbp10",
+            callback=self._handle_futures_mbp10,
+            durable_name="core-futures-mbp10"
+        )
+        
+        # Subscribe to options trades (SPY options)
+        await self.bus.subscribe(
+            subject="market.options.trades",
+            callback=self._handle_option_trade,
+            durable_name="core-options-trades"
+        )
+        
+        print("✅ Subscribed to market data streams")
+    
+    async def _handle_futures_trade(self, msg: dict):
+        """
+        Handle incoming ES futures trade from NATS.
+        
+        Args:
+            msg: Deserialized FuturesTrade dict
+        """
+        try:
+            # Reconstruct FuturesTrade from dict
+            trade = FuturesTrade(
+                ts_event_ns=msg["ts_event_ns"],
+                ts_recv_ns=msg["ts_recv_ns"],
+                source=EventSource(msg["source"]),
+                symbol=msg["symbol"],
+                price=msg["price"],
+                size=msg["size"],
+                aggressor=Aggressor(msg["aggressor"]),
+                exchange=msg.get("exchange"),
+                conditions=msg.get("conditions"),
+                seq=msg.get("seq")
+            )
+            
+            # Update market state
+            self.market_state.update_es_trade(trade)
+            
+        except Exception as e:
+            print(f"❌ Error handling futures trade: {e}")
+    
+    async def _handle_futures_mbp10(self, msg: dict):
+        """
+        Handle incoming ES MBP-10 snapshot from NATS.
+        
+        Args:
+            msg: Deserialized MBP10 dict
+        """
+        try:
+            # Reconstruct MBP10 from dict
+            # MBP10 has nested BidAskLevel structures, need careful reconstruction
+            from src.common.event_types import BidAskLevel
+            
+            levels = []
+            for level_dict in msg.get("levels", []):
+                level = BidAskLevel(
+                    bid_px=level_dict["bid_px"],
+                    bid_sz=level_dict["bid_sz"],
+                    ask_px=level_dict["ask_px"],
+                    ask_sz=level_dict["ask_sz"]
+                )
+                levels.append(level)
+            
+            mbp = MBP10(
+                ts_event_ns=msg["ts_event_ns"],
+                ts_recv_ns=msg["ts_recv_ns"],
+                source=EventSource(msg["source"]),
+                symbol=msg["symbol"],
+                levels=levels,
+                is_snapshot=msg.get("is_snapshot", False),
+                seq=msg.get("seq")
+            )
+            
+            # Update market state
+            self.market_state.update_es_mbp10(mbp)
+            
+        except Exception as e:
+            print(f"❌ Error handling MBP-10: {e}")
+    
+    async def _handle_option_trade(self, msg: dict):
+        """
+        Handle incoming option trade from NATS.
+        
+        Args:
+            msg: Deserialized OptionTrade dict
+        """
+        try:
+            # Reconstruct OptionTrade from dict
+            trade = OptionTrade(
+                ts_event_ns=msg["ts_event_ns"],
+                ts_recv_ns=msg["ts_recv_ns"],
+                source=EventSource(msg["source"]),
+                underlying=msg["underlying"],
+                option_symbol=msg["option_symbol"],
+                exp_date=msg["exp_date"],
+                strike=msg["strike"],
+                right=msg["right"],
+                price=msg["price"],
+                size=msg["size"],
+                opt_bid=msg.get("opt_bid"),
+                opt_ask=msg.get("opt_ask"),
+                aggressor=Aggressor(msg["aggressor"]),
+                conditions=msg.get("conditions"),
+                seq=msg.get("seq")
+            )
+            
+            # Enrich with greeks (from cache)
+            delta = 0.0
+            gamma = 0.0
+            
+            if self.greek_enricher:
+                greeks = self.greek_enricher.get_greeks(
+                    underlying=trade.underlying,
+                    strike=trade.strike,
+                    exp_date=trade.exp_date,
+                    right=trade.right
+                )
+                
+                if greeks:
+                    delta = greeks.get("delta", 0.0)
+                    gamma = greeks.get("gamma", 0.0)
+            
+            # Update market state
+            self.market_state.update_option_trade(
+                trade=trade,
+                delta=delta,
+                gamma=gamma
+            )
+            
+        except Exception as e:
+            print(f"❌ Error handling option trade: {e}")
+    
+    async def _snap_loop(self):
+        """
+        Periodic snap loop: compute level signals and publish to NATS.
+        
+        Runs every SNAP_INTERVAL_MS (default 250ms).
+        """
+        interval_s = self.config.SNAP_INTERVAL_MS / 1000.0
+        print(f"🔄 Snap loop starting (interval={interval_s}s)")
+        
+        while self.running:
+            try:
+                # Compute level signals
+                payload = self.level_signal_service.compute_level_signals()
+                
+                # Publish to NATS
+                await self.bus.publish(
+                    subject="levels.signals",
+                    payload=payload
+                )
+                
+                # Log summary (optional, can be removed for performance)
+                num_levels = len(payload.get("levels", []))
+                spot = payload.get("spy", {}).get("spot")
+                if num_levels > 0:
+                    print(f"📊 Published {num_levels} level signals (spot={spot:.2f})")
+                
+            except Exception as e:
+                print(f"❌ Error in snap loop: {e}")
+            
+            # Sleep until next snap
+            await asyncio.sleep(interval_s)
+

@@ -1,0 +1,122 @@
+# NEXT.md — Phase 2 Transition Plan (NATS + Services)
+
+> **Audience**: AI Coding Agents (Parallel Execution)
+> **Goal**: Transition from `asyncio.Queue` monolith to NATS-based microservices.
+> **Status**: Refactoring complete. Directories established. `docker-compose.yml` ready. `bus.py` created.
+
+---
+
+## Architecture: The "Spymaster" Distributed System
+
+We are moving to an event-driven architecture using **NATS JetStream** as the backbone.
+
+### Data Flow
+1.  **Ingestor** → `market.<type>.<symbol>` (NATS)
+2.  **Core** ← `market.*` (NATS) → `levels.signals` (NATS)
+3.  **Lake** ← `market.*` + `levels.signals` (NATS) → MinIO/S3 (Parquet)
+4.  **Gateway** ← `levels.signals` (NATS) → WebSocket (Frontend)
+
+### NATS Subjects (Contracts)
+| Subject | Schema | Publisher | Consumer |
+| :--- | :--- | :--- | :--- |
+| `market.futures.trades` | `FuturesTrade` | Ingestor | Core, Lake |
+| `market.futures.mbp10` | `MBP10` | Ingestor | Core, Lake |
+| `market.options.trades` | `OptionTrade` | Ingestor | Core, Lake |
+| `levels.signals` | `LevelSignals` | Core | Gateway, Lake |
+
+---
+
+## Agent Assignments
+
+**CRITICAL**: Agents can work in parallel. Do not modify shared code (`src/common`) without coordination. Use `src/common/bus.py` for all NATS interaction.
+
+### AGENT A: Ingestor Service (The Source)
+**Goal**: Create a standalone process that reads feed data and publishes to NATS.
+
+1.  **Modify `src/ingestor/stream_ingestor.py`**:
+    *   Remove `asyncio.Queue` dependency.
+    *   Inject `NATSBus`.
+    *   Publish normalized events to NATS subjects (e.g., `market.options.trades`).
+2.  **Create `src/ingestor/main.py`**:
+    *   Initialize `NATSBus`.
+    *   Initialize `StreamIngestor`.
+    *   Run the event loop.
+3.  **Update `DBNIngestor` (Replay)**:
+    *   Create a `ReplayPublisher` that reads DBN files and publishes to NATS at `REPLAY_SPEED`.
+    *   This allows "Replay Mode" to just be a NATS publisher, so other services don't know the difference.
+
+### AGENT B: Lake Service (The Memory)
+**Goal**: Create a standalone process that archives everything from NATS to MinIO/S3.
+
+1.  **Update `BronzeWriter` (`src/lake/bronze_writer.py`)**:
+    *   Remove `wal_manager` (NATS JetStream *is* the WAL now).
+    *   Subscribe to `market.*`.
+    *   Write Parquet to S3/MinIO paths (use `s3fs` or `pyarrow` S3 filesystem).
+    *   *Note*: Ensure it uses the `S3_ENDPOINT` from env vars to talk to the local MinIO container.
+2.  **Update `GoldWriter` (`src/lake/gold_writer.py`)**:
+    *   Subscribe to `levels.signals`.
+    *   Write Parquet to S3/MinIO.
+3.  **Create `src/lake/main.py`**:
+    *   Entry point to run writers.
+
+### AGENT C: Core Service (The Brain) ✅ COMPLETE
+**Goal**: The physics engine. Consumes raw data, calculates state, emits signals.
+
+**Status**: ✅ **COMPLETE**
+- ✅ Created `src/core/service.py` - CoreService orchestrator
+- ✅ Implemented snap loop (250ms cadence)
+- ✅ Created `src/core/main.py` - entry point
+- ✅ NATS subscriptions: `market.futures.trades`, `market.futures.mbp10`, `market.options.trades`
+- ✅ NATS publishing: `levels.signals`
+- ✅ Integration with all engines (Barrier, Tape, Fuel, Score, Smoothing)
+- ✅ Comprehensive tests (8/8 passing) in `tests/test_core_service.py`
+- ✅ Docker support via `backend/Dockerfile` (Python 3.12)
+
+### AGENT D: Gateway Service (The Interface)
+**Goal**: Serve the frontend via WebSockets.
+
+1.  **Update `SocketBroadcaster` (`src/gateway/socket_broadcaster.py`)**:
+    *   It currently holds state. Change it to be a pure relay.
+    *   Subscribe to `levels.signals` (and `market.flow` if we keep the flow view).
+2.  **Create `src/gateway/main.py`**:
+    *   FastAPI app.
+    *   WebSocket endpoint `/ws/stream`.
+    *   On connect, maybe send a "snapshot" (request it from Core via NATS Request/Reply? Or Core publishes "state" periodically?).
+    *   *Decision*: Just stream live updates for now.
+
+### AGENT E: Infrastructure & Orchestration
+**Goal**: Tie it all together with Docker.
+
+1.  **Dockerize**:
+    *   Create `Dockerfile` in `backend/`.
+    *   Update `docker-compose.yml` to add services (`ingestor`, `core`, `lake`, `gateway`) building from that Dockerfile.
+    *   Command overrides for each: `uv run python -m src.ingestor.main`, etc.
+2.  **Validation**:
+    *   Spin up the stack.
+    *   Run a replay.
+    *   Verify frontend receives data.
+
+---
+
+## Shared Configuration (`src/common/config.py`)
+Ensure these env vars are supported:
+- `NATS_URL`: default `nats://localhost:4222`
+- `S3_ENDPOINT`: default `http://localhost:9000`
+- `S3_BUCKET`: default `spymaster-lake`
+- `S3_ACCESS_KEY`: `minioadmin`
+- `S3_SECRET_KEY`: `minioadmin`
+
+## Development Workflow
+To run a service locally without Docker (for debugging):
+```bash
+# Terminal 1: Infrastructure
+docker-compose up nats minio
+
+# Terminal 2: Core
+export NATS_URL=nats://localhost:4222
+uv run python -m src.core.main
+
+# Terminal 3: Ingestor
+export NATS_URL=nats://localhost:4222
+uv run python -m src.ingestor.main
+```
