@@ -54,40 +54,83 @@ services:
     networks:
       - spymaster
 
-  # Gateway Service (Agent D)
-  # Uncomment when ready to test
-  # gateway:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   container_name: spymaster-gateway
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     NATS_URL: nats://nats:4222
-  #   command: ["uv", "run", "python", "-m", "src.gateway.main"]
-  #   depends_on:
-  #     nats:
-  #       condition: service_healthy
-  #   networks:
-  #     - spymaster
+  # -------------------------------------------------------------------------
+  # SPYMASTER SERVICES
+  # -------------------------------------------------------------------------
 
-  # Core Service (Agent C)
-  # Uncomment when ready to test
-  # core:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   container_name: spymaster-core
-  #   environment:
-  #     NATS_URL: nats://nats:4222
-  #     POLYGON_API_KEY: ${POLYGON_API_KEY}
-  #   command: ["uv", "run", "python", "-m", "src.core.main"]
-  #   depends_on:
-  #     nats:
-  #       condition: service_healthy
-  #   networks:
-  #     - spymaster
+  # AGENT A: Ingestor (The Source)
+  ingestor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spymaster-ingestor
+    environment:
+      NATS_URL: nats://nats:4222
+      POLYGON_API_KEY: ${POLYGON_API_KEY}
+      REPLAY_MODE: ${REPLAY_MODE:-false}
+      REPLAY_DATE: ${REPLAY_DATE}
+      REPLAY_SPEED: ${REPLAY_SPEED:-1.0}
+    command: ["uv", "run", "python", "-m", "src.ingestor.main"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - spymaster
+
+  # AGENT C: Core (The Brain)
+  core:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spymaster-core
+    environment:
+      NATS_URL: nats://nats:4222
+      POLYGON_API_KEY: ${POLYGON_API_KEY}
+    command: ["uv", "run", "python", "-m", "src.core.main"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - spymaster
+
+  # AGENT B: Lake (The Memory)
+  lake:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spymaster-lake
+    environment:
+      NATS_URL: nats://nats:4222
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: spymaster-lake
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    command: ["uv", "run", "python", "-m", "src.lake.main"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - spymaster
+
+  # AGENT D: Gateway (The Interface)
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spymaster-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      NATS_URL: nats://nats:4222
+      PORT: 8000
+    command: ["uv", "run", "python", "-m", "src.gateway.main"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - spymaster
 
 networks:
   spymaster:
@@ -95,4 +138,3 @@ networks:
 
 volumes:
   minio_data:
-
