@@ -16,6 +16,7 @@ from .level_signal_service import LevelSignalService
 from .bronze_writer import BronzeWriter
 from .gold_writer import GoldWriter
 from .event_types import FuturesTrade, MBP10, OptionTrade
+from .run_manifest_manager import RunManifestManager, RunMode, RunStatus
 
 # Load environment
 load_dotenv()
@@ -39,6 +40,10 @@ level_signal_service = LevelSignalService(market_state=market_state)
 PERSISTENCE_ENABLED = os.getenv("PERSISTENCE_ENABLED", "true").lower() == "true"
 bronze_writer = BronzeWriter() if PERSISTENCE_ENABLED else None
 gold_writer = GoldWriter() if PERSISTENCE_ENABLED else None
+
+# Run manifest manager (Phase 1)
+run_mode = RunMode.REPLAY if REPLAY_MODE else RunMode.LIVE
+manifest_manager = RunManifestManager(mode=run_mode) if PERSISTENCE_ENABLED else None
 
 # Mode Selection
 REPLAY_MODE = os.getenv("REPLAY_MODE", "false").lower() == "true"
@@ -211,6 +216,10 @@ async def strike_monitor_loop():
 async def lifespan(app: FastAPI):
     # Startup
     print("🚀 Starting 0DTE Backend...")
+    
+    # Start run manifest (Phase 1)
+    if manifest_manager:
+        manifest_manager.start_run()
 
     # Start Greek Enricher (background) - skip for replay since we use cached greeks
     if not REPLAY_MODE:
@@ -266,13 +275,20 @@ async def lifespan(app: FastAPI):
     # Flush persistence engines
     await persistence.flush()
 
-    # Flush storage writers
+    # Flush and close storage writers
     if bronze_writer:
-        print("  Flushing Bronze writer...")
-        await bronze_writer.flush_all()
+        print("  Closing Bronze writer (includes WAL)...")
+        await bronze_writer.close()
     if gold_writer:
         print("  Flushing Gold writer...")
         await gold_writer.flush()
+    
+    # Finalize run manifest (Phase 1)
+    if manifest_manager:
+        try:
+            manifest_manager.complete_run(RunStatus.COMPLETED)
+        except Exception as e:
+            manifest_manager.mark_crashed(str(e))
 
     print("✅ Shutdown complete")
 

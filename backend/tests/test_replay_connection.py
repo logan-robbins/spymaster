@@ -1,7 +1,10 @@
+import asyncio
+import pytest
 from src.historical_cache import HistoricalDataCache
 from src.replay_engine import ReplayEngine
-import asyncio
 
+
+@pytest.mark.asyncio
 async def test_replay_discovery():
     print("🔎 Testing Unified Replay Discovery...")
     cache = HistoricalDataCache()

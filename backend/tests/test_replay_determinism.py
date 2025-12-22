@@ -13,7 +13,7 @@ import shutil
 import os
 from typing import List, Dict, Any
 
-from src.event_types import StockTrade, StockQuote, OptionTrade, EventSource, Aggressor
+from src.event_types import StockTrade, StockQuote, OptionTrade, FuturesTrade, EventSource, Aggressor
 from src.market_state import MarketState
 from src.barrier_engine import BarrierEngine, Direction
 from src.tape_engine import TapeEngine
@@ -91,46 +91,94 @@ def generate_synthetic_events(
     return events
 
 
+def generate_es_events(
+    base_ts_ns: int,
+    num_trades: int = 50,
+    num_options: int = 20
+) -> List[Any]:
+    """
+    Generate deterministic synthetic ES futures events for testing.
+
+    All events are created with predictable values based on their index.
+    ES prices are ~10x SPY prices (e.g., SPY 545 = ES 5450).
+    """
+    events = []
+
+    # Generate ES trades with small price variations
+    for i in range(num_trades):
+        ts = base_ts_ns + i * 200_000_000  # 200ms apart
+        # ES price oscillates around 5450 (equivalent to SPY 545)
+        price = 5450.0 + (i % 10) * 0.25
+        events.append(FuturesTrade(
+            ts_event_ns=ts,
+            ts_recv_ns=ts + 1000,
+            source=EventSource.SIM,
+            symbol='ES',
+            price=price,
+            size=1 + i % 5,
+            aggressor=Aggressor.BUY if i % 2 == 0 else Aggressor.SELL
+        ))
+
+    # Generate option trades
+    for i in range(num_options):
+        ts = base_ts_ns + i * 500_000_000 + 25_000_000  # Different offset
+        strike = 545.0 + (i % 5)
+        right = 'C' if i % 2 == 0 else 'P'
+        exp_date = '2025-12-22'
+        symbol = f"O:SPY251222{right}00{int(strike*1000):08d}"
+        events.append(OptionTrade(
+            ts_event_ns=ts,
+            ts_recv_ns=ts + 1000,
+            source=EventSource.SIM,
+            underlying='SPY',
+            option_symbol=symbol,
+            exp_date=exp_date,
+            strike=strike,
+            right=right,
+            price=1.50 + i * 0.1,
+            size=10 + i,
+            aggressor=Aggressor.BUY
+        ))
+
+    # Sort by timestamp (deterministic order)
+    events.sort(key=lambda e: e.ts_event_ns)
+    return events
+
+
 class TestEngineDeterminism:
     """Test that engines produce deterministic outputs."""
 
     def test_market_state_deterministic(self):
         """Same events should produce same MarketState."""
-        events = generate_synthetic_events(time.time_ns(), num_quotes=50)
+        events = generate_es_events(time.time_ns(), num_trades=50)
 
         # Run 1
         state1 = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                state1.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                state1.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                state1.update_es_trade(event)
 
         # Run 2
         state2 = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                state2.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                state2.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                state2.update_es_trade(event)
 
-        # Compare
-        assert state1.last_quote.bid_px == state2.last_quote.bid_px
-        assert state1.last_quote.ask_px == state2.last_quote.ask_px
-        assert state1.last_trade.price == state2.last_trade.price
+        # Compare ES state using getter methods
+        assert state1.get_es_spot() == state2.get_es_spot()
+        assert state1.get_es_vwap() == state2.get_es_vwap()
+        assert state1.get_spot() == state2.get_spot()
         print("✅ MarketState: Deterministic")
 
     def test_barrier_engine_deterministic(self):
         """Same MarketState should produce same barrier metrics."""
-        events = generate_synthetic_events(time.time_ns())
+        events = generate_es_events(time.time_ns())
 
-        # Prepare MarketState
+        # Prepare MarketState with ES trades
         market_state = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                market_state.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                market_state.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                market_state.update_es_trade(event)
 
         # Run barrier engine twice
         engine1 = BarrierEngine()
@@ -146,15 +194,13 @@ class TestEngineDeterminism:
 
     def test_tape_engine_deterministic(self):
         """Same MarketState should produce same tape metrics."""
-        events = generate_synthetic_events(time.time_ns())
+        events = generate_es_events(time.time_ns())
 
-        # Prepare MarketState
+        # Prepare MarketState with ES trades
         market_state = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                market_state.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                market_state.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                market_state.update_es_trade(event)
 
         # Run tape engine twice
         engine1 = TapeEngine()
@@ -171,15 +217,13 @@ class TestEngineDeterminism:
 
     def test_fuel_engine_deterministic(self):
         """Same option flows should produce same fuel metrics."""
-        events = generate_synthetic_events(time.time_ns(), num_options=30)
+        events = generate_es_events(time.time_ns(), num_options=30)
 
-        # Prepare MarketState with option trades
+        # Prepare MarketState with ES trades and option trades
         market_state = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                market_state.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                market_state.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                market_state.update_es_trade(event)
             elif isinstance(event, OptionTrade):
                 # Add with synthetic greeks
                 market_state.update_option_trade(event, delta=0.5, gamma=0.05)
@@ -212,7 +256,9 @@ class TestEngineDeterminism:
             canceled_size=4000,
             filled_size=2000,
             defending_quote={'price': 545.0, 'size': 5000},
-            confidence=0.8
+            confidence=0.8,
+            churn=5000.0,
+            depth_in_zone=25000
         )
 
         tape = TapeMetrics(
@@ -342,15 +388,13 @@ class TestLevelSignalServiceDeterminism:
 
     def test_level_signals_deterministic(self):
         """Same MarketState should produce same level signals."""
-        events = generate_synthetic_events(time.time_ns())
+        events = generate_es_events(time.time_ns())
 
-        # Prepare MarketState
+        # Prepare MarketState with ES trades
         market_state = MarketState()
         for event in events:
-            if isinstance(event, StockQuote):
-                market_state.update_stock_quote(event)
-            elif isinstance(event, StockTrade):
-                market_state.update_stock_trade(event)
+            if isinstance(event, FuturesTrade):
+                market_state.update_es_trade(event)
             elif isinstance(event, OptionTrade):
                 market_state.update_option_trade(event, delta=0.5, gamma=0.05)
 
@@ -386,16 +430,17 @@ class TestEventOrdering:
         """Events should sort deterministically by ts_event_ns."""
         base_ts = time.time_ns()
 
-        # Create events with known timestamps
+        # Create ES futures events with known timestamps
         events = [
-            StockQuote(ts_event_ns=base_ts + 300, ts_recv_ns=base_ts + 301,
-                      source=EventSource.SIM, symbol='SPY',
-                      bid_px=545.0, ask_px=545.02, bid_sz=10000, ask_sz=8000),
-            StockTrade(ts_event_ns=base_ts + 100, ts_recv_ns=base_ts + 101,
-                      source=EventSource.SIM, symbol='SPY', price=545.01, size=100),
-            StockQuote(ts_event_ns=base_ts + 200, ts_recv_ns=base_ts + 201,
-                      source=EventSource.SIM, symbol='SPY',
-                      bid_px=545.01, ask_px=545.03, bid_sz=10000, ask_sz=8000),
+            FuturesTrade(ts_event_ns=base_ts + 300, ts_recv_ns=base_ts + 301,
+                        source=EventSource.SIM, symbol='ES',
+                        price=5450.25, size=1, aggressor=Aggressor.BUY),
+            FuturesTrade(ts_event_ns=base_ts + 100, ts_recv_ns=base_ts + 101,
+                        source=EventSource.SIM, symbol='ES',
+                        price=5450.00, size=2, aggressor=Aggressor.SELL),
+            FuturesTrade(ts_event_ns=base_ts + 200, ts_recv_ns=base_ts + 201,
+                        source=EventSource.SIM, symbol='ES',
+                        price=5450.50, size=1, aggressor=Aggressor.BUY),
         ]
 
         # Sort by timestamp

@@ -15,7 +15,7 @@ import asyncio
 import time
 from dataclasses import asdict, fields
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Type, TypeVar
+from typing import Dict, List, Any, Optional, Type, TypeVar, Set
 from enum import Enum
 
 import pandas as pd
@@ -27,6 +27,7 @@ from .event_types import (
     FuturesTrade, MBP10, EventSource, Aggressor
 )
 from .config import CONFIG
+from .wal_manager import WALManager
 
 
 # Type variable for event types
@@ -79,7 +80,8 @@ class BronzeWriter:
         self,
         data_root: Optional[str] = None,
         buffer_limit: int = 1000,
-        flush_interval_seconds: float = 5.0
+        flush_interval_seconds: float = 5.0,
+        enable_wal: bool = True
     ):
         """
         Initialize Bronze writer.
@@ -88,6 +90,7 @@ class BronzeWriter:
             data_root: Root directory for data lake (defaults to backend/data/lake)
             buffer_limit: Max events to buffer before flush
             flush_interval_seconds: Max time between flushes
+            enable_wal: Enable Write-Ahead Log for durability (Phase 1)
         """
         self.data_root = data_root or os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -96,6 +99,7 @@ class BronzeWriter:
         )
         self.buffer_limit = buffer_limit
         self.flush_interval = flush_interval_seconds
+        self.enable_wal = enable_wal
 
         # Separate buffers per schema
         self._buffers: Dict[str, List[Dict[str, Any]]] = {
@@ -109,6 +113,11 @@ class BronzeWriter:
         # Ensure bronze directory exists
         self.bronze_root = os.path.join(self.data_root, 'bronze')
         os.makedirs(self.bronze_root, exist_ok=True)
+        
+        # Initialize WAL (Phase 1)
+        self.wal = WALManager() if enable_wal else None
+        if self.wal:
+            print("  WAL enabled for Bronze writer")
 
     def _get_partition_path(
         self,
@@ -153,26 +162,38 @@ class BronzeWriter:
 
     async def write_stock_trade(self, event: StockTrade) -> None:
         """Buffer a stock trade event."""
+        if self.wal:
+            await self.wal.append('stocks.trades', event.symbol, event)
         await self._buffer_event('stocks.trades', event, event.symbol)
 
     async def write_stock_quote(self, event: StockQuote) -> None:
         """Buffer a stock quote event."""
+        if self.wal:
+            await self.wal.append('stocks.quotes', event.symbol, event)
         await self._buffer_event('stocks.quotes', event, event.symbol)
 
     async def write_option_trade(self, event: OptionTrade) -> None:
         """Buffer an option trade event."""
+        if self.wal:
+            await self.wal.append('options.trades', event.underlying, event)
         await self._buffer_event('options.trades', event, event.underlying)
 
     async def write_greeks_snapshot(self, event: GreeksSnapshot) -> None:
         """Buffer a greeks snapshot event."""
+        if self.wal:
+            await self.wal.append('options.greeks_snapshots', event.underlying, event)
         await self._buffer_event('options.greeks_snapshots', event, event.underlying)
 
     async def write_futures_trade(self, event: FuturesTrade) -> None:
         """Buffer a futures trade event."""
+        if self.wal:
+            await self.wal.append('futures.trades', event.symbol, event)
         await self._buffer_event('futures.trades', event, event.symbol)
 
     async def write_mbp10(self, event: MBP10) -> None:
         """Buffer an MBP-10 event."""
+        if self.wal:
+            await self.wal.append('futures.mbp10', event.symbol, event)
         await self._buffer_event('futures.mbp10', event, event.symbol)
 
     async def _buffer_event(
@@ -211,12 +232,17 @@ class BronzeWriter:
 
         # Write in executor to avoid blocking
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
+        partition_keys = await loop.run_in_executor(
             None,
             self._write_parquet,
             schema_name,
             data_to_write
         )
+        
+        # Mark WAL segments as flushed for each partition key
+        if self.wal and partition_keys:
+            for partition_key in partition_keys:
+                await self.wal.mark_flushed(schema_name, partition_key)
 
     async def flush_all(self) -> None:
         """Flush all schema buffers."""
@@ -227,17 +253,22 @@ class BronzeWriter:
         self,
         schema_name: str,
         data: List[Dict[str, Any]]
-    ) -> None:
+    ) -> Set[str]:
         """
         Write data to Parquet files, grouped by partition.
 
         Uses ZSTD compression level 3 per PLAN.md §2.2.
+        
+        Returns:
+            Set of partition keys that were written (for WAL cleanup)
         """
         if not data:
-            return
+            return set()
 
         # Group by partition
         partitions: Dict[str, List[Dict[str, Any]]] = {}
+        partition_keys_map: Dict[str, str] = {}  # partition_path -> partition_key
+        
         for record in data:
             partition_key = record.pop('_partition_key')
             ts_event_ns = record['ts_event_ns']
@@ -247,9 +278,11 @@ class BronzeWriter:
 
             if partition_path not in partitions:
                 partitions[partition_path] = []
+                partition_keys_map[partition_path] = partition_key
             partitions[partition_path].append(record)
 
         # Write each partition
+        flushed_keys = set()
         for partition_path, records in partitions.items():
             try:
                 os.makedirs(partition_path, exist_ok=True)
@@ -277,13 +310,24 @@ class BronzeWriter:
                 )
 
                 print(f"  Bronze: {len(df)} rows -> {file_path}")
+                
+                # Track successful flush
+                flushed_keys.add(partition_keys_map[partition_path])
 
             except Exception as e:
                 print(f"  Bronze ERROR ({schema_name}): {e}")
+        
+        return flushed_keys
 
     def get_bronze_path(self) -> str:
         """Return the bronze root path."""
         return self.bronze_root
+    
+    async def close(self) -> None:
+        """Close Bronze writer and WAL."""
+        await self.flush_all()
+        if self.wal:
+            await self.wal.close()
 
 
 class BronzeReader:

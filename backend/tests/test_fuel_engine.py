@@ -463,17 +463,18 @@ class TestGlobalWallRetrieval:
     
     def test_get_all_walls_across_strikes(self, fuel_engine, market_state):
         """Test retrieval of global call/put walls across entire range."""
-        # Setup market state with spot price
-        from src.event_types import StockTrade, EventSource, Aggressor
-        trade = StockTrade(
+        # Setup market state with spot price using ES trade (SPY 680 = ES 6800)
+        from src.event_types import FuturesTrade, EventSource, Aggressor
+        trade = FuturesTrade(
             ts_event_ns=1000000000,
             ts_recv_ns=1000000000,
             source=EventSource.SIM,
-            symbol='SPY',
-            price=680.0,
-            size=100
+            symbol='ES',
+            price=6800.0,  # ES price = SPY * 10
+            size=1,
+            aggressor=Aggressor.BUY
         )
-        market_state.update_stock_trade(trade, Aggressor.BUY)
+        market_state.update_es_trade(trade)
         
         # Setup strong call wall at 685
         market_state.option_flows[(685.0, 'C', '2025-12-16')] = OptionFlowAggregate(

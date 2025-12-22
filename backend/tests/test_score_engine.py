@@ -33,7 +33,9 @@ def make_barrier_metrics(
         canceled_size=500,
         filled_size=500,
         defending_quote={'price': 545.0, 'size': 10000},
-        confidence=confidence
+        confidence=confidence,
+        churn=2000.0,
+        depth_in_zone=50000
     )
 
 
