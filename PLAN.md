@@ -898,20 +898,21 @@ Create `backend/src/config.py` (or similar) containing:
   - `backend/src/market_state.py`
   - `backend/test_market_state.py`
 
-#### Agent D — Barrier + Tape engines (SPY L1 physics + tape momentum)
+#### Agent D — Barrier + Tape engines (SPY L1 physics + tape momentum) ✅ COMPLETE
 
 **Goal**: Implement deterministic barrier/tape states per §5.1 and §5.2.
 
-- **Deliverables**
-  - Create `backend/src/barrier_engine.py` implementing barrier accounting over rolling windows.
-  - Create `backend/src/tape_engine.py` implementing aggressor classification, imbalance, velocity, and sweep detection.
+- **Deliverables** ✅
+  - ✅ Create `backend/src/barrier_engine.py` implementing barrier accounting over rolling windows.
+  - ✅ Create `backend/src/tape_engine.py` implementing aggressor classification, imbalance, velocity, and sweep detection.
+  - ✅ Test suite `backend/test_barrier_tape_engines.py` verifying all states and integrations
 - **Interfaces to consume**
-  - `MarketState` queries (Agent C)
-  - Config thresholds/windows (Agent A)
+  - `MarketState` queries (Agent C) ✅
+  - Config thresholds/windows (Agent A) ✅
 - **Dependencies**
-  - Agent A + Agent C
+  - Agent A ✅ + Agent C ✅
 - **Files owned**
-  - `backend/src/barrier_engine.py`, `backend/src/tape_engine.py`
+  - `backend/src/barrier_engine.py`, `backend/src/tape_engine.py`, `backend/test_barrier_tape_engines.py`
 
 #### Agent E — Fuel engine (options gamma transfer + wall inference)
 
