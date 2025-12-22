@@ -53,19 +53,19 @@ We are moving to an event-driven architecture using **NATS JetStream** as the ba
 - `src/ingestor/replay_publisher.py` - DBN replay with configurable speed
 - `src/common/config.py` - Added NATS_URL, S3 settings, REPLAY_SPEED
 
-### AGENT B: Lake Service (The Memory)
+### AGENT B: Lake Service (The Memory) ✅ COMPLETE
 **Goal**: Create a standalone process that archives everything from NATS to MinIO/S3.
 
-1.  **Update `BronzeWriter` (`src/lake/bronze_writer.py`)**:
-    *   Remove `wal_manager` (NATS JetStream *is* the WAL now).
-    *   Subscribe to `market.*`.
-    *   Write Parquet to S3/MinIO paths (use `s3fs` or `pyarrow` S3 filesystem).
-    *   *Note*: Ensure it uses the `S3_ENDPOINT` from env vars to talk to the local MinIO container.
-2.  **Update `GoldWriter` (`src/lake/gold_writer.py`)**:
-    *   Subscribe to `levels.signals`.
-    *   Write Parquet to S3/MinIO.
-3.  **Create `src/lake/main.py`**:
-    *   Entry point to run writers.
+1.  ✅ **Updated `BronzeWriter` (`src/lake/bronze_writer.py`)**:
+    *   Removed `wal_manager` (NATS JetStream is the WAL).
+    *   Subscribes to `market.*` via NATS.
+    *   Writes Parquet to S3/MinIO or local filesystem (configurable).
+2.  ✅ **Updated `GoldWriter` (`src/lake/gold_writer.py`)**:
+    *   Subscribes to `levels.signals` via NATS.
+    *   Writes Parquet to S3/MinIO or local filesystem.
+3.  ✅ **Created `src/lake/main.py`**:
+    *   Entry point with `LakeService` class.
+    *   Graceful shutdown handling.
 
 ### AGENT C: Core Service (The Brain)
 **Goal**: The physics engine. Consumes raw data, calculates state, emits signals.

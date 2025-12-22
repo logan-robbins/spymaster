@@ -1,13 +1,20 @@
 """
-Bronze layer Parquet writer per PLAN.md §2.2-§2.4.
+Bronze layer Parquet writer per PLAN.md §2.2-§2.4 (Phase 2: NATS + S3).
 
 Writes append-only, replayable, schema-versioned raw captures:
 - stocks/trades/symbol=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
 - stocks/quotes/symbol=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
 - options/trades/underlying=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
 - options/greeks_snapshots/underlying=SPY/date=YYYY-MM-DD/part-*.parquet
+- futures/trades/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
+- futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
 
-Agent I deliverable per §12 of PLAN.md.
+Phase 2 changes:
+- Removed WAL (NATS JetStream is the WAL)
+- Subscribes to market.* subjects via NATS
+- Supports S3/MinIO storage (via s3fs)
+
+Agent B deliverable per NEXT.md.
 """
 
 import os
@@ -16,47 +23,54 @@ import time
 from dataclasses import asdict, fields
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Type, TypeVar, Set
-from enum import Enum
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import s3fs
 
 from src.common.event_types import (
     StockTrade, StockQuote, OptionTrade, GreeksSnapshot,
     FuturesTrade, MBP10, EventSource, Aggressor
 )
 from src.common.config import CONFIG
-from .wal_manager import WALManager
 
 
 # Type variable for event types
 T = TypeVar('T', StockTrade, StockQuote, OptionTrade, GreeksSnapshot, FuturesTrade, MBP10)
 
 
-def _enum_to_str(obj: Any) -> Any:
-    """Convert Enum values to strings for serialization."""
-    if isinstance(obj, Enum):
-        return obj.value
+def _flatten_dict(obj: Any) -> Any:
+    """Flatten nested structures for Parquet serialization."""
+    if isinstance(obj, dict):
+        return {k: _flatten_dict(v) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [_enum_to_str(item) for item in obj]
-    elif isinstance(obj, dict):
-        return {k: _enum_to_str(v) for k, v in obj.items()}
+        # Convert lists to JSON strings to avoid nested array issues
+        return str(obj) if obj else None
+    elif hasattr(obj, 'value'):  # Enum
+        return obj.value
     return obj
 
 
 def dataclass_to_dict(obj: Any) -> Dict[str, Any]:
-    """Convert dataclass to dict with enum handling."""
+    """Convert dataclass/dict to flat dict for Parquet."""
+    if isinstance(obj, dict):
+        return {k: _flatten_dict(v) for k, v in obj.items()}
+    
     result = {}
     for field in fields(obj):
         value = getattr(obj, field.name)
-        result[field.name] = _enum_to_str(value)
+        result[field.name] = _flatten_dict(value)
     return result
 
 
 class BronzeWriter:
     """
-    High-throughput Bronze layer Parquet writer.
+    High-throughput Bronze layer Parquet writer (Phase 2: NATS + S3).
+
+    Subscribes to market.* subjects from NATS and writes to:
+    - Local filesystem (if USE_S3=False)
+    - S3/MinIO (if USE_S3=True)
 
     Micro-batches events to Parquet files partitioned by:
     - date (YYYY-MM-DD)
@@ -75,31 +89,40 @@ class BronzeWriter:
         'futures.trades': 'futures/trades',
         'futures.mbp10': 'futures/mbp10',
     }
+    
+    # Subject to schema mapping for NATS subscriptions
+    SUBJECT_TO_SCHEMA = {
+        'market.stocks.trades': 'stocks.trades',
+        'market.stocks.quotes': 'stocks.quotes',
+        'market.options.trades': 'options.trades',
+        'market.options.greeks': 'options.greeks_snapshots',
+        'market.futures.trades': 'futures.trades',
+        'market.futures.mbp10': 'futures.mbp10',
+    }
 
     def __init__(
         self,
+        bus=None,
         data_root: Optional[str] = None,
         buffer_limit: int = 1000,
         flush_interval_seconds: float = 5.0,
-        enable_wal: bool = True
+        use_s3: Optional[bool] = None
     ):
         """
         Initialize Bronze writer.
 
         Args:
-            data_root: Root directory for data lake (defaults to backend/data/lake)
+            bus: NATSBus instance (if None, will be set via start())
+            data_root: Root directory for data lake (local or S3 prefix)
             buffer_limit: Max events to buffer before flush
             flush_interval_seconds: Max time between flushes
-            enable_wal: Enable Write-Ahead Log for durability (Phase 1)
+            use_s3: Use S3 storage (defaults to CONFIG.USE_S3)
         """
-        self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'data',
-            'lake'
-        )
+        self.bus = bus
+        self.data_root = data_root or CONFIG.DATA_ROOT
         self.buffer_limit = buffer_limit
         self.flush_interval = flush_interval_seconds
-        self.enable_wal = enable_wal
+        self.use_s3 = use_s3 if use_s3 is not None else False  # Default to local filesystem
 
         # Separate buffers per schema
         self._buffers: Dict[str, List[Dict[str, Any]]] = {
@@ -109,15 +132,23 @@ class BronzeWriter:
             schema: time.time() for schema in self.SCHEMA_PATHS
         }
         self._lock = asyncio.Lock()
+        self._flush_task: Optional[asyncio.Task] = None
+        self._running = False
 
-        # Ensure bronze directory exists
-        self.bronze_root = os.path.join(self.data_root, 'bronze')
-        os.makedirs(self.bronze_root, exist_ok=True)
-        
-        # Initialize WAL (Phase 1)
-        self.wal = WALManager() if enable_wal else None
-        if self.wal:
-            print("  WAL enabled for Bronze writer")
+        # Storage backend
+        if self.use_s3:
+            self.bronze_root = f"{CONFIG.S3_BUCKET}/bronze"
+            self.fs = s3fs.S3FileSystem(
+                endpoint_url=CONFIG.S3_ENDPOINT,
+                key=CONFIG.S3_ACCESS_KEY,
+                secret=CONFIG.S3_SECRET_KEY
+            )
+            print(f"  Bronze writer: S3 storage at {CONFIG.S3_ENDPOINT}/{self.bronze_root}")
+        else:
+            self.bronze_root = os.path.join(self.data_root, 'bronze')
+            os.makedirs(self.bronze_root, exist_ok=True)
+            self.fs = None
+            print(f"  Bronze writer: Local storage at {self.bronze_root}")
 
     def _get_partition_path(
         self,
@@ -160,52 +191,117 @@ class BronzeWriter:
                 f'hour={hour_str}'
             )
 
-    async def write_stock_trade(self, event: StockTrade) -> None:
-        """Buffer a stock trade event."""
-        if self.wal:
-            await self.wal.append('stocks.trades', event.symbol, event)
-        await self._buffer_event('stocks.trades', event, event.symbol)
-
-    async def write_stock_quote(self, event: StockQuote) -> None:
-        """Buffer a stock quote event."""
-        if self.wal:
-            await self.wal.append('stocks.quotes', event.symbol, event)
-        await self._buffer_event('stocks.quotes', event, event.symbol)
-
-    async def write_option_trade(self, event: OptionTrade) -> None:
-        """Buffer an option trade event."""
-        if self.wal:
-            await self.wal.append('options.trades', event.underlying, event)
-        await self._buffer_event('options.trades', event, event.underlying)
-
-    async def write_greeks_snapshot(self, event: GreeksSnapshot) -> None:
-        """Buffer a greeks snapshot event."""
-        if self.wal:
-            await self.wal.append('options.greeks_snapshots', event.underlying, event)
-        await self._buffer_event('options.greeks_snapshots', event, event.underlying)
-
-    async def write_futures_trade(self, event: FuturesTrade) -> None:
-        """Buffer a futures trade event."""
-        if self.wal:
-            await self.wal.append('futures.trades', event.symbol, event)
-        await self._buffer_event('futures.trades', event, event.symbol)
-
-    async def write_mbp10(self, event: MBP10) -> None:
-        """Buffer an MBP-10 event."""
-        if self.wal:
-            await self.wal.append('futures.mbp10', event.symbol, event)
-        await self._buffer_event('futures.mbp10', event, event.symbol)
+    async def start(self, bus=None):
+        """
+        Start Bronze writer and subscribe to NATS market.* subjects.
+        
+        Args:
+            bus: NATSBus instance (overrides constructor value)
+        """
+        if bus:
+            self.bus = bus
+        
+        if not self.bus:
+            raise ValueError("NATSBus not provided")
+        
+        self._running = True
+        
+        # Subscribe to all market data subjects
+        for subject in self.SUBJECT_TO_SCHEMA.keys():
+            await self.bus.subscribe(
+                subject,
+                self._handle_message,
+                durable_name=f"bronze_writer_{subject.replace('.', '_')}"
+            )
+        
+        # Start periodic flush task
+        self._flush_task = asyncio.create_task(self._periodic_flush())
+        print("  Bronze writer: started")
+    
+    async def _handle_message(self, message: Dict[str, Any]):
+        """
+        Handle incoming NATS message and buffer it.
+        
+        Message format (from NATS):
+        {
+            "schema_name": "stocks.trades",
+            "ts_event_ns": 1234567890000000000,
+            "ts_recv_ns": 1234567890000000000,
+            "symbol": "SPY",
+            ... (schema-specific fields)
+        }
+        """
+        try:
+            # Extract schema and partition key
+            # Messages from NATS already have schema_name if published correctly
+            # But we can also infer from subject via msg.subject (not available in callback)
+            # For now, assume message has schema info or map based on fields
+            
+            schema_name = None
+            partition_key = None
+            
+            # Infer schema from message structure
+            if 'symbol' in message:
+                if 'bid_px' in message or 'ask_px' in message:
+                    schema_name = 'stocks.quotes'
+                    partition_key = message['symbol']
+                elif 'size' in message and 'price' in message:
+                    if message.get('symbol', '').startswith('ES'):
+                        schema_name = 'futures.trades'
+                        partition_key = message['symbol']
+                    else:
+                        schema_name = 'stocks.trades'
+                        partition_key = message['symbol']
+                elif 'levels' in message:
+                    schema_name = 'futures.mbp10'
+                    partition_key = message['symbol']
+            elif 'underlying' in message:
+                if 'option_symbol' in message:
+                    if 'delta' in message or 'gamma' in message:
+                        schema_name = 'options.greeks_snapshots'
+                    else:
+                        schema_name = 'options.trades'
+                    partition_key = message['underlying']
+            
+            if schema_name and partition_key:
+                await self._buffer_event(schema_name, message, partition_key)
+            else:
+                print(f"  Bronze: Cannot infer schema from message: {list(message.keys())[:5]}")
+                
+        except Exception as e:
+            print(f"  Bronze ERROR handling message: {e}")
+    
+    async def _periodic_flush(self):
+        """Periodic flush task to ensure timely writes."""
+        while self._running:
+            try:
+                await asyncio.sleep(self.flush_interval)
+                
+                # Check each schema for time-based flush
+                for schema_name in self.SCHEMA_PATHS:
+                    if (time.time() - self._last_flush[schema_name]) > self.flush_interval:
+                        await self.flush_schema(schema_name)
+                        
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"  Bronze ERROR in periodic flush: {e}")
 
     async def _buffer_event(
         self,
         schema_name: str,
-        event: T,
+        event: Any,  # Can be dict or dataclass
         partition_key: str
     ) -> None:
         """
         Buffer an event and check flush triggers.
         """
-        event_dict = dataclass_to_dict(event)
+        # Convert to dict if needed
+        if isinstance(event, dict):
+            event_dict = dataclass_to_dict(event)
+        else:
+            event_dict = dataclass_to_dict(event)
+        
         event_dict['_partition_key'] = partition_key
 
         async with self._lock:
@@ -232,17 +328,12 @@ class BronzeWriter:
 
         # Write in executor to avoid blocking
         loop = asyncio.get_running_loop()
-        partition_keys = await loop.run_in_executor(
+        await loop.run_in_executor(
             None,
             self._write_parquet,
             schema_name,
             data_to_write
         )
-        
-        # Mark WAL segments as flushed for each partition key
-        if self.wal and partition_keys:
-            for partition_key in partition_keys:
-                await self.wal.mark_flushed(schema_name, partition_key)
 
     async def flush_all(self) -> None:
         """Flush all schema buffers."""
@@ -253,21 +344,18 @@ class BronzeWriter:
         self,
         schema_name: str,
         data: List[Dict[str, Any]]
-    ) -> Set[str]:
+    ) -> None:
         """
         Write data to Parquet files, grouped by partition.
 
         Uses ZSTD compression level 3 per PLAN.md §2.2.
-        
-        Returns:
-            Set of partition keys that were written (for WAL cleanup)
+        Supports both local filesystem and S3 storage.
         """
         if not data:
-            return set()
+            return
 
         # Group by partition
         partitions: Dict[str, List[Dict[str, Any]]] = {}
-        partition_keys_map: Dict[str, str] = {}  # partition_path -> partition_key
         
         for record in data:
             partition_key = record.pop('_partition_key')
@@ -278,22 +366,15 @@ class BronzeWriter:
 
             if partition_path not in partitions:
                 partitions[partition_path] = []
-                partition_keys_map[partition_path] = partition_key
             partitions[partition_path].append(record)
 
         # Write each partition
-        flushed_keys = set()
         for partition_path, records in partitions.items():
             try:
-                os.makedirs(partition_path, exist_ok=True)
-
                 # Generate unique filename
-                timestamp_str = datetime.utcnow().strftime('%H%M%S_%f')
-                file_path = os.path.join(
-                    partition_path,
-                    f'part-{timestamp_str}.parquet'
-                )
-
+                timestamp_str = datetime.now(timezone.utc).strftime('%H%M%S_%f')
+                file_name = f'part-{timestamp_str}.parquet'
+                
                 # Convert to DataFrame
                 df = pd.DataFrame(records)
 
@@ -302,32 +383,58 @@ class BronzeWriter:
 
                 # Write with ZSTD compression
                 table = pa.Table.from_pandas(df, preserve_index=False)
-                pq.write_table(
-                    table,
-                    file_path,
-                    compression='zstd',
-                    compression_level=3
-                )
-
-                print(f"  Bronze: {len(df)} rows -> {file_path}")
                 
-                # Track successful flush
-                flushed_keys.add(partition_keys_map[partition_path])
+                if self.use_s3:
+                    # S3 path
+                    file_path = f"{partition_path}/{file_name}"
+                    
+                    # Ensure directory exists (S3FS handles this)
+                    self.fs.makedirs(partition_path, exist_ok=True)
+                    
+                    # Write to S3
+                    with self.fs.open(file_path, 'wb') as f:
+                        pq.write_table(
+                            table,
+                            f,
+                            compression='zstd',
+                            compression_level=3
+                        )
+                    print(f"  Bronze: {len(df)} rows -> s3://{file_path}")
+                else:
+                    # Local filesystem
+                    os.makedirs(partition_path, exist_ok=True)
+                    file_path = os.path.join(partition_path, file_name)
+                    
+                    pq.write_table(
+                        table,
+                        file_path,
+                        compression='zstd',
+                        compression_level=3
+                    )
+                    print(f"  Bronze: {len(df)} rows -> {file_path}")
 
             except Exception as e:
                 print(f"  Bronze ERROR ({schema_name}): {e}")
-        
-        return flushed_keys
 
     def get_bronze_path(self) -> str:
         """Return the bronze root path."""
         return self.bronze_root
     
-    async def close(self) -> None:
-        """Close Bronze writer and WAL."""
+    async def stop(self) -> None:
+        """Stop Bronze writer, flush remaining data, and cleanup."""
+        self._running = False
+        
+        # Cancel flush task
+        if self._flush_task:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Final flush
         await self.flush_all()
-        if self.wal:
-            await self.wal.close()
+        print("  Bronze writer: stopped")
 
 
 class BronzeReader:

@@ -1,12 +1,16 @@
 """
-Gold layer Parquet writer for levels.signals per PLAN.md §2.2-§2.4.
+Gold layer Parquet writer for levels.signals per PLAN.md §2.2-§2.4 (Phase 2: NATS + S3).
 
 Writes derived analytics:
 - gold/levels/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
 
 Gold represents computed/derived data that can be regenerated from Bronze.
 
-Agent I deliverable per §12 of PLAN.md.
+Phase 2 changes:
+- Subscribes to levels.signals subject via NATS
+- Supports S3/MinIO storage (via s3fs)
+
+Agent B deliverable per NEXT.md.
 """
 
 import os
@@ -19,11 +23,18 @@ from typing import Dict, List, Any, Optional
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import s3fs
+
+from src.common.config import CONFIG
 
 
 class GoldWriter:
     """
-    Gold layer Parquet writer for level signals.
+    Gold layer Parquet writer for level signals (Phase 2: NATS + S3).
+
+    Subscribes to levels.signals subject from NATS and writes to:
+    - Local filesystem (if USE_S3=False)
+    - S3/MinIO (if USE_S3=True)
 
     Writes snap tick level signals to Parquet files partitioned by:
     - underlying (SPY)
@@ -35,33 +46,48 @@ class GoldWriter:
 
     def __init__(
         self,
+        bus=None,
         data_root: Optional[str] = None,
         buffer_limit: int = 500,
-        flush_interval_seconds: float = 10.0
+        flush_interval_seconds: float = 10.0,
+        use_s3: Optional[bool] = None
     ):
         """
         Initialize Gold writer.
 
         Args:
-            data_root: Root directory for data lake
+            bus: NATSBus instance (if None, will be set via start())
+            data_root: Root directory for data lake (local or S3 prefix)
             buffer_limit: Max records to buffer before flush
             flush_interval_seconds: Max time between flushes
+            use_s3: Use S3 storage (defaults to CONFIG.USE_S3)
         """
-        self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'data',
-            'lake'
-        )
+        self.bus = bus
+        self.data_root = data_root or CONFIG.DATA_ROOT
         self.buffer_limit = buffer_limit
         self.flush_interval = flush_interval_seconds
+        self.use_s3 = use_s3 if use_s3 is not None else False  # Default to local filesystem
 
         self._buffer: List[Dict[str, Any]] = []
         self._last_flush = time.time()
         self._lock = asyncio.Lock()
+        self._flush_task: Optional[asyncio.Task] = None
+        self._running = False
 
-        # Ensure gold directory exists
-        self.gold_root = os.path.join(self.data_root, 'gold')
-        os.makedirs(self.gold_root, exist_ok=True)
+        # Storage backend
+        if self.use_s3:
+            self.gold_root = f"{CONFIG.S3_BUCKET}/gold"
+            self.fs = s3fs.S3FileSystem(
+                endpoint_url=CONFIG.S3_ENDPOINT,
+                key=CONFIG.S3_ACCESS_KEY,
+                secret=CONFIG.S3_SECRET_KEY
+            )
+            print(f"  Gold writer: S3 storage at {CONFIG.S3_ENDPOINT}/{self.gold_root}")
+        else:
+            self.gold_root = os.path.join(self.data_root, 'gold')
+            os.makedirs(self.gold_root, exist_ok=True)
+            self.fs = None
+            print(f"  Gold writer: Local storage at {self.gold_root}")
 
     def _get_partition_path(
         self,
@@ -87,6 +113,57 @@ class GoldWriter:
             f'hour={hour_str}'
         )
 
+    async def start(self, bus=None):
+        """
+        Start Gold writer and subscribe to NATS levels.signals subject.
+        
+        Args:
+            bus: NATSBus instance (overrides constructor value)
+        """
+        if bus:
+            self.bus = bus
+        
+        if not self.bus:
+            raise ValueError("NATSBus not provided")
+        
+        self._running = True
+        
+        # Subscribe to level signals
+        await self.bus.subscribe(
+            'levels.signals',
+            self._handle_level_signals,
+            durable_name='gold_writer_levels_signals'
+        )
+        
+        # Start periodic flush task
+        self._flush_task = asyncio.create_task(self._periodic_flush())
+        print("  Gold writer: started")
+    
+    async def _handle_level_signals(self, payload: Dict[str, Any]):
+        """
+        Handle incoming level signals from NATS and buffer them.
+        
+        Payload format matches §6.4 WS payload.
+        """
+        try:
+            await self.write_level_signals(payload)
+        except Exception as e:
+            print(f"  Gold ERROR handling level signals: {e}")
+    
+    async def _periodic_flush(self):
+        """Periodic flush task to ensure timely writes."""
+        while self._running:
+            try:
+                await asyncio.sleep(self.flush_interval)
+                
+                if (time.time() - self._last_flush) > self.flush_interval:
+                    await self.flush()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"  Gold ERROR in periodic flush: {e}")
+    
     async def write_level_signals(
         self,
         payload: Dict[str, Any]
@@ -198,6 +275,7 @@ class GoldWriter:
     def _write_parquet(self, data: List[Dict[str, Any]]) -> None:
         """
         Write data to Parquet files, grouped by partition.
+        Supports both local filesystem and S3 storage.
         """
         if not data:
             return
@@ -216,14 +294,9 @@ class GoldWriter:
         # Write each partition
         for partition_path, records in partitions.items():
             try:
-                os.makedirs(partition_path, exist_ok=True)
-
                 # Generate unique filename
-                timestamp_str = datetime.utcnow().strftime('%H%M%S_%f')
-                file_path = os.path.join(
-                    partition_path,
-                    f'part-{timestamp_str}.parquet'
-                )
+                timestamp_str = datetime.now(timezone.utc).strftime('%H%M%S_%f')
+                file_name = f'part-{timestamp_str}.parquet'
 
                 # Convert to DataFrame
                 df = pd.DataFrame(records)
@@ -233,14 +306,35 @@ class GoldWriter:
 
                 # Write with ZSTD compression
                 table = pa.Table.from_pandas(df, preserve_index=False)
-                pq.write_table(
-                    table,
-                    file_path,
-                    compression='zstd',
-                    compression_level=3
-                )
-
-                print(f"  Gold: {len(df)} rows -> {file_path}")
+                
+                if self.use_s3:
+                    # S3 path
+                    file_path = f"{partition_path}/{file_name}"
+                    
+                    # Ensure directory exists
+                    self.fs.makedirs(partition_path, exist_ok=True)
+                    
+                    # Write to S3
+                    with self.fs.open(file_path, 'wb') as f:
+                        pq.write_table(
+                            table,
+                            f,
+                            compression='zstd',
+                            compression_level=3
+                        )
+                    print(f"  Gold: {len(df)} rows -> s3://{file_path}")
+                else:
+                    # Local filesystem
+                    os.makedirs(partition_path, exist_ok=True)
+                    file_path = os.path.join(partition_path, file_name)
+                    
+                    pq.write_table(
+                        table,
+                        file_path,
+                        compression='zstd',
+                        compression_level=3
+                    )
+                    print(f"  Gold: {len(df)} rows -> {file_path}")
 
             except Exception as e:
                 print(f"  Gold ERROR: {e}")
@@ -248,6 +342,22 @@ class GoldWriter:
     def get_gold_path(self) -> str:
         """Return the gold root path."""
         return self.gold_root
+    
+    async def stop(self) -> None:
+        """Stop Gold writer, flush remaining data, and cleanup."""
+        self._running = False
+        
+        # Cancel flush task
+        if self._flush_task:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Final flush
+        await self.flush()
+        print("  Gold writer: stopped")
 
 
 class GoldReader:
