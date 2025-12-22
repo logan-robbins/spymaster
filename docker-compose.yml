@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # NATS JetStream - Message Bus
+  nats:
+    image: nats:latest
+    container_name: spymaster-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP management
+    command: ["-js", "-m", "8222"]  # Enable JetStream + monitoring
+    networks:
+      - spymaster
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO - S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    container_name: spymaster-minio
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - spymaster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # MinIO Client - Create bucket on startup
+  minio-init:
+    image: minio/mc:latest
+    container_name: spymaster-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing myminio/spymaster-lake;
+      echo 'Bucket spymaster-lake ready';
+      "
+    networks:
+      - spymaster
+
+  # Gateway Service (Agent D)
+  # Uncomment when ready to test
+  # gateway:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: spymaster-gateway
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     NATS_URL: nats://nats:4222
+  #   command: ["uv", "run", "python", "-m", "src.gateway.main"]
+  #   depends_on:
+  #     nats:
+  #       condition: service_healthy
+  #   networks:
+  #     - spymaster
+
+  # Core Service (Agent C)
+  # Uncomment when ready to test
+  # core:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: spymaster-core
+  #   environment:
+  #     NATS_URL: nats://nats:4222
+  #     POLYGON_API_KEY: ${POLYGON_API_KEY}
+  #   command: ["uv", "run", "python", "-m", "src.core.main"]
+  #   depends_on:
+  #     nats:
+  #       condition: service_healthy
+  #   networks:
+  #     - spymaster
+
+networks:
+  spymaster:
+    driver: bridge
+
+volumes:
+  minio_data:
+

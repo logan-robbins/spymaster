@@ -81,17 +81,28 @@ We are moving to an event-driven architecture using **NATS JetStream** as the ba
 3.  **Create `src/core/main.py`**:
     *   Initialize and run the service.
 
-### AGENT D: Gateway Service (The Interface)
+### AGENT D: Gateway Service (The Interface) ✅ COMPLETE
 **Goal**: Serve the frontend via WebSockets.
 
-1.  **Update `SocketBroadcaster` (`src/gateway/socket_broadcaster.py`)**:
-    *   It currently holds state. Change it to be a pure relay.
-    *   Subscribe to `levels.signals` (and `market.flow` if we keep the flow view).
-2.  **Create `src/gateway/main.py`**:
-    *   FastAPI app.
+**Status**: ✅ **COMPLETE**
+
+1.  ✅ **Updated `SocketBroadcaster` (`src/gateway/socket_broadcaster.py`)**:
+    *   Removed internal state computation - now pure NATS relay.
+    *   Subscribes to `levels.signals` on NATS.
+    *   Caches latest payload for new connections.
+    *   Handles multiple concurrent WebSocket clients.
+2.  ✅ **Created `src/gateway/main.py`**:
+    *   FastAPI app with lifespan management.
     *   WebSocket endpoint `/ws/stream`.
-    *   On connect, maybe send a "snapshot" (request it from Core via NATS Request/Reply? Or Core publishes "state" periodically?).
-    *   *Decision*: Just stream live updates for now.
+    *   Health check endpoint `/health`.
+    *   New clients receive cached state on connect.
+    *   Configurable port via `GATEWAY_PORT` env var.
+
+**Deliverables**:
+- `src/gateway/socket_broadcaster.py` - NATS-based WebSocket relay
+- `src/gateway/main.py` - Service entry point
+- `tests/test_gateway_integration.py` - 6 integration tests (all passing)
+- `docker-compose.yml` - Infrastructure services (NATS, MinIO)
 
 ### AGENT E: Infrastructure & Orchestration
 **Goal**: Tie it all together with Docker.
