@@ -838,14 +838,15 @@ Create `backend/src/config.py` (or similar) containing:
 - When you add a new file, keep it in `backend/src/` and add minimal docstrings.
 - If you must change an interface, update this `PLAN.md` section and inform other agents.
 
-#### Agent A — Shared contracts + config (foundation)
+#### Agent A — Shared contracts + config (foundation) ✅ COMPLETE
 
 **Goal**: Define stable types/config that all other agents can depend on.
 
+- **Status**: ✅ **COMPLETE** (commits: 9b6e38a)
 - **Deliverables**
-  - Create `backend/src/event_types.py` with `StockTrade`, `StockQuote`, `OptionTrade` (normalized; includes `ts_event_ns`, `ts_recv_ns`, symbol fields).
-  - Create `backend/src/config.py` per §9.
-  - (Optional but recommended) Create `backend/src/schemas/` with Arrow/Pydantic schema representations matching §2.4.
+  - ✅ Create `backend/src/event_types.py` with `StockTrade`, `StockQuote`, `OptionTrade` (normalized; includes `ts_event_ns`, `ts_recv_ns`, symbol fields).
+  - ✅ Create `backend/src/config.py` per §9.
+  - ⏸️ (Optional but recommended) Create `backend/src/schemas/` with Arrow/Pydantic schema representations matching §2.4.
 - **Interfaces to expose**
   - `Config` object (or module-level constants) with the keys listed in §9.
   - Dataclasses for normalized events.
@@ -868,28 +869,31 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/stream_ingestor.py` (and any narrow helper you create under `backend/src/`)
 
-#### Agent C — `MarketState` + ring buffers (state backbone)
+#### Agent C — `MarketState` + ring buffers (state backbone) ✅ COMPLETE
 
 **Goal**: Implement a single in-memory state store that engines can query on snap ticks.
 
+- **Status**: ✅ **COMPLETE** (commits: 9b6e38a, 43c2428)
 - **Deliverables**
-  - Create `backend/src/market_state.py` with:
-    - last-known SPY quote/trade
-    - rolling buffers (timestamped) for quotes and trades
-    - per-strike option flow aggregates (compatible with existing flow aggregator output)
-  - Provide methods like:
-    - `update_stock_trade(trade)`
-    - `update_stock_quote(quote)`
-    - `update_option_trade(opt_trade)` (or consume existing flow aggregator output)
-    - window queries by `(ts_now, window_seconds, price_band, level_price)`
+  - ✅ Create `backend/src/market_state.py` with:
+    - ✅ last-known SPY quote/trade
+    - ✅ rolling buffers (timestamped) for quotes and trades
+    - ✅ per-strike option flow aggregates (compatible with existing flow aggregator output)
+  - ✅ Provide methods like:
+    - ✅ `update_stock_trade(trade)`
+    - ✅ `update_stock_quote(quote)`
+    - ✅ `update_option_trade(opt_trade)` (or consume existing flow aggregator output)
+    - ✅ window queries by `(ts_now, window_seconds, price_band, level_price)`
+  - ✅ Verification: `backend/test_market_state.py` (all tests passing)
 - **Interfaces to consume**
   - Event dataclasses (Agent A)
   - Option flow shapes from current `flow_aggregator.py` (coordinate with Agent E).
 - **Dependencies**
-  - Agent A
+  - Agent A ✅
   - Light coordination with Agent E (fuel inputs).
 - **Files owned**
   - `backend/src/market_state.py`
+  - `backend/test_market_state.py`
 
 #### Agent D — Barrier + Tape engines (SPY L1 physics + tape momentum)
 
