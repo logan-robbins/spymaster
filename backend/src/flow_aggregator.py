@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from .strike_manager import StrikeManager
 from .greek_enricher import GreekEnricher
 from .persistence_engine import PersistenceEngine
+from .event_types import OptionTrade, StockTrade, StockQuote
 from datetime import datetime
 import asyncio
 
@@ -35,18 +36,24 @@ class FlowAggregator:
         # We receive what we subscribe to.
 
     async def process_message(self, msg: Any):
-        # Parse Polygon Trade Message
-        # Expected 'T' message (Trade)
-        # msg is a WebSocketMessage object or dict? Check `test_stream.py` output.
-        # It's an object from `polygon.websocket.models`.
-        # Standard attributes: symbol, price, size, timestamp, conditions, etc.
-        
-        # Map attributes
-        ticker = getattr(msg, "symbol", "")
-        price = getattr(msg, "price", 0.0)
-        size = getattr(msg, "size", 0)
-        timestamp = getattr(msg, "timestamp", 0) # ms
-        conditions = getattr(msg, "conditions", [])
+        # Skip stock events - they're handled by MarketState
+        if isinstance(msg, (StockTrade, StockQuote)):
+            return
+
+        # Handle normalized OptionTrade or raw Polygon WebSocketMessage
+        if isinstance(msg, OptionTrade):
+            ticker = msg.option_symbol
+            price = msg.price
+            size = msg.size
+            timestamp = msg.ts_event_ns // 1_000_000  # Convert ns to ms
+            conditions = msg.conditions or []
+        else:
+            # Legacy: raw Polygon WebSocketMessage
+            ticker = getattr(msg, "symbol", "")
+            price = getattr(msg, "price", 0.0)
+            size = getattr(msg, "size", 0)
+            timestamp = getattr(msg, "timestamp", 0)  # ms
+            conditions = getattr(msg, "conditions", [])
         
         if not ticker:
             return

@@ -243,7 +243,7 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
               <div class="level-info">
                 <div class="level-name">{{ level.id }}</div>
                 <div class="level-price">
-                  ${{ level.price | number:'1.2-2' }}
+                  <span>$</span>{{ level.price | number:'1.2-2' }}
                 </div>
                 <div 
                   class="level-direction"

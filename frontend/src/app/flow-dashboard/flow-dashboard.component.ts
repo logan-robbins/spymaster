@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import {
   FlowAnalyticsService,
@@ -10,11 +10,13 @@ import {
 } from '../flow-analytics.service';
 import { StrikeGridComponent } from '../strike-grid/strike-grid.component';
 import { FlowChartComponent } from '../flow-chart/flow-chart.component';
+import { LevelTableComponent } from '../level-table/level-table.component';
+import { LevelStripComponent } from '../level-strip/level-strip.component';
 
 @Component({
   selector: 'app-flow-dashboard',
   standalone: true,
-  imports: [CommonModule, DecimalPipe, StrikeGridComponent, FlowChartComponent],
+  imports: [CommonModule, DecimalPipe, StrikeGridComponent, FlowChartComponent, LevelTableComponent, LevelStripComponent],
   template: `
     <div class="dashboard-container">
       <div class="dashboard-header">
@@ -93,16 +95,49 @@ import { FlowChartComponent } from '../flow-chart/flow-chart.component';
           <app-flow-chart></app-flow-chart>
         </div>
 
-        <!-- Right: Strike ladder -->
-        <div style="overflow-y: auto;">
-          <app-strike-grid></app-strike-grid>
+        <!-- Right: Tabbed panel (Strike Grid or Level Table) -->
+        <div style="display: flex; flex-direction: column; overflow: hidden;">
+          <!-- Tab buttons -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <button
+              class="btn"
+              [class.active]="activeRightPanel() === 'strikes'"
+              (click)="activeRightPanel.set('strikes')"
+            >
+              Options
+            </button>
+            <button
+              class="btn"
+              [class.active]="activeRightPanel() === 'levels'"
+              (click)="activeRightPanel.set('levels')"
+            >
+              Levels
+            </button>
+          </div>
+
+          <!-- Panel content -->
+          <div style="flex: 1; overflow-y: auto;">
+            @if (activeRightPanel() === 'strikes') {
+              <app-strike-grid></app-strike-grid>
+            } @else {
+              <app-level-table></app-level-table>
+            }
+          </div>
         </div>
+      </div>
+
+      <!-- Level Strip overlay (fixed position) -->
+      <div style="position: fixed; bottom: 1rem; right: 1rem; width: 300px; z-index: 100;">
+        <app-level-strip [maxLevels]="3"></app-level-strip>
       </div>
     </div>
   `
 })
 export class FlowDashboardComponent {
   public analytics = inject(FlowAnalyticsService);
+
+  // Panel toggle: 'strikes' for options grid, 'levels' for level signals table
+  public activeRightPanel = signal<'strikes' | 'levels'>('strikes');
 
   public metrics: readonly FlowMetric[] = ['premium', 'delta', 'gamma'] as const;
   public orders: readonly DerivativeOrder[] = [1, 2, 3] as const;

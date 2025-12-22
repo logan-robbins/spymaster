@@ -13,6 +13,9 @@ from .stream_ingestor import StreamIngestor
 from .socket_broadcaster import SocketBroadcaster
 from .market_state import MarketState
 from .level_signal_service import LevelSignalService
+from .bronze_writer import BronzeWriter
+from .gold_writer import GoldWriter
+from .event_types import StockTrade, StockQuote, OptionTrade
 
 # Load environment
 load_dotenv()
@@ -32,13 +35,27 @@ msg_queue = asyncio.Queue()
 market_state = MarketState(max_buffer_window_seconds=120.0)
 level_signal_service = LevelSignalService(market_state=market_state)
 
+# Storage writers (Agent I)
+PERSISTENCE_ENABLED = os.getenv("PERSISTENCE_ENABLED", "true").lower() == "true"
+bronze_writer = BronzeWriter() if PERSISTENCE_ENABLED else None
+gold_writer = GoldWriter() if PERSISTENCE_ENABLED else None
+
 # Mode Selection
 REPLAY_MODE = os.getenv("REPLAY_MODE", "false").lower() == "true"
+REPLAY_DATE = os.getenv("REPLAY_DATE")  # e.g., "2025-12-18"
+REPLAY_SPEED = float(os.getenv("REPLAY_SPEED", "10.0"))
 
 if REPLAY_MODE:
-    from .replay_engine import ReplayEngine
-    print("⚠️ STARTING IN REPLAY MODE")
-    data_source = ReplayEngine(api_key=API_KEY, queue=msg_queue, strike_manager=strike_manager)
+    if REPLAY_DATE:
+        # Use UnifiedReplayEngine for Bronze+DBN replay
+        from .unified_replay_engine import UnifiedReplayEngine
+        print(f"⚠️ STARTING IN UNIFIED REPLAY MODE (date={REPLAY_DATE}, speed={REPLAY_SPEED}x)")
+        data_source = UnifiedReplayEngine(queue=msg_queue)
+    else:
+        # Legacy: ReplayEngine for API-based replay
+        from .replay_engine import ReplayEngine
+        print("⚠️ STARTING IN LEGACY REPLAY MODE")
+        data_source = ReplayEngine(api_key=API_KEY, queue=msg_queue, strike_manager=strike_manager)
 else:
     stream_ingestor = StreamIngestor(api_key=API_KEY, queue=msg_queue, strike_manager=strike_manager)
     data_source = stream_ingestor
@@ -46,51 +63,40 @@ else:
 # Background Tasks
 async def processing_loop():
     """
-    Consumes from queue, feeds aggregator and market_state, and broadcasts updates.
+    Consumes from queue, feeds aggregator, market_state, and Bronze writer.
     """
-    from .event_types import StockTrade, StockQuote, OptionTrade
-    
-    throttle_interval = 0.25 # 250ms
-    last_broadcast = 0
-    
     while True:
         try:
-            # Batch process? Or single? Single is simpler but slower?
-            # Queue.get() is one by one.
-            # We can try to get multiple?
             msg = await msg_queue.get()
-            
-            # Feed Aggregator
+
+            # Feed Aggregator (handles OptionTrade, skips stock events)
             await aggregator.process_message(msg)
-            
-            # Feed MarketState (for level physics engine)
-            # Check message type and route appropriately
+
+            # Feed MarketState and Bronze writer based on event type
             if isinstance(msg, StockTrade):
                 market_state.update_stock_trade(msg)
+                if bronze_writer:
+                    await bronze_writer.write_stock_trade(msg)
+
             elif isinstance(msg, StockQuote):
                 market_state.update_stock_quote(msg)
+                if bronze_writer:
+                    await bronze_writer.write_stock_quote(msg)
+
             elif isinstance(msg, OptionTrade):
                 # Option trades need greeks for gamma transfer
-                # Get greeks from enricher cache
                 greeks = greek_enricher.get_cached_greeks(msg.option_symbol)
                 if greeks:
                     market_state.update_option_trade(
-                        msg, 
+                        msg,
                         delta=greeks.get('delta', 0.0),
                         gamma=greeks.get('gamma', 0.0)
                     )
                 else:
                     market_state.update_option_trade(msg, delta=0.0, gamma=0.0)
-            
-            # Broadcast limit check
-            # Real-time broadcast might be too much. 
-            # We broadcast SNAPSHOTS every X ms.
-            # So we don't broadcast ON every trade.
-            # We run a separate broadcaster loop?
-            # Or we check time here.
-            # If we process fast, we might trigger broadcast often.
-            # Better: separate loop for broadcasting.
-            
+                if bronze_writer:
+                    await bronze_writer.write_option_trade(msg)
+
             msg_queue.task_done()
         except asyncio.CancelledError:
             break
@@ -98,23 +104,45 @@ async def processing_loop():
             print(f"Error in processing loop: {e}")
 
 async def broadcast_loop():
+    import time
     while True:
         try:
-            await asyncio.sleep(0.25) # 250ms
-            
+            await asyncio.sleep(0.25)  # 250ms
+
             # Get flow snapshot from aggregator
             flow_snapshot = aggregator.get_snapshot()
-            
+
             # Get level signals from level service
             levels_payload = level_signal_service.compute_level_signals()
-            
+
+            # Get current SPY quote for payload
+            last_quote = market_state.last_quote
+            spy_snapshot = {
+                "spot": (last_quote.bid_px + last_quote.ask_px) / 2 if last_quote else None,
+                "bid": last_quote.bid_px if last_quote else None,
+                "ask": last_quote.ask_px if last_quote else None
+            } if last_quote else {}
+
+            ts_ms = int(time.time() * 1000)
+
             # Merge payloads (Option A per §6.4)
             merged_payload = {
+                "ts": ts_ms,
                 "flow": flow_snapshot if flow_snapshot else {},
+                "spy": spy_snapshot,
                 "levels": levels_payload
             }
-            
+
             await broadcaster.broadcast(merged_payload)
+
+            # Persist level signals to Gold (if enabled and levels exist)
+            if gold_writer and levels_payload:
+                await gold_writer.write_level_signals({
+                    "ts": ts_ms,
+                    "spy": spy_snapshot,
+                    "levels": levels_payload
+                })
+
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -177,51 +205,70 @@ async def strike_monitor_loop():
 async def lifespan(app: FastAPI):
     # Startup
     print("🚀 Starting 0DTE Backend...")
-    
-    # Start Greek Enricher (background)
-    enricher_task = asyncio.create_task(greek_enricher.start_snapshot_loop())
-    
+
+    # Start Greek Enricher (background) - skip for replay since we use cached greeks
+    if not REPLAY_MODE:
+        enricher_task = asyncio.create_task(greek_enricher.start_snapshot_loop())
+    else:
+        enricher_task = None
+
     # Start Ingestor (Stream or Replay)
     if REPLAY_MODE:
-        # Replay run is async and can be awaited or tasked.
-        # It finishes when replay is done.
-        source_task = asyncio.create_task(data_source.run(minutes_back=10))
+        if REPLAY_DATE:
+            # UnifiedReplayEngine with Bronze+DBN data
+            source_task = asyncio.create_task(data_source.run(
+                date=REPLAY_DATE,
+                speed=REPLAY_SPEED,
+                include_spy=True,
+                include_options=True,
+                include_es=False  # Enable when ES barrier physics is ready
+            ))
+        else:
+            # Legacy ReplayEngine
+            source_task = asyncio.create_task(data_source.run(minutes_back=10))
     else:
         # StreamIngestor
         source_task = asyncio.create_task(data_source.run_async())
-    
+
     # Start Processing Loop
     proc_task = asyncio.create_task(processing_loop())
-    
+
     # Start Broadcast Loop
     cast_task = asyncio.create_task(broadcast_loop())
-    
-    # Start Strike Monitor (Only if NOT replay? Or replay handles it?)
-    # ReplayEngine picks strikes ONCE at start in simplified version.
-    # So we don't need strike monitor in Replay v1.
+
+    # Start Strike Monitor (only in live mode)
     if not REPLAY_MODE:
         mon_task = asyncio.create_task(strike_monitor_loop())
     else:
         mon_task = None
-    
+
     yield
-    
+
     # Shutdown
     print("🛑 Shutting down...")
-    if not REPLAY_MODE:
-        data_source.running = False
-    else:
-        data_source.running = False # Replay engine flag
-        
+    data_source.running = False
+
     greek_enricher.stop()
-    enricher_task.cancel()
+    if enricher_task:
+        enricher_task.cancel()
     source_task.cancel()
     proc_task.cancel()
     cast_task.cancel()
     if mon_task:
         mon_task.cancel()
-    # persistence flushes automatically? We should force flush.
+
+    # Flush persistence engines
     await persistence.flush()
+
+    # Flush storage writers
+    if bronze_writer:
+        print("  Flushing Bronze writer...")
+        await bronze_writer.flush_all()
+    if gold_writer:
+        print("  Flushing Gold writer...")
+        await gold_writer.flush()
+
+    print("✅ Shutdown complete")
 
 app = FastAPI(lifespan=lifespan)
 
