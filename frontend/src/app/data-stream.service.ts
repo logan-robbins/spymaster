@@ -55,31 +55,83 @@ export interface FlowMap {
     [ticker: string]: FlowMetrics;
 }
 
+// Level signals payload (matches backend §6.4)
+export interface SpySnapshot {
+    spot: number | null;
+    bid: number | null;
+    ask: number | null;
+}
+
+export interface LevelSignal {
+    id: string;
+    price: number;
+    kind: string;
+    direction: string;
+    distance: number;
+    break_score_raw: number;
+    break_score_smooth: number | null;
+    signal: string;
+    confidence: string;
+    barrier: any;
+    tape: any;
+    fuel: any;
+    runway: any;
+    note?: string;
+}
+
+export interface LevelsPayload {
+    ts: number;
+    spy: SpySnapshot;
+    levels: LevelSignal[];
+}
+
+// Merged payload from backend (Option A per §6.4)
+export interface MergedPayload {
+    flow: FlowMap;
+    levels: LevelsPayload;
+}
+
 @Injectable({
     providedIn: 'root'
 })
 export class DataStreamService {
     public flowData: WritableSignal<FlowMap> = signal({});
+    public levelsData: WritableSignal<LevelsPayload | null> = signal(null);
+    public connectionStatus: WritableSignal<'connecting' | 'connected' | 'disconnected'> = signal('disconnected');
+    
     private socket!: WebSocket;
     private readonly URL = 'ws://localhost:8000/ws/stream';
+    private reconnectTimeout?: number;
+    private reconnectDelay = 3000;
 
     constructor() {
         this.connect();
     }
 
     private connect() {
+        this.connectionStatus.set('connecting');
         console.log('🔌 Connecting to 0DTE Stream...');
         this.socket = new WebSocket(this.URL);
 
         this.socket.onopen = () => {
             console.log('✅ Connected to Stream');
+            this.connectionStatus.set('connected');
+            this.reconnectDelay = 3000; // Reset backoff
         };
 
         this.socket.onmessage = (event) => {
             try {
-                const data: FlowMap = JSON.parse(event.data);
-                // Direct signal update (Signals are performant)
-                this.flowData.set(data);
+                const data: MergedPayload = JSON.parse(event.data);
+                
+                // Update flow data (existing functionality)
+                if (data.flow) {
+                    this.flowData.set(data.flow);
+                }
+                
+                // Update levels data (new functionality)
+                if (data.levels) {
+                    this.levelsData.set(data.levels);
+                }
             } catch (err) {
                 console.error('Error parsing stream data:', err);
             }
@@ -87,11 +139,34 @@ export class DataStreamService {
 
         this.socket.onclose = () => {
             console.warn('⚠️ Disconnected. Reconnecting in 3s...');
-            setTimeout(() => this.connect(), 3000);
+            this.connectionStatus.set('disconnected');
+            this.scheduleReconnect();
         };
 
         this.socket.onerror = (err) => {
             console.error('WebSocket Error:', err);
+            this.connectionStatus.set('disconnected');
         };
+    }
+
+    private scheduleReconnect() {
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+        }
+        
+        this.reconnectTimeout = window.setTimeout(() => {
+            this.connect();
+            // Exponential backoff, max 30s
+            this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, 30000);
+        }, this.reconnectDelay);
+    }
+
+    public disconnect() {
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+        }
+        if (this.socket) {
+            this.socket.close();
+        }
     }
 }

@@ -914,25 +914,30 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/barrier_engine.py`, `backend/src/tape_engine.py`, `backend/test_barrier_tape_engines.py`
 
-#### Agent E — Fuel engine (options gamma transfer + wall inference)
+#### Agent E — Fuel engine (options gamma transfer + wall inference) ✅ COMPLETE
 
 **Goal**: Implement dealer gamma proxy per §5.3 using options trades + greeks snapshots (existing greeks cache).
 
+- **Status**: ✅ **COMPLETE**
 - **Deliverables**
-  - Create `backend/src/fuel_engine.py` implementing:
-    - trade-level gamma transfer using option trade aggressor sign
-    - rolling net dealer gamma near level
-    - flow-based call/put wall + optional HVL proxy
-  - Define how to get `gamma_k` for each option trade:
-    - use existing greeks cache/enricher mechanisms (coordinate with current `greek_enricher.py`)
+  - ✅ Create `backend/src/fuel_engine.py` implementing:
+    - ✅ trade-level gamma transfer using option trade aggressor sign
+    - ✅ rolling net dealer gamma near level
+    - ✅ flow-based call/put wall + optional HVL proxy
+  - ✅ Define how to get `gamma_k` for each option trade:
+    - ✅ use existing greeks cache/enricher mechanisms (coordinate with current `greek_enricher.py`)
+  - ✅ Comprehensive test suite: `backend/test_fuel_engine.py` (13 tests, all passing)
+  - ✅ Integration example: `backend/test_fuel_engine_integration.py`
 - **Interfaces to consume**
-  - Option trade normalization (Agent A)
-  - Greeks snapshot access (existing repo + coordinate with Agent C state store)
-  - Config windows/ranges (Agent A)
+  - Option trade normalization (Agent A) ✅
+  - Greeks snapshot access (existing repo + coordinate with Agent C state store) ✅
+  - Config windows/ranges (Agent A) ✅
 - **Dependencies**
-  - Agent A + Agent C
+  - Agent A ✅ + Agent C ✅
 - **Files owned**
-  - `backend/src/fuel_engine.py` (and any small helper file)
+  - `backend/src/fuel_engine.py`
+  - `backend/test_fuel_engine.py`
+  - `backend/test_fuel_engine_integration.py`
 
 #### Agent F — Level universe + room-to-run (levels + runway logic) ✅ COMPLETE
 
