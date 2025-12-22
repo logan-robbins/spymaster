@@ -48,36 +48,23 @@ class ReplayEngine:
         self.cache = HistoricalDataCache() # Defaults to data/raw/flow
 
     async def run(self, minutes_back: int = 10, speed: float = 1.0):
-        print(f"I am a Replay Engine! Preparing to replay last {minutes_back} minutes from Data Lake...")
+        print(f"I am a Replay Engine! Preparing to replay from earliest available data...")
         self.running = True
         
-        # 1. Discovery
+        # 1. Discovery - Get earliest available date
         latest_date = self.cache.get_latest_available_date()
         if not latest_date:
             print("❌ No data found in Data Lake (data/raw/flow). Run live mode first!")
             return
             
-        print(f"📅 Latest Data Lake partition: {latest_date}")
+        print(f"📅 Replaying from date: {latest_date}")
         
-        # 2. Timing
-        # We target the end of the trading day for that date (4:00 PM ET)
-        # Verify: If latest_date is TODAY and market is OPEN, we should replay up to NOW?
-        # User requested replay of historical. 
-        # If it's today, we might want to replay 'so far'?
-        # The logic below assumes 'market_close'.
+        # 2. Timing - Start from beginning of available data for that day
+        # Query without time filters to get ALL data from that day
+        start_time = None
+        end_time = None
         
-        market_close = datetime.combine(latest_date, time(16, 0), tzinfo=ZoneInfo("America/New_York"))
-        
-        # Adjust for 'Today' logic if needed
-        now = datetime.now(ZoneInfo("America/New_York"))
-        if latest_date == now.date() and now < market_close:
-            print("⚠️ Replaying TODAY's data (ongoing session).")
-            market_close = now
-            
-        start_time = market_close - timedelta(minutes=minutes_back)
-        end_time = market_close
-        
-        print(f"📦 Replaying window: {start_time.time()} - {end_time.time()}")
+        print(f"📦 Replaying all data from {latest_date}")
         
         # 3. Fetch Data (All Tickers)
         # We pass None for ticker to get EVERYTHING in that window

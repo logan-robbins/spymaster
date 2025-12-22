@@ -63,7 +63,16 @@ class HistoricalDataCache:
         # DuckDB requires string path
         partition_glob = str(partition_path / "*.parquet")
         
-        query = f"SELECT * FROM read_parquet('{partition_glob}') WHERE 1=1"
+        # Note: Timestamps in parquet are stored as naive datetime64[ns]
+        # We need to compare them directly as timestamps in WHERE clause
+        # But return epoch_ms for downstream consumers
+        query = f"""
+        SELECT ticker, price, size,
+               epoch_ms(timestamp) as timestamp,
+               delta, gamma, premium, aggressor_side, net_delta_impact
+        FROM read_parquet('{partition_glob}') 
+        WHERE 1=1
+        """
         params = []
         
         if ticker:
@@ -71,15 +80,16 @@ class HistoricalDataCache:
             params.append(ticker)
             
         if start_time:
-            # Timestamp in ms expected in parquet
-            start_ms = int(start_time.timestamp() * 1000)
+            # Convert timezone-aware datetime to naive for comparison
+            # Parquet timestamps are naive but represent ET times
+            start_naive = start_time.replace(tzinfo=None)
             query += " AND timestamp >= ?"
-            params.append(start_ms)
+            params.append(start_naive)
             
         if end_time:
-            end_ms = int(end_time.timestamp() * 1000)
+            end_naive = end_time.replace(tzinfo=None)
             query += " AND timestamp <= ?"
-            params.append(end_ms)
+            params.append(end_naive)
             
         # Sort by time
         query += " ORDER BY timestamp ASC"
