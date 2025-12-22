@@ -23,7 +23,7 @@ Gold (derived analytics):
 - levels.signals.v1 - Level break/reject signals
 
 Usage:
-    from src.schemas import (
+    from src.common.schemas import (
         StockTradeV1,
         StockQuoteV1,
         OptionTradeV1,

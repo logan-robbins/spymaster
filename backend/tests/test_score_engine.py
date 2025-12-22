@@ -9,14 +9,14 @@ Verifies per PLAN.md §5.4 and §8.1:
 """
 
 import time
-from src.score_engine import (
+from src.core.score_engine import (
     ScoreEngine, TriggerStateMachine, Signal, Confidence,
     CompositeScore, ComponentScores
 )
-from src.barrier_engine import BarrierMetrics, BarrierState
-from src.tape_engine import TapeMetrics, SweepDetection
-from src.fuel_engine import FuelMetrics, FuelEffect
-from src.config import CONFIG
+from src.core.barrier_engine import BarrierMetrics, BarrierState
+from src.core.tape_engine import TapeMetrics, SweepDetection
+from src.core.fuel_engine import FuelMetrics, FuelEffect
+from src.common.config import CONFIG
 
 
 def make_barrier_metrics(

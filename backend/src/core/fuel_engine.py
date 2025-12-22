@@ -18,7 +18,7 @@ from typing import Optional, List, Tuple
 from collections import defaultdict
 
 from .market_state import MarketState, OptionFlowAggregate
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 class FuelEffect(str, Enum):

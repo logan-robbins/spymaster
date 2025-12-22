@@ -20,7 +20,7 @@ import json
 import databento as db
 from databento_dbn import TradeMsg, MBP10Msg, SType
 
-from .event_types import (
+from src.common.event_types import (
     FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
 )
 
@@ -70,7 +70,8 @@ class DBNIngestor:
             self.dbn_root = Path(dbn_data_root)
         else:
             # Default to dbn-data/ in project root
-            self.dbn_root = Path(__file__).parent.parent.parent / 'dbn-data'
+            # backend/src/ingestor/dbn_ingestor.py -> project_root/dbn-data
+            self.dbn_root = Path(__file__).parent.parent.parent.parent / 'dbn-data'
 
         self._symbology_cache: Dict[str, Dict[int, str]] = {}
 

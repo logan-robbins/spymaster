@@ -12,7 +12,7 @@ import pytest
 from datetime import date
 import pyarrow as pa
 
-from src.schemas import (
+from src.common.schemas import (
     # Base
     SchemaRegistry,
     SchemaVersion,

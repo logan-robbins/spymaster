@@ -24,7 +24,7 @@ from .tape_engine import TapeEngine
 from .fuel_engine import FuelEngine
 from .score_engine import ScoreEngine, Signal, Confidence
 from .smoothing import SmootherSet
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 @dataclass

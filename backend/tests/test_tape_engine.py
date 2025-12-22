@@ -11,10 +11,10 @@ Verifies:
 import pytest
 import time as _time
 
-from src.tape_engine import TapeEngine, TapeMetrics, SweepDetection
-from src.market_state import MarketState
-from src.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
-from src.config import Config
+from src.core.tape_engine import TapeEngine, TapeMetrics, SweepDetection
+from src.core.market_state import MarketState
+from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
+from src.common.config import Config
 
 
 def create_es_trade(ts_ns: int, price: float, size: int, aggressor: Aggressor) -> FuturesTrade:

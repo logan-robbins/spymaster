@@ -24,7 +24,7 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from pathlib import Path
 
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 class RunStatus(Enum):

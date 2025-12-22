@@ -16,7 +16,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.silver_compactor import SilverCompactor, SilverReader
+from src.lake.silver_compactor import SilverCompactor, SilverReader
 
 
 class TestSilverCompactorInit:

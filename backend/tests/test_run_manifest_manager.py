@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from src.run_manifest_manager import (
+from src.common.run_manifest_manager import (
     RunManifestManager, RunManifest, RunStatus, RunMode
 )
 

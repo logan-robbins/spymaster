@@ -8,8 +8,8 @@ Verifies:
 """
 
 import time
-from src.event_types import OptionTrade, EventSource, Aggressor
-from src.market_state import MarketState
+from src.common.event_types import OptionTrade, EventSource, Aggressor
+from src.core.market_state import MarketState
 
 
 def test_option_flow_aggregation():

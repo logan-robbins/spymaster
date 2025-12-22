@@ -22,7 +22,7 @@ from collections import deque
 from .barrier_engine import BarrierMetrics, BarrierState
 from .tape_engine import TapeMetrics
 from .fuel_engine import FuelMetrics, FuelEffect
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 class Signal(str, Enum):

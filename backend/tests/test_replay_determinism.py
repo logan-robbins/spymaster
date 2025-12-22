@@ -13,16 +13,16 @@ import shutil
 import os
 from typing import List, Dict, Any
 
-from src.event_types import StockTrade, StockQuote, OptionTrade, FuturesTrade, EventSource, Aggressor
-from src.market_state import MarketState
-from src.barrier_engine import BarrierEngine, Direction
-from src.tape_engine import TapeEngine
-from src.fuel_engine import FuelEngine
-from src.score_engine import ScoreEngine
-from src.level_signal_service import LevelSignalService
-from src.bronze_writer import BronzeWriter, BronzeReader
-from src.gold_writer import GoldWriter, GoldReader
-from src.config import CONFIG
+from src.common.event_types import StockTrade, StockQuote, OptionTrade, FuturesTrade, EventSource, Aggressor
+from src.core.market_state import MarketState
+from src.core.barrier_engine import BarrierEngine, Direction
+from src.core.tape_engine import TapeEngine
+from src.core.fuel_engine import FuelEngine
+from src.core.score_engine import ScoreEngine
+from src.core.level_signal_service import LevelSignalService
+from src.lake.bronze_writer import BronzeWriter, BronzeReader
+from src.lake.gold_writer import GoldWriter, GoldReader
+from src.common.config import CONFIG
 
 
 def generate_synthetic_events(
@@ -241,9 +241,9 @@ class TestEngineDeterminism:
 
     def test_score_engine_deterministic(self):
         """Same inputs should produce same composite score."""
-        from src.barrier_engine import BarrierMetrics, BarrierState
-        from src.tape_engine import TapeMetrics, SweepDetection
-        from src.fuel_engine import FuelMetrics, FuelEffect
+        from src.core.barrier_engine import BarrierMetrics, BarrierState
+        from src.core.tape_engine import TapeMetrics, SweepDetection
+        from src.core.fuel_engine import FuelMetrics, FuelEffect
 
         ts_ns = time.time_ns()
 

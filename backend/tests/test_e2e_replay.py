@@ -11,11 +11,11 @@ import asyncio
 import pytest
 from pathlib import Path
 
-from src.event_types import FuturesTrade, MBP10, Aggressor, EventSource, BidAskLevel
-from src.market_state import MarketState
-from src.level_signal_service import LevelSignalService
-from src.dbn_ingestor import DBNIngestor
-from src.price_converter import PriceConverter
+from src.common.event_types import FuturesTrade, MBP10, Aggressor, EventSource, BidAskLevel
+from src.core.market_state import MarketState
+from src.core.level_signal_service import LevelSignalService
+from src.ingestor.dbn_ingestor import DBNIngestor
+from src.common.price_converter import PriceConverter
 
 
 class TestDBNDataAvailability:
@@ -274,7 +274,7 @@ class TestBronzeWriterIntegration:
 
     def test_bronze_writer_creates_files(self, temp_data_root):
         """Bronze writer should create Parquet files from ES events."""
-        from src.bronze_writer import BronzeWriter
+        from src.lake.bronze_writer import BronzeWriter
 
         writer = BronzeWriter(data_root=temp_data_root, buffer_limit=10)
 
@@ -316,7 +316,7 @@ class TestBronzeWriterIntegration:
 
     def test_bronze_writer_with_real_dbn(self, temp_data_root):
         """Bronze writer should persist real DBN data."""
-        from src.bronze_writer import BronzeWriter
+        from src.lake.bronze_writer import BronzeWriter
 
         ingestor = DBNIngestor()
         dates = ingestor.get_available_dates('trades')
@@ -353,8 +353,8 @@ class TestSilverCompactionIntegration:
 
     def test_compact_bronze_to_silver(self, temp_data_root):
         """Silver compactor should dedupe and sort Bronze data."""
-        from src.bronze_writer import BronzeWriter
-        from src.silver_compactor import SilverCompactor
+        from src.lake.bronze_writer import BronzeWriter
+        from src.lake.silver_compactor import SilverCompactor
 
         # Step 1: Create Bronze data with duplicates
         writer = BronzeWriter(data_root=temp_data_root, buffer_limit=5)
@@ -411,8 +411,8 @@ class TestSilverCompactionIntegration:
 
     def test_compact_real_dbn_to_silver(self, temp_data_root):
         """Compact real DBN Bronze data to Silver."""
-        from src.bronze_writer import BronzeWriter
-        from src.silver_compactor import SilverCompactor
+        from src.lake.bronze_writer import BronzeWriter
+        from src.lake.silver_compactor import SilverCompactor
 
         ingestor = DBNIngestor()
         dates = ingestor.get_available_dates('trades')

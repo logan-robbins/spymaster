@@ -6,9 +6,9 @@ per PLAN.md §5.3.
 """
 
 import pytest
-from src.fuel_engine import FuelEngine, FuelEffect, GammaWall, FuelMetrics
-from src.market_state import MarketState, OptionFlowAggregate
-from src.config import Config
+from src.core.fuel_engine import FuelEngine, FuelEffect, GammaWall, FuelMetrics
+from src.core.market_state import MarketState, OptionFlowAggregate
+from src.common.config import Config
 
 
 @pytest.fixture
@@ -464,7 +464,7 @@ class TestGlobalWallRetrieval:
     def test_get_all_walls_across_strikes(self, fuel_engine, market_state):
         """Test retrieval of global call/put walls across entire range."""
         # Setup market state with spot price using ES trade (SPY 680 = ES 6800)
-        from src.event_types import FuturesTrade, EventSource, Aggressor
+        from src.common.event_types import FuturesTrade, EventSource, Aggressor
         trade = FuturesTrade(
             ts_event_ns=1000000000,
             ts_recv_ns=1000000000,

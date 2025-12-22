@@ -18,7 +18,7 @@ from typing import List, Optional, Set
 from enum import Enum
 
 from .market_state import MarketState
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 class LevelKind(Enum):

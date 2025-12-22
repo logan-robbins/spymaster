@@ -9,7 +9,7 @@ Verifies:
 """
 
 import pytest
-from src.price_converter import PriceConverter
+from src.common.price_converter import PriceConverter
 
 
 class TestPriceConverterDefaults:

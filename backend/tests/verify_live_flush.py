@@ -3,10 +3,10 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from polygon import RESTClient
-from src.strike_manager import StrikeManager
-from src.persistence_engine import PersistenceEngine
-from src.flow_aggregator import FlowAggregator
-from src.stream_ingestor import StreamIngestor
+from src.core.strike_manager import StrikeManager
+from src.lake.persistence_engine import PersistenceEngine
+from src.core.flow_aggregator import FlowAggregator
+from src.ingestor.stream_ingestor import StreamIngestor
 
 # Load env including API Key
 load_dotenv()
@@ -124,7 +124,7 @@ async def run_live_test():
     await persistence.flush()
     
     # 9. Verify
-    from src.historical_cache import HistoricalDataCache
+    from src.lake.historical_cache import HistoricalDataCache
     cache = HistoricalDataCache()
     
     latest = cache.get_latest_available_date()

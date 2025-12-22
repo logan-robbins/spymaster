@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple, Any
 import time
 
-from .event_types import FuturesTrade, MBP10, OptionTrade, Aggressor
-from .price_converter import PriceConverter
-from .config import CONFIG
+from src.common.event_types import FuturesTrade, MBP10, OptionTrade, Aggressor
+from src.common.price_converter import PriceConverter
+from src.common.config import CONFIG
 
 
 @dataclass

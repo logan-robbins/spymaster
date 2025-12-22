@@ -244,7 +244,7 @@ class SmootherSet:
         Args:
             config: Config object (defaults to global CONFIG)
         """
-        from .config import CONFIG
+        from src.common.config import CONFIG
         config = config or CONFIG
         
         # Create smoothers with configured time constants

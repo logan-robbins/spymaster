@@ -21,9 +21,9 @@ from typing import Optional, List, Tuple
 from collections import deque
 import numpy as np
 
-from .event_types import Aggressor
+from src.common.event_types import Aggressor
 from .market_state import MarketState, TimestampedESTrade
-from .config import CONFIG
+from src.common.config import CONFIG
 
 
 @dataclass

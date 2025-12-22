@@ -1,7 +1,7 @@
 import asyncio
 import pytest
-from src.historical_cache import HistoricalDataCache
-from src.replay_engine import ReplayEngine
+from src.lake.historical_cache import HistoricalDataCache
+from src.core.replay_engine import ReplayEngine
 
 
 @pytest.mark.asyncio

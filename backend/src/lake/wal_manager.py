@@ -24,7 +24,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from .event_types import (
+from src.common.event_types import (
     StockTrade, StockQuote, OptionTrade, GreeksSnapshot,
     FuturesTrade, MBP10, EventSource, Aggressor
 )

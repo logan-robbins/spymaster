@@ -8,9 +8,9 @@ This shows Agent G (score engine) how to integrate fuel metrics.
 """
 
 import time
-from src.fuel_engine import FuelEngine, FuelEffect
-from src.market_state import MarketState, OptionFlowAggregate
-from src.event_types import StockTrade, OptionTrade, EventSource, Aggressor
+from src.core.fuel_engine import FuelEngine, FuelEffect
+from src.core.market_state import MarketState, OptionFlowAggregate
+from src.common.event_types import StockTrade, OptionTrade, EventSource, Aggressor
 
 
 def example_fuel_computation():

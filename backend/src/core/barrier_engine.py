@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 
-from .event_types import FuturesTrade, MBP10, BidAskLevel, Aggressor
-from .config import CONFIG
+from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, Aggressor
+from src.common.config import CONFIG
 
 if TYPE_CHECKING:
     from .market_state import MarketState

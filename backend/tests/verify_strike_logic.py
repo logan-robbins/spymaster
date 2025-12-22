@@ -1,4 +1,4 @@
-from src.strike_manager import StrikeManager
+from src.core.strike_manager import StrikeManager
 
 def test_strike_manager():
     print("🧪 Testing StrikeManager Dynamic Update Logic...")

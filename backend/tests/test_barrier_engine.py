@@ -12,10 +12,10 @@ Verifies:
 import pytest
 import time as _time
 
-from src.barrier_engine import BarrierEngine, BarrierState, Direction
-from src.market_state import MarketState
-from src.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
-from src.config import Config
+from src.core.barrier_engine import BarrierEngine, BarrierState, Direction
+from src.core.market_state import MarketState
+from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
+from src.common.config import Config
 
 
 def create_mbp10(ts_ns: int, bid_levels: list, ask_levels: list) -> MBP10:
