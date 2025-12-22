@@ -23,7 +23,8 @@
 - §9 Configuration (single source of truth)
 - §10 Acceptance criteria (v1)
 - §11 Web-dependent vendor contracts (Dec 2025) — Massive + Databento
-- §12 Parallel agent assignments (Agent A, Agent B, …)
+- §12 Phase 1 Agent assignments (Foundation)
+- §13 Phase 2 Agent assignments (Microservices Migration)
 
 ---
 
@@ -62,10 +63,18 @@ GM.md provides the **3-module decomposition** + **composite score**:
 - **Tape Engine (IS it moving?)**
 - Combine into a **Break Score 0–100**, updated on a fixed cadence (100–250ms).
 
-**SPY-only adaptation (v1 reality)**:
-- We do **not** have ES **L3/MBO** depth in v1; we implement Barrier Physics using **SPY quotes + trades** (L1/NBBO) as a first-order proxy.
-- **Preferred upgrade (institutional)**: use **ES L2 (MBP-10) + ES trades** to infer **pulled vs filled vs replenished** near levels **without requiring L3** (see §5.1.1).
-- The model is designed so we can **swap Barrier inputs** (SPY L1 → ES L2 → ES L3) **without changing** the Fuel/Tape/Score interfaces.
+**SPY levels + ES liquidity (current implementation)** ✅ COMPLETE:
+- **Levels are SPY prices** (strikes, rounds, VWAP) because we trade SPY 0DTE options.
+- **Barrier physics uses ES MBP-10 + trades** as the liquidity source (ES has superior depth visibility vs SPY L1).
+- **Price conversion** (`price_converter.py`): ES ≈ SPY × 10. When computing barrier state at SPY level $L$, we query ES depth at $L \times 10$ (dynamic ratio supported).
+- **Fuel engine uses SPY options** (gamma flow from Polygon API).
+- **Tape engine uses ES trades** (queries use ES-converted levels).
+- **All outputs in SPY terms**: `get_spot()`, `get_bid_ask()`, defending quotes, level prices.
+
+This architecture gives us:
+- Institutional-grade liquidity visibility from ES futures
+- SPY option strike alignment for gamma/fuel analysis
+- Unified SPY-denominated output for trading decisions
 
 ---
 
@@ -73,15 +82,15 @@ GM.md provides the **3-module decomposition** + **composite score**:
 
 We unify 3 asynchronous streams into a consistent event loop:
 
-- **SPY underlying**
-  - Trades stream: `T.SPY`
-  - Quotes stream: `Q.SPY` (NBBO)
-- **(Optional / preferred later) ES futures as liquidity source**
-  - Trades stream: ES time-and-sales
+- **ES futures (liquidity source for barrier/tape physics)**
+  - Trades stream: ES time-and-sales (from Databento DBN files or live feed)
   - Book stream: **MBP-10** (top 10 price levels per side)
-- **SPY options**
-  - Trades stream: `T.O:SPY...` (already subscribed dynamically)
-  - Greeks snapshots: cached via REST (already implemented)
+  - Price conversion: ES prices are converted to SPY-equivalent using dynamic ratio (ES/SPY ≈ 10)
+- **SPY options (fuel/gamma source)**
+  - Trades stream: `T.O:SPY...` (Polygon WebSocket)
+  - Greeks snapshots: cached via REST (Polygon API)
+- **SPY spot price (for level generation)**
+  - Derived from ES (ES_price / conversion_ratio) OR from SPY quotes if available
 
 **Snap loop**:
 - Every **100ms** (or 250ms to match current broadcaster), compute a `MarketState` using **LastKnownValue** from each stream.
@@ -125,30 +134,32 @@ We unify 3 asynchronous streams into a consistent event loop:
   - You can stop/start and still replay the same session from disk
   - Output parity for deterministic configs (within rounding policy)
 
-**Phase 1 — Local institutional hygiene (M4, 1–2 weeks)**
+**Phase 1 — Local institutional hygiene (M4, 1–2 weeks)** ✅ COMPLETE
 - **Durability**:
-  - Add per-stream **WAL spool** to guarantee recovery of unflushed events
-  - Add **run manifests** (`_meta/runs/.../manifest.json`) and schema snapshots
+  - ✅ Add per-stream **WAL spool** to guarantee recovery of unflushed events (`backend/src/lake/wal_manager.py` + 12 tests)
+  - ✅ Add **run manifests** (`_meta/runs/.../manifest.json`) and schema snapshots (`backend/src/common/run_manifest_manager.py` + 24 tests)
 - **Silver**:
-  - Add a periodic **compaction job** that produces Silver:
+  - ✅ Add a periodic **compaction job** that produces Silver:
     - deterministic dedup on `event_id`
     - sort by event-time
     - optional as-of joins (quotes↔trades, greeks↔option trades) with explicit tolerances
 - **Replay**:
-  - Replay from Bronze or Silver (choose based on “raw parity” vs “cleaned training”)
+  - ✅ Replay from Bronze or Silver (choose based on "raw parity" vs "cleaned training")
 
-**Phase 2 — Single-machine “real server” (low-latency, still simple)**
+**Phase 2 — Single-machine “real server” (low-latency, still simple)** ✅ COMPLETE
+- **Architecture**: Service-oriented with NATS + MinIO
+  - Refactored `backend/src` into `common`, `ingestor`, `core`, `lake`, `gateway`.
 - **Process boundaries** (still 1 host):
-  - `ingestor` (feed adapters) → `bus` → `engine` (Barrier/Tape/Fuel/Score) → `writer` (lake)
-- **Bus**: optional single-node **NATS JetStream** (or Redis Streams) for persistence + fanout
-- **Storage**: local NVMe + periodic sync to object store (optional)
-- **Ops**: metrics, structured logs, backpressure policies, health endpoints
+  - `ingestor` (feed adapters) → `bus` (NATS) → `core` (Barrier/Tape/Fuel/Score) → `gateway` (WS) + `lake` (storage)
+- **Bus**: **NATS JetStream** (Dockerized) for persistence + fanout.
+- **Storage**: **MinIO** (S3-compatible) + local filesystem.
+- **Orchestration**: `docker-compose.yml` spinning up full stack.
 
 **Phase 3 — Colocation / institutional deployment (scale + resilience)**
-- **Bus**: **NATS JetStream** or **Redpanda/Kafka** (multi-node)
+- **Bus**: **NATS JetStream** (clustered) or **Redpanda/Kafka** (multi-node)
   - retention policies, consumer groups, replay by offset/time
   - schema registry (Confluent-compatible) if Kafka/Redpanda is used
-- **Storage**: object store (S3/MinIO) with Bronze/Silver/Gold
+- **Storage**: S3/MinIO with Bronze/Silver/Gold tiers
 - **Table format**: add **Iceberg** metadata for schema evolution + scalable analytics
 - **Compute**: separate services with independent scaling; strict SLOs and monitoring
 
@@ -169,7 +180,7 @@ All internal events and stored records follow a common envelope:
 - **`payload`**: typed fields per schema
 
 Schema registry options:
-- **v1 (simple)**: `pyarrow.Schema` + Pydantic models stored in-repo (`backend/src/schemas/`)
+- **v1 (simple)**: `pyarrow.Schema` + Pydantic models stored in-repo (`backend/src/common/schemas/`)
 - **v2 (colocation)**: external **Schema Registry** (Confluent-compatible) if Kafka/Redpanda is used
 
 #### 2.2 Storage architecture: Bronze / Silver / Gold (lakehouse-ready)
@@ -199,7 +210,7 @@ We treat storage as a **data lake** with three tiers:
 #### 2.3 Canonical datasets + partitioning (SPY-only, but scalable)
 
 All datasets live under a configurable root:
-- `DATA_ROOT` (env) default: `backend/data/lake/`
+- `DATA_ROOT` (env) default: `backend/data/lake/` (or S3 bucket in Phase 2)
 
 Partitioning rules (balance scan speed vs file explosion):
 - Partition by **date** and **hour** for high-frequency event streams
@@ -307,7 +318,7 @@ DATA_ROOT/
     - flush Parquet on cadence (e.g., 1–5s) and rotate files by size/time
 
 **Production durability (colocation)**:
-- Phase 3 approach: replace in-process bus with **NATS JetStream** or **Redpanda/Kafka**:
+- Phase 2/3 approach: replace in-process bus with **NATS JetStream**:
   - partitions by `symbol` (and optionally by `expiry` for options)
   - consumer groups for engines vs storage vs API
   - retention policies and replay by offset/time
@@ -597,33 +608,34 @@ We will smooth:
 
 #### 6.1 Current state (repo reality)
 
-- Options flow is processed in `backend/src/flow_aggregator.py` and broadcast via WS.
-- SPY trades are subscribed for strike updates but currently **not routed** into processing.
+- **Phase 2 Complete**: Backend is refactored into modular services (`backend/src/core`, `ingestor`, `lake`, `gateway`).
+- **NATS Integration**: Services communicate via NATS JetStream.
+- **Legacy Notes**: `flow_aggregator.py` logic is now part of `src/core`.
 
-#### 6.2 New backend modules (files to create)
+#### 6.2 New backend modules (Phase 2 Architecture)
 
-- `backend/src/event_types.py`
-  - normalized dataclasses: `StockTrade`, `StockQuote`, `OptionTrade`
-- `backend/src/market_state.py`
-  - `MarketState` store (last quote, last trade, ring buffers, per-strike option flow)
-- `backend/src/level_universe.py`
-  - produces critical levels (VWAP, round, strikes, walls, user hotzone)
-- `backend/src/barrier_engine.py`
-- `backend/src/tape_engine.py`
-- `backend/src/fuel_engine.py`
-- `backend/src/score_engine.py`
-  - composite score + trigger state machine
-- `backend/src/smoothing.py`
-- `backend/src/room_to_run.py`
-- `backend/src/level_signal_service.py`
-  - orchestrates: `MarketState` → `LevelSignals` payload
+- `backend/src/common/`
+  - `event_types.py`, `config.py`, `schemas/`, `price_converter.py`
+- `backend/src/ingestor/`
+  - `stream_ingestor.py` (feeds → NATS)
+  - `dbn_ingestor.py` (replay → NATS)
+- `backend/src/core/`
+  - `service.py`, `main.py` (Core Engine)
+  - `market_state.py` (State Store)
+  - `barrier_engine.py`, `tape_engine.py`, `fuel_engine.py`
+  - `score_engine.py`, `level_universe.py`
+- `backend/src/lake/`
+  - `bronze_writer.py`, `gold_writer.py` (NATS → S3/Parquet)
+  - `silver_compactor.py`
+- `backend/src/gateway/`
+  - `socket_broadcaster.py`, `main.py` (NATS → WebSocket)
 
 #### 6.3 Streaming changes (minimal coupling)
 
-- Extend `backend/src/stream_ingestor.py` to subscribe to:
+- Extend `backend/src/ingestor/stream_ingestor.py` to subscribe to:
   - `Q.SPY` (quotes)
   - continue `T.SPY` (trades)
-- Route SPY trade+quote events into the same `msg_queue` as options trades, but with type tags so downstream can dispatch safely.
+- Route SPY trade+quote events into NATS subjects `market.stocks.trades` etc.
 
 #### 6.4 Broadcast payload (new WS channel or merged)
 
@@ -725,7 +737,7 @@ Extend replay to include:
 
 ### 9) Configuration (single source of truth)
 
-Create `backend/src/config.py` (or similar) containing:
+Create `backend/src/common/config.py` containing:
 - window sizes: `W_b`, `W_t`, `W_g`, `W_v`
 - bands: `MONITOR_BAND`, `TOUCH_BAND`
 - thresholds: `R_vac`, `R_wall`, `F_thresh`, sweep thresholds
@@ -742,9 +754,11 @@ Create `backend/src/config.py` (or similar) containing:
   - runway to next obstacle
 - UI shows nearest levels with stable scores (not flickering) thanks to smoothing.
 - Unit tests cover classification edges and trigger timing.
+  - ✅ **86 tests** in `backend/tests/` covering barrier, tape, price_converter, silver_compactor, wal_manager, run_manifest_manager
 - **Data backbone**:
   - Bronze Parquet partitions exist for SPY trades/quotes and SPY options trades (+ greeks snapshots)
   - *(optional)* Bronze Parquet partitions exist for ES trades + ES MBP-10 when ES ingestion is enabled
+  - ✅ Silver layer implemented: `silver_compactor.py` deduplicates and sorts Bronze → Silver
   - Gold Parquet partitions exist for `levels.signals`
   - Replay produces byte-for-byte identical results given the same inputs + config (within floating/rounding policy)
 
@@ -831,7 +845,7 @@ Create `backend/src/config.py` (or similar) containing:
 
 ---
 
-### 12) Parallel agent assignments (clear tasks + ownership)
+### 12) Phase 1 Agent assignments (Foundation)
 
 **Shared rule for all agents**
 - **Do not** invent your own event/level/signal shapes. Implement against §2 (envelope + schemas) and §6.4 (WS payload).
@@ -846,7 +860,12 @@ Create `backend/src/config.py` (or similar) containing:
 - **Deliverables**
   - ✅ Create `backend/src/event_types.py` with `StockTrade`, `StockQuote`, `OptionTrade` (normalized; includes `ts_event_ns`, `ts_recv_ns`, symbol fields).
   - ✅ Create `backend/src/config.py` per §9.
-  - ⏸️ (Optional but recommended) Create `backend/src/schemas/` with Arrow/Pydantic schema representations matching §2.4.
+  - ✅ Create `backend/src/schemas/` with Arrow/Pydantic schema representations matching §2.4:
+    - Bronze: `stocks.trades.v1`, `stocks.quotes.v1`, `options.trades.v1`, `options.greeks_snapshots.v1`, `futures.trades.v1`, `futures.mbp10.v1`
+    - Silver: `options.trades_enriched.v1`
+    - Gold: `levels.signals.v1`
+    - SchemaRegistry for version tracking and lookup
+    - 31 unit tests in `backend/tests/test_schemas.py`
 - **Interfaces to expose**
   - `Config` object (or module-level constants) with the keys listed in §9.
   - Dataclasses for normalized events.
@@ -983,41 +1002,120 @@ Create `backend/src/config.py` (or similar) containing:
 - **Files owned**
   - `backend/src/score_engine.py`, `backend/src/smoothing.py`, `backend/src/level_signal_service.py`, and minimal edits to `backend/src/main.py`
 
-#### Agent H — Frontend (Angular UI for levels)
+#### Agent H — Frontend (Angular UI for levels) ✅ COMPLETE
 
 **Goal**: Display level signals: table + strip overlay per §7.
 
+- **Status**: ✅ **COMPLETE**
 - **Deliverables**
-  - Add service updates:
-    - if WS merged: extend `frontend/src/app/data-stream.service.ts`
-    - if separate WS: create `frontend/src/app/level-stream.service.ts`
-  - Add components:
-    - Level Table view (near existing dashboard)
-    - Optional “Level Strip” overlay for nearest levels
+  - ✅ Level Table component (`frontend/src/app/level-table/level-table.component.ts`)
+  - ✅ Level Strip overlay component (`frontend/src/app/level-strip/level-strip.component.ts`)
+  - ✅ Integrated into flow-dashboard with tabbed view (Options / Levels)
+  - ✅ Fixed-position Level Strip showing 3 nearest levels
+  - ✅ WebSocket services: `data-stream.service.ts` (merged) + `level-stream.service.ts` (dedicated)
 - **Interfaces to consume**
-  - WS payload shape in §6.4
+  - WS payload shape in §6.4 ✅
 - **Dependencies**
-  - Agent G finalizes whether WS is merged or separate (Option A vs B).
+  - Agent G ✅
 - **Files owned**
-  - `frontend/src/app/*` new/modified files for levels UI
+  - `frontend/src/app/level-table/level-table.component.ts`
+  - `frontend/src/app/level-strip/level-strip.component.ts`
+  - `frontend/src/app/flow-dashboard/flow-dashboard.component.ts` (updated)
 
-#### Agent I — Storage writer + replay correctness (Bronze/Gold integration)
+#### Agent I — Storage writer + replay correctness (Bronze/Gold integration) ✅ COMPLETE
 
 **Goal**: Ensure ingestion writes canonical Parquet partitions and replay can reproduce level signals deterministically.
 
+- **Status**: ✅ **COMPLETE**
 - **Deliverables**
-  - Add/extend writer to emit Bronze:
+  - ✅ Bronze writer (`backend/src/bronze_writer.py`):
     - `stocks.trades.v1`, `stocks.quotes.v1`, `options.trades.v1`, `options.greeks_snapshots.v1`
-  - Add Gold writer for `levels.signals.v1` (snap tick output).
-  - Extend replay engine to play back SPY quotes/trades + options trades in deterministic event-time order.
+    - Hive-style partitioning: `symbol=X/date=YYYY-MM-DD/hour=HH/`
+    - ZSTD compression, async micro-batching
+  - ✅ Gold writer (`backend/src/gold_writer.py`):
+    - `levels.signals.v1` with flattened metrics
+  - ✅ DBN ingestor (`backend/src/dbn_ingestor.py`):
+    - Reads ES futures trades and MBP-10 from Databento DBN files
+    - Supports dbn-data/ directory with Dec 14-19, 2025 data
+  - ✅ Unified replay engine (`backend/src/unified_replay_engine.py`):
+    - Merges Bronze Parquet + DBN sources
+    - Deterministic event-time ordering via heap
+    - Streaming replay for large MBP-10 files
 - **Interfaces to consume**
-  - Schema fields in §2.4
-  - Event envelope in §2.1
-  - Level signals payload (Agent G)
+  - Schema fields in §2.4 ✅
+  - Event envelope in §2.1 ✅
+  - Level signals payload (Agent G) ✅
 - **Dependencies**
-  - Agent A for schemas/types
-  - Agent G for signal outputs
+  - Agent A ✅ + Agent G ✅
 - **Files owned**
-  - Likely `backend/src/persistence_engine.py`, `backend/src/replay_engine.py`, plus any new writer helpers
+  - `backend/src/bronze_writer.py`, `backend/src/gold_writer.py`
+  - `backend/src/dbn_ingestor.py`, `backend/src/unified_replay_engine.py`
 
+#### Agent J — Silver layer + Testing infrastructure ✅ COMPLETE
 
+**Goal**: Implement Silver compaction (dedup + sort) and comprehensive test suite per §2.2 Phase 1.
+
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**
+  - ✅ Silver compactor (`backend/src/silver_compactor.py`):
+    - `SilverCompactor` class with `compact_date()`, `compact_all_schemas()`, `compact_all_dates()`
+    - Deterministic dedup using MD5 hash of key columns (source, ts_event_ns, symbol, price, size, seq)
+    - Sort by `ts_event_ns` within partitions
+    - Hour-partitioned Silver output with ZSTD compression
+    - Support for all schema types (stocks, futures, options)
+  - ✅ Silver reader (`SilverReader` class) for querying Silver data
+  - ✅ Test suite (`backend/tests/`):
+    - `test_price_converter.py` (16 tests) - ES↔SPY conversion
+    - `test_barrier_engine.py` (9 tests) - VACUUM, WALL, CONSUMED states
+    - `test_tape_engine.py` (13 tests) - imbalance, velocity, sweep detection
+    - `test_silver_compactor.py` (12 tests) - dedup, sort, partition output
+    - **Total: 50 tests**
+- **Interfaces to consume**
+  - Bronze writer schemas (Agent I) ✅
+  - Event types (Agent A) ✅
+- **Dependencies**
+  - Agent A ✅ + Agent I ✅
+- **Files owned**
+  - `backend/src/silver_compactor.py`
+  - `backend/tests/test_price_converter.py`
+  - `backend/tests/test_barrier_engine.py`
+  - `backend/tests/test_tape_engine.py`
+  - `backend/tests/test_silver_compactor.py`
+
+### 13) Phase 2 Agent assignments (Microservices Migration) ✅ COMPLETE
+
+**Goal**: Transition from monolithic `asyncio.Queue` to distributed services using NATS + MinIO + Docker.
+
+#### Phase 2 Agent A — Ingestor Service (The Source) ✅ COMPLETE
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**:
+  - `src/ingestor/stream_ingestor.py`: Publish normalized events to NATS.
+  - `src/ingestor/main.py`: Standalone service entry point.
+  - `src/ingestor/replay_publisher.py`: Replay DBN files to NATS.
+
+#### Phase 2 Agent B — Lake Service (The Memory) ✅ COMPLETE
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**:
+  - `src/lake/bronze_writer.py`: Consume NATS → Parquet (S3/MinIO).
+  - `src/lake/main.py`: Standalone service entry point.
+  - Removed internal WAL in favor of NATS JetStream persistence.
+
+#### Phase 2 Agent C — Core Service (The Brain) ✅ COMPLETE
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**:
+  - `src/core/main.py`: Standalone service running the physics engines.
+  - Consumes `market.*` from NATS.
+  - Publishes `levels.signals` to NATS.
+
+#### Phase 2 Agent D — Gateway Service (The Interface) ✅ COMPLETE
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**:
+  - `src/gateway/main.py`: FastAPI + WebSocket entry point.
+  - `src/gateway/socket_broadcaster.py`: Relay NATS messages to WebSocket clients.
+
+#### Phase 2 Agent E — Infrastructure & Orchestration ✅ COMPLETE
+- **Status**: ✅ **COMPLETE**
+- **Deliverables**:
+  - `docker-compose.yml`: Defines NATS, MinIO, Ingestor, Core, Lake, Gateway.
+  - `backend/Dockerfile`: Unified build for all Python services.
+  - `src/common/bus.py`: Shared NATS client wrapper.
