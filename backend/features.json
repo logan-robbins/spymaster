@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "SPY 0DTE Level Signal Features for ML Training - Vectorized Pipeline",
   "output_path": "data/lake/gold/research/signals_vectorized.parquet",
   "label_column": "outcome",
@@ -59,14 +59,15 @@
             "8": "ROUND",
             "9": "STRIKE",
             "10": "CALL_WALL",
-            "11": "PUT_WALL"
+            "11": "PUT_WALL",
+            "12": "SMA_400"
           },
           "example": 8
         },
         "level_kind_name": {
           "dtype": "string",
           "description": "Human-readable level type name",
-          "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SESSION_HIGH", "SESSION_LOW", "SMA_200", "VWAP", "ROUND", "STRIKE", "CALL_WALL", "PUT_WALL"],
+          "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SESSION_HIGH", "SESSION_LOW", "SMA_200", "VWAP", "ROUND", "STRIKE", "CALL_WALL", "PUT_WALL", "SMA_400"],
           "example": "ROUND"
         },
         "direction": {
@@ -89,6 +90,111 @@
           "dtype": "bool",
           "description": "Whether event occurred in first 15 minutes of trading (09:30-09:45 ET). High volatility period.",
           "example": false
+        },
+        "dist_to_pm_high": {
+          "dtype": "float64",
+          "description": "Signed distance from spot to pre-market high (spot - PM high)",
+          "example": 0.15
+        },
+        "dist_to_pm_low": {
+          "dtype": "float64",
+          "description": "Signed distance from spot to pre-market low (spot - PM low)",
+          "example": -0.40
+        }
+      }
+    },
+    "mean_reversion": {
+      "description": "SMA-based mean reversion context (2-minute bars)",
+      "columns": {
+        "sma_200": {
+          "dtype": "float64",
+          "description": "SMA-200 value at event time (2-min bars)",
+          "example": 684.25
+        },
+        "sma_400": {
+          "dtype": "float64",
+          "description": "SMA-400 value at event time (2-min bars)",
+          "example": 682.90
+        },
+        "dist_to_sma_200": {
+          "dtype": "float64",
+          "description": "Signed distance from spot to SMA-200 (spot - SMA)",
+          "example": 0.25
+        },
+        "dist_to_sma_400": {
+          "dtype": "float64",
+          "description": "Signed distance from spot to SMA-400 (spot - SMA)",
+          "example": 0.80
+        },
+        "sma_200_slope": {
+          "dtype": "float64",
+          "description": "SMA-200 slope in $/min over rolling window",
+          "example": 0.02
+        },
+        "sma_400_slope": {
+          "dtype": "float64",
+          "description": "SMA-400 slope in $/min over rolling window",
+          "example": 0.01
+        },
+        "sma_200_slope_5bar": {
+          "dtype": "float64",
+          "description": "SMA-200 slope in $/min over last 5x2min bars",
+          "example": 0.03
+        },
+        "sma_400_slope_5bar": {
+          "dtype": "float64",
+          "description": "SMA-400 slope in $/min over last 5x2min bars",
+          "example": 0.02
+        },
+        "sma_spread": {
+          "dtype": "float64",
+          "description": "SMA-200 minus SMA-400 (trend regime proxy)",
+          "example": 1.35
+        },
+        "mean_reversion_pressure_200": {
+          "dtype": "float64",
+          "description": "Distance to SMA-200 normalized by intraday volatility",
+          "example": 1.20
+        },
+        "mean_reversion_pressure_400": {
+          "dtype": "float64",
+          "description": "Distance to SMA-400 normalized by intraday volatility",
+          "example": 1.80
+        },
+        "mean_reversion_velocity_200": {
+          "dtype": "float64",
+          "description": "Change in distance to SMA-200 per minute",
+          "example": -0.03
+        },
+        "mean_reversion_velocity_400": {
+          "dtype": "float64",
+          "description": "Change in distance to SMA-400 per minute",
+          "example": -0.02
+        }
+      }
+    },
+    "confluence": {
+      "description": "Confluence metrics across nearby key levels",
+      "columns": {
+        "confluence_count": {
+          "dtype": "int32",
+          "description": "Number of key levels within confluence band",
+          "example": 2
+        },
+        "confluence_weighted_score": {
+          "dtype": "float64",
+          "description": "Weighted confluence score with distance decay",
+          "example": 1.65
+        },
+        "confluence_min_distance": {
+          "dtype": "float64",
+          "description": "Minimum distance to a secondary key level",
+          "example": 0.06
+        },
+        "confluence_pressure": {
+          "dtype": "float64",
+          "description": "Normalized confluence strength indicator",
+          "example": 0.42
         }
       }
     },
@@ -194,6 +300,76 @@
         }
       }
     },
+    "dealer_velocity": {
+      "description": "Dealer mechanics velocity features from option trade flow",
+      "columns": {
+        "gamma_flow_velocity": {
+          "dtype": "float64",
+          "description": "Net dealer gamma flow per minute in recent window near level",
+          "example": -8200.0
+        },
+        "gamma_flow_impulse": {
+          "dtype": "float64",
+          "description": "Short-term gamma flow deviation vs baseline rate",
+          "example": 0.45
+        },
+        "gamma_flow_accel_1m": {
+          "dtype": "float64",
+          "description": "Change in 1-minute dealer gamma flow velocity",
+          "example": 1400.0
+        },
+        "gamma_flow_accel_3m": {
+          "dtype": "float64",
+          "description": "Change in 3-minute dealer gamma flow velocity",
+          "example": 600.0
+        },
+        "dealer_pressure": {
+          "dtype": "float64",
+          "description": "Normalized dealer mechanics pressure indicator",
+          "example": 0.62
+        },
+        "dealer_pressure_accel": {
+          "dtype": "float64",
+          "description": "Normalized dealer pressure acceleration (1-minute window)",
+          "example": 0.12
+        }
+      }
+    },
+    "pressure_indicators": {
+      "description": "Continuous pressure indicators used by sequence models",
+      "columns": {
+        "liquidity_pressure": {
+          "dtype": "float64",
+          "description": "Normalized liquidity pressure indicator",
+          "example": 0.35
+        },
+        "tape_pressure": {
+          "dtype": "float64",
+          "description": "Normalized tape momentum indicator",
+          "example": 0.28
+        },
+        "gamma_pressure": {
+          "dtype": "float64",
+          "description": "Normalized gamma pressure indicator",
+          "example": 0.41
+        },
+        "gamma_pressure_accel": {
+          "dtype": "float64",
+          "description": "Normalized gamma pressure acceleration indicator",
+          "example": 0.18
+        },
+        "reversion_pressure": {
+          "dtype": "float64",
+          "description": "Normalized mean reversion pressure indicator",
+          "example": -0.22
+        },
+        "net_break_pressure": {
+          "dtype": "float64",
+          "description": "Composite break/bounce pressure indicator",
+          "example": 0.30
+        }
+      }
+    },
     "approach_context": {
       "description": "Backward-looking context features capturing how price approached the level",
       "source": "compute_approach_context_vectorized",
@@ -233,18 +409,21 @@
       "description": "Ground truth label for supervised learning",
       "methodology": {
         "threshold": "$2.00 (2 strikes) - meaningful move for options trading",
+        "time_to_thresholds": "$1.00 and $2.00 for time-to-threshold metrics",
         "lookforward": "5 minutes",
-        "note": "Must move 2 strikes to be actionable for SPY options"
+        "note": "Must move 2 strikes to be actionable for SPY options",
+        "missing_data_policy": "If the lookforward window is incomplete, outcome is UNDEFINED and forward metrics are NaN"
       },
       "columns": {
         "outcome": {
           "dtype": "string",
           "description": "What happened after the level touch",
-          "values": ["BREAK", "BOUNCE", "CHOP"],
+          "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
           "labeling": {
             "BREAK": "Price moved through level by >=$2.00 in approach direction",
             "BOUNCE": "Price reversed away from level by >=$2.00",
-            "CHOP": "Price didn't move $2.00 in either direction (not tradeable)"
+            "CHOP": "Price didn't move $2.00 in either direction (not tradeable)",
+            "UNDEFINED": "Insufficient forward window to label outcome"
           },
           "example": "BOUNCE"
         },
@@ -262,43 +441,64 @@
           "dtype": "float64",
           "description": "Maximum adverse excursion in lookforward window (dollars)",
           "example": 0.80
+        },
+        "strength_signed": {
+          "dtype": "float64",
+          "description": "Signed strength: break-direction excursion minus opposite",
+          "example": 1.70
+        },
+        "strength_abs": {
+          "dtype": "float64",
+          "description": "Absolute max excursion in either direction",
+          "example": 2.10
+        },
+        "time_to_threshold_1": {
+          "dtype": "float64",
+          "description": "Seconds to first $1 move in break direction",
+          "example": 90.0
+        },
+        "time_to_threshold_2": {
+          "dtype": "float64",
+          "description": "Seconds to first $2 move in break direction",
+          "example": 210.0
         }
       }
     }
   },
   "statistics": {
     "generated_at": "2025-12-23",
-    "total_signals": 3159,
+    "total_signals": 3328,
     "date_range": ["2025-12-16", "2025-12-19"],
     "dates_processed": 4,
     "quality_filter": "distance <= $0.25 (MONITOR_BAND) - critical decision zone",
     "outcome_distribution": {
-      "BREAK": 0.500,
-      "BOUNCE": 0.447,
-      "CHOP": 0.052
+      "BREAK": 0.505,
+      "BOUNCE": 0.444,
+      "CHOP": 0.049,
+      "UNDEFINED": 0.002
     },
     "barrier_state_distribution": {
-      "NEUTRAL": 4956,
-      "WEAK": 35,
-      "WALL": 27,
-      "VACUUM": 10
+      "NEUTRAL": 3180,
+      "WEAK": 52,
+      "WALL": 53,
+      "VACUUM": 43
     },
     "fuel_effect_distribution": {
-      "DAMPEN": 0.695,
-      "AMPLIFY": 0.170,
-      "NEUTRAL": 0.135
+      "DAMPEN": 0.724,
+      "AMPLIFY": 0.095,
+      "NEUTRAL": 0.181
     },
     "feature_coverage": {
       "gamma_exposure": {
         "non_null": 1.0,
         "non_zero": 1.0,
-        "mean": 31452.29,
-        "min": -181358.73,
+        "mean": 33434.27,
+        "min": -204008.67,
         "max": 140990.23
       },
       "tape_imbalance": {
         "non_null": 1.0,
-        "non_zero": 0.991
+        "non_zero": 0.989
       },
       "tape_velocity": {
         "non_null": 1.0,
@@ -306,38 +506,38 @@
       },
       "wall_ratio": {
         "non_null": 1.0,
-        "non_zero": 0.031,
+        "non_zero": 0.033,
         "note": "Expected sparse - only detects unusual liquidity concentration at strikes"
       },
       "barrier_delta_liq": {
         "non_null": 1.0,
-        "non_zero": 0.62
+        "non_zero": 0.048
       },
       "spot": {
         "non_null": 1.0,
         "non_zero": 1.0,
-        "mean": 684.50,
-        "min": 672.17,
+        "mean": 683.02,
+        "min": 672.18,
         "max": 690.30
       },
       "distance": {
         "non_null": 1.0,
-        "non_zero": 0.996,
-        "mean": 0.12,
+        "non_zero": 0.951,
+        "mean": 0.116,
         "min": 0.0,
         "max": 0.25
       },
       "approach_velocity": {
         "non_null": 1.0,
         "non_zero": 0.979,
-        "mean": -0.026,
+        "mean": -0.029,
         "min": -1.12,
         "max": 0.71
       },
       "approach_bars": {
         "non_null": 1.0,
         "non_zero": 0.418,
-        "mean": 0.68,
+        "mean": 0.673,
         "min": 0,
         "max": 7
       },
@@ -351,14 +551,14 @@
       "prior_touches": {
         "non_null": 1.0,
         "non_zero": 0.976,
-        "mean": 39.15,
+        "mean": 39.03,
         "min": 0,
         "max": 161
       },
       "bars_since_open": {
         "non_null": 1.0,
         "non_zero": 1.0,
-        "mean": 766,
+        "mean": 765.82,
         "min": 0,
         "max": 1439
       }
@@ -386,10 +586,11 @@
     "0dte_filter": "All option processing restricted to same-day expiration",
     "es_spy_conversion": "ES_price = SPY_price * 10 (ES trades at 10x SPY notional)",
     "barrier_zone": "+-8 ES ticks (+-$2 ES = +-$0.20 SPY) around strike-aligned levels",
-    "touch_detection": "OHLCV high/low crosses level price",
+    "touch_detection": "OHLCV high/low crosses level price within TOUCH_BAND (CONFIG.TOUCH_BAND)",
     "quality_filter": "Only signals where close price within $0.25 of level (critical zone)",
     "outcome_threshold": "Move >=$2.00 (2 strikes) in 5 minutes for BREAK/BOUNCE - meaningful for options",
     "lookback_context": "10 minutes backward for approach velocity, bars, distance",
-    "time_windows": "Forward-looking from bar START (60 seconds for tape/barrier)"
+    "time_windows": "Forward-looking from bar START (60 seconds for tape/barrier)",
+    "sma_warmup": "SMA-200/400 computed on 2-min bars with up to CONFIG.SMA_WARMUP_DAYS prior sessions prepended when available"
   }
 }

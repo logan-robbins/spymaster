@@ -13,7 +13,7 @@ This is the main entry point for computing level signals on each snap tick.
 """
 
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import time
 
 from .market_state import MarketState
@@ -46,6 +46,12 @@ class LevelSignal:
     break_score_smooth: Optional[float]
     signal: str  # BREAK, REJECT, CONTESTED, NEUTRAL
     confidence: str  # HIGH, MEDIUM, LOW
+
+    # Approach context (backward-looking)
+    approach_velocity: float
+    approach_bars: int
+    approach_distance: float
+    prior_touches: int
     
     # Barrier metrics
     barrier: Dict[str, Any]
@@ -111,6 +117,10 @@ class LevelSignalService:
         
         # Smoothers: one set per level (keyed by level.id)
         self.smoothers: Dict[str, SmootherSet] = {}
+
+        # Touch tracking for approach context (per level ID)
+        self._touch_counts: Dict[str, int] = {}
+        self._touch_active: Dict[str, bool] = {}
     
     def compute_level_signals(self) -> Dict[str, Any]:
         """
@@ -134,6 +144,13 @@ class LevelSignalService:
         
         # Filter to levels within monitoring band
         active_levels = self._filter_active_levels(levels, spot)
+
+        # Any level outside monitor band is definitely outside touch band too.
+        # Reset "in-touch" state so future touches are counted correctly.
+        active_ids = {level.id for level in active_levels}
+        for level_id in list(self._touch_active.keys()):
+            if level_id not in active_ids:
+                self._touch_active[level_id] = False
         
         # Compute signals for each active level
         level_signals = []
@@ -215,6 +232,10 @@ class LevelSignalService:
             direction_str = "RESISTANCE"
             barrier_direction = BarrierDirection.RESISTANCE
             break_dir = "UP"
+
+        # ========== Backward-looking approach context ==========
+        approach_velocity, approach_bars, approach_distance = self._compute_approach_context(break_dir)
+        prior_touches = self._get_prior_touches(level.id, distance)
         
         # ========== Compute engine states ==========
         
@@ -308,6 +329,10 @@ class LevelSignalService:
             break_score_smooth=score_smooth,
             signal=composite_score.signal.value,
             confidence=composite_score.confidence.value,
+            approach_velocity=approach_velocity,
+            approach_bars=approach_bars,
+            approach_distance=approach_distance,
+            prior_touches=prior_touches,
             barrier={
                 "state": barrier_metrics.state.value,
                 "delta_liq": barrier_metrics.delta_liq,
@@ -356,6 +381,60 @@ class LevelSignalService:
         )
         
         return level_signal
+
+    def _compute_approach_context(self, direction_updown: str) -> Tuple[float, int, float]:
+        """
+        Compute backward-looking approach context (v1) from recent 1-minute closes.
+
+        direction_updown:
+          - "UP": approaching resistance from below
+          - "DOWN": approaching support from above
+        """
+        closes = self.market_state.get_recent_minute_closes(self.config.LOOKBACK_MINUTES)
+        if len(closes) < 2:
+            return 0.0, 0, 0.0
+
+        price_change = closes[-1] - closes[0]
+        time_minutes = len(closes)
+        if time_minutes <= 0:
+            return 0.0, 0, 0.0
+
+        if direction_updown == "UP":
+            approach_velocity = price_change / time_minutes
+        else:
+            # Moving down toward support is positive approach velocity
+            approach_velocity = -price_change / time_minutes
+
+        consecutive = 0
+        for j in range(len(closes) - 1, 0, -1):
+            bar_move = closes[j] - closes[j - 1]
+            if direction_updown == "UP":
+                if bar_move > 0:
+                    consecutive += 1
+                else:
+                    break
+            else:
+                if bar_move < 0:
+                    consecutive += 1
+                else:
+                    break
+
+        approach_distance = abs(closes[-1] - closes[0])
+        return approach_velocity, consecutive, approach_distance
+
+    def _get_prior_touches(self, level_id: str, distance: float) -> int:
+        """
+        Count distinct "touch" events (entering TOUCH_BAND) per level.
+        Returns the count prior to the current touch (matches vectorized pipeline semantics).
+        """
+        prior = self._touch_counts.get(level_id, 0)
+        touching = distance <= self.config.TOUCH_BAND
+        if touching and not self._touch_active.get(level_id, False):
+            self._touch_counts[level_id] = prior + 1
+            self._touch_active[level_id] = True
+        elif not touching:
+            self._touch_active[level_id] = False
+        return prior
     
     def _generate_note(
         self,
@@ -404,3 +483,8 @@ class LevelSignalService:
         """Reset all engine and smoother state."""
         self.score_engine.reset()
         self.smoothers.clear()
+
+    @property
+    def trading_date(self) -> str:
+        """Return the trading date used for 0DTE filtering."""
+        return self._trading_date

@@ -44,6 +44,7 @@ class ContextEngine:
     
     # SMA parameters
     SMA_PERIOD = 200  # 200 periods
+    SMA_400_PERIOD = 400  # 400 periods
     SMA_TIMEFRAME_MINUTES = 2  # 2-minute bars for SMA calculation
     
     def __init__(self, ohlcv_df: Optional[pd.DataFrame] = None):
@@ -60,6 +61,7 @@ class ContextEngine:
         self._premarket_high: Optional[float] = None
         self._premarket_low: Optional[float] = None
         self._sma_200: Optional[pd.Series] = None
+        self._sma_400: Optional[pd.Series] = None
         
         # Process data if provided
         if ohlcv_df is not None:
@@ -97,7 +99,7 @@ class ContextEngine:
             self._premarket_high = pm_data['high'].max()
             self._premarket_low = pm_data['low'].min()
         
-        # Calculate SMA-200 on 2-minute timeframe
+        # Calculate SMA-200 and SMA-400 on 2-minute timeframe
         # Resample 1-minute data to 2-minute bars
         df_2min = df.set_index('timestamp').resample('2min').agg({
             'open': 'first',
@@ -106,17 +108,27 @@ class ContextEngine:
             'close': 'last',
             'volume': 'sum'
         }).dropna()
-        
+
+        sma_200_2min = None
+        sma_400_2min = None
+
         if len(df_2min) >= self.SMA_PERIOD:
-            # Calculate SMA-200 on close prices
             sma_200_2min = df_2min['close'].rolling(window=self.SMA_PERIOD).mean()
-            
-            # Map back to 1-minute data (forward fill)
-            # For each 1-min timestamp, find the corresponding 2-min SMA value
+
+        if len(df_2min) >= self.SMA_400_PERIOD:
+            sma_400_2min = df_2min['close'].rolling(window=self.SMA_400_PERIOD).mean()
+
+        if sma_200_2min is not None:
             df['sma_200'] = df['timestamp'].apply(
                 lambda ts: self._get_sma_at_time(ts, df_2min.index, sma_200_2min)
             )
             self._sma_200 = df.set_index('timestamp')['sma_200']
+
+        if sma_400_2min is not None:
+            df['sma_400'] = df['timestamp'].apply(
+                lambda ts: self._get_sma_at_time(ts, df_2min.index, sma_400_2min)
+            )
+            self._sma_400 = df.set_index('timestamp')['sma_400']
         
         # Store processed dataframe
         self.ohlcv_df = df
@@ -246,6 +258,27 @@ class ContextEngine:
                         'level_price': float(sma_value),
                         'distance': distance
                     })
+
+        # Check SMA-400
+        if self._sma_400 is not None:
+            current_dt = pd.to_datetime(current_time, unit='ns', utc=True)
+            if current_dt in self._sma_400.index:
+                sma_value = self._sma_400.loc[current_dt]
+            else:
+                valid_times = self._sma_400.index[self._sma_400.index <= current_dt]
+                if len(valid_times) > 0:
+                    sma_value = self._sma_400.loc[valid_times[-1]]
+                else:
+                    sma_value = None
+
+            if sma_value is not None and pd.notna(sma_value):
+                distance = abs(current_price - sma_value)
+                if distance <= self.LEVEL_TOLERANCE_USD:
+                    levels.append({
+                        'level_kind': LevelKind.SMA_400,
+                        'level_price': float(sma_value),
+                        'distance': distance
+                    })
         
         return levels
     
@@ -280,6 +313,31 @@ class ContextEngine:
             valid_times = self._sma_200.index[self._sma_200.index <= current_dt]
             if len(valid_times) > 0:
                 sma_val = self._sma_200.loc[valid_times[-1]]
+                return float(sma_val) if pd.notna(sma_val) else None
+        
+        return None
+
+    def get_sma_400_at_time(self, ts: int) -> Optional[float]:
+        """
+        Get SMA-400 value at a specific time.
+        
+        Args:
+            ts: Unix timestamp in nanoseconds (UTC)
+            
+        Returns:
+            SMA-400 value or None if not available
+        """
+        if self._sma_400 is None:
+            return None
+        
+        current_dt = pd.to_datetime(ts, unit='ns', utc=True)
+        
+        if current_dt in self._sma_400.index:
+            return self._sma_400.loc[current_dt]
+        else:
+            valid_times = self._sma_400.index[self._sma_400.index <= current_dt]
+            if len(valid_times) > 0:
+                sma_val = self._sma_400.loc[valid_times[-1]]
                 return float(sma_val) if pd.notna(sma_val) else None
         
         return None
@@ -411,4 +469,3 @@ if __name__ == "__main__":
     print("✓ Context Engine tests complete")
     print("✓ Ready for integration with Physics Engine (Agent A)")
     print("=" * 60)
-

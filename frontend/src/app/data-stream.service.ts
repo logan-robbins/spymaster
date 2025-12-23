@@ -64,18 +64,31 @@ export interface SpySnapshot {
 
 export interface LevelSignal {
     id: string;
-    price: number;
-    kind: string;
-    direction: string;
+    level_price: number;
+    level_kind_name: string;
+    direction: 'UP' | 'DOWN';
     distance: number;
+    is_first_15m: boolean;
+    barrier_state: string;
+    barrier_delta_liq: number;
+    barrier_replenishment_ratio: number;
+    wall_ratio: number;
+    tape_imbalance: number;
+    tape_velocity: number;
+    tape_buy_vol: number;
+    tape_sell_vol: number;
+    sweep_detected: boolean;
+    gamma_exposure: number;
+    fuel_effect: string;
+    approach_velocity: number;
+    approach_bars: number;
+    approach_distance: number;
+    prior_touches: number;
+    bars_since_open: number;
     break_score_raw: number;
-    break_score_smooth: number | null;
-    signal: string;
-    confidence: string;
-    barrier: any;
-    tape: any;
-    fuel: any;
-    runway: any;
+    break_score_smooth: number;
+    signal: 'BREAK' | 'BOUNCE' | 'CHOP';
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     note?: string;
 }
 
@@ -91,6 +104,16 @@ export interface MergedPayload {
     levels: LevelsPayload;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isLevelsPayload(value: unknown): value is LevelsPayload {
+    if (!isRecord(value)) return false;
+    const v: any = value;
+    return typeof v.ts === 'number' && isRecord(v.spy) && Array.isArray(v.levels);
+}
+
 @Injectable({
     providedIn: 'root'
 })
@@ -98,6 +121,8 @@ export class DataStreamService {
     public flowData: WritableSignal<FlowMap> = signal({});
     public levelsData: WritableSignal<LevelsPayload | null> = signal(null);
     public connectionStatus: WritableSignal<'connecting' | 'connected' | 'disconnected'> = signal('disconnected');
+    public dataStatus: WritableSignal<'ok' | 'unavailable'> = signal('unavailable');
+    public lastError: WritableSignal<string | null> = signal(null);
     
     private socket!: WebSocket;
     private readonly URL = 'ws://localhost:8000/ws/stream';
@@ -121,19 +146,34 @@ export class DataStreamService {
 
         this.socket.onmessage = (event) => {
             try {
-                const data: MergedPayload = JSON.parse(event.data);
+                const parsed: unknown = JSON.parse(event.data);
+                if (!isRecord(parsed)) {
+                    return;
+                }
+                const data = parsed as Record<string, unknown>;
                 
                 // Update flow data (existing functionality)
-                if (data.flow) {
-                    this.flowData.set(data.flow);
+                const flow = data['flow'];
+                if (isRecord(flow)) {
+                    this.flowData.set(flow as FlowMap);
                 }
                 
                 // Update levels data (new functionality)
-                if (data.levels) {
-                    this.levelsData.set(data.levels);
+                const levels = data['levels'];
+                if (isLevelsPayload(levels)) {
+                    this.levelsData.set(levels);
+                    this.dataStatus.set('ok');
+                    this.lastError.set(null);
+                } else if ('levels' in data) {
+                    // Fail-soft: keep UI alive and surface a data-unavailable state.
+                    this.levelsData.set(null);
+                    this.dataStatus.set('unavailable');
+                    this.lastError.set('Invalid levels payload');
                 }
             } catch (err) {
                 console.error('Error parsing stream data:', err);
+                this.dataStatus.set('unavailable');
+                this.lastError.set('Stream parse error');
             }
         };
 

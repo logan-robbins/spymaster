@@ -293,11 +293,25 @@ class CoreService:
             try:
                 # Compute level signals
                 payload = self.level_signal_service.compute_level_signals()
+
+                # Build flow snapshot for frontend strike grid (0DTE only)
+                spot = payload.get("spy", {}).get("spot")
+                flow_snapshot = self.market_state.get_option_flow_snapshot(
+                    spot=spot,
+                    strike_range=self.config.STRIKE_RANGE,
+                    exp_date_filter=self.level_signal_service.trading_date
+                )
                 
                 # Publish to NATS
                 await self.bus.publish(
                     subject="levels.signals",
                     payload=payload
+                )
+
+                # Publish flow snapshot (market.* stream)
+                await self.bus.publish(
+                    subject="market.flow",
+                    payload=flow_snapshot
                 )
                 
                 # Log summary (optional, can be removed for performance)
@@ -311,4 +325,3 @@ class CoreService:
             
             # Sleep until next snap
             await asyncio.sleep(interval_s)
-

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Local env / logs
+.env
+*.log
+
+# Data & large artifacts
+data/
+s3:/
+wal/
+
+

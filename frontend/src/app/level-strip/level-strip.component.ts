@@ -52,12 +52,12 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
       background: rgba(239, 68, 68, 0.1);
     }
 
-    .level-item.signal-REJECT {
+    .level-item.signal-BOUNCE {
       border-left-color: #10b981;
       background: rgba(16, 185, 129, 0.1);
     }
 
-    .level-item.signal-CONTESTED {
+    .level-item.signal-CHOP {
       border-left-color: #fbbf24;
       background: rgba(251, 191, 36, 0.1);
     }
@@ -78,12 +78,12 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
       color: white;
     }
 
-    .badge-REJECT {
+    .badge-BOUNCE {
       background: #10b981;
       color: white;
     }
 
-    .badge-CONTESTED {
+    .badge-CHOP {
       background: #fbbf24;
       color: #78350f;
     }
@@ -119,8 +119,8 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
       font-weight: 600;
     }
 
-    .direction-SUPPORT { color: #10b981; }
-    .direction-RESISTANCE { color: #ef4444; }
+    .direction-DOWN { color: #10b981; }
+    .direction-UP { color: #ef4444; }
 
     .level-distance {
       text-align: right;
@@ -151,8 +151,8 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
     }
 
     .score-BREAK { color: #ef4444; }
-    .score-REJECT { color: #10b981; }
-    .score-CONTESTED { color: #fbbf24; }
+    .score-BOUNCE { color: #10b981; }
+    .score-CHOP { color: #fbbf24; }
     .score-NEUTRAL { color: #94a3b8; }
 
     .score-label {
@@ -243,7 +243,7 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
               <div class="level-info">
                 <div class="level-name">{{ level.id }}</div>
                 <div class="level-price">
-                  <span>$</span>{{ level.price | number:'1.2-2' }}
+                  <span>$</span>{{ level.level_price | number:'1.2-2' }}
                 </div>
                 <div 
                   class="level-direction"
@@ -262,7 +262,7 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
 
               <div class="level-score">
                 <div class="score-value" [ngClass]="'score-' + level.signal">
-                  {{ level.signal === 'BREAK' ? '🔴' : level.signal === 'REJECT' ? '🟢' : level.signal === 'CONTESTED' ? '🟡' : '⚪' }}
+                  {{ level.signal === 'BREAK' ? '🔴' : level.signal === 'BOUNCE' ? '🟢' : level.signal === 'CHOP' ? '🟡' : '⚪' }}
                 </div>
                 <div class="score-label">{{ level.signal }}</div>
               </div>
@@ -293,4 +293,3 @@ export class LevelStripComponent {
       .slice(0, this.maxLevels);
   });
 }
-

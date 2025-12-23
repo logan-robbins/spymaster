@@ -6,12 +6,25 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #0f1419;
+  font-family: "Space Grotesk", sans-serif;
+  background: #0b1120;
   color: #e2e8f0;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root {
+  color-scheme: dark;
+  --surface: #0f172a;
+  --surface-strong: #111c31;
+  --surface-muted: #16223a;
+  --border-subtle: rgba(148, 163, 184, 0.2);
+  --text-primary: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent-break: #f87171;
+  --accent-bounce: #22c55e;
+  --accent-highlight: #38bdf8;
 }
 
 /* Custom Trading Dashboard Styles */
@@ -21,17 +34,17 @@ body {
 }
 
 .dashboard-header {
-  background: #1a1f2e;
-  border: 1px solid #2d3748;
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
   padding: 1rem;
   margin-bottom: 1.5rem;
 }
 
 .strike-table-container {
-  background: #1a1f2e;
-  border: 1px solid #2d3748;
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
   overflow: hidden;
   height: 100%;
   display: flex;
@@ -39,9 +52,9 @@ body {
 }
 
 .table-header {
-  background: #243447;
+  background: var(--surface-muted);
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #2d3748;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .table-header h3 {
@@ -50,7 +63,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .strike-table {
@@ -60,7 +73,7 @@ body {
 }
 
 .strike-table thead {
-  background: #243447;
+  background: var(--surface-muted);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -73,13 +86,13 @@ body {
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid #2d3748;
+  border-bottom: 2px solid rgba(148, 163, 184, 0.2);
 }
 
 .strike-table td {
   padding: 0.5rem 0.4rem;
   text-align: center;
-  border-bottom: 1px solid #2d3748;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 .strike-table.compact td {
@@ -91,40 +104,40 @@ body {
 }
 
 .strike-table tbody tr:hover {
-  background: #243447;
+  background: rgba(56, 189, 248, 0.08);
 }
 
 .strike-column {
-  background: #1e2a3a;
+  background: var(--surface-strong);
   font-weight: 700;
   font-size: 1rem;
-  border-left: 1px solid #2d3748;
-  border-right: 1px solid #2d3748;
+  border-left: 1px solid rgba(148, 163, 184, 0.2);
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .call-header {
-  color: #48bb78;
+  color: var(--accent-bounce);
 }
 
 .put-header {
-  color: #f56565;
+  color: var(--accent-break);
 }
 
 .money-cell {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-weight: 600;
 }
 
 .green-text {
-  color: #48bb78;
+  color: var(--accent-bounce);
 }
 
 .red-text {
-  color: #f56565;
+  color: var(--accent-break);
 }
 
 .gray-text {
-  color: #718096;
+  color: var(--text-muted);
 }
 
 .control-panel {
@@ -136,20 +149,20 @@ body {
 
 .btn-group {
   display: inline-flex;
-  border: 1px solid #2d3748;
-  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
   overflow: hidden;
 }
 
 .btn {
   padding: 0.5rem 1rem;
-  background: #1a1f2e;
+  background: var(--surface);
   color: #cbd5e0;
   border: none;
   font-weight: 600;
   font-size: 0.75rem;
   cursor: pointer;
-  border-right: 1px solid #2d3748;
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
   transition: all 0.2s;
 }
 
@@ -158,18 +171,18 @@ body {
 }
 
 .btn:hover {
-  background: #243447;
+  background: rgba(56, 189, 248, 0.1);
 }
 
 .btn.active {
-  background: #3182ce;
-  color: white;
+  background: var(--accent-highlight);
+  color: #0b1120;
 }
 
 .stat-card {
-  background: #1a1f2e;
-  border: 1px solid #2d3748;
-  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
   padding: 0.75rem 1rem;
 }
 
@@ -177,20 +190,20 @@ body {
   font-size: 0.625rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #718096;
+  color: var(--text-muted);
   margin-bottom: 0.25rem;
 }
 
 .stat-value {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 1rem;
   font-weight: 700;
 }
 
 .wave-container {
-  background: #1a1f2e;
-  border: 1px solid #2d3748;
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
   padding: 1rem;
   margin-bottom: 1rem;
 }
@@ -205,6 +218,6 @@ body {
 }
 
 svg {
-  background: #0f1419;
+  background: #0b1120;
   border-radius: 4px;
 }

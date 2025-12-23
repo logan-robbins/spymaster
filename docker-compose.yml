@@ -2,6 +2,7 @@ services:
   # NATS JetStream - Message Bus
   nats:
     image: nats:latest
+    pull_policy: never
     container_name: spymaster-nats
     ports:
       - "4222:4222"  # Client connections
@@ -18,6 +19,7 @@ services:
   # MinIO - S3-compatible object storage
   minio:
     image: minio/minio:latest
+    pull_policy: never
     container_name: spymaster-minio
     ports:
       - "9000:9000"  # API
@@ -39,6 +41,7 @@ services:
   # MinIO Client - Create bucket on startup
   minio-init:
     image: minio/mc:latest
+    pull_policy: never
     container_name: spymaster-minio-init
     depends_on:
       minio:
@@ -66,10 +69,11 @@ services:
       - ./backend/.env
     environment:
       NATS_URL: nats://nats:4222
-      REPLAY_MODE: ${REPLAY_MODE:-false}
-      REPLAY_DATE: ${REPLAY_DATE:-}
-      REPLAY_SPEED: ${REPLAY_SPEED:-1.0}
-    command: ["uv", "run", "python", "-m", "src.ingestor.main"]
+      REPLAY_DATE: ${REPLAY_DATE:-2025-12-16}
+      REPLAY_SPEED: ${REPLAY_SPEED:-0}
+    volumes:
+      - ./dbn-data:/dbn-data:ro
+    command: ["uv", "run", "python", "-m", "src.ingestor.replay_publisher"]
     depends_on:
       nats:
         condition: service_healthy

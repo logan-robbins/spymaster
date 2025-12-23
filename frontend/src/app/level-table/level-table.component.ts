@@ -124,12 +124,14 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
     .kind-STRIKE { background: #3b82f6; color: white; }
     .kind-ROUND { background: #8b5cf6; color: white; }
     .kind-VWAP { background: #06b6d4; color: white; }
-    .kind-GAMMA_WALL { background: #f59e0b; color: white; }
-    .kind-USER { background: #ec4899; color: white; }
-    .kind-SESSION_HIGH, .kind-SESSION_LOW { background: #10b981; color: white; }
+    .kind-CALL_WALL, .kind-PUT_WALL { background: #f59e0b; color: white; }
+    .kind-PM_HIGH, .kind-PM_LOW { background: #10b981; color: white; }
+    .kind-OR_HIGH, .kind-OR_LOW { background: #14b8a6; color: white; }
+    .kind-SESSION_HIGH, .kind-SESSION_LOW { background: #22c55e; color: white; }
+    .kind-SMA_200, .kind-SMA_400 { background: #64748b; color: white; }
 
-    .direction-SUPPORT { color: #10b981; }
-    .direction-RESISTANCE { color: #ef4444; }
+    .direction-DOWN { color: #10b981; }
+    .direction-UP { color: #ef4444; }
 
     .score-container {
       display: flex;
@@ -148,9 +150,8 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
     }
 
     .score-BREAK { color: #ef4444; }
-    .score-REJECT { color: #10b981; }
-    .score-CONTESTED { color: #fbbf24; }
-    .score-NEUTRAL { color: #94a3b8; }
+    .score-BOUNCE { color: #10b981; }
+    .score-CHOP { color: #fbbf24; }
 
     .signal-badge {
       display: inline-block;
@@ -165,12 +166,12 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
       color: white;
     }
 
-    .signal-REJECT {
+    .signal-BOUNCE {
       background: #10b981;
       color: white;
     }
 
-    .signal-CONTESTED {
+    .signal-CHOP {
       background: #fbbf24;
       color: #78350f;
     }
@@ -205,23 +206,6 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
     .fuel-DAMPEN { color: #10b981; }
     .fuel-NEUTRAL { color: #94a3b8; }
 
-    .runway-container {
-      display: flex;
-      flex-direction: column;
-      gap: 0.125rem;
-    }
-
-    .runway-distance {
-      font-weight: 600;
-    }
-
-    .runway-quality {
-      font-size: 0.7rem;
-      color: #94a3b8;
-    }
-
-    .runway-CLEAR { color: #10b981; }
-    .runway-OBSTRUCTED { color: #fbbf24; }
 
     .no-data {
       text-align: center;
@@ -265,7 +249,6 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
               <th>Barrier</th>
               <th>Fuel</th>
               <th class="numeric">Tape Vel</th>
-              <th class="numeric">Runway</th>
             </tr>
           </thead>
           <tbody>
@@ -274,9 +257,9 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
                 <!-- Level -->
                 <td>
                   <div class="level-id">{{ level.id }}</div>
-                  <div class="level-price">{{ level.price | number:'1.2-2' }}</div>
-                  <div class="level-kind" [ngClass]="'kind-' + level.kind">
-                    {{ level.kind }}
+                  <div class="level-price">{{ level.level_price | number:'1.2-2' }}</div>
+                  <div class="level-kind" [ngClass]="'kind-' + level.level_kind_name">
+                    {{ level.level_kind_name }}
                   </div>
                 </td>
 
@@ -314,46 +297,34 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
 
                 <!-- Barrier State -->
                 <td>
-                  <div class="barrier-state" [ngClass]="'barrier-' + level.barrier.state">
-                    {{ level.barrier.state }}
+                  <div class="barrier-state" [ngClass]="'barrier-' + level.barrier_state">
+                    {{ level.barrier_state }}
                   </div>
                   <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.125rem;">
-                    Δ{{ level.barrier.delta_liq | number:'1.0-0' }}
+                    Δ{{ level.barrier_delta_liq | number:'1.0-0' }}
                   </div>
                 </td>
 
                 <!-- Fuel Effect -->
                 <td>
-                  <div class="fuel-effect" [ngClass]="'fuel-' + level.fuel.effect">
-                    {{ level.fuel.effect }}
+                  <div class="fuel-effect" [ngClass]="'fuel-' + level.fuel_effect">
+                    {{ level.fuel_effect }}
                   </div>
                   <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.125rem;">
-                    γ{{ level.fuel.net_dealer_gamma | number:'1.0-0' }}
+                    γ{{ level.gamma_exposure | number:'1.0-0' }}
                   </div>
                 </td>
 
                 <!-- Tape Velocity -->
                 <td class="numeric">
-                  <div [style.color]="level.tape.velocity >= 0 ? '#10b981' : '#ef4444'">
-                    {{ level.tape.velocity | number:'1.3-3' }}
+                  <div [style.color]="level.tape_velocity >= 0 ? '#10b981' : '#ef4444'">
+                    {{ level.tape_velocity | number:'1.3-3' }}
                   </div>
-                  @if (level.tape.sweep.detected) {
+                  @if (level.sweep_detected) {
                     <div style="font-size: 0.7rem; color: #f59e0b; font-weight: 600;">
                       SWEEP
                     </div>
                   }
-                </td>
-
-                <!-- Runway -->
-                <td class="numeric">
-                  <div class="runway-container">
-                    <div class="runway-distance">
-                      {{ level.runway.distance | number:'1.2-2' }}
-                    </div>
-                    <div class="runway-quality" [ngClass]="'runway-' + level.runway.quality">
-                      {{ level.runway.quality }}
-                    </div>
-                  </div>
                 </td>
               </tr>
             }
@@ -403,4 +374,3 @@ export class LevelTableComponent {
     }
   });
 }
-

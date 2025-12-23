@@ -101,33 +101,29 @@ class ReplayPublisher:
         self.stats = ReplayStats()
         self.stats.start_time = time.time()
         
-        # Merge both streams and sort by event time
-        events = []
-        
-        if include_trades:
-            print("  📊 Loading trades...")
-            for trade in self.dbn_ingestor.read_trades(date, start_ns, end_ns):
-                events.append(("trade", trade))
-        
-        if include_mbp10:
-            print("  📈 Loading MBP-10...")
-            for mbp in self.dbn_ingestor.read_mbp10(date, start_ns, end_ns):
-                events.append(("mbp10", mbp))
-        
-        # Sort by event time
-        events.sort(key=lambda x: x[1].ts_event_ns)
-        
-        if not events:
+        # Stream-merge both iterators by event time to avoid materializing whole day in memory.
+        trade_iter = iter(self.dbn_ingestor.read_trades(date, start_ns, end_ns)) if include_trades else iter(())
+        mbp_iter = iter(self.dbn_ingestor.read_mbp10(date, start_ns, end_ns)) if include_mbp10 else iter(())
+
+        next_trade = next(trade_iter, None)
+        next_mbp = next(mbp_iter, None)
+
+        if next_trade is None and next_mbp is None:
             print("  ⚠️  No events found for this date")
             return
-        
-        print(f"  ✅ Loaded {len(events):,} events")
-        print(f"  🎯 Publishing to NATS...")
-        
-        # Publish events with timing
+
+        print("  🎯 Publishing to NATS (streaming merge)...")
+
         prev_event_ns = None
-        
-        for event_type, event in events:
+
+        while next_trade is not None or next_mbp is not None:
+            if next_mbp is None or (next_trade is not None and next_trade.ts_event_ns <= next_mbp.ts_event_ns):
+                event_type, event = "trade", next_trade
+                next_trade = next(trade_iter, None)
+            else:
+                event_type, event = "mbp10", next_mbp
+                next_mbp = next(mbp_iter, None)
+
             # Update stats
             if self.stats.first_event_ts is None:
                 self.stats.first_event_ts = event.ts_event_ns

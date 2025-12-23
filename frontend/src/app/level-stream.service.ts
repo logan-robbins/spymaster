@@ -10,61 +10,33 @@ export interface SpySnapshot {
     ask: number;
 }
 
-export interface BarrierMetrics {
-    state: 'VACUUM' | 'WALL' | 'ABSORPTION' | 'CONSUMED' | 'WEAK' | 'NEUTRAL';
-    delta_liq: number;
-    replenishment_ratio: number;
-    added: number;
-    canceled: number;
-    filled: number;
-}
-
-export interface TapeMetrics {
-    imbalance: number;  // [-1, +1]
-    buy_vol: number;
-    sell_vol: number;
-    velocity: number;  // $/sec
-    sweep: {
-        detected: boolean;
-        direction?: 'UP' | 'DOWN';
-        notional?: number;
-        window_ms?: number;
-        venues?: number;
-    };
-}
-
-export interface FuelMetrics {
-    effect: 'AMPLIFY' | 'DAMPEN' | 'NEUTRAL';
-    net_dealer_gamma: number;
-    call_wall?: number;
-    put_wall?: number;
-    hvl?: number;
-}
-
-export interface RunwayMetrics {
-    direction: 'UP' | 'DOWN';
-    next_obstacle: {
-        id: string;
-        price: number;
-    } | null;
-    distance: number;
-    quality: 'CLEAR' | 'OBSTRUCTED';
-}
-
 export interface LevelSignal {
     id: string;
-    price: number;
-    kind: 'VWAP' | 'STRIKE' | 'ROUND' | 'SESSION_HIGH' | 'SESSION_LOW' | 'GAMMA_WALL' | 'USER';
-    direction: 'SUPPORT' | 'RESISTANCE';
+    level_price: number;
+    level_kind_name: 'PM_HIGH' | 'PM_LOW' | 'OR_HIGH' | 'OR_LOW' | 'SESSION_HIGH' | 'SESSION_LOW' | 'SMA_200' | 'SMA_400' | 'VWAP' | 'ROUND' | 'STRIKE' | 'CALL_WALL' | 'PUT_WALL';
+    direction: 'UP' | 'DOWN';
     distance: number;
+    is_first_15m: boolean;
+    barrier_state: 'VACUUM' | 'WALL' | 'ABSORPTION' | 'CONSUMED' | 'WEAK' | 'NEUTRAL';
+    barrier_delta_liq: number;
+    barrier_replenishment_ratio: number;
+    wall_ratio: number;
+    tape_imbalance: number;
+    tape_velocity: number;
+    tape_buy_vol: number;
+    tape_sell_vol: number;
+    sweep_detected: boolean;
+    gamma_exposure: number;
+    fuel_effect: 'AMPLIFY' | 'DAMPEN' | 'NEUTRAL';
+    approach_velocity: number;
+    approach_bars: number;
+    approach_distance: number;
+    prior_touches: number;
+    bars_since_open: number;
     break_score_raw: number;
     break_score_smooth: number;
-    signal: 'BREAK' | 'REJECT' | 'CONTESTED' | 'NEUTRAL';
+    signal: 'BREAK' | 'BOUNCE' | 'CHOP';
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-    barrier: BarrierMetrics;
-    tape: TapeMetrics;
-    fuel: FuelMetrics;
-    runway: RunwayMetrics;
     note?: string;
 }
 
@@ -150,4 +122,3 @@ export class LevelStreamService {
         }
     }
 }
-

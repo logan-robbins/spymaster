@@ -15,6 +15,8 @@ from collections import deque, defaultdict
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple, Any
 import time
+from datetime import datetime, timezone, date
+from zoneinfo import ZoneInfo
 
 from src.common.event_types import FuturesTrade, MBP10, OptionTrade, Aggressor
 from src.common.price_converter import PriceConverter
@@ -130,6 +132,28 @@ class MarketState:
         self._session_high: Optional[float] = None
         self._session_low: Optional[float] = None
 
+        # ========== Context + history (SPY terms) ==========
+        # Session date (ET) used to reset day-scoped context metrics.
+        self._session_date_et: Optional[date] = None
+
+        # Structural levels (computed from trade stream, SPY terms)
+        self._premarket_high: Optional[float] = None
+        self._premarket_low: Optional[float] = None
+        self._opening_range_high: Optional[float] = None
+        self._opening_range_low: Optional[float] = None
+
+        # 1-minute closes for approach context (SPY terms)
+        self._current_minute_start_ns: Optional[int] = None
+        self._current_minute_close_spy: Optional[float] = None
+        self._minute_closes: deque[Tuple[int, float]] = deque(maxlen=240)  # 4 hours of 1-min closes
+
+        # 2-minute closes for SMA (SPY terms)
+        self._current_2m_start_ns: Optional[int] = None
+        self._current_2m_close_spy: Optional[float] = None
+        self._two_minute_closes: deque[float] = deque(maxlen=400)  # Enough for SMA_400
+        self._sma_200: Optional[float] = None
+        self._sma_400: Optional[float] = None
+
     # ========== ES MBP-10 updates ==========
 
     def update_es_mbp10(self, mbp: MBP10):
@@ -185,6 +209,9 @@ class MarketState:
         # Update price converter with ES price
         self.price_converter.update_es_price(trade.price)
 
+        spy_price = self.price_converter.es_to_spy(trade.price)
+        self._update_context_from_trade(trade.ts_event_ns, spy_price)
+
         # Update session high/low
         if self._session_high is None or trade.price > self._session_high:
             self._session_high = trade.price
@@ -200,6 +227,119 @@ class MarketState:
             total_volume = self._vwap_volume + trade.size
             self._vwap = (self._vwap * self._vwap_volume + notional) / total_volume
             self._vwap_volume = total_volume
+
+    def _update_context_from_trade(self, ts_event_ns: int, spy_price: float) -> None:
+        """
+        Update day-scoped context metrics from the ES trade stream.
+
+        Notes:
+        - Uses event timestamps (not wall time) so replay is deterministic.
+        - Computes structural levels in SPY terms for the live level universe.
+        """
+        # --- Day boundary handling (ET) ---
+        dt_et = datetime.fromtimestamp(ts_event_ns / 1e9, tz=timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        )
+        session_date = dt_et.date()
+        if self._session_date_et != session_date:
+            self._session_date_et = session_date
+            self._premarket_high = None
+            self._premarket_low = None
+            self._opening_range_high = None
+            self._opening_range_low = None
+            self._minute_closes.clear()
+            self._two_minute_closes.clear()
+            self._current_minute_start_ns = None
+            self._current_minute_close_spy = None
+            self._current_2m_start_ns = None
+            self._current_2m_close_spy = None
+            self._sma_200 = None
+            self._sma_400 = None
+
+        # --- Premarket + opening range ---
+        minutes_since_midnight = dt_et.hour * 60 + dt_et.minute
+        premarket_start = 4 * 60
+        market_open = 9 * 60 + 30
+        opening_range_end = 9 * 60 + 45
+
+        if premarket_start <= minutes_since_midnight < market_open:
+            if self._premarket_high is None or spy_price > self._premarket_high:
+                self._premarket_high = spy_price
+            if self._premarket_low is None or spy_price < self._premarket_low:
+                self._premarket_low = spy_price
+
+        if market_open <= minutes_since_midnight < opening_range_end:
+            if self._opening_range_high is None or spy_price > self._opening_range_high:
+                self._opening_range_high = spy_price
+            if self._opening_range_low is None or spy_price < self._opening_range_low:
+                self._opening_range_low = spy_price
+
+        # --- 1-minute closes (approach context) ---
+        one_min_ns = 60 * 1_000_000_000
+        minute_start_ns = (ts_event_ns // one_min_ns) * one_min_ns
+        if self._current_minute_start_ns is None:
+            self._current_minute_start_ns = minute_start_ns
+            self._current_minute_close_spy = spy_price
+        elif minute_start_ns == self._current_minute_start_ns:
+            self._current_minute_close_spy = spy_price
+        else:
+            # Finalize prior minute close
+            if self._current_minute_close_spy is not None:
+                self._minute_closes.append((self._current_minute_start_ns, self._current_minute_close_spy))
+            self._current_minute_start_ns = minute_start_ns
+            self._current_minute_close_spy = spy_price
+
+        # --- 2-minute closes (SMA levels) ---
+        two_min_ns = 120 * 1_000_000_000
+        two_min_start_ns = (ts_event_ns // two_min_ns) * two_min_ns
+        if self._current_2m_start_ns is None:
+            self._current_2m_start_ns = two_min_start_ns
+            self._current_2m_close_spy = spy_price
+        elif two_min_start_ns == self._current_2m_start_ns:
+            self._current_2m_close_spy = spy_price
+        else:
+            # Finalize prior 2-minute close and update SMAs
+            if self._current_2m_close_spy is not None:
+                self._two_minute_closes.append(self._current_2m_close_spy)
+                closes = list(self._two_minute_closes)
+                if len(closes) >= 200:
+                    self._sma_200 = sum(closes[-200:]) / 200.0
+                if len(closes) >= 400:
+                    self._sma_400 = sum(closes[-400:]) / 400.0
+            self._current_2m_start_ns = two_min_start_ns
+            self._current_2m_close_spy = spy_price
+
+    def get_recent_minute_closes(self, lookback_minutes: int) -> List[float]:
+        """
+        Return the most recent minute closes (SPY terms).
+
+        The list is ordered oldest->newest and includes the current in-progress minute close.
+        """
+        if lookback_minutes <= 0:
+            return []
+
+        closes: List[float] = [close for _, close in self._minute_closes]
+        if self._current_minute_close_spy is not None:
+            closes.append(self._current_minute_close_spy)
+        return closes[-lookback_minutes:]
+
+    def get_premarket_high(self) -> Optional[float]:
+        return self._premarket_high
+
+    def get_premarket_low(self) -> Optional[float]:
+        return self._premarket_low
+
+    def get_opening_range_high(self) -> Optional[float]:
+        return self._opening_range_high
+
+    def get_opening_range_low(self) -> Optional[float]:
+        return self._opening_range_low
+
+    def get_sma_200(self) -> Optional[float]:
+        return self._sma_200
+
+    def get_sma_400(self) -> Optional[float]:
+        return self._sma_400
 
     def get_es_trades_in_window(
         self,
@@ -339,10 +479,57 @@ class MarketState:
                 agg.last_timestamp_ns = stats.get("last_timestamp", 0) * 1_000_000  # ms -> ns
                 agg.delta = stats.get("delta", 0.0)
                 agg.gamma = stats.get("gamma", 0.0)
-
-            except Exception as e:
+            except Exception:
                 # Skip malformed tickers
                 continue
+
+    def get_option_flow_snapshot(
+        self,
+        spot: Optional[float],
+        strike_range: Optional[float] = None,
+        exp_date_filter: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Build a lightweight per-strike flow snapshot for the frontend.
+
+        Args:
+            spot: Current SPY spot (used for strike filtering)
+            strike_range: Optional +/- strike filter (SPY dollars)
+            exp_date_filter: Optional expiration date filter (YYYY-MM-DD)
+
+        Returns:
+            Dict keyed by synthetic ticker with flow metrics.
+        """
+        if spot is None:
+            return {}
+
+        snapshot: Dict[str, Any] = {}
+
+        for (strike, right, exp_date), agg in self.option_flows.items():
+            if exp_date_filter and exp_date != exp_date_filter:
+                continue
+            if strike_range is not None and abs(strike - spot) > strike_range:
+                continue
+
+            exp_compact = exp_date.replace("-", "")[2:]
+            strike_compact = f"{int(round(strike * 1000)):08d}"
+            ticker = f"O:SPY{exp_compact}{right}{strike_compact}"
+
+            snapshot[ticker] = {
+                "cumulative_volume": agg.cumulative_volume,
+                "cumulative_premium": agg.cumulative_premium,
+                "last_price": agg.last_price,
+                "net_delta_flow": agg.net_delta_flow,
+                "net_gamma_flow": agg.net_gamma_flow,
+                "delta": agg.delta,
+                "gamma": agg.gamma,
+                "strike_price": agg.strike,
+                "type": agg.right,
+                "expiration": agg.exp_date,
+                "last_timestamp": agg.last_timestamp_ns // 1_000_000 if agg.last_timestamp_ns else 0
+            }
+
+        return snapshot
 
     def get_option_flows_near_level(
         self,
@@ -444,7 +631,19 @@ class MarketState:
         return self._session_low
 
     def get_current_ts_ns(self) -> int:
-        """Get current timestamp in Unix nanoseconds."""
+        """
+        Get "now" timestamp in Unix nanoseconds.
+
+        Canonical source is the latest event timestamp so replay stays event-time correct.
+        Falls back to wall clock if no events have been seen yet.
+        """
+        candidates: List[int] = []
+        if self.last_es_trade is not None:
+            candidates.append(self.last_es_trade.ts_event_ns)
+        if self.es_mbp10_snapshot is not None:
+            candidates.append(self.es_mbp10_snapshot.ts_event_ns)
+        if candidates:
+            return max(candidates)
         return time.time_ns()
 
     # ========== Debug and introspection ==========
@@ -469,3 +668,17 @@ class MarketState:
         self._vwap_volume = 0
         self._session_high = None
         self._session_low = None
+
+        self._session_date_et = None
+        self._premarket_high = None
+        self._premarket_low = None
+        self._opening_range_high = None
+        self._opening_range_low = None
+        self._minute_closes.clear()
+        self._two_minute_closes.clear()
+        self._current_minute_start_ns = None
+        self._current_minute_close_spy = None
+        self._current_2m_start_ns = None
+        self._current_2m_close_spy = None
+        self._sma_200 = None
+        self._sma_400 = None

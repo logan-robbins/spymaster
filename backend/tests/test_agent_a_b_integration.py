@@ -80,7 +80,7 @@ class TestAgentABIntegration:
             # Verify signal was created successfully
             assert signal.event_id.startswith("TEST_")
             assert signal.symbol == "SPY"
-            assert signal.level_kind in [LevelKind.PM_HIGH, LevelKind.PM_LOW, LevelKind.SMA_200]
+            assert signal.level_kind in [LevelKind.PM_HIGH, LevelKind.PM_LOW, LevelKind.SMA_200, LevelKind.SMA_400]
             assert signal.wall_ratio == 2.0  # 10000 / 5000
             assert signal.tape_velocity == 10.0  # 50 trades / 5 seconds
             assert isinstance(signal.is_first_15m, bool)
@@ -140,7 +140,7 @@ class TestAgentABIntegration:
             assert len(signals) >= 1
             
             for signal in signals:
-                assert signal.level_kind in [LevelKind.PM_HIGH, LevelKind.PM_LOW, LevelKind.SMA_200]
+                assert signal.level_kind in [LevelKind.PM_HIGH, LevelKind.PM_LOW, LevelKind.SMA_200, LevelKind.SMA_400]
                 assert signal.wall_ratio > 0.0
                 assert signal.distance <= 0.10
     
@@ -257,4 +257,3 @@ class TestAgentABIntegration:
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v", "-s"])
-

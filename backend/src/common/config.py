@@ -33,11 +33,16 @@ class Config:
     W_g: float = 60.0  # Fuel engine: option flow window for net dealer gamma
     W_v: float = 3.0   # Velocity: window for slope calculation
     W_wall: float = 300.0  # Call/Put wall lookback window (5 minutes)
+    DEALER_FLOW_WINDOW_MINUTES: int = 5
+    DEALER_FLOW_BASELINE_MINUTES: int = 20
+    DEALER_FLOW_ACCEL_SHORT_MINUTES: int = 1
+    DEALER_FLOW_ACCEL_LONG_MINUTES: int = 3
     
     # ========== Monitoring bands (SPY dollars) ==========
     # Critical zone where bounce/break decision happens
     MONITOR_BAND: float = 0.25  # compute full signals if |spot - L| <= $0.25
     TOUCH_BAND: float = 0.10    # tight band for "touching level"
+    CONFLUENCE_BAND: float = 0.20  # band for nearby key level confluence
     
     # Barrier engine: zone around strike-aligned level
     # SPY strikes at $1 intervals → ES at $10 intervals (40 ticks between strikes)
@@ -61,6 +66,14 @@ class Config:
     
     # ========== Fuel thresholds ==========
     FUEL_STRIKE_RANGE: float = 2.0  # consider strikes within ±N dollars of level
+    DEALER_FLOW_STRIKE_RANGE: float = 2.0  # strike range for dealer flow velocity
+
+    # ========== Mean reversion (SMA) settings ==========
+    SMA_SLOPE_WINDOW_MINUTES: int = 20
+    SMA_SLOPE_SHORT_BARS: int = 5
+    MEAN_REVERSION_VOL_WINDOW_MINUTES: int = 20
+    MEAN_REVERSION_VELOCITY_WINDOW_MINUTES: int = 10
+    SMA_WARMUP_DAYS: int = 3
     
     # ========== Score weights ==========
     w_L: float = 0.45  # Liquidity (Barrier) weight
@@ -75,6 +88,8 @@ class Config:
     # ========== Outcome labeling ==========
     # Threshold for BREAK/BOUNCE classification - must move 2 strikes for meaningful options trade
     OUTCOME_THRESHOLD: float = 2.0  # $2.00 SPY = 2 strikes minimum for BREAK/BOUNCE
+    STRENGTH_THRESHOLD_1: float = 1.0  # $1.00 move
+    STRENGTH_THRESHOLD_2: float = 2.0  # $2.00 move
     LOOKFORWARD_MINUTES: int = 5    # Forward window for outcome determination
     LOOKBACK_MINUTES: int = 10      # Backward window for approach context
     
@@ -84,6 +99,14 @@ class Config:
     tau_delta_liq: float = 3.0    # barrier delta_liq smoothing
     tau_replenish: float = 3.0    # replenishment ratio smoothing
     tau_dealer_gamma: float = 5.0 # net dealer gamma smoothing
+
+    # ========== Normalization scales (pressure indicators) ==========
+    BARRIER_DELTA_LIQ_NORM: float = 200.0
+    WALL_RATIO_NORM: float = 2.0
+    TAPE_VELOCITY_NORM: float = 0.5  # $/sec, aligns with score engine
+    GAMMA_EXPOSURE_NORM: float = 100000.0
+    GAMMA_FLOW_NORM: float = 50000.0
+    GAMMA_FLOW_ACCEL_NORM: float = 50000.0
     
     # ========== Snap tick cadence ==========
     SNAP_INTERVAL_MS: int = 250  # publish level signals every 250ms
@@ -115,4 +138,3 @@ class Config:
 
 # Singleton instance
 CONFIG = Config()
-

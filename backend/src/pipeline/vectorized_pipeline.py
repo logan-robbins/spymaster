@@ -228,7 +228,8 @@ class LevelInfo:
 def generate_level_universe_vectorized(
     ohlcv_df: pd.DataFrame,
     option_flows: Dict[Tuple[float, str, str], OptionFlowAggregate],
-    date: str
+    date: str,
+    ohlcv_2min: Optional[pd.DataFrame] = None
 ) -> LevelInfo:
     """
     Generate complete level universe using vectorized operations.
@@ -294,10 +295,17 @@ def generate_level_universe_vectorized(
     kinds.extend([4, 5])  # SESSION_HIGH=4, SESSION_LOW=5
     kind_names.extend(['SESSION_HIGH', 'SESSION_LOW'])
 
-    # 4. SMA-200 on 2-min bars
-    df_2min = df.set_index('timestamp').resample('2min').agg({
-        'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
-    }).dropna()
+    # 4. SMA-200 / SMA-400 on 2-min bars
+    if ohlcv_2min is None:
+        df_2min = df.set_index('timestamp').resample('2min').agg({
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+        }).dropna()
+        df_2min = df_2min.reset_index()
+    else:
+        df_2min = ohlcv_2min.copy()
+
+    if not df_2min.empty and 'timestamp' in df_2min.columns:
+        df_2min = df_2min.sort_values('timestamp')
 
     if len(df_2min) >= 200:
         sma_200 = df_2min['close'].rolling(200).mean().iloc[-1]
@@ -305,6 +313,13 @@ def generate_level_universe_vectorized(
             levels.append(sma_200)
             kinds.append(6)  # SMA_200=6
             kind_names.append('SMA_200')
+
+    if len(df_2min) >= 400:
+        sma_400 = df_2min['close'].rolling(400).mean().iloc[-1]
+        if pd.notna(sma_400):
+            levels.append(sma_400)
+            kinds.append(12)  # SMA_400=12
+            kind_names.append('SMA_400')
 
     # 5. VWAP
     session_mask = df['time_et'] >= dt_time(9, 30)
@@ -755,6 +770,490 @@ def compute_approach_context_vectorized(
     return result
 
 
+def compute_mean_reversion_features(
+    signals_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame,
+    ohlcv_2min: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
+    """
+    Compute SMA-based mean reversion features at each touch timestamp.
+
+    Features:
+        - sma_200 / sma_400 values at touch
+        - dist_to_sma_200 / dist_to_sma_400 (spot - SMA)
+        - sma_200_slope / sma_400_slope ($/min)
+        - sma_spread (SMA-200 minus SMA-400)
+        - mean_reversion_pressure_200 / 400 (distance normalized by volatility)
+        - mean_reversion_velocity_200 / 400 (change in distance per minute)
+    """
+    if signals_df.empty or ohlcv_df.empty:
+        return signals_df
+
+    df_2min = ohlcv_2min.copy() if ohlcv_2min is not None else None
+    if df_2min is None:
+        df_2min = ohlcv_df.set_index('timestamp').resample('2min').agg({
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+        }).dropna().reset_index()
+
+    if df_2min.empty or 'timestamp' not in df_2min.columns:
+        return signals_df
+
+    df_2min = df_2min.sort_values('timestamp')
+    sma_200_values = df_2min['close'].rolling(200).mean().to_numpy()
+    sma_400_values = df_2min['close'].rolling(400).mean().to_numpy()
+    sma_ts_ns = df_2min['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+
+    # Prepare volatility series on 1-min bars
+    ohlcv_sorted = ohlcv_df.sort_values('timestamp')
+    ohlcv_ts_ns = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+    ohlcv_close = ohlcv_sorted['close'].values.astype(np.float64)
+    price_changes = np.diff(ohlcv_close, prepend=ohlcv_close[0])
+    rolling_vol = pd.Series(price_changes).rolling(
+        window=CONFIG.MEAN_REVERSION_VOL_WINDOW_MINUTES
+    ).std().to_numpy()
+
+    def _index_at_or_before(ts_ns: int, series_ts_ns: np.ndarray) -> int:
+        return np.searchsorted(series_ts_ns, ts_ns, side='right') - 1
+
+    def _value_at_or_before(ts_ns: int, series_ts_ns: np.ndarray, series_vals: np.ndarray) -> float:
+        idx = _index_at_or_before(ts_ns, series_ts_ns)
+        if idx < 0 or idx >= len(series_vals):
+            return np.nan
+        val = series_vals[idx]
+        return val if np.isfinite(val) else np.nan
+
+    n = len(signals_df)
+    sma_200 = np.full(n, np.nan, dtype=np.float64)
+    sma_400 = np.full(n, np.nan, dtype=np.float64)
+    dist_to_sma_200 = np.full(n, np.nan, dtype=np.float64)
+    dist_to_sma_400 = np.full(n, np.nan, dtype=np.float64)
+    sma_200_slope = np.full(n, np.nan, dtype=np.float64)
+    sma_400_slope = np.full(n, np.nan, dtype=np.float64)
+    sma_200_slope_5bar = np.full(n, np.nan, dtype=np.float64)
+    sma_400_slope_5bar = np.full(n, np.nan, dtype=np.float64)
+    sma_spread = np.full(n, np.nan, dtype=np.float64)
+    mean_rev_200 = np.full(n, np.nan, dtype=np.float64)
+    mean_rev_400 = np.full(n, np.nan, dtype=np.float64)
+    mean_rev_vel_200 = np.full(n, np.nan, dtype=np.float64)
+    mean_rev_vel_400 = np.full(n, np.nan, dtype=np.float64)
+
+    slope_minutes = max(1, CONFIG.SMA_SLOPE_WINDOW_MINUTES)
+    slope_bars = max(1, int(round(slope_minutes / 2)))
+    slope_short_bars = max(1, CONFIG.SMA_SLOPE_SHORT_BARS)
+    slope_short_minutes = slope_short_bars * 2
+    vel_minutes = max(1, CONFIG.MEAN_REVERSION_VELOCITY_WINDOW_MINUTES)
+    vel_ns = int(vel_minutes * 60 * 1e9)
+
+    signal_ts = signals_df['ts_ns'].values.astype(np.int64)
+    spot_prices = signals_df['spot'].values.astype(np.float64)
+
+    for i in range(n):
+        ts = signal_ts[i]
+        spot = spot_prices[i]
+
+        sma200 = _value_at_or_before(ts, sma_ts_ns, sma_200_values)
+        sma400 = _value_at_or_before(ts, sma_ts_ns, sma_400_values)
+
+        sma_200[i] = sma200
+        sma_400[i] = sma400
+
+        if np.isfinite(sma200):
+            dist_to_sma_200[i] = spot - sma200
+        if np.isfinite(sma400):
+            dist_to_sma_400[i] = spot - sma400
+
+        # SMA slopes
+        idx_now = _index_at_or_before(ts, sma_ts_ns)
+        idx_prev = idx_now - slope_bars
+        if idx_now >= 0 and idx_prev >= 0 and idx_now < len(sma_200_values):
+            if np.isfinite(sma_200_values[idx_now]) and np.isfinite(sma_200_values[idx_prev]):
+                sma_200_slope[i] = (sma_200_values[idx_now] - sma_200_values[idx_prev]) / slope_minutes
+        if idx_now >= 0 and idx_prev >= 0 and idx_now < len(sma_400_values):
+            if np.isfinite(sma_400_values[idx_now]) and np.isfinite(sma_400_values[idx_prev]):
+                sma_400_slope[i] = (sma_400_values[idx_now] - sma_400_values[idx_prev]) / slope_minutes
+
+        idx_prev_short = idx_now - slope_short_bars
+        if idx_now >= 0 and idx_prev_short >= 0 and idx_now < len(sma_200_values):
+            if np.isfinite(sma_200_values[idx_now]) and np.isfinite(sma_200_values[idx_prev_short]):
+                sma_200_slope_5bar[i] = (sma_200_values[idx_now] - sma_200_values[idx_prev_short]) / slope_short_minutes
+        if idx_now >= 0 and idx_prev_short >= 0 and idx_now < len(sma_400_values):
+            if np.isfinite(sma_400_values[idx_now]) and np.isfinite(sma_400_values[idx_prev_short]):
+                sma_400_slope_5bar[i] = (sma_400_values[idx_now] - sma_400_values[idx_prev_short]) / slope_short_minutes
+
+        if np.isfinite(sma200) and np.isfinite(sma400):
+            sma_spread[i] = sma200 - sma400
+
+        vol = _value_at_or_before(ts, ohlcv_ts_ns, rolling_vol)
+        if np.isfinite(vol) and vol > 0:
+            if np.isfinite(dist_to_sma_200[i]):
+                mean_rev_200[i] = dist_to_sma_200[i] / (vol + 1e-6)
+            if np.isfinite(dist_to_sma_400[i]):
+                mean_rev_400[i] = dist_to_sma_400[i] / (vol + 1e-6)
+
+        # Mean reversion velocity
+        prev_ts = ts - vel_ns
+        prev_spot = _value_at_or_before(prev_ts, ohlcv_ts_ns, ohlcv_close)
+        prev_sma200 = _value_at_or_before(prev_ts, sma_ts_ns, sma_200_values)
+        prev_sma400 = _value_at_or_before(prev_ts, sma_ts_ns, sma_400_values)
+
+        if np.isfinite(prev_spot) and np.isfinite(prev_sma200) and np.isfinite(dist_to_sma_200[i]):
+            prev_dist_200 = prev_spot - prev_sma200
+            mean_rev_vel_200[i] = (dist_to_sma_200[i] - prev_dist_200) / vel_minutes
+        if np.isfinite(prev_spot) and np.isfinite(prev_sma400) and np.isfinite(dist_to_sma_400[i]):
+            prev_dist_400 = prev_spot - prev_sma400
+            mean_rev_vel_400[i] = (dist_to_sma_400[i] - prev_dist_400) / vel_minutes
+
+    result = signals_df.copy()
+    result['sma_200'] = sma_200
+    result['sma_400'] = sma_400
+    result['dist_to_sma_200'] = dist_to_sma_200
+    result['dist_to_sma_400'] = dist_to_sma_400
+    result['sma_200_slope'] = sma_200_slope
+    result['sma_400_slope'] = sma_400_slope
+    result['sma_200_slope_5bar'] = sma_200_slope_5bar
+    result['sma_400_slope_5bar'] = sma_400_slope_5bar
+    result['sma_spread'] = sma_spread
+    result['mean_reversion_pressure_200'] = mean_rev_200
+    result['mean_reversion_pressure_400'] = mean_rev_400
+    result['mean_reversion_velocity_200'] = mean_rev_vel_200
+    result['mean_reversion_velocity_400'] = mean_rev_vel_400
+
+    return result
+
+
+def compute_structural_distances(
+    signals_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Compute signed distances to structural levels (pre-market high/low).
+    """
+    if signals_df.empty or ohlcv_df.empty:
+        return signals_df
+
+    df = ohlcv_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+
+    df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
+
+    from datetime import time as dt_time
+    pm_mask = (df['time_et'] >= dt_time(4, 0)) & (df['time_et'] < dt_time(9, 30))
+
+    pm_high = np.nan
+    pm_low = np.nan
+    if pm_mask.any():
+        pm_data = df[pm_mask]
+        pm_high = pm_data['high'].max()
+        pm_low = pm_data['low'].min()
+
+    spot = signals_df['spot'].values.astype(np.float64)
+    dist_to_pm_high = np.full(len(signals_df), np.nan, dtype=np.float64)
+    dist_to_pm_low = np.full(len(signals_df), np.nan, dtype=np.float64)
+
+    if np.isfinite(pm_high):
+        dist_to_pm_high = spot - pm_high
+    if np.isfinite(pm_low):
+        dist_to_pm_low = spot - pm_low
+
+    result = signals_df.copy()
+    result['dist_to_pm_high'] = dist_to_pm_high
+    result['dist_to_pm_low'] = dist_to_pm_low
+
+    return result
+
+
+def compute_confluence_features(
+    signals_df: pd.DataFrame,
+    level_info: LevelInfo
+) -> pd.DataFrame:
+    """
+    Compute confluence metrics for nearby key levels.
+    """
+    if signals_df.empty or level_info is None or len(level_info.prices) == 0:
+        return signals_df
+
+    key_weights = {
+        'PM_HIGH': 1.0,
+        'PM_LOW': 1.0,
+        'OR_HIGH': 0.9,
+        'OR_LOW': 0.9,
+        'SMA_200': 0.8,
+        'SMA_400': 0.8,
+        'VWAP': 0.7,
+        'SESSION_HIGH': 0.6,
+        'SESSION_LOW': 0.6,
+        'CALL_WALL': 1.0,
+        'PUT_WALL': 1.0
+    }
+
+    key_prices = []
+    key_kind_names = []
+    key_weight_vals = []
+
+    for price, name in zip(level_info.prices, level_info.kind_names):
+        if name in key_weights:
+            key_prices.append(price)
+            key_kind_names.append(name)
+            key_weight_vals.append(key_weights[name])
+
+    if not key_prices:
+        result = signals_df.copy()
+        result['confluence_count'] = 0
+        result['confluence_weighted_score'] = 0.0
+        result['confluence_min_distance'] = np.nan
+        result['confluence_pressure'] = 0.0
+        return result
+
+    key_prices_arr = np.array(key_prices, dtype=np.float64)
+    key_weight_arr = np.array(key_weight_vals, dtype=np.float64)
+    key_kind_arr = np.array(key_kind_names, dtype=object)
+
+    total_weight = key_weight_arr.sum()
+    band = CONFIG.CONFLUENCE_BAND
+    eps = 1e-6
+
+    n = len(signals_df)
+    confluence_count = np.zeros(n, dtype=np.int32)
+    confluence_weighted = np.zeros(n, dtype=np.float64)
+    confluence_min_dist = np.full(n, np.nan, dtype=np.float64)
+    confluence_pressure = np.zeros(n, dtype=np.float64)
+
+    level_prices = signals_df['level_price'].values.astype(np.float64)
+    level_kinds = signals_df['level_kind_name'].values.astype(object)
+
+    for i in range(n):
+        level_price = level_prices[i]
+        level_kind = level_kinds[i]
+
+        distances = np.abs(key_prices_arr - level_price)
+        within_band = distances <= band
+        if level_kind in key_weights:
+            same_kind = (key_kind_arr == level_kind) & (distances < eps)
+            within_band = within_band & ~same_kind
+            other_kind = key_kind_arr != level_kind
+            if np.any(other_kind):
+                confluence_min_dist[i] = float(np.min(distances[other_kind]))
+            else:
+                confluence_min_dist[i] = float(np.min(distances))
+        else:
+            confluence_min_dist[i] = float(np.min(distances))
+
+        if not np.any(within_band):
+            continue
+
+        active_dist = distances[within_band]
+        active_weights = key_weight_arr[within_band]
+        distance_decay = np.clip(1.0 - (active_dist / band), 0.0, 1.0)
+
+        confluence_count[i] = int(np.sum(within_band))
+        confluence_weighted[i] = float(np.sum(active_weights * distance_decay))
+        if total_weight > 0:
+            confluence_pressure[i] = confluence_weighted[i] / total_weight
+
+    result = signals_df.copy()
+    result['confluence_count'] = confluence_count
+    result['confluence_weighted_score'] = confluence_weighted
+    result['confluence_min_distance'] = confluence_min_dist
+    result['confluence_pressure'] = confluence_pressure
+
+    return result
+
+
+def compute_dealer_velocity_features(
+    signals_df: pd.DataFrame,
+    option_trades_df: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Compute dealer gamma flow velocity and acceleration features from option trades.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    n = len(signals_df)
+    gamma_flow_velocity = np.zeros(n, dtype=np.float64)
+    gamma_flow_impulse = np.zeros(n, dtype=np.float64)
+    gamma_flow_accel_1m = np.zeros(n, dtype=np.float64)
+    gamma_flow_accel_3m = np.zeros(n, dtype=np.float64)
+    dealer_pressure = np.zeros(n, dtype=np.float64)
+    dealer_pressure_accel = np.zeros(n, dtype=np.float64)
+
+    if option_trades_df is None or option_trades_df.empty:
+        result = signals_df.copy()
+        result['gamma_flow_velocity'] = gamma_flow_velocity
+        result['gamma_flow_impulse'] = gamma_flow_impulse
+        result['gamma_flow_accel_1m'] = gamma_flow_accel_1m
+        result['gamma_flow_accel_3m'] = gamma_flow_accel_3m
+        result['dealer_pressure'] = dealer_pressure
+        result['dealer_pressure_accel'] = dealer_pressure_accel
+        return result
+
+    required_cols = ['ts_event_ns', 'strike', 'size', 'gamma', 'aggressor']
+    if not set(required_cols).issubset(option_trades_df.columns):
+        result = signals_df.copy()
+        result['gamma_flow_velocity'] = gamma_flow_velocity
+        result['gamma_flow_impulse'] = gamma_flow_impulse
+        result['gamma_flow_accel_1m'] = gamma_flow_accel_1m
+        result['gamma_flow_accel_3m'] = gamma_flow_accel_3m
+        result['dealer_pressure'] = dealer_pressure
+        result['dealer_pressure_accel'] = dealer_pressure_accel
+        return result
+
+    opt_df = option_trades_df[required_cols].copy()
+    opt_df['aggressor'] = pd.to_numeric(opt_df['aggressor'], errors='coerce').fillna(0).astype(np.int8)
+    opt_df['size'] = pd.to_numeric(opt_df['size'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['gamma'] = pd.to_numeric(opt_df['gamma'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['strike'] = pd.to_numeric(opt_df['strike'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['ts_event_ns'] = pd.to_numeric(opt_df['ts_event_ns'], errors='coerce').fillna(0).astype(np.int64)
+
+    # Dealer gamma flow: dealer takes opposite of customer aggressor
+    dealer_flow = -opt_df['aggressor'].values * opt_df['size'].values * opt_df['gamma'].values * 100.0
+    opt_ts = opt_df['ts_event_ns'].values
+    opt_strike = opt_df['strike'].values
+
+    sort_idx = np.argsort(opt_ts)
+    opt_ts = opt_ts[sort_idx]
+    opt_strike = opt_strike[sort_idx]
+    dealer_flow = dealer_flow[sort_idx]
+
+    window_minutes = max(1, CONFIG.DEALER_FLOW_WINDOW_MINUTES)
+    baseline_minutes = max(window_minutes + 1, CONFIG.DEALER_FLOW_BASELINE_MINUTES)
+    window_ns = int(window_minutes * 60 * 1e9)
+    baseline_ns = int(baseline_minutes * 60 * 1e9)
+    accel_short_minutes = max(1, CONFIG.DEALER_FLOW_ACCEL_SHORT_MINUTES)
+    accel_long_minutes = max(accel_short_minutes, CONFIG.DEALER_FLOW_ACCEL_LONG_MINUTES)
+    accel_short_ns = int(accel_short_minutes * 60 * 1e9)
+    accel_long_ns = int(accel_long_minutes * 60 * 1e9)
+    strike_range = CONFIG.DEALER_FLOW_STRIKE_RANGE
+
+    signal_ts = signals_df['ts_ns'].values.astype(np.int64)
+    level_prices = signals_df['level_price'].values.astype(np.float64)
+
+    def flow_in_window(end_ts: int, window: int, level_price: float) -> float:
+        start = np.searchsorted(opt_ts, end_ts - window, side='left')
+        end = np.searchsorted(opt_ts, end_ts, side='right')
+        if end <= start:
+            return 0.0
+        strikes = opt_strike[start:end]
+        mask = np.abs(strikes - level_price) <= strike_range
+        if not np.any(mask):
+            return 0.0
+        return float(np.sum(dealer_flow[start:end][mask]))
+
+    for i in range(n):
+        ts = signal_ts[i]
+        level = level_prices[i]
+
+        short_flow = flow_in_window(ts, window_ns, level)
+        short_vel = short_flow / window_minutes
+        gamma_flow_velocity[i] = short_vel
+
+        base_flow = flow_in_window(ts, baseline_ns, level)
+        baseline_rate = base_flow / baseline_minutes if baseline_minutes > 0 else 0.0
+
+        if abs(baseline_rate) > 1e-6:
+            gamma_flow_impulse[i] = (short_vel - baseline_rate) / abs(baseline_rate)
+        else:
+            gamma_flow_impulse[i] = 0.0
+
+        # Acceleration (1m and 3m windows)
+        short_accel_flow = flow_in_window(ts, accel_short_ns, level)
+        short_accel_prev = flow_in_window(ts - accel_short_ns, accel_short_ns, level)
+        short_accel_vel = short_accel_flow / accel_short_minutes
+        short_accel_prev_vel = short_accel_prev / accel_short_minutes
+        gamma_flow_accel_1m[i] = short_accel_vel - short_accel_prev_vel
+
+        long_accel_flow = flow_in_window(ts, accel_long_ns, level)
+        long_accel_prev = flow_in_window(ts - accel_long_ns, accel_long_ns, level)
+        long_accel_vel = long_accel_flow / accel_long_minutes
+        long_accel_prev_vel = long_accel_prev / accel_long_minutes
+        gamma_flow_accel_3m[i] = long_accel_vel - long_accel_prev_vel
+
+        dealer_pressure[i] = np.tanh(-short_vel / CONFIG.GAMMA_FLOW_NORM)
+        dealer_pressure_accel[i] = np.tanh(-gamma_flow_accel_1m[i] / CONFIG.GAMMA_FLOW_ACCEL_NORM)
+
+    result = signals_df.copy()
+    result['gamma_flow_velocity'] = gamma_flow_velocity
+    result['gamma_flow_impulse'] = gamma_flow_impulse
+    result['gamma_flow_accel_1m'] = gamma_flow_accel_1m
+    result['gamma_flow_accel_3m'] = gamma_flow_accel_3m
+    result['dealer_pressure'] = dealer_pressure
+    result['dealer_pressure_accel'] = dealer_pressure_accel
+
+    return result
+
+
+def compute_pressure_indicators(signals_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute continuous pressure indicators for break/bounce strength.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    direction_sign = np.where(signals_df['direction'].values == 'UP', 1.0, -1.0)
+    barrier_delta = np.nan_to_num(signals_df['barrier_delta_liq'].values.astype(np.float64), nan=0.0)
+    wall_ratio = np.nan_to_num(signals_df['wall_ratio'].values.astype(np.float64), nan=0.0)
+    tape_imbalance = np.nan_to_num(signals_df['tape_imbalance'].values.astype(np.float64), nan=0.0)
+    tape_velocity = np.nan_to_num(signals_df['tape_velocity'].values.astype(np.float64), nan=0.0)
+    gamma_exposure = np.nan_to_num(signals_df['gamma_exposure'].values.astype(np.float64), nan=0.0)
+
+    delta_norm = np.tanh(-barrier_delta / CONFIG.BARRIER_DELTA_LIQ_NORM)
+    wall_effect = np.clip(1.0 - (wall_ratio / CONFIG.WALL_RATIO_NORM), -1.0, 1.0)
+    liquidity_pressure = np.clip((delta_norm + wall_effect) / 2.0, -1.0, 1.0)
+
+    velocity_norm = np.clip(tape_velocity / CONFIG.TAPE_VELOCITY_NORM, -1.0, 1.0)
+    tape_pressure = np.clip(direction_sign * (tape_imbalance + velocity_norm) / 2.0, -1.0, 1.0)
+
+    gamma_pressure = np.tanh(-gamma_exposure / CONFIG.GAMMA_EXPOSURE_NORM)
+    if 'gamma_flow_accel_3m' in signals_df.columns:
+        gamma_pressure_accel = np.tanh(
+            -signals_df['gamma_flow_accel_3m'].values.astype(np.float64) / CONFIG.GAMMA_FLOW_ACCEL_NORM
+        )
+    else:
+        gamma_pressure_accel = np.zeros(len(signals_df), dtype=np.float64)
+
+    mean_rev_200 = signals_df.get('mean_reversion_pressure_200')
+    mean_rev_400 = signals_df.get('mean_reversion_pressure_400')
+    if mean_rev_200 is None and mean_rev_400 is None:
+        mean_rev_combined = np.zeros(len(signals_df), dtype=np.float64)
+    else:
+        mr_200 = mean_rev_200.values.astype(np.float64) if mean_rev_200 is not None else np.full(len(signals_df), np.nan)
+        mr_400 = mean_rev_400.values.astype(np.float64) if mean_rev_400 is not None else np.full(len(signals_df), np.nan)
+        both = np.isfinite(mr_200) & np.isfinite(mr_400)
+        only_200 = np.isfinite(mr_200) & ~np.isfinite(mr_400)
+        only_400 = np.isfinite(mr_400) & ~np.isfinite(mr_200)
+        mean_rev_combined = np.zeros(len(signals_df), dtype=np.float64)
+        mean_rev_combined[both] = (mr_200[both] + mr_400[both]) / 2.0
+        mean_rev_combined[only_200] = mr_200[only_200]
+        mean_rev_combined[only_400] = mr_400[only_400]
+
+    reversion_pressure = np.tanh(-direction_sign * mean_rev_combined)
+
+    if 'confluence_pressure' in signals_df.columns:
+        confluence_pressure = np.nan_to_num(
+            signals_df['confluence_pressure'].values.astype(np.float64),
+            nan=0.0
+        )
+    else:
+        confluence_pressure = np.zeros(len(signals_df), dtype=np.float64)
+
+    net_break_pressure = np.clip(
+        (liquidity_pressure + tape_pressure + gamma_pressure + reversion_pressure + confluence_pressure) / 5.0,
+        -1.0,
+        1.0
+    )
+
+    result = signals_df.copy()
+    result['liquidity_pressure'] = liquidity_pressure
+    result['tape_pressure'] = tape_pressure
+    result['gamma_pressure'] = gamma_pressure
+    result['gamma_pressure_accel'] = gamma_pressure_accel
+    result['reversion_pressure'] = reversion_pressure
+    result['net_break_pressure'] = net_break_pressure
+
+    return result
+
+
 def label_outcomes_vectorized(
     signals_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
@@ -796,13 +1295,19 @@ def label_outcomes_vectorized(
 
     n = len(signals_df)
     outcomes = np.empty(n, dtype=object)
-    future_prices = np.zeros(n, dtype=np.float64)
-    excursion_max = np.zeros(n, dtype=np.float64)
-    excursion_min = np.zeros(n, dtype=np.float64)
+    future_prices = np.full(n, np.nan, dtype=np.float64)
+    excursion_max = np.full(n, np.nan, dtype=np.float64)
+    excursion_min = np.full(n, np.nan, dtype=np.float64)
+    strength_signed = np.full(n, np.nan, dtype=np.float64)
+    strength_abs = np.full(n, np.nan, dtype=np.float64)
+    time_to_threshold_1 = np.full(n, np.nan, dtype=np.float64)
+    time_to_threshold_2 = np.full(n, np.nan, dtype=np.float64)
 
     signal_ts = signals_df['ts_ns'].values
     level_prices = signals_df['level_price'].values
     directions = signals_df['direction'].values
+    threshold_1 = CONFIG.STRENGTH_THRESHOLD_1
+    threshold_2 = CONFIG.STRENGTH_THRESHOLD_2
 
     # Vectorized: find indices for each signal's lookforward window
     for i in range(n):
@@ -832,16 +1337,19 @@ def label_outcomes_vectorized(
         # Store future price (last close in window)
         future_prices[i] = future_close[-1]
 
+        max_above = max(future_high.max() - level, 0.0)
+        max_below = max(level - future_low.min(), 0.0)
+
         # Compute excursions
         if direction == 'UP':
             # Testing resistance from below
-            excursion_max[i] = future_high.max() - level
-            excursion_min[i] = level - future_low.min()
+            excursion_max[i] = max_above
+            excursion_min[i] = max_below
 
             # BREAK: moved >threshold above level
             # BOUNCE: moved >threshold below level
-            max_above = future_high.max() - level
-            max_below = level - future_low.min()
+            strength_signed[i] = max_above - max_below
+            strength_abs[i] = max(max_above, max_below)
 
             if max_above >= outcome_threshold and max_above > max_below:
                 outcomes[i] = 'BREAK'
@@ -849,13 +1357,23 @@ def label_outcomes_vectorized(
                 outcomes[i] = 'BOUNCE'
             else:
                 outcomes[i] = 'CHOP'
+
+            # Time to thresholds in break direction (UP)
+            above_1 = np.where(future_high >= level + threshold_1)[0]
+            above_2 = np.where(future_high >= level + threshold_2)[0]
+            if len(above_1) > 0:
+                idx = start_idx + above_1[0]
+                time_to_threshold_1[i] = (ohlcv_ts[idx] - ts) / 1e9
+            if len(above_2) > 0:
+                idx = start_idx + above_2[0]
+                time_to_threshold_2[i] = (ohlcv_ts[idx] - ts) / 1e9
         else:
             # Testing support from above
-            excursion_max[i] = level - future_low.min()
-            excursion_min[i] = future_high.max() - level
+            excursion_max[i] = max_below
+            excursion_min[i] = max_above
 
-            max_below = level - future_low.min()
-            max_above = future_high.max() - level
+            strength_signed[i] = max_below - max_above
+            strength_abs[i] = max(max_below, max_above)
 
             if max_below >= outcome_threshold and max_below > max_above:
                 outcomes[i] = 'BREAK'
@@ -864,11 +1382,25 @@ def label_outcomes_vectorized(
             else:
                 outcomes[i] = 'CHOP'
 
+            # Time to thresholds in break direction (DOWN)
+            below_1 = np.where(future_low <= level - threshold_1)[0]
+            below_2 = np.where(future_low <= level - threshold_2)[0]
+            if len(below_1) > 0:
+                idx = start_idx + below_1[0]
+                time_to_threshold_1[i] = (ohlcv_ts[idx] - ts) / 1e9
+            if len(below_2) > 0:
+                idx = start_idx + below_2[0]
+                time_to_threshold_2[i] = (ohlcv_ts[idx] - ts) / 1e9
+
     result = signals_df.copy()
     result['outcome'] = outcomes
     result['future_price_5min'] = future_prices
     result['excursion_max'] = excursion_max
     result['excursion_min'] = excursion_min
+    result['strength_signed'] = strength_signed
+    result['strength_abs'] = strength_abs
+    result['time_to_threshold_1'] = time_to_threshold_1
+    result['time_to_threshold_2'] = time_to_threshold_2
 
     return result
 
@@ -911,6 +1443,43 @@ class VectorizedPipeline:
         self.tape_engine = TapeEngine()
         self.fuel_engine = FuelEngine()
 
+    def _get_warmup_dates(self, date: str) -> List[str]:
+        warmup_days = max(0, CONFIG.SMA_WARMUP_DAYS)
+        if warmup_days == 0:
+            return []
+
+        available = self.dbn_ingestor.get_available_dates('trades')
+        weekday_dates = [
+            d for d in available
+            if datetime.strptime(d, '%Y-%m-%d').weekday() < 5
+        ]
+        if date not in weekday_dates:
+            return []
+
+        idx = weekday_dates.index(date)
+        start_idx = max(0, idx - warmup_days)
+        return weekday_dates[start_idx:idx]
+
+    def _build_sma_warmup_2min(self, date: str) -> Tuple[pd.DataFrame, List[str]]:
+        warmup_dates = self._get_warmup_dates(date)
+        if not warmup_dates:
+            return pd.DataFrame(), []
+
+        frames = []
+        for warmup_date in warmup_dates:
+            trades = list(self.dbn_ingestor.read_trades(date=warmup_date))
+            if not trades:
+                continue
+            ohlcv = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='2min')
+            if not ohlcv.empty:
+                frames.append(ohlcv)
+
+        if not frames:
+            return pd.DataFrame(), warmup_dates
+
+        warmup_df = pd.concat(frames, ignore_index=True).sort_values('timestamp')
+        return warmup_df, warmup_dates
+
     def run(self, date: str) -> pd.DataFrame:
         """
         Run complete pipeline for a date.
@@ -948,6 +1517,10 @@ class VectorizedPipeline:
 
         ohlcv_df = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='1min')
         ohlcv_2min = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='2min')
+        warmup_2min, warmup_dates = self._build_sma_warmup_2min(date)
+        if not warmup_2min.empty:
+            ohlcv_2min = pd.concat([warmup_2min, ohlcv_2min], ignore_index=True).sort_values('timestamp')
+            log.info(f"  SMA warmup: {len(warmup_2min):,} 2-min bars from {len(warmup_dates)} dates")
 
         log.info(f"  Built {len(ohlcv_df):,} 1-min bars in {time.time()-stage_start:.2f}s")
         log.info(f"  Price range: ${ohlcv_df['low'].min():.2f} - ${ohlcv_df['high'].max():.2f}")
@@ -956,7 +1529,7 @@ class VectorizedPipeline:
         log.info("Initializing market state...")
         stage_start = time.time()
 
-        market_state = self._initialize_market_state(
+        market_state, option_trades_df = self._initialize_market_state(
             trades, mbp10_snapshots, option_trades_df, date
         )
 
@@ -968,7 +1541,7 @@ class VectorizedPipeline:
         stage_start = time.time()
 
         level_info = generate_level_universe_vectorized(
-            ohlcv_df, market_state.option_flows, date
+            ohlcv_df, market_state.option_flows, date, ohlcv_2min=ohlcv_2min
         )
 
         log.info(f"  Generated {len(level_info.prices)} levels in {time.time()-stage_start:.2f}s")
@@ -1027,6 +1600,21 @@ class VectorizedPipeline:
 
         # Generate event IDs
         signals_df['event_id'] = [str(uuid.uuid4()) for _ in range(len(signals_df))]
+
+        # Structural distances (pre-market levels)
+        signals_df = compute_structural_distances(signals_df, ohlcv_df)
+
+        # Mean reversion features (SMA-200/400)
+        signals_df = compute_mean_reversion_features(signals_df, ohlcv_df, ohlcv_2min=ohlcv_2min)
+
+        # Confluence features (stacked key levels)
+        signals_df = compute_confluence_features(signals_df, level_info)
+
+        # Dealer mechanics velocity features
+        signals_df = compute_dealer_velocity_features(signals_df, option_trades_df)
+
+        # Fluid pressure indicators
+        signals_df = compute_pressure_indicators(signals_df)
 
         # ========== Stage 8: Approach Context (Backward) ==========
         log.info("Computing approach context...")
@@ -1110,7 +1698,7 @@ class VectorizedPipeline:
         mbp10_snapshots: List[MBP10],
         option_trades_df: pd.DataFrame,
         date: str
-    ) -> MarketState:
+    ) -> Tuple[MarketState, pd.DataFrame]:
         """Initialize MarketState with vectorized Greeks computation."""
         market_state = MarketState(max_buffer_window_seconds=120.0)
 
@@ -1174,7 +1762,7 @@ class VectorizedPipeline:
                 except:
                     continue
 
-        return market_state
+        return market_state, option_trades_df
 
 
 # =============================================================================

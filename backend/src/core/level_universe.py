@@ -23,6 +23,12 @@ from src.common.config import CONFIG
 
 class LevelKind(Enum):
     """Type of level (for classification and display)."""
+    PM_HIGH = "PM_HIGH"
+    PM_LOW = "PM_LOW"
+    OR_HIGH = "OR_HIGH"
+    OR_LOW = "OR_LOW"
+    SMA_200 = "SMA_200"
+    SMA_400 = "SMA_400"
     VWAP = "VWAP"
     STRIKE = "STRIKE"
     ROUND = "ROUND"
@@ -108,6 +114,31 @@ class LevelUniverse:
                     price=vwap,
                     kind=LevelKind.VWAP
                 ))
+
+        # ========== Structural levels (Context) ==========
+        pm_high = market_state.get_premarket_high()
+        if pm_high is not None:
+            levels.append(Level(id="PM_HIGH", price=pm_high, kind=LevelKind.PM_HIGH))
+
+        pm_low = market_state.get_premarket_low()
+        if pm_low is not None:
+            levels.append(Level(id="PM_LOW", price=pm_low, kind=LevelKind.PM_LOW))
+
+        or_high = market_state.get_opening_range_high()
+        if or_high is not None:
+            levels.append(Level(id="OR_HIGH", price=or_high, kind=LevelKind.OR_HIGH))
+
+        or_low = market_state.get_opening_range_low()
+        if or_low is not None:
+            levels.append(Level(id="OR_LOW", price=or_low, kind=LevelKind.OR_LOW))
+
+        sma_200 = market_state.get_sma_200()
+        if sma_200 is not None:
+            levels.append(Level(id="SMA_200", price=sma_200, kind=LevelKind.SMA_200))
+
+        sma_400 = market_state.get_sma_400()
+        if sma_400 is not None:
+            levels.append(Level(id="SMA_400", price=sma_400, kind=LevelKind.SMA_400))
         
         # ========== Session High/Low ==========
         session_high = market_state.get_session_high()

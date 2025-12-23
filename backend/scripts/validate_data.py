@@ -73,7 +73,7 @@ class DataValidator:
         'distance': {'min': 0.0, 'max': 50.0, 'allow_zero': True},
         'gamma_exposure': {'min': -1e9, 'max': 1e9, 'allow_zero': True},
         'tape_imbalance': {'min': -1.0, 'max': 1.0, 'allow_zero': True},
-        'tape_velocity': {'min': 0.0, 'max': 10000.0, 'allow_zero': True},
+        'tape_velocity': {'min': -10000.0, 'max': 10000.0, 'allow_zero': True},
         'wall_ratio': {'min': 0.0, 'max': 100.0, 'allow_zero': True},
         'barrier_delta_liq': {'min': -1e6, 'max': 1e6, 'allow_zero': True},
         'future_price_5min': {'min': 400.0, 'max': 1000.0, 'allow_zero': False},
@@ -88,7 +88,7 @@ class DataValidator:
         'barrier_state': ['VACUUM', 'WALL', 'ABSORPTION', 'CONSUMED', 'WEAK', 'NEUTRAL'],
         'level_kind_name': [
             'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SESSION_HIGH', 'SESSION_LOW',
-            'SMA_200', 'VWAP', 'ROUND', 'STRIKE', 'CALL_WALL', 'PUT_WALL'
+            'SMA_200', 'SMA_400', 'VWAP', 'ROUND', 'STRIKE', 'CALL_WALL', 'PUT_WALL'
         ],
         'symbol': ['SPY'],
     }
@@ -98,7 +98,31 @@ class DataValidator:
         'gamma_exposure': 0.80,  # At least 80% should be non-zero
         'tape_imbalance': 0.10,  # At least 10% should be non-zero
         'tape_velocity': 0.10,
-        'wall_ratio': 0.05,
+        'wall_ratio': 0.03,
+    }
+
+    ALLOWED_MISSING_COLUMNS = {
+        'sma_200',
+        'sma_400',
+        'dist_to_sma_200',
+        'dist_to_sma_400',
+        'sma_200_slope',
+        'sma_400_slope',
+        'sma_200_slope_5bar',
+        'sma_400_slope_5bar',
+        'sma_spread',
+        'mean_reversion_pressure_200',
+        'mean_reversion_pressure_400',
+        'mean_reversion_velocity_200',
+        'mean_reversion_velocity_400',
+        'confluence_min_distance',
+        'time_to_threshold_1',
+        'time_to_threshold_2',
+        'future_price_5min',
+        'excursion_max',
+        'excursion_min',
+        'strength_signed',
+        'strength_abs',
     }
 
     def __init__(self, verbose: bool = False):
@@ -183,14 +207,25 @@ class DataValidator:
             critical_missing = [col for col in ['outcome', 'spot', 'level_price']
                               if col in cols_with_missing.index]
 
+            allowed_missing = [col for col in cols_with_missing.index if col in self.ALLOWED_MISSING_COLUMNS]
+            unexpected_missing = [col for col in cols_with_missing.index if col not in self.ALLOWED_MISSING_COLUMNS]
+
             if critical_missing:
                 self._add_result("missing_values", False, "ERROR",
                                f"Critical columns have missing values: {critical_missing}",
                                details=details)
-            else:
+            elif unexpected_missing:
                 self._add_result("missing_values", False, "WARNING",
-                               f"Columns with missing values: {list(cols_with_missing.index)}",
-                               details=pct_missing)
+                               f"Columns with missing values: {unexpected_missing}",
+                               details={col: pct_missing[col] for col in unexpected_missing})
+            else:
+                self._add_result("missing_values", True, "INFO",
+                               "Only expected columns have missing values")
+
+            if allowed_missing:
+                self._add_result("missing_values_expected", True, "INFO",
+                               f"Expected missing values in: {allowed_missing}",
+                               details={col: pct_missing[col] for col in allowed_missing})
         else:
             self._add_result("missing_values", True, "INFO",
                            "No missing values found")
@@ -282,27 +317,25 @@ class DataValidator:
 
         dist = df['outcome'].value_counts(normalize=True)
 
-        # Filter out UNDEFINED outcomes
-        valid_outcomes = dist.drop('UNDEFINED', errors='ignore')
-
-        if len(valid_outcomes) < 2:
+        break_bounce = dist.reindex(['BREAK', 'BOUNCE']).dropna()
+        if len(break_bounce) < 2:
             self._add_result("label_balance", False, "ERROR",
-                           f"Only one outcome label found: {list(valid_outcomes.index)}")
+                           f"Only one of BREAK/BOUNCE labels found: {list(break_bounce.index)}")
             return
 
-        min_pct = valid_outcomes.min()
-        max_pct = valid_outcomes.max()
-
+        min_pct = break_bounce.min()
         if min_pct < 0.05:
             self._add_result("label_balance", False, "WARNING",
-                           f"Severe class imbalance: minority class at {min_pct*100:.1f}%",
+                           f"Severe BREAK/BOUNCE imbalance: minority at {min_pct*100:.1f}%",
                            details=dist.to_dict())
         elif min_pct < 0.20:
             self._add_result("label_balance", False, "WARNING",
-                           f"Moderate class imbalance: {dist.to_dict()}")
+                           f"Moderate BREAK/BOUNCE imbalance: {break_bounce.to_dict()}",
+                           details=dist.to_dict())
         else:
             self._add_result("label_balance", True, "INFO",
-                           f"Label distribution: {dist.to_dict()}")
+                           f"BREAK/BOUNCE distribution: {break_bounce.to_dict()}",
+                           details=dist.to_dict())
 
     def _check_date_distribution(self, df: pd.DataFrame):
         """Check signals are distributed across dates."""

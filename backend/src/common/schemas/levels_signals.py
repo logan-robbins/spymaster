@@ -24,6 +24,7 @@ class LevelKind(str, Enum):
     OR_HIGH = "OR_HIGH"           # Opening Range High (first 15m)
     OR_LOW = "OR_LOW"             # Opening Range Low
     SMA_200 = "SMA_200"           # 200 Simple Moving Average
+    SMA_400 = "SMA_400"           # 400 Simple Moving Average
     STRIKE = "STRIKE"             # Standard Round Number (e.g., 500.00)
     VWAP = "VWAP"                 # Volume-Weighted Average Price
     ROUND = "ROUND"               # Round number level
@@ -111,6 +112,36 @@ class LevelSignalV1(BaseModel):
     # ========== Context Features (Agent B) ==========
     is_first_15m: bool = Field(default=False, description="True if 09:30-09:45 ET")
     dist_to_sma_200: Optional[float] = Field(default=None, description="Distance to 200 SMA")
+    dist_to_sma_400: Optional[float] = Field(default=None, description="Distance to 400 SMA")
+    dist_to_pm_high: Optional[float] = Field(default=None, description="Distance to pre-market high")
+    dist_to_pm_low: Optional[float] = Field(default=None, description="Distance to pre-market low")
+    sma_200: Optional[float] = Field(default=None, description="SMA-200 value at event time")
+    sma_400: Optional[float] = Field(default=None, description="SMA-400 value at event time")
+    sma_200_slope: Optional[float] = Field(default=None, description="SMA-200 slope ($/min)")
+    sma_400_slope: Optional[float] = Field(default=None, description="SMA-400 slope ($/min)")
+    sma_200_slope_5bar: Optional[float] = Field(default=None, description="SMA-200 slope over last 5x2min bars ($/min)")
+    sma_400_slope_5bar: Optional[float] = Field(default=None, description="SMA-400 slope over last 5x2min bars ($/min)")
+    sma_spread: Optional[float] = Field(default=None, description="SMA-200 minus SMA-400 ($)")
+    mean_reversion_pressure_200: Optional[float] = Field(default=None, description="Distance to SMA-200 normalized by volatility")
+    mean_reversion_pressure_400: Optional[float] = Field(default=None, description="Distance to SMA-400 normalized by volatility")
+    mean_reversion_velocity_200: Optional[float] = Field(default=None, description="Change in distance to SMA-200 per minute")
+    mean_reversion_velocity_400: Optional[float] = Field(default=None, description="Change in distance to SMA-400 per minute")
+    confluence_count: Optional[int] = Field(default=None, description="Count of nearby key levels")
+    confluence_weighted_score: Optional[float] = Field(default=None, description="Weighted confluence score")
+    confluence_min_distance: Optional[float] = Field(default=None, description="Closest distance to a secondary key level")
+    confluence_pressure: Optional[float] = Field(default=None, description="Normalized confluence strength")
+    gamma_flow_velocity: Optional[float] = Field(default=None, description="Net dealer gamma flow per minute near level")
+    gamma_flow_impulse: Optional[float] = Field(default=None, description="Short-term gamma flow deviation vs baseline")
+    gamma_flow_accel_1m: Optional[float] = Field(default=None, description="Change in 1-minute gamma flow velocity (acceleration)")
+    gamma_flow_accel_3m: Optional[float] = Field(default=None, description="Change in 3-minute gamma flow velocity (acceleration)")
+    dealer_pressure: Optional[float] = Field(default=None, description="Normalized dealer mechanics pressure")
+    dealer_pressure_accel: Optional[float] = Field(default=None, description="Normalized dealer pressure acceleration (1-minute window)")
+    liquidity_pressure: Optional[float] = Field(default=None, description="Normalized liquidity pressure indicator")
+    tape_pressure: Optional[float] = Field(default=None, description="Normalized tape momentum indicator")
+    gamma_pressure: Optional[float] = Field(default=None, description="Normalized gamma pressure indicator")
+    gamma_pressure_accel: Optional[float] = Field(default=None, description="Normalized gamma pressure acceleration indicator")
+    reversion_pressure: Optional[float] = Field(default=None, description="Normalized mean reversion pressure indicator")
+    net_break_pressure: Optional[float] = Field(default=None, description="Composite break/bounce pressure indicator")
     
     # ========== Basic Physics Features (Agent A - Core) ==========
     wall_ratio: float = Field(default=0.0, description="Size at Level / Avg Volume")
@@ -157,6 +188,10 @@ class LevelSignalV1(BaseModel):
     # ========== Outcome (Agent C) ==========
     outcome: OutcomeLabel = Field(default=OutcomeLabel.UNDEFINED, description="Outcome classification")
     future_price_5min: Optional[float] = Field(default=None, description="Price 5 minutes after touch")
+    strength_signed: Optional[float] = Field(default=None, description="Signed strength: break-direction excursion minus opposite")
+    strength_abs: Optional[float] = Field(default=None, description="Absolute max excursion in either direction")
+    time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first $1 move in break direction")
+    time_to_threshold_2: Optional[float] = Field(default=None, description="Seconds to first $2 move in break direction")
     
     # ========== Optional Note ==========
     note: Optional[str] = Field(default=None, description="Human-readable signal summary")

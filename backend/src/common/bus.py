@@ -1,7 +1,8 @@
 import json
 import asyncio
 from typing import Any, Callable, Dict, Optional, Awaitable
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
+from enum import Enum
 
 import nats
 from nats.js.api import StreamConfig, RetentionPolicy
@@ -77,14 +78,21 @@ class NATSBus:
         if not self.js:
             raise ConnectionError("NATS not connected")
 
+        def _json_default(obj: Any):
+            if isinstance(obj, Enum):
+                return obj.value
+            return str(obj)
+
         if hasattr(payload, "model_dump_json"): # Pydantic
             data = payload.model_dump_json().encode()
         elif hasattr(payload, "to_json"): # Some dataclasses if mixed in
             data = payload.to_json().encode()
-        elif hasattr(payload, "__dict__"): # Dataclass
-            data = json.dumps(asdict(payload), default=str).encode()
+        elif is_dataclass(payload):
+            # Dataclasses frequently contain Enums; encode those as their `.value`
+            # so consumers can reconstruct by Enum(value).
+            data = json.dumps(asdict(payload), default=_json_default).encode()
         elif isinstance(payload, dict):
-            data = json.dumps(payload, default=str).encode()
+            data = json.dumps(payload, default=_json_default).encode()
         else:
             data = str(payload).encode()
 
