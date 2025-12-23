@@ -73,13 +73,14 @@ from .options_trades_enriched import OptionTradeEnrichedV1
 # Gold tier schemas
 from .levels_signals import (
     LevelSignalV1,
-    BarrierStateEnum,
-    DirectionEnum,
-    FuelEffectEnum,
-    SignalEnum,
-    ConfidenceEnum,
-    RunwayQualityEnum,
-    LevelKindEnum,
+    LevelKind,
+    OutcomeLabel,
+    BarrierState,
+    Direction,
+    Signal,
+    Confidence,
+    FuelEffect,
+    RunwayQuality,
 )
 
 __all__ = [
@@ -107,13 +108,14 @@ __all__ = [
 
     # Gold
     'LevelSignalV1',
-    'BarrierStateEnum',
-    'DirectionEnum',
-    'FuelEffectEnum',
-    'SignalEnum',
-    'ConfidenceEnum',
-    'RunwayQualityEnum',
-    'LevelKindEnum',
+    'LevelKind',
+    'OutcomeLabel',
+    'BarrierState',
+    'Direction',
+    'Signal',
+    'Confidence',
+    'FuelEffect',
+    'RunwayQuality',
 ]
 
 # Version information
