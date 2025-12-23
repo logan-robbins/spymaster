@@ -44,11 +44,7 @@ async def run_ingestor_service():
     await bus.connect()
     
     # Initialize Strike Manager for dynamic option subscriptions
-    strike_manager = StrikeManager(
-        initial_price=600.0,  # SPY default starting point
-        step=1.0,
-        range_dollars=5.0
-    )
+    strike_manager = StrikeManager(ticker_symbol="SPY")
     
     # Initialize Stream Ingestor
     ingestor = StreamIngestor(

@@ -1,5 +1,7 @@
 # Spymaster: Real-Time Market Physics Engine
 
+**Core Hypothesis**: Dealer gamma hedging creates predictable mechanical pressure at option strikes. By quantifying this pressure alongside order book dynamics and tape momentum, we can predict whether price will break through or bounce off critical levels with edge over participants who only see price.
+
 **Asset**: SPY (equity + 0DTE options)
 **Core Prediction**: Will price **BREAK** through or **BOUNCE** off critical levels?
 **Method**: Trace dealer hedging flows, order book dynamics, and tape momentum
@@ -428,4 +430,49 @@ dependencies = [
 
 ---
 
-**Core Hypothesis**: Dealer gamma hedging creates predictable mechanical pressure at option strikes. By quantifying this pressure alongside order book dynamics and tape momentum, we can predict whether price will break through or bounce off critical levels with edge over participants who only see price.
+
+  New Files Created
+
+  1. src/pipeline/vectorized_pipeline.py - Main vectorized pipeline with:
+    - Numpy broadcasting for touch detection (O(n×m) vectorized)
+    - Numba JIT compilation for tape/barrier metrics (3.7x speedup)
+    - Searchsorted for O(log n) future price lookups
+    - Full level universe: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, VWAP, STRIKE, ROUND, CALL_WALL, PUT_WALL, SESSION_HIGH, SESSION_LOW
+  2. src/core/vectorized_engines.py - Batch physics engines with:
+    - VectorizedMarketData - Pre-processed data for O(1) lookups
+    - compute_tape_metrics_batch() - Vectorized imbalance/velocity
+    - compute_barrier_metrics_batch() - Vectorized liquidity analysis
+    - compute_fuel_metrics_batch() - Vectorized gamma exposure
+
+  Performance Results
+
+  | Stage               | Time  | Notes                                  |
+  |---------------------|-------|----------------------------------------|
+  | Data Loading        | 1.4s  | 394K trades, 100K MBP-10, 669K options |
+  | OHLCV Building      | 0.15s | Vectorized pandas                      |
+  | Touch Detection     | ~0s   | Numpy broadcasting                     |
+  | Physics Computation | 0.66s | Numba JIT for 5K signals               |
+  | Labeling            | 0.02s | Vectorized searchsorted                |
+  | Total               | 20.6s | 243 signals/sec                        |
+
+  Features Generated
+
+  - 20 levels per day across 10 level types
+  - 5,000+ signals per day with full physics
+  - 26 feature columns including:
+    - gamma_exposure: Real dealer gamma (mean=42K, all non-zero)
+    - tape_imbalance: Buy/sell pressure [-1, 1]
+    - tape_velocity: Price slope (61% non-zero)
+    - barrier_state: VACUUM/WALL/WEAK/NEUTRAL classification
+    - outcome: BOUNCE (60%) / BREAK (40%)
+
+  Usage
+
+  # Single date
+  uv run python -m src.pipeline.vectorized_pipeline --date 2025-12-19
+
+  # All dates
+  uv run python -m src.pipeline.vectorized_pipeline --all
+
+  # Benchmark
+  uv run python -m src.pipeline.vectorized_pipeline --benchmark

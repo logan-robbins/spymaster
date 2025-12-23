@@ -341,7 +341,7 @@ class TestBarrierEnginePriceConversion:
         """SPY level 687.0 should query ES depth at 6870.0."""
         config = Config()
         config.W_b = 10.0
-        config.BARRIER_ZONE_TICKS = 2  # ±2 ticks
+        config.BARRIER_ZONE_ES_TICKS = 1  # ±1 ES tick around strike
 
         engine = BarrierEngine(config=config)
         market_state = MarketState()

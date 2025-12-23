@@ -124,7 +124,7 @@ elif isinstance(event, StockQuote):
 2. **Monitoring bands** (SPY dollars):
    - `MONITOR_BAND = 0.50`: compute full signals when |spot - level| ≤ $0.50
    - `TOUCH_BAND = 0.05`: tight band for "touching level" triggers
-   - `BARRIER_ZONE_TICKS = 2`: price zone around level for depth grouping
+   - `BARRIER_ZONE_SPY = 0.50`: ±$0.50 SPY zone (= ±$5.00 ES) for depth analysis
 
 3. **Barrier thresholds** (ES contracts):
    - `R_vac = 0.3`: Replenishment ratio for VACUUM classification

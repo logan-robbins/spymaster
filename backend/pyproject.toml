@@ -10,6 +10,8 @@ dependencies = [
     "duckdb>=1.4.3",
     "fastapi[standard]>=0.124.4",
     "nats-py>=2.12.0",
+    "numba>=0.60.0",
+    "numpy>=2.0.0",
     "pandas>=2.3.3",
     "polygon-api-client>=1.16.3",
     "pyarrow>=19.0.0",
@@ -17,6 +19,7 @@ dependencies = [
     "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
     "s3fs>=2025.12.0",
+    "scipy>=1.14.0",
     "uvicorn>=0.38.0",
     "websockets>=15.0.1",
 ]

@@ -1,37 +1,33 @@
 {
-  "version": "1.0.0",
-  "description": "SPY 0DTE Level Signal Features for ML Training",
-  "output_path": "data/lake/gold/research/signals_multi_day.parquet",
+  "version": "1.2.0",
+  "description": "SPY 0DTE Level Signal Features for ML Training - Vectorized Pipeline",
+  "output_path": "data/lake/gold/research/signals_vectorized.parquet",
   "label_column": "outcome",
-  "label_values": ["BREAK", "BOUNCE", "CHOP"],
+  "label_values": ["BREAK", "BOUNCE"],
+  "pipeline": "src.pipeline.vectorized_pipeline",
   "features": {
-    "context": {
-      "description": "Market context and timing features",
+    "identity": {
+      "description": "Signal identification fields",
       "columns": {
+        "event_id": {
+          "dtype": "string",
+          "description": "Unique signal identifier (UUID)",
+          "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        },
+        "ts_ns": {
+          "dtype": "int64",
+          "description": "Event timestamp in Unix nanoseconds UTC",
+          "example": 1765843200000000000
+        },
         "date": {
           "dtype": "string",
           "description": "Trading date (YYYY-MM-DD)",
           "example": "2025-12-17"
         },
-        "ts_event_ns": {
-          "dtype": "int64",
-          "description": "Event timestamp in Unix nanoseconds UTC",
-          "example": 1765843200000000000
-        },
         "symbol": {
           "dtype": "string",
           "description": "Underlying symbol (always SPY)",
           "example": "SPY"
-        },
-        "is_first_15m": {
-          "dtype": "bool",
-          "description": "Whether event occurred in first 15 minutes of trading (09:30-09:45 ET). High volatility period.",
-          "example": false
-        },
-        "dist_to_sma_200": {
-          "dtype": "float64",
-          "description": "Distance to 200-period SMA in dollars. Null if not computed.",
-          "example": 2.35
         }
       }
     },
@@ -41,18 +37,37 @@
         "spot": {
           "dtype": "float64",
           "description": "Current SPY spot price at signal time",
-          "example": 681.80
+          "example": 684.50
         },
         "level_price": {
           "dtype": "float64",
-          "description": "Price of the level being tested (strike, VWAP, round, etc.)",
-          "example": 682.00
+          "description": "Price of the level being tested (strike at $1 intervals)",
+          "example": 685.00
         },
         "level_kind": {
+          "dtype": "int8",
+          "description": "Integer code for level type",
+          "mapping": {
+            "0": "PM_HIGH",
+            "1": "PM_LOW",
+            "2": "OR_HIGH",
+            "3": "OR_LOW",
+            "4": "SESSION_HIGH",
+            "5": "SESSION_LOW",
+            "6": "SMA_200",
+            "7": "VWAP",
+            "8": "ROUND",
+            "9": "STRIKE",
+            "10": "CALL_WALL",
+            "11": "PUT_WALL"
+          },
+          "example": 8
+        },
+        "level_kind_name": {
           "dtype": "string",
-          "description": "Type of price level",
-          "values": ["STRIKE", "VWAP", "ROUND", "GAMMA_WALL", "SESSION_HIGH", "SESSION_LOW"],
-          "example": "STRIKE"
+          "description": "Human-readable level type name",
+          "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SESSION_HIGH", "SESSION_LOW", "SMA_200", "VWAP", "ROUND", "STRIKE", "CALL_WALL", "PUT_WALL"],
+          "example": "ROUND"
         },
         "direction": {
           "dtype": "string",
@@ -62,62 +77,101 @@
         },
         "distance": {
           "dtype": "float64",
-          "description": "Distance from spot to level in dollars",
+          "description": "Distance from spot to level in dollars (filtered to <= $0.50)",
           "example": 0.20
+        }
+      }
+    },
+    "context": {
+      "description": "Market context and timing features",
+      "columns": {
+        "is_first_15m": {
+          "dtype": "bool",
+          "description": "Whether event occurred in first 15 minutes of trading (09:30-09:45 ET). High volatility period.",
+          "example": false
         }
       }
     },
     "barrier_physics": {
       "description": "Order book liquidity dynamics (ES futures MBP-10)",
-      "source": "BarrierEngine",
+      "source": "vectorized_engines.compute_barrier_metrics_batch",
+      "methodology": {
+        "es_spy_conversion": "ES price = SPY price * 10 (SPY $685 = ES $6850)",
+        "zone_definition": "+-8 ES ticks around SPY strike ($1 = $10 ES = 40 ticks). Zone = +-$2 ES = +-$0.20 SPY",
+        "forward_window": "60 seconds from touch timestamp (bar START, look forward to capture trades during bar)"
+      },
       "columns": {
         "barrier_state": {
           "dtype": "string",
           "description": "Classified liquidity state at level",
           "values": ["VACUUM", "WALL", "ABSORPTION", "CONSUMED", "WEAK", "NEUTRAL"],
           "physics": {
-            "VACUUM": "Liquidity pulled away - easy break expected",
-            "WALL": "Liquidity replenishing - likely reject",
-            "ABSORPTION": "Large orders absorbing flow",
-            "CONSUMED": "Defending liquidity was filled, not pulled",
-            "WEAK": "Minimal liquidity present",
+            "VACUUM": "Liquidity pulled away without fills - easy break expected",
+            "WALL": "Liquidity actively replenishing despite fills - likely reject",
+            "ABSORPTION": "Large orders absorbing flow, depth stable",
+            "CONSUMED": "Defending liquidity was filled (not pulled) - contested",
+            "WEAK": "Minimal liquidity present at level",
             "NEUTRAL": "No significant liquidity signal"
           },
-          "example": "NEUTRAL"
+          "example": "WALL"
         },
         "barrier_delta_liq": {
           "dtype": "float64",
           "description": "Net change in defending liquidity (ES contracts). Negative = liquidity leaving.",
           "example": -150.0
         },
+        "barrier_replenishment_ratio": {
+          "dtype": "float64",
+          "description": "Ratio of added to removed liquidity. >1.5 = WALL, <0.3 = VACUUM.",
+          "example": 1.8
+        },
         "wall_ratio": {
           "dtype": "float64",
-          "description": "Ratio of defending liquidity to average depth. >1.5 = wall, <0.3 = vacuum.",
-          "example": 0.0
+          "description": "Ratio of defending liquidity to baseline. Detects unusual concentration.",
+          "example": 2.1
         }
       }
     },
     "tape_physics": {
       "description": "Trade flow momentum (ES futures time & sales)",
-      "source": "TapeEngine",
+      "source": "vectorized_engines.compute_tape_metrics_batch",
+      "methodology": {
+        "price_band": "$0.50 SPY around level ($5 ES)",
+        "forward_window": "60 seconds from touch timestamp"
+      },
       "columns": {
         "tape_imbalance": {
           "dtype": "float64",
           "description": "Buy/sell imbalance in price band around level. Range [-1, 1]. Positive = buy pressure.",
           "example": 0.35
         },
+        "tape_buy_vol": {
+          "dtype": "int64",
+          "description": "Buy volume (contracts) in price band during window",
+          "example": 1250
+        },
+        "tape_sell_vol": {
+          "dtype": "int64",
+          "description": "Sell volume (contracts) in price band during window",
+          "example": 980
+        },
         "tape_velocity": {
           "dtype": "float64",
           "description": "Trade arrival rate (trades per second) in window",
           "example": 45.2
+        },
+        "sweep_detected": {
+          "dtype": "bool",
+          "description": "Whether a sweep (rapid multi-level execution) was detected",
+          "example": false
         }
       }
     },
     "fuel_physics": {
       "description": "Dealer gamma hedging dynamics (SPY 0DTE options)",
-      "source": "FuelEngine",
+      "source": "vectorized_engines.compute_fuel_metrics_batch",
       "methodology": {
-        "greeks": "Black-Scholes model with real-time IV estimation",
+        "greeks": "Black-Scholes model with real-time IV estimation (vectorized numpy)",
         "aggressor_inference": "Tick Rule (uptick=BUY, downtick=SELL)",
         "gamma_flow": "Customer trade direction * size * gamma * 100 (contract multiplier)"
       },
@@ -125,7 +179,7 @@
         "gamma_exposure": {
           "dtype": "float64",
           "description": "Net dealer gamma exposure at level. Negative = dealers short gamma (must chase). Positive = dealers long gamma (will fade).",
-          "example": 105230.28
+          "example": 31452.29
         },
         "fuel_effect": {
           "dtype": "string",
@@ -140,48 +194,182 @@
         }
       }
     },
+    "approach_context": {
+      "description": "Backward-looking context features capturing how price approached the level",
+      "source": "compute_approach_context_vectorized",
+      "methodology": {
+        "lookback_window": "10 minutes before touch timestamp",
+        "purpose": "Critical ML features - a fast aggressive approach behaves differently than a slow grind"
+      },
+      "columns": {
+        "approach_velocity": {
+          "dtype": "float64",
+          "description": "Price change per minute over lookback window ($/min). Positive = moving toward level.",
+          "example": 0.15
+        },
+        "approach_bars": {
+          "dtype": "int32",
+          "description": "Number of consecutive 1-min bars moving toward level before touch",
+          "example": 4
+        },
+        "approach_distance": {
+          "dtype": "float64",
+          "description": "Total price distance traveled toward level in lookback window",
+          "example": 1.50
+        },
+        "prior_touches": {
+          "dtype": "int32",
+          "description": "Count of previous touches at this exact level today",
+          "example": 2
+        },
+        "bars_since_open": {
+          "dtype": "int32",
+          "description": "Number of bars since market open - session timing context",
+          "example": 120
+        }
+      }
+    },
     "outcome": {
       "description": "Ground truth label for supervised learning",
+      "methodology": {
+        "threshold": "$2.00 (2 strikes) - meaningful move for options trading",
+        "lookforward": "5 minutes",
+        "note": "Must move 2 strikes to be actionable for SPY options"
+      },
       "columns": {
         "outcome": {
           "dtype": "string",
           "description": "What happened after the level touch",
           "values": ["BREAK", "BOUNCE", "CHOP"],
           "labeling": {
-            "BREAK": "Price moved through level by >$0.20 in approach direction",
-            "BOUNCE": "Price reversed away from level by >$0.20",
-            "CHOP": "Price stayed within $0.20 of level (indeterminate)"
+            "BREAK": "Price moved through level by >=$2.00 in approach direction",
+            "BOUNCE": "Price reversed away from level by >=$2.00",
+            "CHOP": "Price didn't move $2.00 in either direction (not tradeable)"
           },
-          "example": "BREAK"
+          "example": "BOUNCE"
         },
         "future_price_5min": {
           "dtype": "float64",
           "description": "SPY price 5 minutes after signal (for P&L calculation)",
           "example": 681.425
+        },
+        "excursion_max": {
+          "dtype": "float64",
+          "description": "Maximum favorable excursion in lookforward window (dollars)",
+          "example": 2.50
+        },
+        "excursion_min": {
+          "dtype": "float64",
+          "description": "Maximum adverse excursion in lookforward window (dollars)",
+          "example": 0.80
         }
       }
     }
   },
   "statistics": {
-    "total_signals": 800,
+    "generated_at": "2025-12-23",
+    "total_signals": 3159,
     "date_range": ["2025-12-16", "2025-12-19"],
+    "dates_processed": 4,
+    "quality_filter": "distance <= $0.25 (MONITOR_BAND) - critical decision zone",
     "outcome_distribution": {
-      "BREAK": 0.601,
-      "BOUNCE": 0.378,
-      "CHOP": 0.021
+      "BREAK": 0.500,
+      "BOUNCE": 0.447,
+      "CHOP": 0.052
+    },
+    "barrier_state_distribution": {
+      "NEUTRAL": 4956,
+      "WEAK": 35,
+      "WALL": 27,
+      "VACUUM": 10
     },
     "fuel_effect_distribution": {
-      "AMPLIFY": 0.059,
-      "DAMPEN": 0.796,
-      "NEUTRAL": 0.145
+      "DAMPEN": 0.695,
+      "AMPLIFY": 0.170,
+      "NEUTRAL": 0.135
     },
-    "gamma_coverage": 0.85
+    "feature_coverage": {
+      "gamma_exposure": {
+        "non_null": 1.0,
+        "non_zero": 1.0,
+        "mean": 31452.29,
+        "min": -181358.73,
+        "max": 140990.23
+      },
+      "tape_imbalance": {
+        "non_null": 1.0,
+        "non_zero": 0.991
+      },
+      "tape_velocity": {
+        "non_null": 1.0,
+        "non_zero": 1.0
+      },
+      "wall_ratio": {
+        "non_null": 1.0,
+        "non_zero": 0.031,
+        "note": "Expected sparse - only detects unusual liquidity concentration at strikes"
+      },
+      "barrier_delta_liq": {
+        "non_null": 1.0,
+        "non_zero": 0.62
+      },
+      "spot": {
+        "non_null": 1.0,
+        "non_zero": 1.0,
+        "mean": 684.50,
+        "min": 672.17,
+        "max": 690.30
+      },
+      "distance": {
+        "non_null": 1.0,
+        "non_zero": 0.996,
+        "mean": 0.12,
+        "min": 0.0,
+        "max": 0.25
+      },
+      "approach_velocity": {
+        "non_null": 1.0,
+        "non_zero": 0.979,
+        "mean": -0.026,
+        "min": -1.12,
+        "max": 0.71
+      },
+      "approach_bars": {
+        "non_null": 1.0,
+        "non_zero": 0.418,
+        "mean": 0.68,
+        "min": 0,
+        "max": 7
+      },
+      "approach_distance": {
+        "non_null": 1.0,
+        "non_zero": 0.979,
+        "mean": 1.80,
+        "min": 0.0,
+        "max": 7.10
+      },
+      "prior_touches": {
+        "non_null": 1.0,
+        "non_zero": 0.976,
+        "mean": 39.15,
+        "min": 0,
+        "max": 161
+      },
+      "bars_since_open": {
+        "non_null": 1.0,
+        "non_zero": 1.0,
+        "mean": 766,
+        "min": 0,
+        "max": 1439
+      }
+    }
   },
   "data_sources": {
     "es_futures": {
       "provider": "Databento",
       "format": "DBN (trades + MBP-10)",
-      "fields": ["price", "size", "side", "depth levels 1-10"]
+      "conversion": "ES price / 10 = SPY equivalent",
+      "fields": ["price", "size", "aggressor", "depth levels 1-10"]
     },
     "spy_options": {
       "provider": "Polygon.io",
@@ -194,8 +382,14 @@
   },
   "methodology": {
     "greeks_calculation": "Black-Scholes-Merton with vectorized NumPy",
-    "aggressor_inference": "Tick Rule: compare trade price to previous trade for same option symbol",
+    "aggressor_inference": "Tick Rule: compare trade price to previous trade",
     "0dte_filter": "All option processing restricted to same-day expiration",
-    "es_spy_conversion": "ES price / 10 = approximate SPY price"
+    "es_spy_conversion": "ES_price = SPY_price * 10 (ES trades at 10x SPY notional)",
+    "barrier_zone": "+-8 ES ticks (+-$2 ES = +-$0.20 SPY) around strike-aligned levels",
+    "touch_detection": "OHLCV high/low crosses level price",
+    "quality_filter": "Only signals where close price within $0.25 of level (critical zone)",
+    "outcome_threshold": "Move >=$2.00 (2 strikes) in 5 minutes for BREAK/BOUNCE - meaningful for options",
+    "lookback_context": "10 minutes backward for approach velocity, bars, distance",
+    "time_windows": "Forward-looking from bar START (60 seconds for tape/barrier)"
   }
 }

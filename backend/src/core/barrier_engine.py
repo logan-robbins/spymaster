@@ -86,8 +86,8 @@ class BarrierEngine:
         # Window for computing flows
         self.window_seconds = self.config.W_b
 
-        # Zone around level for depth aggregation (in ticks)
-        self.zone_ticks = self.config.BARRIER_ZONE_TICKS
+        # Zone around level (in ES ticks) - tight around strike-aligned levels
+        self.zone_es_ticks = self.config.BARRIER_ZONE_ES_TICKS
 
         # Thresholds (adjusted for ES contract sizes)
         self.r_vacuum = self.config.R_vac
@@ -127,11 +127,13 @@ class BarrierEngine:
         es_trades = market_state.get_es_trades_in_window(ts_now_ns, self.window_seconds)
 
         # Convert SPY level to ES equivalent for depth queries
+        # SPY strikes at $1 intervals → ES at $10 intervals
         es_level_price = market_state.price_converter.spy_to_es(level_price)
 
-        # Compute zone boundaries in ES terms
-        zone_low = es_level_price - (self.zone_ticks * ES_TICK_SIZE)
-        zone_high = es_level_price + (self.zone_ticks * ES_TICK_SIZE)
+        # Zone is ±N ES ticks around the level (tight around strike)
+        zone_es = self.zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
+        zone_low = es_level_price - zone_es
+        zone_high = es_level_price + zone_es
 
         # Determine defending side
         if direction == Direction.SUPPORT:
