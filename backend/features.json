@@ -1,0 +1,201 @@
+{
+  "version": "1.0.0",
+  "description": "SPY 0DTE Level Signal Features for ML Training",
+  "output_path": "data/lake/gold/research/signals_multi_day.parquet",
+  "label_column": "outcome",
+  "label_values": ["BREAK", "BOUNCE", "CHOP"],
+  "features": {
+    "context": {
+      "description": "Market context and timing features",
+      "columns": {
+        "date": {
+          "dtype": "string",
+          "description": "Trading date (YYYY-MM-DD)",
+          "example": "2025-12-17"
+        },
+        "ts_event_ns": {
+          "dtype": "int64",
+          "description": "Event timestamp in Unix nanoseconds UTC",
+          "example": 1765843200000000000
+        },
+        "symbol": {
+          "dtype": "string",
+          "description": "Underlying symbol (always SPY)",
+          "example": "SPY"
+        },
+        "is_first_15m": {
+          "dtype": "bool",
+          "description": "Whether event occurred in first 15 minutes of trading (09:30-09:45 ET). High volatility period.",
+          "example": false
+        },
+        "dist_to_sma_200": {
+          "dtype": "float64",
+          "description": "Distance to 200-period SMA in dollars. Null if not computed.",
+          "example": 2.35
+        }
+      }
+    },
+    "level": {
+      "description": "Price level characteristics",
+      "columns": {
+        "spot": {
+          "dtype": "float64",
+          "description": "Current SPY spot price at signal time",
+          "example": 681.80
+        },
+        "level_price": {
+          "dtype": "float64",
+          "description": "Price of the level being tested (strike, VWAP, round, etc.)",
+          "example": 682.00
+        },
+        "level_kind": {
+          "dtype": "string",
+          "description": "Type of price level",
+          "values": ["STRIKE", "VWAP", "ROUND", "GAMMA_WALL", "SESSION_HIGH", "SESSION_LOW"],
+          "example": "STRIKE"
+        },
+        "direction": {
+          "dtype": "string",
+          "description": "Direction of approach to level",
+          "values": ["UP", "DOWN"],
+          "example": "UP"
+        },
+        "distance": {
+          "dtype": "float64",
+          "description": "Distance from spot to level in dollars",
+          "example": 0.20
+        }
+      }
+    },
+    "barrier_physics": {
+      "description": "Order book liquidity dynamics (ES futures MBP-10)",
+      "source": "BarrierEngine",
+      "columns": {
+        "barrier_state": {
+          "dtype": "string",
+          "description": "Classified liquidity state at level",
+          "values": ["VACUUM", "WALL", "ABSORPTION", "CONSUMED", "WEAK", "NEUTRAL"],
+          "physics": {
+            "VACUUM": "Liquidity pulled away - easy break expected",
+            "WALL": "Liquidity replenishing - likely reject",
+            "ABSORPTION": "Large orders absorbing flow",
+            "CONSUMED": "Defending liquidity was filled, not pulled",
+            "WEAK": "Minimal liquidity present",
+            "NEUTRAL": "No significant liquidity signal"
+          },
+          "example": "NEUTRAL"
+        },
+        "barrier_delta_liq": {
+          "dtype": "float64",
+          "description": "Net change in defending liquidity (ES contracts). Negative = liquidity leaving.",
+          "example": -150.0
+        },
+        "wall_ratio": {
+          "dtype": "float64",
+          "description": "Ratio of defending liquidity to average depth. >1.5 = wall, <0.3 = vacuum.",
+          "example": 0.0
+        }
+      }
+    },
+    "tape_physics": {
+      "description": "Trade flow momentum (ES futures time & sales)",
+      "source": "TapeEngine",
+      "columns": {
+        "tape_imbalance": {
+          "dtype": "float64",
+          "description": "Buy/sell imbalance in price band around level. Range [-1, 1]. Positive = buy pressure.",
+          "example": 0.35
+        },
+        "tape_velocity": {
+          "dtype": "float64",
+          "description": "Trade arrival rate (trades per second) in window",
+          "example": 45.2
+        }
+      }
+    },
+    "fuel_physics": {
+      "description": "Dealer gamma hedging dynamics (SPY 0DTE options)",
+      "source": "FuelEngine",
+      "methodology": {
+        "greeks": "Black-Scholes model with real-time IV estimation",
+        "aggressor_inference": "Tick Rule (uptick=BUY, downtick=SELL)",
+        "gamma_flow": "Customer trade direction * size * gamma * 100 (contract multiplier)"
+      },
+      "columns": {
+        "gamma_exposure": {
+          "dtype": "float64",
+          "description": "Net dealer gamma exposure at level. Negative = dealers short gamma (must chase). Positive = dealers long gamma (will fade).",
+          "example": 105230.28
+        },
+        "fuel_effect": {
+          "dtype": "string",
+          "description": "Classified gamma effect on price movement",
+          "values": ["AMPLIFY", "DAMPEN", "NEUTRAL"],
+          "physics": {
+            "AMPLIFY": "Dealers short gamma - will chase moves, accelerating breakouts",
+            "DAMPEN": "Dealers long gamma - will fade moves, supporting mean reversion",
+            "NEUTRAL": "No significant gamma imbalance"
+          },
+          "example": "DAMPEN"
+        }
+      }
+    },
+    "outcome": {
+      "description": "Ground truth label for supervised learning",
+      "columns": {
+        "outcome": {
+          "dtype": "string",
+          "description": "What happened after the level touch",
+          "values": ["BREAK", "BOUNCE", "CHOP"],
+          "labeling": {
+            "BREAK": "Price moved through level by >$0.20 in approach direction",
+            "BOUNCE": "Price reversed away from level by >$0.20",
+            "CHOP": "Price stayed within $0.20 of level (indeterminate)"
+          },
+          "example": "BREAK"
+        },
+        "future_price_5min": {
+          "dtype": "float64",
+          "description": "SPY price 5 minutes after signal (for P&L calculation)",
+          "example": 681.425
+        }
+      }
+    }
+  },
+  "statistics": {
+    "total_signals": 800,
+    "date_range": ["2025-12-16", "2025-12-19"],
+    "outcome_distribution": {
+      "BREAK": 0.601,
+      "BOUNCE": 0.378,
+      "CHOP": 0.021
+    },
+    "fuel_effect_distribution": {
+      "AMPLIFY": 0.059,
+      "DAMPEN": 0.796,
+      "NEUTRAL": 0.145
+    },
+    "gamma_coverage": 0.85
+  },
+  "data_sources": {
+    "es_futures": {
+      "provider": "Databento",
+      "format": "DBN (trades + MBP-10)",
+      "fields": ["price", "size", "side", "depth levels 1-10"]
+    },
+    "spy_options": {
+      "provider": "Polygon.io",
+      "format": "S3 flat files (CSV.gz)",
+      "endpoint": "https://files.polygon.io",
+      "bucket": "flatfiles",
+      "path": "us_options_opra/trades_v1/YYYY/MM/YYYY-MM-DD.csv.gz",
+      "fields": ["ticker", "price", "size", "sip_timestamp"]
+    }
+  },
+  "methodology": {
+    "greeks_calculation": "Black-Scholes-Merton with vectorized NumPy",
+    "aggressor_inference": "Tick Rule: compare trade price to previous trade for same option symbol",
+    "0dte_filter": "All option processing restricted to same-day expiration",
+    "es_spy_conversion": "ES price / 10 = approximate SPY price"
+  }
+}

@@ -1,581 +1,431 @@
 # Spymaster: Real-Time Market Physics Engine
 
-**Target Audience**: AI Coding Agent  
-**Asset**: SPY (equity + 0DTE options)  
-**Status**: Phase 2 Complete (NATS microservices architecture)
+**Asset**: SPY (equity + 0DTE options)
+**Core Prediction**: Will price **BREAK** through or **BOUNCE** off critical levels?
+**Method**: Trace dealer hedging flows, order book dynamics, and tape momentum
 
 ---
 
-## Philosophy & Core Concept
+## The Physics Model
 
-**What We Are Building**: A real-time physics-based system that watches critical price levels and predicts whether they will **BREAK** (fail) or **REJECT** (hold) as price approaches them.
+Price movement at critical levels is governed by three mechanical forces:
 
-### The Problem
+### 1. Barrier Physics (Liquidity)
+**Source**: ES futures MBP-10 (top 10 depth levels)
 
-For any critical level (strike, round number, VWAP, gamma wall), we continuously answer:
-- Will price **break through** this level and run?
-- Will it **reject** and reverse away?
-- In **either direction** (support tests from above, resistance tests from below)?
-
-### The Insight: Market Physics
-
-**Price cannot move unless dealers make it move.** We trace the fundamental physics:
-
-1. **Barrier Physics (Liquidity)**: Is displayed liquidity at the level **evaporating** (vacuum = easy break) or **replenishing** (wall = likely reject)?
-   - We watch ES futures MBP-10 (top 10 depth levels) to see order flow dynamics
-   - We infer FILLED vs PULLED by comparing depth changes to passive volume
-   - We classify states: VACUUM, WALL, ABSORPTION, CONSUMED, WEAK, NEUTRAL
-
-2. **Tape Physics (Momentum)**: Is tape aggression **confirming** the direction into the level?
-   - We measure buy/sell imbalance, price velocity, sweep detection
-   - ES time-and-sales shows institutional footprints (large aggressive prints)
-
-3. **Fuel Physics (Dealer Hedging)**: Will dealers **amplify** or **dampen** the move based on their gamma position?
-   - When customers buy options → dealers sell gamma → must chase price moves = AMPLIFY
-   - When customers sell options → dealers buy gamma → fade moves = DAMPEN
-   - We track SPY option flow to estimate net dealer gamma at each strike
-
-### What Makes This Different
-
-- **NOT High-Frequency Trading**: We operate on 100-250ms snap ticks (not microseconds)
-- **NOT Pattern Recognition**: We use mechanical physics rules, not trained ML models
-- **NOT Retail Indicators**: We watch institutional dealer behavior and order book dynamics
-- **Get in Before Retail**: We detect market structure changes (vacuum forming, dealers chasing) before retail sees the price move
-
-### Core Visualization Concept
-
-We are building a **market X-ray**:
-- Show the liquidity landscape around critical levels in real-time
-- Visualize dealer gamma regimes (where are they forced to chase? where will they fade?)
-- Track tape aggression and momentum building into levels
-- Provide clear BREAK/REJECT signals with confidence levels
-- Display "runway" (distance to next obstacle after a break)
-
----
-
-## System Architecture
-
-### High-Level Pipeline
+Liquidity at a price level determines resistance to movement:
+- **VACUUM**: Defending orders pulled → price slides through easily
+- **WALL**: Orders replenishing faster than consumption → price rejected
+- **ABSORPTION**: Large hidden buyer/seller absorbing flow
 
 ```
-┌─────────────┐
-│  INGESTOR   │ ← Polygon WebSocket (SPY options + quotes)
-│   Service   │ ← Databento DBN files (ES futures MBP-10 + trades)
-└──────┬──────┘
-       │ Normalize to canonical events (ts_event_ns, ts_recv_ns, source)
-       ▼
-┌─────────────┐
-│    NATS     │ ← JetStream message bus (24h retention, file-backed)
-│ JetStream   │   Subjects: market.*, levels.signals
-└──────┬──────┘
-       │
-       ├──────────────────────────────────┐
-       │                                   │
-       ▼                                   ▼
-┌─────────────┐                    ┌─────────────┐
-│    CORE     │ ← Market physics   │    LAKE     │ ← Storage
-│   Service   │   engines          │   Service   │
-└──────┬──────┘                    └─────────────┘
-       │                                   │
-       │ Compute level signals             │ Write Bronze/Silver/Gold
-       │ (break scores, signals)           │ (Parquet, Hive partitions)
-       ▼                                   ▼
-┌─────────────┐                    ┌─────────────┐
-│   GATEWAY   │ ← WebSocket relay  │  MinIO/S3   │ ← Object storage
-│   Service   │                    │   Storage   │
-└──────┬──────┘                    └─────────────┘
-       │
-       ▼
-┌─────────────┐
-│  FRONTEND   │ ← Angular dashboard (real-time visualization)
-│  (Angular)  │
-└─────────────┘
+barrier_state = f(delta_liquidity, replenishment_rate, passive_volume)
 ```
 
-### Data Flow: Live Trading Session
+### 2. Tape Physics (Momentum)
+**Source**: ES futures time & sales
 
-1. **Ingestion** (`backend/src/ingestor/`):
-   - Subscribe to Polygon WebSocket: SPY trades, SPY quotes, SPY option trades
-   - Read Databento DBN files: ES futures trades + MBP-10 depth
-   - Normalize vendor formats → canonical event types
-   - Publish to NATS subjects: `market.stocks.*`, `market.options.*`, `market.futures.*`
+Aggressive order flow reveals institutional intent:
+- **tape_imbalance**: Buy vs sell pressure in band around level
+- **tape_velocity**: Trade arrival rate (institutional urgency)
+- **sweep_detection**: Clustered aggressive prints lifting/hitting
 
-2. **Storage** (`backend/src/lake/`):
-   - Subscribe to all `market.*` subjects
-   - Micro-batch events (1000 events or 5 seconds)
-   - Write Bronze Parquet files (append-only, raw, replayable)
-   - Offline: compact Bronze → Silver (deduplicate, sort by event time)
+```
+momentum_signal = f(imbalance, velocity, sweep_count)
+```
 
-3. **Core Processing** (`backend/src/core/`):
-   - Subscribe to all `market.*` subjects
-   - Maintain live market state: ES MBP-10 ring buffer, ES trades, SPY option flows
-   - Every 250ms (snap tick):
-     - Generate level universe (strikes, rounds, VWAP, walls)
-     - For each level near spot price:
-       * **BarrierEngine**: compute liquidity state (VACUUM/WALL/etc)
-       * **TapeEngine**: compute tape imbalance, velocity, sweep detection
-       * **FuelEngine**: compute net dealer gamma, walls
-       * **ScoreEngine**: combine into break score (0-100), classify signal (BREAK/REJECT/etc)
-       * **Smoothing**: apply EWMA for stability
-       * **RoomToRun**: compute runway to next obstacle
-     - Publish to NATS subject: `levels.signals`
+### 3. Fuel Physics (Dealer Gamma)
+**Source**: SPY 0DTE option trades
 
-4. **Gateway Relay** (`backend/src/gateway/`):
-   - Subscribe to `levels.signals` NATS subject
-   - Broadcast to WebSocket clients at `/ws/stream`
-   - Frontend receives JSON payload with all level signals
+Dealers must delta-hedge option positions, creating mechanical price pressure:
 
-5. **Gold Analytics** (`backend/src/lake/`):
-   - Subscribe to `levels.signals`
-   - Flatten nested structure
-   - Write Gold Parquet files (derived analytics, ML-ready features)
+| Customer Action | Dealer Position | Hedging Behavior | Effect |
+|-----------------|-----------------|------------------|--------|
+| Buys calls/puts | Short gamma | Chase price moves | **AMPLIFY** |
+| Sells calls/puts | Long gamma | Fade price moves | **DAMPEN** |
 
-### Why This Architecture?
-
-- **Event-time first**: All records carry `ts_event_ns` (UTC) for deterministic replay
-- **Separation of concerns**: Ingestion, computation, storage, relay are independent services
-- **Institutional hygiene**: Append-only storage, schema versioning, run manifests
-- **Replay capability**: Bronze Parquet can be replayed to reproduce Gold analytics exactly
-- **ML-friendly**: Columnar Parquet, typed schemas, Hive partitioning
-
----
-
-## Module Descriptions
-
-### 1. Common (`backend/src/common/`)
-
-**Role**: Foundational infrastructure for all services
-
-**Key Components**:
-- **Event Types** (`event_types.py`): Canonical dataclasses for all market events
-  - `StockTrade`, `StockQuote`, `OptionTrade`, `FuturesTrade`, `MBP10`
-  - All events carry `ts_event_ns` (event time) and `ts_recv_ns` (receive time) in Unix nanoseconds
-- **Config** (`config.py`): Single source of truth for all tunable parameters
-  - Window sizes (W_b, W_t, W_g), thresholds (R_vac, R_wall), weights (w_L, w_H, w_T)
-  - No trained calibration; all constants are mechanical/tunable
-- **Schemas** (`schemas/`): Pydantic + PyArrow schemas for Bronze/Silver/Gold storage
-  - Schema versioning for evolution tracking
-  - Dual representation: runtime validation (Pydantic) + storage (PyArrow/Parquet)
-- **Price Converter** (`price_converter.py`): ES ↔ SPY price conversion
-  - Levels are SPY prices (for option strikes)
-  - Liquidity is ES futures (superior MBP-10 visibility)
-  - Dynamic ratio support (ES ≈ SPY × 10, adjusted for dividends/basis)
-- **Run Manifests** (`run_manifest_manager.py`): Track run metadata (config snapshots, git commit, file outputs)
-
-**📖 Full Documentation**: [`backend/src/common/README.md`](backend/src/common/README.md)
-
----
-
-### 2. Ingestor (`backend/src/ingestor/`)
-
-**Role**: The Source — normalize vendor feeds into canonical events
-
-**Key Components**:
-- **StreamIngestor** (`stream_ingestor.py`): Live Polygon WebSocket adapter
-  - Subscribes to SPY equity (trades + quotes) and SPY options (trades)
-  - Dynamic strike management: updates option subscriptions as SPY moves
-  - Normalizes vendor wire format → `StockTrade`, `StockQuote`, `OptionTrade`
-- **DBNIngestor** (`dbn_ingestor.py`): Databento DBN file reader (ES futures)
-  - Streaming iterators (no full file load for 10GB+ MBP-10 files)
-  - Converts DBN records → `FuturesTrade`, `MBP10`
-- **ReplayPublisher** (`replay_publisher.py`): Historical replay with speed control
-  - Merges trades + MBP-10 into single event-time-ordered stream
-  - Replay speed: 0x (fast), 1x (realtime), 2x (2x speed)
-  - Publishes to same NATS subjects as live feeds (downstream services are replay-agnostic)
-
-**Critical Contracts**:
-- All events published to NATS subjects: `market.stocks.trades`, `market.stocks.quotes`, `market.options.trades`, `market.futures.trades`, `market.futures.mbp10`
-- Timestamps: vendor ms → convert to Unix ns (multiply by 1,000,000)
-
-**📖 Full Documentation**: [`backend/src/ingestor/README.md`](backend/src/ingestor/README.md)
-
----
-
-### 3. Core (`backend/src/core/`)
-
-**Role**: The Brain — market physics engines and signal computation
-
-**Key Components**:
-
-#### MarketState (`market_state.py`)
-- Central state store for all market data
-- ES MBP-10 ring buffer (60-120s window)
-- ES trades ring buffer
-- SPY option flow aggregates (net dealer gamma by strike)
-- Price converter for ES ↔ SPY queries
-- Accessors: `get_spot()`, `get_bid_ask()`, `get_vwap()`, `get_es_trades_near_level()`
-
-#### Physics Engines
-
-**BarrierEngine** (`barrier_engine.py`): Liquidity physics
-- Tracks ES MBP-10 depth changes in zone around level (±2 ticks)
-- Infers FILLED vs PULLED by comparing depth lost to passive volume
-- Classifies state: VACUUM (liquidity pulled), WALL (replenishing), ABSORPTION, CONSUMED, WEAK, NEUTRAL
-- **Critical**: Event-driven ingestion (process every MBP-10 update) to avoid "churn blindness"
-
-**TapeEngine** (`tape_engine.py`): Momentum physics
-- Computes buy/sell imbalance in price band around level
-- Calculates price velocity (slope over time)
-- Detects sweeps (clustered aggressive prints, large notional, consistent direction)
-- Uses ES trades (institutional footprints, better than SPY L1)
-
-**FuelEngine** (`fuel_engine.py`): Dealer gamma physics
-- Tracks SPY option flow → estimates net dealer gamma
-- Customer buys option → dealer SHORT gamma → must chase → AMPLIFY
-- Customer sells option → dealer LONG gamma → fade moves → DAMPEN
-- Identifies gamma walls (strikes with highest customer demand)
-
-**ScoreEngine** (`score_engine.py`): Composite scoring
-- Combines barrier, tape, fuel into break score (0-100)
-- Component weights: w_L=0.45 (liquidity), w_H=0.35 (hedge), w_T=0.20 (tape)
-- Trigger state machine with hysteresis (score must sustain >80 for 3s → BREAK signal)
-
-**Smoothing** (`smoothing.py`): EWMA smoothers
-- Apply exponential weighted moving average to raw scores/metrics
-- Half-life parameters (tau) from CONFIG
-- Prevents flicker from microstructure noise
-
-**LevelSignalService** (`level_signal_service.py`): Orchestrator
-- Generates level universe (VWAP, strikes, rounds, walls)
-- Calls all engines per level
-- Builds WebSocket payload (§6.4 of PLAN.md)
-- Publishes to NATS subject: `levels.signals`
-
-**📖 Full Documentation**: [`backend/src/core/README.md`](backend/src/core/README.md)
-
----
-
-### 4. Lake (`backend/src/lake/`)
-
-**Role**: Institutional-grade data persistence (Bronze/Silver/Gold lakehouse)
-
-**Key Components**:
-
-**BronzeWriter** (`bronze_writer.py`):
-- Subscribes to all `market.*` NATS subjects
-- Micro-batches events (1000 events or 5 seconds)
-- Writes append-only Parquet files
-- Hive partitioning: `symbol=SPY/date=YYYY-MM-DD/hour=HH/`
-- ZSTD compression level 3
-
-**SilverCompactor** (`silver_compactor.py`):
-- Offline batch job: Bronze → Silver
-- Deduplicates by MD5(source, ts_event_ns, symbol, price, size, seq)
-- Sorts by event time
-- Deterministic: same Bronze input → identical Silver output
-
-**GoldWriter** (`gold_writer.py`):
-- Subscribes to `levels.signals` NATS subject
-- Flattens nested level signal payload into flat Parquet schema
-- Target: ML-ready feature tables
-- Stores derived analytics (break scores, barrier metrics, tape metrics, fuel metrics)
-
-**Storage Tiers**:
-- **Bronze**: Raw, append-only, full replay capability
-- **Silver**: Clean, deduped, sorted, join-enriched
-- **Gold**: Derived features, ML-ready, flattened schemas
-
-**📖 Full Documentation**: [`backend/src/lake/README.md`](backend/src/lake/README.md)
-
----
-
-### 5. Gateway (`backend/src/gateway/`)
-
-**Role**: The Interface — NATS → WebSocket relay (no compute logic)
-
-**Key Components**:
-- **SocketBroadcaster** (`socket_broadcaster.py`): Pure relay microservice
-  - Subscribes to `levels.signals` NATS subject
-  - Caches latest payload
-  - Broadcasts to all WebSocket clients at `/ws/stream`
-- **FastAPI app** (`main.py`): HTTP server with lifespan management
-  - WebSocket endpoint: `ws://localhost:8000/ws/stream`
-  - Health check: `GET /health`
-
-**Design Principle**: Zero business logic. All signal computation happens in Core Service.
-
-**📖 Full Documentation**: [`backend/src/gateway/README.md`](backend/src/gateway/README.md)
-
----
-
-### 6. Frontend (`frontend/`)
-
-**Role**: Real-time visualization dashboard (Angular)
-
-**Key Components**:
-- **Level Strip** (`level-strip/`): Horizontal bar showing levels near current price
-- **Strike Grid** (`strike-grid/`): Table view of option strikes with gamma metrics
-- **Flow Wave** (`flow-wave/`): Time-series chart of option flow aggregates
-- **Level Table** (`level-table/`): Detailed metrics per level (barrier/tape/fuel/score)
-
-**Data Flow**:
-- WebSocket connection to Gateway: `ws://localhost:8000/ws/stream`
-- Receives JSON payload every 250ms (snap tick)
-- Updates Angular components via RxJS observables
-
-**Technology Stack**: Angular 19, Tailwind CSS, Chart.js
-
----
-
-## Key Concepts for AI Agents
-
-### 1. Time Discipline
-
-**Two timestamps on every event**:
-- `ts_event_ns`: Event time from vendor/exchange (Unix nanoseconds UTC)
-- `ts_recv_ns`: Receive time by our system (Unix nanoseconds UTC)
-
-**Conversion rules**:
-- Polygon sends milliseconds → multiply by 1,000,000 to get nanoseconds
-- Databento sends nanoseconds → use directly
-- Current time: `time.time_ns()` in Python
-
-**Why nanoseconds?** Standardize on finest granularity (Databento uses ns). Convert to ms for frontend display.
-
-### 2. Price Conversion (ES ↔ SPY)
-
-**Problem**: Levels are SPY prices (option strikes), but liquidity is ES futures (better MBP-10 visibility).
-
-**Solution**: Dynamic price converter (ES ≈ SPY × 10)
-- SPY level $687.00 → query ES depth at ~6870.0
-- Ratio adjusts for dividends, interest rate differentials, fair value basis
-- All outputs in SPY terms for consistency with option strikes
-
-**Usage**:
 ```python
-es_level = market_state.converter.spy_to_es(spy_level)
-depth = market_state.get_es_depth_at(es_level)
-defending_quote_spy = market_state.converter.es_to_spy(defending_quote_es)
+gamma_exposure = sum(customer_sign * size * gamma * 100)  # per strike
+fuel_effect = AMPLIFY if gamma_exposure < -threshold else DAMPEN if > threshold else NEUTRAL
 ```
 
-### 3. Event-Driven vs Snap Tick
-
-**Ingestion**: Event-driven (process every MBP-10 update, every trade immediately)
-- Avoids "churn blindness" (missing depth add/cancel that net to zero)
-
-**Scoring/Publishing**: Snap tick (100-250ms fixed cadence)
-- Core Service computes level signals every 250ms
-- Uses windowed queries over event buffers (e.g., "last 10 seconds of MBP-10 updates")
-
-### 4. No Hindsight Calibration
-
-**v1 Design Principle**: "Physics + math, no trained calibration"
-- All thresholds are mechanical constants (R_vac, R_wall, F_thresh)
-- Tunable via CONFIG, not learned from historical data
-- Enables deterministic replay (same inputs + config → same outputs)
-
-### 5. Deterministic Replay
-
-**Critical for backtesting**:
-- Given same Bronze Parquet input + same CONFIG → Gold output is byte-for-byte identical (within floating-point rounding policy)
-- Achieved via:
-  - Event-time ordering (sort by `ts_event_ns`)
-  - Deterministic tie-breaking (use `ts_recv_ns`, then `seq`)
-  - No random seeds, no system time in computation
-  - Fixed config (do not mutate CONFIG during replay)
+**Critical Insight**: When dealers are short gamma near a strike, they must buy into rallies and sell into selloffs—accelerating breakouts. When long gamma, they do the opposite—supporting mean reversion.
 
 ---
 
-## Development Workflow
+## Data Architecture
 
-### Setup
-
-```bash
-# Clone repository
-cd /Users/loganrobbins/research/qmachina/spymaster
-
-# Install Python dependencies (backend)
-cd backend
-uv sync
-
-# Install Node dependencies (frontend)
-cd ../frontend
-npm install
 ```
-
-### Running Services (Docker Compose)
-
-```bash
-# Start all services
-docker compose up
-
-# Or start individually
-docker compose up nats      # NATS JetStream
-docker compose up ingestor  # Data ingestion
-docker compose up core      # Physics engines
-docker compose up lake      # Storage
-docker compose up gateway   # WebSocket relay
-docker compose up frontend  # Angular dashboard
-```
-
-### Local Development (without Docker)
-
-```bash
-# Terminal 1: NATS JetStream
-docker compose up nats
-
-# Terminal 2: Ingestor (live feeds)
-export POLYGON_API_KEY="your_key"
-cd backend
-uv run python -m src.ingestor.main
-
-# Terminal 3: Core Service
-cd backend
-uv run python -m src.core.main
-
-# Terminal 4: Lake Service
-cd backend
-uv run python -m src.lake.main
-
-# Terminal 5: Gateway
-cd backend
-uv run python -m src.gateway.main
-
-# Terminal 6: Frontend
-cd frontend
-npm start
-```
-
-### Testing
-
-```bash
-# Backend unit tests
-cd backend
-uv run pytest tests/ -v
-
-# Specific test suites
-uv run pytest tests/test_barrier_engine.py -v
-uv run pytest tests/test_tape_engine.py -v
-uv run pytest tests/test_fuel_engine.py -v
-uv run pytest tests/test_silver_compactor.py -v
-
-# Replay determinism test
-uv run pytest tests/test_replay_determinism.py -v
-
-# E2E integration test
-uv run pytest tests/test_e2e_replay.py -v
-```
-
-### Replay Historical Data
-
-```bash
-# Replay specific date at 1x realtime speed
-export REPLAY_SPEED=1.0
-export REPLAY_DATE=2025-12-16
-cd backend
-uv run python -m src.ingestor.replay_publisher
-
-# Fast replay (no delays)
-export REPLAY_SPEED=0
-uv run python -m src.ingestor.replay_publisher
+┌─────────────────────────────────────────────────────────────────┐
+│                         DATA SOURCES                             │
+├─────────────────────────────────────────────────────────────────┤
+│  Databento DBN Files          │  Polygon S3 Flat Files          │
+│  ├── ES futures trades        │  ├── SPY 0DTE option trades     │
+│  └── ES MBP-10 depth          │  └── ~800k trades/day           │
+│      (10 levels bid/ask)      │      (50MB compressed/day)      │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         BRONZE TIER                              │
+│  Append-only Parquet, Hive partitioned by date                  │
+│  ├── futures/trades/symbol=ES/date=YYYY-MM-DD/                  │
+│  ├── futures/mbp10/symbol=ES/date=YYYY-MM-DD/                   │
+│  └── options/trades/underlying=SPY/date=YYYY-MM-DD/             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      PHYSICS ENGINES                             │
+│  ├── BarrierEngine  → barrier_state, delta_liq, wall_ratio     │
+│  ├── TapeEngine     → tape_imbalance, tape_velocity            │
+│  └── FuelEngine     → gamma_exposure, fuel_effect              │
+│                                                                  │
+│  BlackScholesCalculator: Real delta/gamma (vectorized numpy)    │
+│  TickRuleInference: BUY/SELL from price changes                 │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         GOLD TIER                                │
+│  ML-ready labeled signals: signals_multi_day.parquet            │
+│  Schema: backend/features.json                                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Configuration
+## Feature Schema
 
-All tunable parameters live in `backend/src/common/config.py` as a `Config` dataclass.
+Full specification: [`backend/features.json`](backend/features.json)
 
-**Key Parameters**:
-- **Window sizes**: W_b (barrier, 10s), W_t (tape, 5s), W_g (fuel, 60s), W_v (velocity, 3s)
-- **Thresholds**: R_vac (0.3), R_wall (1.5), F_thresh (100 ES contracts)
-- **Weights**: w_L (0.45), w_H (0.35), w_T (0.20)
-- **Trigger thresholds**: BREAK_SCORE_THRESHOLD (80), REJECT_SCORE_THRESHOLD (20), TRIGGER_HOLD_TIME (3s)
-- **Smoothing**: tau_score (2.0s), tau_velocity (1.5s), tau_delta_liq (3.0s)
-- **Snap cadence**: SNAP_INTERVAL_MS (250ms)
-- **Level universe**: MONITOR_BAND (0.50 SPY dollars), STRIKE_RANGE (5.0 SPY dollars)
+### Input Features
 
-**Access in code**:
+| Feature | Type | Description |
+|---------|------|-------------|
+| `spot` | float | Current SPY price |
+| `level_price` | float | Strike/VWAP/round being tested |
+| `level_kind` | enum | STRIKE, VWAP, ROUND, GAMMA_WALL |
+| `direction` | enum | UP (approaching resistance) or DOWN (approaching support) |
+| `distance` | float | Dollars from spot to level |
+| `is_first_15m` | bool | High-volatility opening period |
+| `barrier_state` | enum | VACUUM, WALL, ABSORPTION, CONSUMED, WEAK, NEUTRAL |
+| `barrier_delta_liq` | float | Net liquidity change (ES contracts) |
+| `wall_ratio` | float | Defending liquidity vs average depth |
+| `tape_imbalance` | float | Buy/sell pressure [-1, 1] |
+| `tape_velocity` | float | Trades per second |
+| `gamma_exposure` | float | Net dealer gamma at level |
+| `fuel_effect` | enum | AMPLIFY, DAMPEN, NEUTRAL |
+
+### Labels
+
+| Label | Definition |
+|-------|------------|
+| `BREAK` | Price moved through level by >$0.20 in approach direction |
+| `BOUNCE` | Price reversed away from level by >$0.20 |
+| `CHOP` | Indeterminate (stayed within $0.20) |
+
+### Current Dataset Statistics
+
+```
+Signals: 800 (4 trading days)
+Label Distribution: BREAK 60%, BOUNCE 38%, CHOP 2%
+Gamma Coverage: 85% of signals have non-zero gamma_exposure
+
+Fuel Effect → Outcome:
+  AMPLIFY: 68% BREAK, 32% BOUNCE
+  DAMPEN:  59% BREAK, 38% BOUNCE
+  NEUTRAL: 62% BREAK, 38% BOUNCE
+```
+
+---
+
+## Core Modules
+
+### `src/core/`
+
+| Module | Purpose |
+|--------|---------|
+| `market_state.py` | Central state store: ES depth buffer, trades buffer, option flow aggregates |
+| `barrier_engine.py` | Classify liquidity state from MBP-10 depth changes |
+| `tape_engine.py` | Compute momentum from ES trades |
+| `fuel_engine.py` | Compute dealer gamma from option flows |
+| `black_scholes.py` | Vectorized Greeks calculation (delta, gamma, theta, vega) |
+| `level_signal_service.py` | Orchestrator: generate signals for all levels near spot |
+
+### `src/ingestor/`
+
+| Module | Purpose |
+|--------|---------|
+| `dbn_ingestor.py` | Stream Databento DBN files (ES trades + MBP-10) |
+| `polygon_flatfiles.py` | Download SPY options from S3 flat files |
+
+### `src/lake/`
+
+| Module | Purpose |
+|--------|---------|
+| `bronze_writer.py` | Write raw events to Parquet (append-only) |
+| `bronze_writer.BronzeReader` | Read Bronze tier with DuckDB |
+
+### `src/pipeline/`
+
+| Module | Purpose |
+|--------|---------|
+| `run_pipeline.py` | Single-day: load data → compute physics → label outcomes |
+| `batch_process.py` | Multi-day: generate ML training dataset |
+
+### `src/research/`
+
+| Module | Purpose |
+|--------|---------|
+| `labeler.py` | Label level touches as BREAK/BOUNCE/CHOP |
+| `experiment_runner.py` | Statistical analysis and backtesting |
+
+---
+
+## Key Algorithms
+
+### Black-Scholes Greeks (Vectorized)
+
 ```python
-from src.common.config import CONFIG
+# src/core/black_scholes.py
+def compute_greeks_vectorized(S, K, T, r, sigma, is_call):
+    """
+    Compute delta and gamma for arrays of options.
 
-window_seconds = CONFIG.W_b
-snap_interval = CONFIG.SNAP_INTERVAL_MS
+    Args:
+        S: Spot prices (numpy array)
+        K: Strike prices (numpy array)
+        T: Time to expiry in years (numpy array)
+        r: Risk-free rate (scalar)
+        sigma: Volatility (scalar or array)
+        is_call: Boolean array (True for calls)
+
+    Returns:
+        (delta_array, gamma_array)
+    """
+    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+    delta = np.where(is_call, norm.cdf(d1), norm.cdf(d1) - 1)
+
+    return delta, gamma
+```
+
+### Tick Rule Aggressor Inference
+
+```python
+# src/ingestor/polygon_flatfiles.py
+# Infer trade direction from price changes (Lee-Ready fallback)
+df['prev_price'] = df.groupby('option_symbol')['price'].shift(1)
+df['aggressor'] = 0  # MID
+df.loc[df['price'] > df['prev_price'], 'aggressor'] = 1   # BUY (uptick)
+df.loc[df['price'] < df['prev_price'], 'aggressor'] = -1  # SELL (downtick)
+```
+
+### Gamma Flow Accumulation
+
+```python
+# src/core/market_state.py
+def update_option_trade(self, trade, delta, gamma):
+    customer_sign = trade.aggressor.value  # +1 BUY, -1 SELL, 0 MID
+    gamma_notional = customer_sign * trade.size * gamma * 100
+    dealer_gamma_change = -gamma_notional  # dealer takes opposite side
+
+    self.option_flows[key].net_gamma_flow += dealer_gamma_change
 ```
 
 ---
 
-## Data Flow Examples
+## Usage
 
-### Example 1: VACUUM Forming (Easy Break)
+### Generate ML Training Data
 
-1. **T-10s**: SPY approaching support level $687.00 from above (spot = $687.42)
-2. **T-5s**: ES MBP-10 shows 1000 contracts at bid 6870.0 (defending support)
-3. **T-3s**: Depth drops to 100 contracts (900 contracts pulled, not filled)
-4. **BarrierEngine**: Classifies VACUUM (replenishment_ratio < 0.3, delta_liq < -100)
-5. **TapeEngine**: Detects sell sweep (320k shares sold in 100ms cluster)
-6. **FuelEngine**: Net dealer gamma -185k (dealers SHORT gamma → must chase down)
-7. **ScoreEngine**: Combines to break_score = 88 (LIQUIDITY:100, HEDGE:100, TAPE:100)
-8. **Smoothing**: Smooth score = 81 (EWMA with tau=2.0s)
-9. **Trigger**: Score sustained >80 for 3s → signal = BREAK
-10. **Output**: Frontend displays red "BREAK IMMINENT" with confidence HIGH
+```bash
+cd backend
 
-### Example 2: WALL Holding (Reject)
+# Download SPY options from Polygon S3 (requires credentials in .env)
+uv run python -m src.ingestor.polygon_flatfiles --download-all
 
-1. **T-10s**: SPY approaching resistance level $690.00 from below (spot = $689.58)
-2. **T-5s**: ES MBP-10 shows 500 contracts at ask 6900.0
-3. **T-3s**: Price hits $689.80, aggressive buying (150k shares lifted)
-4. **T-1s**: Depth consumed to 100 contracts, but replenishes to 800 contracts immediately
-5. **BarrierEngine**: Classifies WALL (replenishment_ratio > 1.5, delta_liq > +100)
-6. **TapeEngine**: Buy imbalance +0.45, but velocity slowing (slope → 0)
-7. **FuelEngine**: Net dealer gamma +120k (dealers LONG gamma → will fade the move)
-8. **ScoreEngine**: break_score = 25 (LIQUIDITY:0, HEDGE:0, TAPE:50)
-9. **Trigger**: Score <20 sustained while distance <0.05 → signal = REJECT
-10. **Output**: Frontend displays green "REJECT" with confidence HIGH
+# Run batch processing for all available dates
+uv run python -m src.pipeline.batch_process
 
----
+# Output: data/lake/gold/research/signals_multi_day.parquet
+```
 
-## Critical Invariants
+### Environment Variables
 
-1. **Event-time ordering**: All Parquet files sorted by `ts_event_ns`
-2. **Append-only Bronze**: Never mutate Bronze files (archive/move only)
-3. **Silver is derived**: Always regeneratable from Bronze via deterministic dedup + sort
-4. **No data loss**: NATS JetStream 24h retention ensures no events dropped during service restarts
-5. **Schema stability**: Bronze schemas match PLAN.md §2.4 exactly; changes require version bump
-6. **Compression**: ZSTD level 3 for all Parquet tiers
-7. **Partition boundaries**: Date/hour partitions aligned to UTC (not market hours)
+```bash
+# .env
+POLYGON_API_KEY=your_api_key
+POLYGON_S3_ACCESS_KEY=your_s3_access_key
+POLYGON_S3_SECRET_KEY=your_s3_secret_key
+```
+
+### Single-Day Pipeline
+
+```bash
+uv run python -m src.pipeline.run_pipeline --date 2025-12-18
+```
 
 ---
 
-## References
+## Extension Points
 
-- **PLAN.md**: Canonical system design document (architecture, message contracts, engine specifications)
-- **Module READMEs**: Detailed technical documentation for each service
-  - [`backend/src/common/README.md`](backend/src/common/README.md)
-  - [`backend/src/ingestor/README.md`](backend/src/ingestor/README.md)
-  - [`backend/src/core/README.md`](backend/src/core/README.md)
-  - [`backend/src/lake/README.md`](backend/src/lake/README.md)
-  - [`backend/src/gateway/README.md`](backend/src/gateway/README.md)
-- **Tests**: Usage examples and integration patterns in `backend/tests/`
+### Add New Level Types
+
+```python
+# src/core/level_universe.py
+class LevelKind(Enum):
+    STRIKE = "STRIKE"
+    VWAP = "VWAP"
+    ROUND = "ROUND"
+    GAMMA_WALL = "GAMMA_WALL"
+    # Add new types here
+```
+
+### Add New Physics Features
+
+1. Add computation to appropriate engine (`barrier_engine.py`, `tape_engine.py`, `fuel_engine.py`)
+2. Add field to `LevelSignalV1` schema in `src/common/schemas/levels_signals.py`
+3. Update `features.json` documentation
+4. Regenerate training data with `batch_process.py`
+
+### Build ML Classifier
+
+```python
+# Example: src/research/ml_classifier.py
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+df = pd.read_parquet('data/lake/gold/research/signals_multi_day.parquet')
+
+# Encode categoricals
+df['fuel_effect_encoded'] = df['fuel_effect'].map({'AMPLIFY': -1, 'NEUTRAL': 0, 'DAMPEN': 1})
+df['direction_encoded'] = df['direction'].map({'DOWN': -1, 'UP': 1})
+
+# Features
+X = df[['distance', 'gamma_exposure', 'fuel_effect_encoded', 'direction_encoded',
+        'wall_ratio', 'tape_imbalance', 'is_first_15m']]
+
+# Binary classification (drop CHOP)
+df_binary = df[df['outcome'] != 'CHOP']
+y = (df_binary['outcome'] == 'BREAK').astype(int)
+
+# Train
+clf = RandomForestClassifier(n_estimators=100)
+clf.fit(X, y)
+
+# Feature importance
+for name, imp in zip(X.columns, clf.feature_importances_):
+    print(f"{name}: {imp:.3f}")
+```
 
 ---
 
-## Project Status
+## Potential Applications
 
-**Phase 2 Complete** (NATS microservices architecture):
-- ✅ Common infrastructure (event types, schemas, config, price converter)
-- ✅ Ingestor service (Polygon WebSocket + Databento DBN replay)
-- ✅ Core service (barrier, tape, fuel, scoring engines)
-- ✅ Lake service (Bronze/Silver/Gold Parquet storage)
-- ✅ Gateway service (NATS → WebSocket relay)
-- ✅ Frontend dashboard (Angular real-time visualization)
-- ✅ 86 unit tests, replay determinism verified
-- ✅ Docker Compose orchestration
+### Real-Time Signal Generation
+- Subscribe to live ES MBP-10 + SPY options feeds
+- Compute physics features every 250ms
+- Emit BREAK/BOUNCE predictions with confidence scores
+- WebSocket broadcast to trading frontend
 
-**Next Steps** (Phase 3):
-- Colocation deployment (NATS cluster, high-performance object store)
-- Apache Iceberg metadata layer (ACID + schema evolution)
-- Production monitoring (Prometheus + Grafana)
-- Backtesting framework (strategy validation against Gold analytics)
+### Gamma Exposure Dashboard
+- Visualize dealer gamma by strike in real-time
+- Identify gamma walls (high open interest strikes)
+- Track gamma flip level (where dealers switch from long to short)
+- Alert when approaching high-gamma zones
+
+### Backtesting Framework
+- Replay historical data through physics engines
+- Simulate P&L for break/bounce predictions
+- Optimize entry/exit thresholds
+- Time-of-day and volatility regime analysis
+
+### Risk Management
+- Quantify probability of level break before entry
+- Adjust position size based on gamma regime
+- Identify dangerous setups (VACUUM + AMPLIFY near support)
 
 ---
 
-## Contact
+## File Structure
 
-**Project**: Spymaster Physics Engine  
-**Asset**: SPY (equity + 0DTE options)  
-**Philosophy**: Watch the dealers, trace the physics, get in before retail  
-**Not**: High-frequency trading, pattern recognition, retail indicators
+```
+backend/
+├── features.json              # ML feature schema documentation
+├── src/
+│   ├── common/
+│   │   ├── config.py          # Tunable parameters
+│   │   ├── event_types.py     # Canonical dataclasses
+│   │   └── schemas/           # Pydantic + PyArrow schemas
+│   ├── core/
+│   │   ├── market_state.py    # Central state store
+│   │   ├── barrier_engine.py  # Liquidity physics
+│   │   ├── tape_engine.py     # Momentum physics
+│   │   ├── fuel_engine.py     # Gamma physics
+│   │   └── black_scholes.py   # Greeks calculator
+│   ├── ingestor/
+│   │   ├── dbn_ingestor.py    # Databento DBN reader
+│   │   └── polygon_flatfiles.py # S3 options downloader
+│   ├── lake/
+│   │   └── bronze_writer.py   # Parquet read/write
+│   ├── pipeline/
+│   │   ├── run_pipeline.py    # Single-day processing
+│   │   └── batch_process.py   # Multi-day batch
+│   └── research/
+│       ├── labeler.py         # Outcome labeling
+│       └── experiment_runner.py # Statistical analysis
+└── data/
+    └── lake/
+        ├── bronze/            # Raw append-only data
+        └── gold/research/     # ML training datasets
+```
 
-For questions, consult the module READMEs or test suites for usage examples.
+---
 
+## Technical Invariants
+
+1. **Timestamps**: All events carry `ts_event_ns` (Unix nanoseconds UTC)
+2. **0DTE Only**: Option processing filters to same-day expiration
+3. **No Estimation**: Greeks computed via Black-Scholes, never hardcoded
+4. **Tick Rule**: Aggressor inferred from price changes when not provided
+5. **ES→SPY Conversion**: ES price / 10 ≈ SPY price
+6. **Append-Only Bronze**: Never mutate raw data files
+7. **Deterministic Replay**: Same inputs + config → identical outputs
+
+---
+
+## Dependencies
+
+```toml
+# pyproject.toml
+[project]
+dependencies = [
+    "pandas",
+    "numpy",
+    "scipy",
+    "pyarrow",
+    "duckdb",
+    "boto3",
+    "databento",
+    "python-dotenv",
+]
+```
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Download options | `uv run python -m src.ingestor.polygon_flatfiles --download-all` |
+| Generate training data | `uv run python -m src.pipeline.batch_process` |
+| Single-day pipeline | `uv run python -m src.pipeline.run_pipeline --date YYYY-MM-DD` |
+| Read training data | `pd.read_parquet('data/lake/gold/research/signals_multi_day.parquet')` |
+
+---
+
+**Core Hypothesis**: Dealer gamma hedging creates predictable mechanical pressure at option strikes. By quantifying this pressure alongside order book dynamics and tape momentum, we can predict whether price will break through or bounce off critical levels with edge over participants who only see price.

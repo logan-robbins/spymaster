@@ -43,6 +43,7 @@ class OptionFlowAggregate:
     cumulative_premium: float = 0.0
     net_delta_flow: float = 0.0
     net_gamma_flow: float = 0.0
+    abs_gamma_exposure: float = 0.0  # Absolute gamma regardless of direction
     last_price: float = 0.0
     last_timestamp_ns: int = 0
     delta: float = 0.0

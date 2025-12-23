@@ -454,8 +454,9 @@ class BronzeReader:
         Args:
             data_root: Root directory for data lake
         """
+        # Go up from src/lake -> src -> backend to find data/lake
         self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
             'data',
             'lake'
         )

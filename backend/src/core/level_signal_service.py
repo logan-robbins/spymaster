@@ -77,18 +77,29 @@ class LevelSignalService:
         self,
         market_state: MarketState,
         user_hotzones: Optional[List[float]] = None,
-        config=None
+        config=None,
+        trading_date: Optional[str] = None
     ):
         """
         Initialize level signal service.
-        
+
         Args:
             market_state: MarketState instance (shared)
             user_hotzones: Optional user-defined levels to monitor
             config: Config object (defaults to global CONFIG)
+            trading_date: Trading date for 0DTE filter (YYYY-MM-DD format).
+                         If None, uses current date. We ONLY do 0DTE.
         """
         self.market_state = market_state
         self.config = config or CONFIG
+
+        # 0DTE filter: We ONLY process same-day expiration options
+        if trading_date:
+            self._trading_date = trading_date
+        else:
+            # Default to current date for live trading
+            from datetime import datetime, timezone
+            self._trading_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         
         # Initialize engines
         self.level_universe = LevelUniverse(user_hotzones=user_hotzones)
@@ -220,11 +231,11 @@ class LevelSignalService:
             market_state=self.market_state
         )
         
-        # Fuel engine
+        # Fuel engine - ALWAYS filter to 0DTE (same-day expiration only)
         fuel_metrics = self.fuel_engine.compute_fuel_state(
             level_price=level_price,
             market_state=self.market_state,
-            exp_date_filter=None  # TODO: add 0DTE filter if needed
+            exp_date_filter=self._trading_date
         )
         
         # Score engine
