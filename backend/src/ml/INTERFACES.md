@@ -1,7 +1,7 @@
 # ML Module Interfaces
 
-**Module**: `backend/src/ml/`  
-**Role**: Model training and inference  
+**Module**: `backend/src/ml/`
+**Role**: Model training and inference
 **Audience**: AI Coding Agents
 
 ---
@@ -16,7 +16,7 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 
 ### Training Data
 
-**Source**: `backend/features.json` → `output_path` (signals Parquet)  
+**Source**: `backend/features.json` → `output_path` (signals Parquet)
 **Schema**: Vectorized pipeline output with:
 - Event identity: `event_id`, `ts_ns`, `date`, `symbol`
 - Level context: `level_price`, `level_kind_name`, `direction`, `distance`
@@ -31,6 +31,47 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 
 ---
 
+## Feature Sets Interface
+
+**Module**: `feature_sets.py`
+
+```python
+@dataclass
+class FeatureSet:
+    numeric: List[str]
+    categorical: List[str]
+
+def select_features(
+    df: pd.DataFrame,
+    stage: str,           # 'stage_a' or 'stage_b'
+    ablation: str = 'full'  # 'ta', 'mechanics', or 'full'
+) -> FeatureSet
+```
+
+**Ablation Types**:
+- `ta`: Technical analysis features only (approach, distance, SMA, confluence)
+- `mechanics`: Market mechanics features only (barrier, tape, fuel, gamma)
+- `full`: All features combined
+
+**Feature Prefix Categories**:
+
+**Stage B Only Prefixes** (excluded from Stage A):
+- `barrier_`, `tape_`, `wall_ratio`, `liquidity_pressure`
+- `tape_pressure`, `net_break_pressure`
+- Trend features: `*_trend`
+
+**TA Prefixes**:
+- `approach_`, `dist_`, `distance`, `sma_`, `mean_reversion_`
+- `confluence_`, `bars_since_open`, `is_first_15m`, `atr`
+- `level_price_pct`, `direction_sign`, `attempt_`, `prior_touches`
+
+**Mechanics Prefixes**:
+- `barrier_`, `tape_`, `fuel_`, `gamma_`, `wall_ratio`
+- `liquidity_pressure`, `tape_pressure`, `gamma_pressure`
+- `dealer_pressure`, `net_break_pressure`, `reversion_pressure`
+
+---
+
 ## Model Interfaces
 
 ### Boosted Trees (Primary)
@@ -41,20 +82,17 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 ```bash
 uv run python -m src.ml.boosted_tree_train \
   --stage stage_b \
-  --ablation all \
+  --ablation full \
   --train-dates 2025-12-14 2025-12-15 \
   --val-dates 2025-12-16
 ```
 
-**Feature Sets** (from `feature_sets.py`):
-- **Stage A**: Core physics only (barrier, tape, fuel)
-- **Stage B**: Stage A + technical analysis (SMA, confluence, approach)
-- **Ablations**: `ta_only`, `mechanics_only`, `full`
+**Ablation Options**: `ta`, `mechanics`, `full`
 
 **Model Heads**:
 1. `tradeable_2`: Binary classifier (tradeable vs not)
 2. `direction`: Binary classifier on tradeable samples (break vs bounce)
-3. `strength_signed`: Regressor for movement magnitude
+3. `strength`: Regressor for movement magnitude
 4. `t1_{horizon}s`: Reach probability for threshold 1
 5. `t2_{horizon}s`: Reach probability for threshold 2
 
@@ -64,7 +102,40 @@ uv run python -m src.ml.boosted_tree_train \
 
 ---
 
+### Tree Inference Interface
+
+**Module**: `tree_inference.py`
+
+```python
+@dataclass
+class TreePredictions:
+    tradeable_2: np.ndarray       # P(tradeable)
+    p_break: np.ndarray           # P(break | tradeable)
+    strength_signed: np.ndarray   # Predicted signed strength
+    t1_probs: Dict[int, np.ndarray]  # {horizon: P(reach t1)}
+    t2_probs: Dict[int, np.ndarray]  # {horizon: P(reach t2)}
+
+class TreeModelBundle:
+    def __init__(
+        self,
+        model_dir: Path,
+        stage: str,               # 'stage_a' or 'stage_b'
+        ablation: str,            # 'ta', 'mechanics', 'full'
+        horizons: List[int]       # e.g., [60, 120]
+    )
+
+    def predict(self, df: pd.DataFrame) -> TreePredictions
+```
+
+**Model Loading**:
+- Expects models at: `{model_dir}/{head}_{stage}_{ablation}.joblib`
+- Heads loaded: `tradeable_2`, `direction`, `strength`, `t1_{h}s`, `t2_{h}s`
+
+---
+
 ### Retrieval Engine (kNN)
+
+**Module**: `retrieval_engine.py`
 
 **Index Builder**: `build_retrieval_index.py`
 
@@ -76,25 +147,45 @@ uv run python -m src.ml.build_retrieval_index \
   --k-neighbors 50
 ```
 
-**Index Format**: Joblib serialized
-- Feature matrix (normalized)
-- Labels (outcomes, strength)
-- Metadata (event_ids, timestamps)
-
 **Output**: `data/ml/retrieval_index_{stage}_{ablation}.joblib`
 
-**Query Interface**:
 ```python
-from src.ml.retrieval_engine import RetrievalEngine
+@dataclass
+class RetrievalSummary:
+    p_break: float
+    p_bounce: float
+    p_tradeable_2: float
+    strength_signed_mean: float
+    strength_abs_mean: float
+    time_to_threshold_1_mean: float
+    time_to_threshold_2_mean: float
+    similarity: float              # Mean 1/(1+distance)
+    entropy: float                 # Outcome distribution entropy
+    neighbors: pd.DataFrame        # Neighbor metadata
 
-engine = RetrievalEngine.load('data/ml/retrieval_index_stage_b_full.joblib')
+class RetrievalIndex:
+    def __init__(
+        self,
+        feature_cols: List[str],
+        metadata_cols: Optional[List[str]] = None  # Default: ["level_kind_name", "direction"]
+    )
 
-neighbors = engine.query(
-    features=current_features,  # numpy array
-    k=50
-)
-# Returns: neighbor indices, distances, labels
+    def fit(self, df: pd.DataFrame) -> None
+    def query(
+        self,
+        feature_vector: np.ndarray,
+        filters: Optional[Dict[str, str]] = None,
+        k: int = 20
+    ) -> RetrievalSummary
 ```
+
+**Query Flow**:
+1. Normalize query vector using fitted StandardScaler
+2. Apply optional metadata filters (level_kind_name, direction)
+3. Compute Euclidean distances to candidates
+4. Select top-k neighbors
+5. Weight by inverse distance
+6. Compute weighted outcome probabilities
 
 ---
 
@@ -169,7 +260,7 @@ uv run python -m src.ml.patchtst_train \
     'direction': str,
     'distance': float,
     'distance_signed': float,
-    
+
     # Tree predictions
     'p_tradeable_2': float,
     'p_break': float,
@@ -180,7 +271,7 @@ uv run python -m src.ml.patchtst_train \
         't1': {'60': float, '120': float},
         't2': {'60': float, '120': float}
     },
-    
+
     # Retrieval predictions
     'retrieval': {
         'p_break': float,
@@ -190,9 +281,11 @@ uv run python -m src.ml.patchtst_train \
         'strength_abs_mean': float,
         'time_to_threshold_1_mean': float,
         'time_to_threshold_2_mean': float,
+        'similarity': float,
+        'entropy': float,
         'neighbors': []  # Optional: neighbor metadata
     },
-    
+
     # Scoring metadata
     'utility_score': float,
     'viewport_state': str,  # 'IN_MONITOR_BAND' | 'OUTSIDE_BAND'
@@ -232,7 +325,7 @@ uv run python -m src.ml.calibration_eval \
     'model': XGBClassifier | XGBRegressor,
     'feature_names': List[str],
     'stage': str,           # 'stage_a' | 'stage_b'
-    'ablation': str,        # 'full' | 'ta_only' | 'mechanics_only'
+    'ablation': str,        # 'full' | 'ta' | 'mechanics'
     'head': str,            # 'tradeable_2' | 'direction' | ...
     'train_dates': List[str],
     'val_dates': List[str],
@@ -317,6 +410,7 @@ X_val = X[val_mask]
 4. **No leakage**: Features computed from data before `t1`
 5. **Deterministic splits**: Same dates → same train/val split
 6. **Model versioning**: Bundle includes timestamp and data hash
+7. **Ablation names**: Use `ta`, `mechanics`, `full` (NOT `ta_only`, `mechanics_only`)
 
 ---
 
@@ -326,4 +420,5 @@ X_val = X[val_mask]
 - Feature contract: `backend/features.json`
 - Feature sets: `backend/src/ml/feature_sets.py`
 - Training scripts: `backend/src/ml/boosted_tree_train.py`, `backend/src/ml/patchtst_train.py`
+- Inference: `backend/src/ml/tree_inference.py`, `backend/src/ml/retrieval_engine.py`
 

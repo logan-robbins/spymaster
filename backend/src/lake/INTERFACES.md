@@ -1,7 +1,7 @@
 # Lake Module Interfaces
 
-**Module**: `backend/src/lake/`  
-**Role**: Bronze/Silver/Gold lakehouse persistence  
+**Module**: `backend/src/lake/`
+**Role**: Bronze/Silver/Gold lakehouse persistence
 **Audience**: AI Coding Agents
 
 ---
@@ -133,18 +133,25 @@ tape_buy_vol: int64
 tape_sell_vol: int64
 tape_velocity: float64
 tape_sweep_detected: bool
+tape_sweep_direction: string
+tape_sweep_notional: float64
 
 # Fuel metrics (flattened)
 fuel_effect: string
 fuel_net_dealer_gamma: float64
 fuel_call_wall: float64
 fuel_put_wall: float64
+fuel_hvl: float64
 
 # Runway (flattened)
 runway_direction: string
+runway_next_level_id: string
 runway_next_level_price: float64
 runway_distance: float64
 runway_quality: string
+
+# Note
+note: string
 ```
 
 ---
@@ -155,8 +162,20 @@ runway_quality: string
 
 ```python
 class BronzeWriter:
-    async def start(bus: NATSBus) -> None
-    async def stop() -> None
+    def __init__(
+        self,
+        bus=None,                           # NATSBus (optional, can set via start())
+        data_root: Optional[str] = None,     # Root directory for data lake
+        buffer_limit: int = 1000,            # Max events per buffer
+        flush_interval_seconds: float = 5.0, # Max time between flushes
+        use_s3: Optional[bool] = None        # Use S3 storage
+    )
+
+    async def start(self, bus=None) -> None   # bus overrides constructor value
+    async def stop(self) -> None
+    async def flush_all(self) -> None
+    async def flush_schema(self, schema_name: str) -> None
+    def get_bronze_path(self) -> str
 ```
 
 **Micro-batching**:
@@ -178,8 +197,20 @@ class BronzeWriter:
 
 ```python
 class GoldWriter:
-    async def start(bus: NATSBus) -> None
-    async def stop() -> None
+    def __init__(
+        self,
+        bus=None,                              # NATSBus (optional)
+        data_root: Optional[str] = None,
+        buffer_limit: int = 500,               # Max records per buffer
+        flush_interval_seconds: float = 10.0,
+        use_s3: Optional[bool] = None
+    )
+
+    async def start(self, bus=None) -> None
+    async def stop(self) -> None
+    async def write_level_signals(self, payload: Dict[str, Any]) -> None
+    async def flush(self) -> None
+    def get_gold_path(self) -> str
 ```
 
 **Input Processing**:
@@ -200,24 +231,44 @@ class GoldWriter:
 
 ```python
 class SilverCompactor:
+    def __init__(self, data_root: Optional[str] = None)
+
     def compact_date(
+        self,
+        date: str,                    # YYYY-MM-DD
+        schema: str,                  # e.g., 'futures.trades'
+        partition_value: str = 'ES',  # e.g., 'ES' or 'SPY'
+        force: bool = False           # Overwrite existing
+    ) -> Dict[str, Any]
+
+    def compact_all_schemas(
+        self,
         date: str,
+        force: bool = False
+    ) -> Dict[str, Dict[str, Any]]    # schema -> result
+
+    def compact_all_dates(
+        self,
+        schema: str,
+        partition_value: str,
+        force: bool = False
+    ) -> Dict[str, Dict[str, Any]]    # date -> result
+
+    def get_available_bronze_dates(
+        self,
         schema: str,
         partition_value: str
-    ) -> Dict[str, Any]
-    
-    def compact_all_schemas(date: str) -> Dict[str, Dict]
-    def compact_all_dates(schema: str, partition_value: str) -> List[Dict]
+    ) -> List[str]                    # List of YYYY-MM-DD dates
 ```
 
 **Deduplication Strategy**:
 ```python
 event_id = md5(
-    source + "|" + 
-    ts_event_ns + "|" + 
-    symbol + "|" + 
-    price + "|" + 
-    size + "|" + 
+    source + "|" +
+    ts_event_ns + "|" +
+    symbol + "|" +
+    price + "|" +
+    size + "|" +
     seq
 )
 # Keep first occurrence by ts_recv_ns
@@ -226,10 +277,13 @@ event_id = md5(
 **Output**:
 ```python
 {
-    'status': 'success',
-    'rows_read': 12500,
-    'rows_written': 12480,
-    'duplicates_removed': 20
+    'status': 'success',  # or 'skipped', 'empty', 'error'
+    'bronze_path': str,
+    'silver_path': str,
+    'rows_read': int,
+    'rows_written': int,
+    'duplicates_removed': int,
+    'reason': Optional[str]  # If skipped/error
 }
 ```
 
@@ -241,49 +295,116 @@ event_id = md5(
 
 ```python
 class BronzeReader:
+    def __init__(self, data_root: Optional[str] = None)
+
     def read_stock_trades(
-        symbol: str,
-        date: str,
-        start_ns: Optional[int],
-        end_ns: Optional[int]
+        self,
+        symbol: str = 'SPY',
+        date: Optional[str] = None,          # YYYY-MM-DD
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> pd.DataFrame
-    
-    def read_futures_mbp10(
-        symbol: str,
-        date: str
+
+    def read_stock_quotes(
+        self,
+        symbol: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> pd.DataFrame
-    
+
+    def read_option_trades(
+        self,
+        underlying: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame
+
+    def read_greeks_snapshots(
+        self,
+        underlying: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame
+
     def get_available_dates(
+        self,
         schema_path: str,
-        partition_filter: str
-    ) -> List[str]
+        partition_key: str
+    ) -> List[str]                           # List of YYYY-MM-DD dates
+
+    def get_latest_date(
+        self,
+        schema_path: str,
+        partition_key: str
+    ) -> Optional[str]                       # Most recent date or None
 ```
 
 ### SilverReader
 
 ```python
 class SilverReader:
+    def __init__(self, data_root: Optional[str] = None)
+
     def read_futures_trades(
-        symbol: str,
-        date: str
+        self,
+        symbol: str = 'ES',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> pd.DataFrame
-    
+
+    def read_futures_mbp10(
+        self,
+        symbol: str = 'ES',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame
+
+    def read_stock_trades(
+        self,
+        symbol: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame
+
     def read_option_trades(
-        underlying: str,
-        date: str
+        self,
+        underlying: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> pd.DataFrame
+
+    def get_available_dates(
+        self,
+        schema_path: str,
+        partition_key: str
+    ) -> List[str]
 ```
 
 ### GoldReader
 
 ```python
 class GoldReader:
+    def __init__(self, data_root: Optional[str] = None)
+
     def read_level_signals(
-        underlying: str,
-        date: str,
-        start_ns: Optional[int],
-        end_ns: Optional[int]
+        self,
+        underlying: str = 'SPY',
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> pd.DataFrame
+
+    def get_available_dates(
+        self,
+        underlying: str = 'SPY'
+    ) -> List[str]
 ```
 
 ---

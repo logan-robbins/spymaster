@@ -1,7 +1,7 @@
 # Ingestor Module Interfaces
 
-**Module**: `backend/src/ingestor/`  
-**Role**: Data ingestion and normalization  
+**Module**: `backend/src/ingestor/`
+**Role**: Data ingestion and normalization
 **Audience**: AI Coding Agents
 
 ---
@@ -22,7 +22,7 @@ All normalized events published to NATS subjects:
 |---------|-----------|--------|---------|
 | `market.stocks.trades` | StockTrade | `stocks.trades.v1` | Real-time |
 | `market.stocks.quotes` | StockQuote | `stocks.quotes.v1` | Real-time |
-| `market.options.trades` | OptionTrade | `options.trades.v1` | Real-time |
+| `market.options.trades` | OptionTrade | `options.trades.v1` | Real-time or replay |
 | `market.futures.trades` | FuturesTrade | `futures.trades.v1` | Real-time or replay |
 | `market.futures.mbp10` | MBP10 | `futures.mbp10.v1` | Real-time or replay |
 
@@ -39,8 +39,21 @@ Every event MUST include:
 {
     "ts_event_ns": int,      # Event time (Unix nanoseconds UTC)
     "ts_recv_ns": int,       # Receive time (Unix nanoseconds UTC)
-    "source": str            # "polygon_ws" | "direct_feed" | "replay"
+    "source": str            # EventSource enum value
 }
+```
+
+### EventSource Enum Values
+
+```python
+class EventSource(Enum):
+    MASSIVE_WS = "massive_ws"
+    MASSIVE_REST = "massive_rest"
+    POLYGON_WS = "polygon_ws"
+    POLYGON_REST = "polygon_rest"
+    REPLAY = "replay"
+    SIM = "sim"
+    DIRECT_FEED = "direct_feed"
 ```
 
 ### Time Unit Conversion
@@ -76,6 +89,7 @@ ts_event_ns = dbn_record.ts_event  # No conversion
 ```python
 class StreamIngestor:
     def __init__(
+        self,
         api_key: str,
         bus: NATSBus,
         strike_manager: StrikeManager,
@@ -96,7 +110,7 @@ class StreamIngestor:
 ### Run Method
 
 ```python
-async def run_async() -> None
+async def run_async(self) -> None
 ```
 
 Connects to Polygon WebSocket clients and runs message handlers concurrently.
@@ -111,41 +125,71 @@ Connects to Polygon WebSocket clients and runs message handlers concurrently.
 
 ```python
 class DBNIngestor:
-    def __init__(dbn_data_root: Optional[str] = None)
-    
+    def __init__(self, dbn_data_root: Optional[str] = None)
+
     def read_trades(
-        date: Optional[str],
-        start_ns: Optional[int],
-        end_ns: Optional[int]
+        self,
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> Iterator[FuturesTrade]
-    
+
     def read_mbp10(
-        date: Optional[str],
-        start_ns: Optional[int],
-        end_ns: Optional[int]
+        self,
+        date: Optional[str] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
     ) -> Iterator[MBP10]
+
+    def get_available_dates(self, schema: str) -> List[str]
 ```
 
 **Iterator Pattern**: Yields events one-by-one (no full file load).
 
 ### ReplayPublisher
 
-**Purpose**: Publish DBN data to NATS at configurable speed.
+**Purpose**: Publish DBN data (and optional Bronze options) to NATS at configurable speed.
 
 ```python
+@dataclass
+class ReplayStats:
+    events_published: int
+    trades_published: int
+    mbp10_published: int
+    options_published: int
+    start_time: Optional[float]
+    first_event_ts: Optional[int]
+    last_event_ts: Optional[int]
+
+    def elapsed_wall_time(self) -> float
+    def elapsed_event_time_sec(self) -> float
+    def actual_speed(self) -> float
+
 class ReplayPublisher:
     def __init__(
+        self,
         bus: NATSBus,
         dbn_ingestor: DBNIngestor,
-        replay_speed: float = 1.0  # 0=fast, 1.0=realtime, 2.0=2x
+        replay_speed: float = 1.0,
+        bronze_reader: Optional[BronzeReader] = None
     )
-    
+
     async def replay_date(
+        self,
         date: str,
-        start_ns: Optional[int],
-        end_ns: Optional[int],
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None,
         include_trades: bool = True,
-        include_mbp10: bool = True
+        include_mbp10: bool = True,
+        include_options: bool = False
+    ) -> None
+
+    async def replay_continuous(
+        self,
+        dates: Optional[List[str]] = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None,
+        include_options: bool = False
     ) -> None
 ```
 
@@ -159,6 +203,8 @@ wall_delay_sec = (event_delta_ns / 1e9) / replay_speed
 # replay_speed = 1.0  → wall_delay = event_delta (realtime)
 # replay_speed = 2.0  → wall_delay = event_delta / 2 (2x speed)
 ```
+
+**Stream-Merge Algorithm**: Events from trades, mbp10, and options iterators are merged by `ts_event_ns` to maintain proper time ordering without materializing full day in memory.
 
 ---
 
@@ -206,7 +252,7 @@ strike = float(suffix[7:]) / 1000.0
 ### Replay
 - `REPLAY_SPEED` (optional): Replay speed multiplier (default: 1.0)
 - `REPLAY_DATE` (optional): Single date YYYY-MM-DD, or omit for all dates
-- `REPLAY_INCLUDE_OPTIONS` (optional): Include Bronze option trades (default: false)
+- `REPLAY_INCLUDE_OPTIONS` (optional): Include Bronze option trades (default: `false`)
 
 ---
 
@@ -222,6 +268,7 @@ uv run python -m src.ingestor.main
 ```bash
 export REPLAY_SPEED=1.0
 export REPLAY_DATE=2025-12-16
+export REPLAY_INCLUDE_OPTIONS=true
 uv run python -m src.ingestor.replay_publisher
 ```
 
@@ -238,6 +285,7 @@ uv run python -m src.ingestor.replay_publisher
 - Fast mode (0x): ~100k events/sec
 - Realtime (1x): Matches wall clock
 - Memory: ~200-500MB (iterator pattern keeps bounded)
+- Progress updates every 10k events
 
 ---
 
@@ -248,6 +296,7 @@ uv run python -m src.ingestor.replay_publisher
 3. **Replay transparency**: Live and replay use same NATS subjects
 4. **Iterator pattern**: No full-file loads for DBN (memory safety)
 5. **Dynamic strikes**: Option subscriptions update as SPY moves
+6. **Stream-merge ordering**: Events published in strict `ts_event_ns` order
 
 ---
 

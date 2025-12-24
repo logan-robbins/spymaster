@@ -1,31 +1,34 @@
 # Gateway Module Interfaces
 
-**Module**: `backend/src/gateway/`  
-**Role**: WebSocket relay (NATS → Frontend)  
+**Module**: `backend/src/gateway/`
+**Role**: WebSocket relay with normalization (NATS → Frontend)
 **Audience**: AI Coding Agents
 
 ---
 
 ## Module Purpose
 
-Pure relay service that bridges NATS JetStream and frontend WebSocket clients. Zero compute logic—subscribes to NATS subjects, caches latest payload, broadcasts JSON.
+Relay service that bridges NATS JetStream and frontend WebSocket clients. Subscribes to multiple NATS subjects, normalizes payloads to frontend contract, caches latest state, and broadcasts JSON to connected clients.
 
 ---
 
 ## Input Interface
 
-### NATS Subscription
+### NATS Subscriptions
 
-**Subject**: `levels.signals`  
-**Consumer**: Durable consumer `gateway_levels`  
+**Subject 1**: `levels.signals`
+**Consumer**: Durable consumer `gateway_levels`
 **Schema**: `levels.signals.v1` (from Core Service)
 
-**Payload Format**: See `backend/src/core/INTERFACES.md` for full schema.
+**Subject 2**: `market.flow`
+**Consumer**: Durable consumer `gateway_flow`
+**Schema**: Flow snapshot (from Ingestor or Core)
 
 **Processing**:
 1. Receive message from NATS
-2. Update cached payload
-3. Broadcast to all connected WebSocket clients
+2. Normalize payload to frontend contract (for levels.signals)
+3. Update cached state (`_latest_levels`, `_latest_flow`, `_latest_viewport`)
+4. Build merged payload and broadcast to all connected WebSocket clients
 
 ---
 
@@ -33,8 +36,8 @@ Pure relay service that bridges NATS JetStream and frontend WebSocket clients. Z
 
 ### WebSocket Endpoint
 
-**URL**: `ws://localhost:8000/ws/stream`  
-**Protocol**: WebSocket (JSON text frames)  
+**URL**: `ws://localhost:8000/ws/stream`
+**Protocol**: WebSocket (JSON text frames)
 **Cadence**: ~250ms (driven by Core Service snap interval)
 
 **Connection Flow**:
@@ -43,7 +46,77 @@ Pure relay service that bridges NATS JetStream and frontend WebSocket clients. Z
 3. Gateway broadcasts subsequent updates as they arrive from NATS
 4. Client disconnect → Gateway removes from active connections
 
-**Message Format**: JSON-serialized level signals payload (same as NATS input).
+**Message Format**: JSON object with optional keys:
+```json
+{
+  "flow": { ... },      // From market.flow subject
+  "levels": {           // Normalized levels payload
+    "ts": 1703123456000,
+    "spy": { "spot": 687.50, "bid": 687.49, "ask": 687.51 },
+    "levels": [ ... ]   // Array of normalized level signals
+  },
+  "viewport": { ... }   // Viewport data from Core
+}
+```
+
+---
+
+## Normalization Pipeline
+
+### Signal Mapping
+
+The Gateway normalizes Core Service signals to frontend-friendly values:
+
+**Direction**:
+- `SUPPORT` → `DOWN`
+- `RESISTANCE` → `UP`
+
+**Signal**:
+- `REJECT` → `BOUNCE`
+- `CONTESTED` → `CHOP`
+- `NEUTRAL` → `CHOP`
+
+### Normalized Level Schema
+
+Each level is transformed by `_normalize_level_signal`:
+
+```python
+{
+    "id": str,                          # Level identifier
+    "level_price": float,               # Price level
+    "level_kind_name": str,             # STRIKE, VWAP, SESSION_HIGH, etc.
+    "direction": str,                   # UP or DOWN (normalized)
+    "distance": float,                  # Distance from spot
+    "is_first_15m": bool,               # First 15 min of session
+    "barrier_state": str,               # VACUUM, WALL, ABSORPTION, etc.
+    "barrier_delta_liq": float,         # Liquidity delta
+    "barrier_replenishment_ratio": float,
+    "wall_ratio": float,                # Depth normalized by baseline
+    "tape_imbalance": float,
+    "tape_velocity": float,
+    "tape_buy_vol": int,
+    "tape_sell_vol": int,
+    "sweep_detected": bool,
+    "gamma_exposure": float,            # From fuel.net_dealer_gamma
+    "fuel_effect": str,                 # AMPLIFY, DAMPEN, NEUTRAL
+    "approach_velocity": float,
+    "approach_bars": int,
+    "approach_distance": float,
+    "prior_touches": int,
+    "bars_since_open": int,             # Minutes since 9:30 ET
+    "break_score_raw": float,
+    "break_score_smooth": float,
+    "signal": str,                      # BREAK, BOUNCE, CHOP (normalized)
+    "confidence": str,                  # HIGH, MEDIUM, LOW
+    "note": Optional[str]
+}
+```
+
+### Session Context Computation
+
+`_compute_session_context(ts_ms)` returns:
+- `is_first_15m: bool` - Whether timestamp is within first 15 minutes of market open
+- `bars_since_open: int` - Minutes since 9:30 AM Eastern
 
 ---
 
@@ -51,7 +124,7 @@ Pure relay service that bridges NATS JetStream and frontend WebSocket clients. Z
 
 ### Health Check
 
-**URL**: `GET /health`  
+**URL**: `GET /health`
 **Response**:
 ```json
 {
@@ -72,34 +145,38 @@ Pure relay service that bridges NATS JetStream and frontend WebSocket clients. Z
 
 ```python
 class SocketBroadcaster:
-    def __init__(bus: Optional[NATSBus] = None)
-    
-    async def start() -> None
-    async def connect(websocket: WebSocket) -> None
-    async def disconnect(websocket: WebSocket) -> None
-    async def broadcast(message: Dict[str, Any]) -> None
-    async def close() -> None
+    def __init__(self, bus: Optional[NATSBus] = None)
+
+    async def start(self) -> None
+    async def connect(self, websocket: WebSocket) -> None
+    async def disconnect(self, websocket: WebSocket) -> None
+    async def broadcast(self, message: Dict[str, Any]) -> None
+    async def close(self) -> None
 ```
 
 **State**:
 - `active_connections: List[WebSocket]`: Connected clients
-- `_latest_payload: Dict[str, Any]`: Cached last message
+- `_latest_levels: Optional[Dict[str, Any]]`: Cached normalized levels payload
+- `_latest_flow: Optional[Dict[str, Any]]`: Cached flow snapshot
+- `_latest_viewport: Optional[Dict[str, Any]]`: Cached viewport data
 - `bus: NATSBus`: NATS connection
+- `_lock: asyncio.Lock`: Thread-safe connection management
+- `_subscriptions: List`: Active NATS subscriptions
 
 **Methods**:
 
 #### `start()`
 1. Connect to NATS (`await bus.connect()`)
-2. Subscribe to `levels.signals` with callback `_on_level_signals`
-3. Use durable consumer `gateway_levels` for restart resume
+2. Subscribe to `levels.signals` with callback `_on_level_signals`, durable consumer `gateway_levels`
+3. Subscribe to `market.flow` with callback `_on_flow_snapshot`, durable consumer `gateway_flow`
 
 #### `connect(websocket)`
 1. Accept WebSocket connection
-2. Add to active connections list
-3. Send cached payload immediately (if available)
+2. Add to active connections list (thread-safe with lock)
+3. Build and send cached payload immediately (if available)
 
 #### `disconnect(websocket)`
-1. Remove from active connections list
+1. Remove from active connections list (thread-safe)
 2. Idempotent (safe to call multiple times)
 
 #### `broadcast(message)`
@@ -108,8 +185,30 @@ class SocketBroadcaster:
 3. Remove failed connections automatically
 
 #### `_on_level_signals(data)` (internal callback)
-1. Update `_latest_payload = data`
-2. Call `broadcast(data)`
+1. Normalize payload via `_normalize_levels_payload(data)`
+2. Update `_latest_levels` and `_latest_viewport`
+3. Build merged payload via `_build_payload()`
+4. Call `broadcast(payload)`
+
+#### `_on_flow_snapshot(data)` (internal callback)
+1. Update `_latest_flow = data`
+2. Build merged payload via `_build_payload()`
+3. Call `broadcast(payload)`
+
+#### `_build_payload()` (internal)
+Merges `_latest_flow`, `_latest_levels`, `_latest_viewport` into single dict.
+
+#### `_normalize_levels_payload(payload)` (internal)
+Normalizes raw Core payload to frontend contract:
+- Extracts timestamp, spy snapshot
+- Handles nested levels structures
+- Calls `_normalize_level_signal` for each level
+
+#### `_normalize_level_signal(level, is_first_15m, bars_since_open)` (internal)
+Transforms individual level to normalized schema with signal/direction mapping.
+
+#### `_compute_session_context(ts_ms)` (internal)
+Computes session timing context (is_first_15m, bars_since_open).
 
 ---
 
@@ -134,6 +233,7 @@ GATEWAY SERVICE
   NATS URL: nats://nats:4222
   WebSocket: ws://localhost:8000/ws/stream
 ============================================================
+✅ Gateway subscribed to NATS subjects
 ```
 
 ---
@@ -149,8 +249,13 @@ ws.onopen = () => console.log('Connected to Gateway');
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  // data.spy, data.levels, data.viewport
-  this.processLevelSignals(data);
+  // data.flow, data.levels, data.viewport
+  if (data.levels) {
+    this.processLevelSignals(data.levels);
+  }
+  if (data.flow) {
+    this.processFlowData(data.flow);
+  }
 };
 
 ws.onerror = (err) => console.error('WebSocket error', err);
@@ -173,7 +278,10 @@ async def test_client():
         while True:
             msg = await ws.recv()
             data = json.loads(msg)
-            print(f"SPY: {data['spy']['spot']}, Levels: {len(data['levels'])}")
+            if 'levels' in data:
+                spy = data['levels'].get('spy', {})
+                levels = data['levels'].get('levels', [])
+                print(f"SPY: {spy.get('spot')}, Levels: {len(levels)}")
 
 asyncio.run(test_client())
 ```
@@ -230,7 +338,7 @@ await self.bus.subscribe(
 
 **Key Metrics**:
 - Active WebSocket connections: `len(active_connections)`
-- NATS message rate: Messages/sec on `levels.signals`
+- NATS message rate: Messages/sec on `levels.signals` and `market.flow`
 - WebSocket send errors: Failed broadcast count
 - NATS consumer lag: Use `nats consumer info LEVEL_SIGNALS gateway_levels`
 
@@ -258,11 +366,13 @@ await self.bus.subscribe(
 
 ## Critical Invariants
 
-1. **Pure relay**: No signal computation or data transformation
-2. **Cache latest**: New connections receive immediate state
-3. **Fan-out**: Single JSON serialization per broadcast
-4. **Automatic cleanup**: Failed connections removed automatically
-5. **NATS durability**: Durable consumer survives Gateway restarts
+1. **Relay with normalization**: Normalizes signals to frontend contract
+2. **Dual subscription**: Subscribes to both `levels.signals` and `market.flow`
+3. **Cache latest**: New connections receive immediate state
+4. **Fan-out**: Single JSON serialization per broadcast
+5. **Automatic cleanup**: Failed connections removed automatically
+6. **NATS durability**: Durable consumers survive Gateway restarts
+7. **Signal mapping**: REJECT→BOUNCE, CONTESTED/NEUTRAL→CHOP
 
 ---
 

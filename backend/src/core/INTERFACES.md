@@ -1,7 +1,7 @@
 # Core Module Interfaces
 
-**Module**: `backend/src/core/`  
-**Role**: Physics engines and signal generation  
+**Module**: `backend/src/core/`
+**Role**: Physics engines and signal generation
 **Audience**: AI Coding Agents
 
 ---
@@ -31,8 +31,8 @@ Implements break/bounce physics classification using ES futures liquidity data a
 
 ### Level Signals Payload
 
-**Published to**: `levels.signals` NATS subject  
-**Format**: JSON  
+**Published to**: `levels.signals` NATS subject
+**Format**: JSON
 **Cadence**: Every `CONFIG.SNAP_INTERVAL_MS` (default: 250ms)
 
 **Schema**:
@@ -61,7 +61,10 @@ Implements break/bounce physics classification using ES futures liquidity data a
         "replenishment_ratio": 0.15,
         "added": 3100,
         "canceled": 9800,
-        "filled": 1500
+        "filled": 1500,
+        "defending_quote": {"price": 687.0, "size": 150},
+        "churn": 12900.0,
+        "depth_in_zone": 450
       },
       "tape": {
         "imbalance": -0.45,
@@ -71,15 +74,28 @@ Implements break/bounce physics classification using ES futures liquidity data a
         "sweep": {
           "detected": true,
           "direction": "DOWN",
-          "notional": 1250000.0
+          "notional": 1250000.0,
+          "num_prints": 15,
+          "window_ms": 250.0
         }
       },
       "fuel": {
         "effect": "AMPLIFY",
         "net_dealer_gamma": -185000.0,
-        "call_wall": 690.0,
-        "put_wall": 684.0,
-        "hvl": 687.0
+        "call_wall": {
+          "strike": 690.0,
+          "net_gamma": 75000.0,
+          "wall_type": "CALL",
+          "strength": 1.5
+        },
+        "put_wall": {
+          "strike": 684.0,
+          "net_gamma": 65000.0,
+          "wall_type": "PUT",
+          "strength": 1.3
+        },
+        "hvl": 687.0,
+        "gamma_by_strike": {"684.0": -25000.0, "687.0": 10000.0, "690.0": 75000.0}
       },
       "runway": {
         "direction": "DOWN",
@@ -113,9 +129,12 @@ def update_option_trade(trade: OptionTrade, delta: float, gamma: float) -> None
 ```python
 def get_spot() -> float  # SPY-equivalent
 def get_bid_ask() -> (float, float)
+def get_current_ts_ns() -> int
 def get_es_mbp10_snapshot() -> MBP10
+def get_es_mbp10_in_window(ts_ns: int, window_sec: float) -> List[MBP10]
 def get_es_trades_in_window(ts_ns: int, window_sec: float) -> List[FuturesTrade]
-def get_option_flows_near_level(level_price: float, strike_range: float) -> List[OptionFlowAggregate]
+def get_es_trades_near_level(ts_now_ns: int, window_seconds: float, level_price: float, band_dollars: float) -> List[TimestampedESTrade]
+def get_option_flows_near_level(level_price: float, strike_range: float, exp_date_filter: Optional[str] = None) -> List[OptionFlowAggregate]
 ```
 
 ---
@@ -135,15 +154,30 @@ def compute_barrier_state(
 
 **Output**:
 ```python
+class BarrierState(str, Enum):
+    VACUUM = "VACUUM"        # Liquidity pulled without fills
+    WALL = "WALL"            # Strong replenishment
+    ABSORPTION = "ABSORPTION" # Liquidity consumed but replenished
+    CONSUMED = "CONSUMED"    # Liquidity eaten faster than replenished
+    WEAK = "WEAK"            # Defending size below baseline
+    NEUTRAL = "NEUTRAL"      # Normal state
+
+class Direction(str, Enum):
+    SUPPORT = "SUPPORT"      # Spot > L, approaching from above
+    RESISTANCE = "RESISTANCE" # Spot < L, approaching from below
+
 @dataclass
 class BarrierMetrics:
-    state: BarrierState  # VACUUM | WALL | ABSORPTION | CONSUMED | WEAK | NEUTRAL
-    delta_liq: float
-    replenishment_ratio: float
+    state: BarrierState
+    delta_liq: float                # Net liquidity change
+    replenishment_ratio: float      # R = added / (canceled + filled + ε)
     added_size: float
     canceled_size: float
     filled_size: float
-    confidence: float
+    defending_quote: dict           # {"price": float, "size": int}
+    confidence: float               # 0-1, based on sample size and stability
+    churn: float                    # gross_added + gross_removed
+    depth_in_zone: int              # Total depth in monitoring zone
 ```
 
 ---
@@ -163,13 +197,22 @@ def compute_tape_state(
 **Output**:
 ```python
 @dataclass
+class SweepDetection:
+    detected: bool
+    direction: str           # 'UP', 'DOWN', or 'NONE'
+    notional: float
+    num_prints: int
+    window_ms: float
+    venues: Optional[List[int]] = None
+
+@dataclass
 class TapeMetrics:
-    imbalance: float  # -1 to +1
+    imbalance: float         # -1 to +1
     buy_vol: int
     sell_vol: int
-    velocity: float   # $/sec
+    velocity: float          # $/sec (positive = rising)
     sweep: SweepDetection
-    confidence: float
+    confidence: float        # 0-1
 ```
 
 ---
@@ -185,18 +228,38 @@ def compute_fuel_state(
     market_state: MarketState,
     exp_date_filter: Optional[str] = None
 ) -> FuelMetrics
+
+def get_all_walls(
+    market_state: MarketState,
+    exp_date_filter: Optional[str] = None,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None
+) -> Tuple[Optional[GammaWall], Optional[GammaWall]]
 ```
 
 **Output**:
 ```python
+class FuelEffect(str, Enum):
+    AMPLIFY = "AMPLIFY"      # Dealers short gamma → trend accelerant
+    DAMPEN = "DAMPEN"        # Dealers long gamma → mean reversion
+    NEUTRAL = "NEUTRAL"      # Minimal gamma exposure
+
+@dataclass
+class GammaWall:
+    strike: float
+    net_gamma: float
+    wall_type: str           # 'CALL' or 'PUT'
+    strength: float          # Magnitude indicator (normalized)
+
 @dataclass
 class FuelMetrics:
-    effect: FuelEffect  # AMPLIFY | DAMPEN | NEUTRAL
-    net_dealer_gamma: float
-    call_wall: Optional[float]
-    put_wall: Optional[float]
-    hvl: Optional[float]
-    confidence: float
+    effect: FuelEffect
+    net_dealer_gamma: float          # Negative = dealers short gamma
+    call_wall: Optional[GammaWall]   # Identified call wall
+    put_wall: Optional[GammaWall]    # Identified put wall
+    hvl: Optional[float]             # High Volatility Line (gamma flip)
+    confidence: float                # 0-1
+    gamma_by_strike: dict            # {strike: net_gamma} for debugging
 ```
 
 ---
@@ -211,20 +274,39 @@ def compute_score(
     barrier_metrics: BarrierMetrics,
     tape_metrics: TapeMetrics,
     fuel_metrics: FuelMetrics,
-    break_direction: str,
+    break_direction: str,     # 'UP' or 'DOWN'
     ts_ns: int,
     distance_to_level: float
 ) -> CompositeScore
+
+def reset() -> None
 ```
 
 **Output**:
 ```python
+class Signal(str, Enum):
+    BREAK_IMMINENT = "BREAK"  # Score > 80, sustained
+    REJECT = "REJECT"         # Score < 20, touching level
+    CONTESTED = "CONTESTED"   # Mid scores with high activity
+    NEUTRAL = "NEUTRAL"       # Default state
+
+class Confidence(str, Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+@dataclass
+class ComponentScores:
+    liquidity_score: float    # S_L: 0-100
+    hedge_score: float        # S_H: 0-100
+    tape_score: float         # S_T: 0-100
+
 @dataclass
 class CompositeScore:
-    raw_score: float              # 0-100
-    component_scores: dict        # S_L, S_H, S_T
-    signal: Signal                # BREAK | REJECT | CONTESTED | NEUTRAL
-    confidence: Confidence        # HIGH | MEDIUM | LOW
+    raw_score: float                    # 0-100
+    component_scores: ComponentScores   # Individual component scores
+    signal: Signal                      # BREAK | REJECT | CONTESTED | NEUTRAL
+    confidence: Confidence              # HIGH | MEDIUM | LOW
 ```
 
 **Formula**:
@@ -266,13 +348,13 @@ def compute_level_signals() -> Dict[str, Any]
 level_price_spy = 687.0
 
 # Engine converts for ES query
-es_level = market_state.converter.spy_to_es(687.0)  # → 6870.0
+es_level = market_state.price_converter.spy_to_es(687.0)  # → 6870.0
 
 # Query ES depth at converted price
 depth = market_state.get_es_depth_at(es_level)
 
 # Convert results back to SPY for display
-output_spy = market_state.converter.es_to_spy(result_es)
+output_spy = market_state.price_converter.es_to_spy(result_es)
 ```
 
 ---
@@ -293,6 +375,12 @@ output_spy = market_state.converter.es_to_spy(result_es)
 - `W_t = 5.0` seconds (tape)
 - `W_g = 60.0` seconds (fuel)
 - `W_v = 3.0` seconds (velocity)
+- `W_wall` seconds (wall identification)
+
+**Zone Configuration**:
+- `BARRIER_ZONE_ES_TICKS` (zone around level in ES ticks)
+- `TAPE_BAND` (price band for tape imbalance)
+- `FUEL_STRIKE_RANGE` (±N dollars for option flows)
 
 **Thresholds**:
 - `MONITOR_BAND = 0.50` (compute signals if |spot - level| ≤ $0.50)
@@ -300,11 +388,21 @@ output_spy = market_state.converter.es_to_spy(result_es)
 - `R_vac = 0.3` (VACUUM threshold)
 - `R_wall = 1.5` (WALL threshold)
 - `F_thresh = 100` (delta liquidity threshold, ES contracts)
+- `BREAK_SCORE_THRESHOLD = 80` (score threshold for BREAK signal)
+- `REJECT_SCORE_THRESHOLD = 20` (score threshold for REJECT signal)
 
 **Weights**:
 - `w_L = 0.45` (liquidity)
 - `w_H = 0.35` (hedge)
 - `w_T = 0.20` (tape)
+
+**Sweep Detection**:
+- `SWEEP_MIN_NOTIONAL` (minimum notional for sweep)
+- `SWEEP_MAX_GAP_MS` (max gap between trades in sweep cluster)
+- `SWEEP_MIN_VENUES` (minimum venues for sweep)
+
+**Trigger**:
+- `TRIGGER_HOLD_TIME` (seconds score must sustain for trigger)
 
 ---
 
