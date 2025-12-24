@@ -5,18 +5,18 @@ import { FlowAnalyticsService } from '../flow-analytics.service';
 
 interface LadderTick {
   price: number;
-  position: number;
+  top: number;
 }
 
 interface LadderMarker extends DerivedLevel {
-  position: number;
+  top: number;
 }
 
 interface GammaLadderMarker {
   id: string;
   kind: 'MAGNET' | 'CLIFF';
   price: number;
-  position: number;
+  top: number;
   netGamma: number | null;
 }
 
@@ -28,121 +28,139 @@ interface GammaLadderMarker {
     <div class="ladder">
       <div class="ladder-header">
         <div class="ladder-title">Price Ladder</div>
-        @if (spot() !== null) {
-          <div class="ladder-spot">SPY {{ spot() | number:'1.2-2' }}</div>
-        }
+        <div class="ladder-header-right">
+          @if (spot() !== null) {
+            <div class="ladder-spot">SPY {{ spot() | number:'1.2-2' }}</div>
+          }
+          <div class="scale-controls" title="Adjust vertical spacing between strikes">
+            <div class="scale-label">Scale</div>
+            <input
+              class="scale-slider"
+              type="range"
+              min="0.8"
+              max="1.6"
+              step="0.1"
+              [value]="scale()"
+              (input)="onScaleInput($any($event.target).value)"
+              aria-label="Price ladder scale"
+            />
+            <div class="scale-readout">{{ scale() | number:'1.1-1' }}×</div>
+          </div>
+        </div>
       </div>
       <div class="ladder-body">
-        <div class="ladder-rail"></div>
+        <div class="ladder-content" [style.height.px]="contentHeight()">
+          <div class="ladder-rail"></div>
 
-        @for (tick of ticks(); track tick.price) {
-          <div class="ladder-tick" [style.top.%]="tick.position">
-            <span>{{ tick.price | number:'1.0-0' }}</span>
-          </div>
-        }
+          @for (tick of ticks(); track tick.price) {
+            <div class="ladder-tick" [style.top.px]="tick.top">
+              <span>{{ tick.price | number:'1.0-0' }}</span>
+            </div>
+          }
 
-        @if (spotMarker() !== null) {
-          <div class="spot-marker" [style.top.%]="spotMarker()!">
-            <div class="spot-line"></div>
-            <div class="spot-chip">SPOT</div>
-          </div>
-        }
+          @if (spotMarker() !== null) {
+            <div class="spot-marker" [style.top.px]="spotMarker()!">
+              <div class="spot-line"></div>
+              <div class="spot-chip">SPOT</div>
+            </div>
+          }
 
-        @for (g of gammaMarkers(); track g.id) {
-          <div class="gamma-marker"
-               [class.magnet]="g.kind === 'MAGNET'"
-               [class.cliff]="g.kind === 'CLIFF'"
-               [style.top.%]="g.position">
-            <div class="gamma-dot"></div>
-            <div class="gamma-chip">{{ g.kind }}</div>
-          </div>
-        }
+          @for (g of gammaMarkers(); track g.id) {
+            <div class="gamma-marker"
+                 [class.magnet]="g.kind === 'MAGNET'"
+                 [class.cliff]="g.kind === 'CLIFF'"
+                 [style.top.px]="g.top">
+              <div class="gamma-dot"></div>
+              <div class="gamma-chip">{{ g.kind }}</div>
+            </div>
+          }
 
-        @for (level of markers(); track level.id) {
-          <div
-            class="level-marker"
-            [class.compact]="!isExpanded(level.id)"
-            [class.expanded]="isExpanded(level.id)"
-            [style.top.%]="level.position"
-            [ngClass]="[
-              'bias-' + level.bias,
-              'barrier-' + level.barrier.state,
-              'fuel-' + level.fuel.effect,
-              level.confluenceId ? 'is-confluence' : ''
-            ]"
-            (mouseenter)="setExpanded(level.id)"
-            (mouseleave)="clearExpanded()"
-          >
-            <!-- Barrier Physics Visualizer (Left Border) -->
-            <div class="barrier-indicator"></div>
+          @for (level of markers(); track level.id) {
+            <div
+              class="level-marker"
+              [class.compact]="!isExpanded(level.id)"
+              [class.expanded]="isExpanded(level.id)"
+              [style.top.px]="level.top"
+              [ngClass]="[
+                'bias-' + level.bias,
+                'barrier-' + level.barrier.state,
+                'fuel-' + level.fuel.effect,
+                level.confluenceId ? 'is-confluence' : ''
+              ]"
+              (mouseenter)="setExpanded(level.id)"
+              (mouseleave)="clearExpanded()"
+            >
+              <!-- Barrier Physics Visualizer (Left Border) -->
+              <div class="barrier-indicator"></div>
 
-            <div class="marker-content">
-              <!-- Compact Header Row -->
-              <div class="marker-header">
-                <div class="header-main">
-                  <span class="marker-kind">{{ level.kind }}</span>
-                  <span class="marker-price">{{ level.price | number:'1.2-2' }}</span>
+              <div class="marker-content">
+                <!-- Compact Header Row -->
+                <div class="marker-header">
+                  <div class="header-main">
+                    <span class="marker-kind">{{ level.kind }}</span>
+                    <span class="marker-price">{{ level.price | number:'1.2-2' }}</span>
+                  </div>
+
+                  <!-- Compact Strength Visual (Only in compact mode) -->
+                  @if (!isExpanded(level.id)) {
+                    <div class="compact-meter">
+                      <div class="mini-bar" 
+                           [style.width.%]="level.bias === 'BREAK' ? level.breakStrength : level.bounceStrength"
+                           [class.break]="level.bias === 'BREAK'"
+                           [class.bounce]="level.bias === 'BOUNCE'">
+                      </div>
+                    </div>
+                  }
+
+                  <!-- Physics Badges -->
+                  <div class="physics-badges">
+                    @if (level.approach.priorTouches > 0) {
+                      <div class="badge touch-badge" title="Prior touches">
+                        T{{ level.approach.priorTouches }}
+                      </div>
+                    }
+                    @if (isUnderPressure(level)) {
+                      <div class="badge pressure-badge" title="High Tape Velocity">
+                        ⚡
+                      </div>
+                    }
+                  </div>
                 </div>
 
-                <!-- Compact Strength Visual (Only in compact mode) -->
-                @if (!isExpanded(level.id)) {
-                  <div class="compact-meter">
-                    <div class="mini-bar" 
-                         [style.width.%]="level.bias === 'BREAK' ? level.breakStrength : level.bounceStrength"
-                         [class.break]="level.bias === 'BREAK'"
-                         [class.bounce]="level.bias === 'BOUNCE'">
+                <!-- Expanded Details -->
+                @if (isExpanded(level.id)) {
+                  <div class="marker-details">
+                    <div class="marker-sub-row">
+                      <div class="marker-direction">{{ level.direction }}</div>
+                      @if (level.barrier.state !== 'NEUTRAL') {
+                        <div class="state-label">{{ level.barrier.state }}</div>
+                      }
+                    </div>
+
+                    <div class="marker-strength">
+                      <div class="strength-row">
+                        <div class="strength-label">BREAK</div>
+                        <div class="strength-bar">
+                          <div class="strength-fill break" [style.width.%]="level.breakStrength"></div>
+                        </div>
+                        <div class="strength-value">{{ level.breakStrength }}%</div>
+                      </div>
+                      <div class="strength-row">
+                        <div class="strength-label">BOUNCE</div>
+                        <div class="strength-bar">
+                          <div class="strength-fill bounce" [style.width.%]="level.bounceStrength"></div>
+                        </div>
+                        <div class="strength-value">{{ level.bounceStrength }}%</div>
+                      </div>
                     </div>
                   </div>
                 }
-
-                <!-- Physics Badges -->
-                <div class="physics-badges">
-                  @if (level.approach.priorTouches > 0) {
-                    <div class="badge touch-badge" title="Prior touches">
-                      T{{ level.approach.priorTouches }}
-                    </div>
-                  }
-                  @if (isUnderPressure(level)) {
-                    <div class="badge pressure-badge" title="High Tape Velocity">
-                      ⚡
-                    </div>
-                  }
-                </div>
               </div>
 
-              <!-- Expanded Details -->
-              @if (isExpanded(level.id)) {
-                <div class="marker-details">
-                  <div class="marker-sub-row">
-                    <div class="marker-direction">{{ level.direction }}</div>
-                    @if (level.barrier.state !== 'NEUTRAL') {
-                      <div class="state-label">{{ level.barrier.state }}</div>
-                    }
-                  </div>
-
-                  <div class="marker-strength">
-                    <div class="strength-row">
-                      <div class="strength-label">BREAK</div>
-                      <div class="strength-bar">
-                        <div class="strength-fill break" [style.width.%]="level.breakStrength"></div>
-                      </div>
-                      <div class="strength-value">{{ level.breakStrength }}%</div>
-                    </div>
-                    <div class="strength-row">
-                      <div class="strength-label">BOUNCE</div>
-                      <div class="strength-bar">
-                        <div class="strength-fill bounce" [style.width.%]="level.bounceStrength"></div>
-                      </div>
-                      <div class="strength-value">{{ level.bounceStrength }}%</div>
-                    </div>
-                  </div>
-                </div>
-              }
+              <div class="marker-fluid"></div>
             </div>
-
-            <div class="marker-fluid"></div>
-          </div>
-        }
+          }
+        </div>
       </div>
     </div>
   `,
@@ -172,6 +190,12 @@ interface GammaLadderMarker {
       gap: 1rem;
     }
 
+    .ladder-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+    }
+
     .ladder-title {
       font-family: 'Space Grotesk', sans-serif;
       font-weight: 600;
@@ -187,14 +211,50 @@ interface GammaLadderMarker {
       color: #38bdf8;
     }
 
+    .scale-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .scale-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(148, 163, 184, 0.9);
+      white-space: nowrap;
+    }
+
+    .scale-slider {
+      width: 120px;
+      height: 6px;
+      accent-color: #38bdf8;
+      opacity: 0.9;
+    }
+
+    .scale-readout {
+      font-size: 0.7rem;
+      color: rgba(226, 232, 240, 0.92);
+      min-width: 3.2rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+
     .ladder-body {
       position: relative;
       flex: 1;
       border-radius: 12px;
       background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), transparent 45%),
         linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.6));
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
       border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+
+    .ladder-content {
+      position: relative;
+      min-height: 100%;
     }
 
     .ladder-rail {
@@ -551,6 +611,30 @@ export class PriceLadderComponent {
   private rangeSignal = signal(3);
   public expandedId = signal<string | null>(null);
   private anchorPrice = signal<number | null>(null);
+  private scaleSignal = signal(1.0);
+
+  public scale = this.scaleSignal.asReadonly();
+
+  private rowHeightPx = computed(() => Math.round(80 * this.scaleSignal()));
+
+  private ladderViewport = computed(() => {
+    const anchor = this.anchorPrice();
+    if (anchor === null) return null;
+
+    const range = this.rangeSignal();
+    const min = Math.floor(anchor - range);
+    const max = Math.ceil(anchor + range);
+    const span = max - min;
+    if (span <= 0) return null;
+
+    const row = this.rowHeightPx();
+    const half = row / 2;
+    const height = (span + 1) * row;
+
+    return { anchor, min, max, span, row, half, height };
+  });
+
+  public contentHeight = computed(() => this.ladderViewport()?.height ?? 0);
 
   constructor() {
     effect(() => {
@@ -578,49 +662,31 @@ export class PriceLadderComponent {
   });
 
   public ticks = computed(() => {
-    const anchor = this.anchorPrice();
-    if (anchor === null) return [] as LadderTick[];
-    
-    const range = this.rangeSignal();
-    const min = Math.floor(anchor - range);
-    const max = Math.ceil(anchor + range);
-    const span = max - min;
-    if (span <= 0) return [] as LadderTick[];
+    const vp = this.ladderViewport();
+    if (!vp) return [] as LadderTick[];
 
     const ticks: LadderTick[] = [];
-    for (let price = max; price >= min; price -= 1) {
-      const position = ((max - price) / span) * 100;
-      ticks.push({ price, position });
+    for (let price = vp.max; price >= vp.min; price -= 1) {
+      const top = (vp.max - price) * vp.row + vp.half;
+      ticks.push({ price, top });
     }
     return ticks;
   });
 
   public spotMarker = computed(() => {
+    const vp = this.ladderViewport();
     const spot = this.spot();
-    const anchor = this.anchorPrice();
-    if (spot === null || anchor === null) return null;
-    
-    const range = this.rangeSignal();
-    const min = Math.floor(anchor - range);
-    const max = Math.ceil(anchor + range);
-    
-    if (max <= min) return null;
-    return ((max - spot) / (max - min)) * 100;
+    if (!vp || spot === null) return null;
+    return (vp.max - spot) * vp.row + vp.half;
   });
 
   public gammaMarkers = computed(() => {
-    const anchor = this.anchorPrice();
-    if (anchor === null) return [] as GammaLadderMarker[];
-
-    const range = this.rangeSignal();
-    const min = Math.floor(anchor - range);
-    const max = Math.ceil(anchor + range);
-    const span = max - min;
-    if (span <= 0) return [] as GammaLadderMarker[];
+    const vp = this.ladderViewport();
+    if (!vp) return [] as GammaLadderMarker[];
 
     const gammaByStrike = this.analytics.netGammaByStrike();
     const strikesAsc = Array.from(gammaByStrike.keys())
-      .filter((s) => s >= min && s <= max)
+      .filter((s) => s >= vp.min && s <= vp.max)
       .sort((a, b) => a - b);
 
     if (strikesAsc.length < 1) return [] as GammaLadderMarker[];
@@ -647,7 +713,7 @@ export class PriceLadderComponent {
       const b = gammaByStrike.get(s1) ?? 0;
       if (a === 0 || b === 0 || (a > 0) !== (b > 0)) {
         const candidate = Math.abs(a) < Math.abs(b) ? s0 : s1;
-        const dist = Math.abs(candidate - anchor);
+        const dist = Math.abs(candidate - vp.anchor);
         if (dist < bestDist) {
           bestDist = dist;
           cliff = candidate;
@@ -662,7 +728,7 @@ export class PriceLadderComponent {
         id: 'gamma-magnet',
         kind: 'MAGNET',
         price: magnet,
-        position: ((max - magnet) / span) * 100,
+        top: (vp.max - magnet) * vp.row + vp.half,
         netGamma: gammaByStrike.get(magnet) ?? null
       });
     }
@@ -672,7 +738,7 @@ export class PriceLadderComponent {
         id: 'gamma-cliff',
         kind: 'CLIFF',
         price: cliff,
-        position: ((max - cliff) / span) * 100,
+        top: (vp.max - cliff) * vp.row + vp.half,
         netGamma: gammaByStrike.get(cliff) ?? null
       });
     }
@@ -681,23 +747,21 @@ export class PriceLadderComponent {
   });
 
   public markers = computed(() => {
-    const anchor = this.anchorPrice();
-    if (anchor === null) return [] as LadderMarker[];
-    
-    const range = this.rangeSignal();
-    const min = Math.floor(anchor - range);
-    const max = Math.ceil(anchor + range);
-    const span = max - min;
-    
-    if (span <= 0) return [] as LadderMarker[];
-
+    const vp = this.ladderViewport();
+    if (!vp) return [] as LadderMarker[];
     return this.derived.levels()
-      .filter((level) => level.price >= min && level.price <= max)
+      .filter((level) => level.price >= vp.min && level.price <= vp.max)
       .map((level) => ({
         ...level,
-        position: ((max - level.price) / span) * 100
+        top: (vp.max - level.price) * vp.row + vp.half
       }));
   });
+
+  public onScaleInput(value: string) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    this.scaleSignal.set(Math.min(1.6, Math.max(0.8, n)));
+  }
 
   public isUnderPressure(level: DerivedLevel): boolean {
      const vel = level.tape.velocity;

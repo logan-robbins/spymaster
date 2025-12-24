@@ -2,6 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LevelDerivedService } from '../level-derived.service';
 import { DataStreamService } from '../data-stream.service';
+import { MLIntegrationService } from '../ml-integration.service';
+import { ViewportSelectionService } from '../viewport-selection.service';
 
 type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
 
@@ -21,7 +23,12 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
         </div>
         @if (level()) {
           <div class="meta">
-            Nearest: {{ level()!.kind }} {{ level()!.price | number:'1.2-2' }} ({{ level()!.direction }})
+            <span class="meta-label">Analyzing:</span>
+            <span class="meta-level">{{ level()!.kind }} {{ level()!.price | number:'1.2-2' }}</span>
+            <span class="meta-direction" [ngClass]="'dir-' + level()!.direction">{{ level()!.direction }}</span>
+            @if (selectionMode()) {
+              <span class="meta-mode">({{ selectionMode() }})</span>
+            }
           </div>
         } @else {
           <div class="meta">Waiting for level stream...</div>
@@ -59,6 +66,54 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
             <div class="trade-hint">{{ putHint() }}</div>
           </div>
         </div>
+
+        <!-- ML Prediction Section (if available) -->
+        @if (enhancedLevel() && enhancedLevel()!.ml.available) {
+          <div class="ml-section">
+            <div class="section-label">🎯 ML Predictions</div>
+            <div class="ml-grid">
+              <!-- Confidence Agreement -->
+              <div class="ml-item confidence-boost">
+                <div class="ml-label">Physics ↔ ML Agreement</div>
+                <div class="ml-value" [ngClass]="confidenceBoostClass()">
+                  {{ confidenceBoostLabel() }}
+                </div>
+                <div class="ml-hint">{{ confidenceDescription() }}</div>
+              </div>
+
+              <!-- Time Horizon -->
+              <div class="ml-item time-horizon">
+                <div class="ml-label">Expected Pace</div>
+                <div class="ml-value">
+                  {{ timeHorizonLabel() }}
+                </div>
+                <div class="ml-bars">
+                  <div class="horizon-bar">
+                    <span class="horizon-label">60s</span>
+                    <div class="horizon-meter">
+                      <div class="horizon-fill" [style.width.%]="enhancedLevel()!.ml.expected_time_60s * 100"></div>
+                    </div>
+                    <span class="horizon-pct">{{ (enhancedLevel()!.ml.expected_time_60s * 100) | number:'1.0-0' }}%</span>
+                  </div>
+                  <div class="horizon-bar">
+                    <span class="horizon-label">120s</span>
+                    <div class="horizon-meter">
+                      <div class="horizon-fill" [style.width.%]="enhancedLevel()!.ml.expected_time_120s * 100"></div>
+                    </div>
+                    <span class="horizon-pct">{{ (enhancedLevel()!.ml.expected_time_120s * 100) | number:'1.0-0' }}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pattern Similarity -->
+              <div class="ml-item">
+                <div class="ml-label">Historical Match</div>
+                <div class="ml-value">{{ (enhancedLevel()!.ml.retrieval_similarity * 100) | number:'1.0-0' }}%</div>
+                <div class="ml-hint">Similar to {{ enhancedLevel()!.ml.retrieval_similarity > 0.7 ? 'many' : 'some' }} past setups</div>
+              </div>
+            </div>
+          </div>
+        }
 
         <!-- Velocity & Gamma Section -->
         <div class="mechanics-section">
@@ -212,6 +267,48 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.75rem;
       color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .meta-label {
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.7rem;
+    }
+
+    .meta-level {
+      color: #f8fafc;
+      font-weight: 600;
+    }
+
+    .meta-direction {
+      font-size: 0.7rem;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    .meta-direction.dir-UP {
+      background: rgba(248, 113, 113, 0.15);
+      color: #fca5a5;
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+
+    .meta-direction.dir-DOWN {
+      background: rgba(34, 197, 94, 0.15);
+      color: #86efac;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .meta-mode {
+      color: #64748b;
+      font-size: 0.7rem;
+      font-style: italic;
     }
 
     .strength-grid {
@@ -435,14 +532,125 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
       color: #64748b;
       font-style: italic;
     }
+
+    /* ML Predictions Section */
+    .ml-section {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .ml-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .ml-item {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 0.7rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .ml-item.confidence-boost {
+      grid-column: span 2;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.6));
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+
+    .ml-item.time-horizon {
+      grid-column: span 2;
+    }
+
+    .ml-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .ml-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .ml-value.positive { color: #22c55e; }
+    .ml-value.negative { color: #f87171; }
+    .ml-value.neutral { color: #38bdf8; }
+
+    .ml-hint {
+      font-size: 0.65rem;
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .ml-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 0.2rem;
+    }
+
+    .horizon-bar {
+      display: grid;
+      grid-template-columns: 35px 1fr 40px;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .horizon-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.7rem;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .horizon-meter {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.2);
+      overflow: hidden;
+    }
+
+    .horizon-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.4), rgba(56, 189, 248, 0.95));
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    .horizon-pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.7rem;
+      color: #cbd5f5;
+      text-align: right;
+    }
   `]
 })
 export class StrengthCockpitComponent {
   private derived = inject(LevelDerivedService);
   private stream = inject(DataStreamService);
+  private mlService = inject(MLIntegrationService);
+  private viewportService = inject(ViewportSelectionService);
   public Math = Math;  // Expose Math to template
 
   public level = this.derived.primaryLevel;
+  public selectionMode = this.viewportService.getSelectionMode();
+  
+  // Enhanced level with ML predictions
+  public enhancedLevel = computed(() => {
+    const lvl = this.level();
+    return lvl ? this.mlService.enhanceLevel(lvl) : null;
+  });
 
   public tradeStatus = computed((): { state: TrafficState; label: string; detail: string } => {
     const connection = this.stream.connectionStatus();
@@ -459,19 +667,34 @@ export class StrengthCockpitComponent {
       return { state: 'offline', label: 'WAIT', detail: 'NO LEVEL' };
     }
 
+    const enhanced = this.enhancedLevel();
     const edge = level.breakStrength - level.bounceStrength;
     const edgeAbs = Math.abs(edge);
     const edgeText = `${edge >= 0 ? '+' : ''}${edge}`;
-    const conf = level.confidence;
-
-    // Simplified tradeability heuristic using existing schema.
-    if (conf === 'LOW' || level.signal === 'CHOP') {
-      return { state: 'no-go', label: 'NO-GO', detail: `${conf} · EDGE ${edgeText}` };
+    
+    // Use ML tradeability if available, otherwise fall back to physics heuristic
+    if (enhanced?.ml.available) {
+      const mlSignal = enhanced.ml.tradeability;
+      const tradeable = Math.round(enhanced.ml.p_tradeable * 100);
+      
+      if (mlSignal === 'GO') {
+        return { state: 'go', label: 'GO', detail: `${tradeable}% · EDGE ${edgeText}` };
+      } else if (mlSignal === 'NO-GO') {
+        return { state: 'no-go', label: 'NO-GO', detail: `${tradeable}% · EDGE ${edgeText}` };
+      } else {
+        return { state: 'wait', label: 'WAIT', detail: `${tradeable}% · EDGE ${edgeText}` };
+      }
+    } else {
+      // Fallback: physics-based heuristic
+      const conf = level.confidence;
+      if (conf === 'LOW' || level.signal === 'CHOP') {
+        return { state: 'no-go', label: 'NO-GO', detail: `${conf} · EDGE ${edgeText}` };
+      }
+      if (conf === 'HIGH' && edgeAbs >= 15) {
+        return { state: 'go', label: 'GO', detail: `${conf} · EDGE ${edgeText}` };
+      }
+      return { state: 'wait', label: 'WAIT', detail: `${conf} · EDGE ${edgeText}` };
     }
-    if (conf === 'HIGH' && edgeAbs >= 15) {
-      return { state: 'go', label: 'GO', detail: `${conf} · EDGE ${edgeText}` };
-    }
-    return { state: 'wait', label: 'WAIT', detail: `${conf} · EDGE ${edgeText}` };
   });
 
   public callSuccess = computed(() => {
@@ -605,4 +828,40 @@ export class StrengthCockpitComponent {
     }
     return value.toFixed(0);
   }
+
+  // ML Integration Signals
+  public confidenceBoostLabel = computed(() => {
+    const enhanced = this.enhancedLevel();
+    if (!enhanced?.ml.available) return 'N/A';
+    const boost = enhanced.ml.confidence_boost;
+    if (boost > 0.5) return 'STRONG AGREE';
+    if (boost > 0.2) return 'AGREE';
+    if (boost > -0.2) return 'NEUTRAL';
+    if (boost > -0.5) return 'DISAGREE';
+    return 'CONFLICT';
+  });
+
+  public confidenceBoostClass = computed(() => {
+    const enhanced = this.enhancedLevel();
+    if (!enhanced?.ml.available) return 'neutral';
+    const boost = enhanced.ml.confidence_boost;
+    if (boost > 0.2) return 'positive';
+    if (boost < -0.2) return 'negative';
+    return 'neutral';
+  });
+
+  public timeHorizonLabel = computed(() => {
+    const enhanced = this.enhancedLevel();
+    if (!enhanced?.ml.available) return 'N/A';
+    return this.mlService.formatTimeHorizon(
+      enhanced.ml.expected_time_60s,
+      enhanced.ml.expected_time_120s
+    );
+  });
+
+  public confidenceDescription = computed(() => {
+    const enhanced = this.enhancedLevel();
+    if (!enhanced?.ml.available) return '';
+    return this.mlService.getConfidenceDescription(enhanced.ml.confidence_boost);
+  });
 }

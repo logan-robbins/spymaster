@@ -98,10 +98,62 @@ export interface LevelsPayload {
     levels: LevelSignal[];
 }
 
+// ML Viewport Predictions (from backend ML models)
+export interface TimeToThreshold {
+    t1: Record<string, number>;  // {60: prob, 120: prob}
+    t2: Record<string, number>;
+}
+
+export interface RetrievalSummary {
+    p_break: number;
+    p_bounce: number;
+    p_tradeable_2: number;
+    strength_signed_mean: number;
+    strength_abs_mean: number;
+    time_to_threshold_1_mean: number;
+    time_to_threshold_2_mean: number;
+    similarity: number;
+    entropy: number;
+    neighbors: any[];
+}
+
+export interface ViewportTarget {
+    level_id: string;
+    level_kind_name: string;
+    level_price: number;
+    direction: 'UP' | 'DOWN';
+    distance: number;
+    distance_signed: number;
+    
+    // Tree model predictions
+    p_tradeable_2: number;
+    p_break: number;
+    p_bounce: number;
+    strength_signed: number;
+    strength_abs: number;
+    time_to_threshold: TimeToThreshold;
+    
+    // Retrieval predictions
+    retrieval: RetrievalSummary;
+    
+    // Scoring metadata
+    utility_score: number;
+    viewport_state: string;
+    stage: string;
+    pinned: boolean;
+    relevance: number;
+}
+
+export interface ViewportPayload {
+    ts: number;
+    targets: ViewportTarget[];
+}
+
 // Merged payload from backend (Option A per §6.4)
 export interface MergedPayload {
     flow: FlowMap;
     levels: LevelsPayload;
+    viewport?: ViewportPayload;  // Optional ML predictions
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,12 +166,19 @@ function isLevelsPayload(value: unknown): value is LevelsPayload {
     return typeof v.ts === 'number' && isRecord(v.spy) && Array.isArray(v.levels);
 }
 
+function isViewportPayload(value: unknown): value is ViewportPayload {
+    if (!isRecord(value)) return false;
+    const v: any = value;
+    return typeof v.ts === 'number' && Array.isArray(v.targets);
+}
+
 @Injectable({
     providedIn: 'root'
 })
 export class DataStreamService {
     public flowData: WritableSignal<FlowMap> = signal({});
     public levelsData: WritableSignal<LevelsPayload | null> = signal(null);
+    public viewportData: WritableSignal<ViewportPayload | null> = signal(null);
     public connectionStatus: WritableSignal<'connecting' | 'connected' | 'disconnected'> = signal('disconnected');
     public dataStatus: WritableSignal<'ok' | 'unavailable'> = signal('unavailable');
     public lastError: WritableSignal<string | null> = signal(null);
@@ -176,6 +235,14 @@ export class DataStreamService {
                     this.levelsData.set(null);
                     this.dataStatus.set('unavailable');
                     this.lastError.set('Invalid levels payload');
+                }
+                
+                // Update viewport data (ML predictions)
+                const viewport = data['viewport'];
+                if (isViewportPayload(viewport)) {
+                    this.viewportData.set(viewport);
+                } else if (viewport !== undefined) {
+                    console.warn('Invalid viewport payload structure');
                 }
             } catch (err) {
                 console.error('Error parsing stream data:', err);
@@ -399,6 +466,68 @@ export class DataStreamService {
             }
 
             this.flowData.set(flow);
+
+            // Mock Viewport Data (ML Predictions)
+            const viewportTargets: ViewportTarget[] = levels.map((level, idx) => {
+                // Generate realistic ML predictions based on physics
+                const physics_break_bias = level.break_score_smooth > 50 ? 0.15 : -0.15;
+                const base_tradeable = 0.45 + (Math.random() * 0.3);
+                const base_break = 0.50 + physics_break_bias + (Math.random() * 0.2 - 0.1);
+                
+                return {
+                    level_id: level.id,
+                    level_kind_name: level.level_kind_name,
+                    level_price: level.level_price,
+                    direction: level.direction,
+                    distance: level.distance,
+                    distance_signed: level.direction === 'UP' ? level.distance : -level.distance,
+                    
+                    // Tree model predictions
+                    p_tradeable_2: base_tradeable + (idx === 0 ? 0.15 : 0),  // Boost nearest level
+                    p_break: Math.max(0, Math.min(1, base_break)),
+                    p_bounce: Math.max(0, Math.min(1, 1 - base_break)),
+                    strength_signed: (base_break - 0.5) * 2.5,  // -1.25 to +1.25
+                    strength_abs: 0.8 + Math.random() * 0.8,
+                    time_to_threshold: {
+                        t1: {
+                            '60': 0.25 + Math.random() * 0.4,   // 25-65% chance in 60s
+                            '120': 0.40 + Math.random() * 0.35  // 40-75% chance in 120s
+                        },
+                        t2: {
+                            '60': 0.10 + Math.random() * 0.25,  // 10-35% chance in 60s
+                            '120': 0.20 + Math.random() * 0.35  // 20-55% chance in 120s
+                        }
+                    },
+                    
+                    // Retrieval predictions (kNN)
+                    retrieval: {
+                        p_break: Math.max(0, Math.min(1, base_break + (Math.random() * 0.1 - 0.05))),
+                        p_bounce: Math.max(0, Math.min(1, 1 - base_break + (Math.random() * 0.1 - 0.05))),
+                        p_tradeable_2: base_tradeable + (Math.random() * 0.1 - 0.05),
+                        strength_signed_mean: (base_break - 0.5) * 2.0,
+                        strength_abs_mean: 0.9 + Math.random() * 0.6,
+                        time_to_threshold_1_mean: 80 + Math.random() * 60,  // 80-140s
+                        time_to_threshold_2_mean: 150 + Math.random() * 100, // 150-250s
+                        similarity: 0.65 + Math.random() * 0.25,  // 65-90% similar
+                        entropy: 0.3 + Math.random() * 0.4,
+                        neighbors: []
+                    },
+                    
+                    // Scoring metadata
+                    utility_score: base_tradeable * (Math.abs(base_break - 0.5) * 2),
+                    viewport_state: level.distance <= 0.25 ? 'IN_MONITOR_BAND' : 'OUTSIDE_BAND',
+                    stage: idx === 0 ? 'stage_b' : 'stage_a',  // Nearest level gets stage_b
+                    pinned: false,
+                    relevance: 1.0 - (idx * 0.15)  // Decay with distance
+                };
+            });
+
+            const viewport: ViewportPayload = {
+                ts: Date.now(),
+                targets: viewportTargets
+            };
+
+            this.viewportData.set(viewport);
 
         }, 250); // 4Hz update like real backend
     }

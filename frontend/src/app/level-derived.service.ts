@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { DataStreamService, LevelSignal, LevelsPayload } from './data-stream.service';
+import { ViewportSelectionService } from './viewport-selection.service';
 
 type Direction = 'UP' | 'DOWN';
 type SignalBias = 'BREAK' | 'BOUNCE' | 'NEUTRAL';
@@ -394,9 +395,33 @@ export class LevelDerivedService {
     }).sort((a, b) => b.strength - a.strength);
   });
 
+  /**
+   * Primary level for cockpit display
+   * 
+   * NEW: Integrates with viewport selection
+   * - If viewport target selected: show that level's physics
+   * - Otherwise: show closest level (legacy behavior)
+   */
   public primaryLevel = computed(() => {
     const levels = this.levels();
-    return levels.length ? levels[0] : null;
+    if (levels.length === 0) return null;
+    
+    // Check if viewport selection service is available and has a selection
+    try {
+      const viewportService = inject(ViewportSelectionService);
+      const selectedTarget = viewportService.selectedTarget();
+      
+      if (selectedTarget) {
+        // Find the physics level matching the viewport target
+        const matchingLevel = levels.find(l => l.id === selectedTarget.level_id);
+        if (matchingLevel) return matchingLevel;
+      }
+    } catch {
+      // ViewportSelectionService not available, fall back to closest
+    }
+    
+    // Default: closest level
+    return levels[0];
   });
 
   public setConfluenceBand(value: number) {

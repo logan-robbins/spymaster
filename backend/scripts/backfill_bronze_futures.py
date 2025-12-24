@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -129,12 +130,14 @@ def main() -> int:
     parser.add_argument("--symbol", type=str, default="ES", help="Partition symbol (default: ES)")
     parser.add_argument("--skip-trades", action="store_true", help="Skip futures trades backfill")
     parser.add_argument("--skip-mbp10", action="store_true", help="Skip MBP-10 backfill")
-    parser.add_argument("--batch-size", type=int, default=50000, help="Batch size for Parquet writes")
+    parser.add_argument("--batch-size", type=int, default=7_500_000, help="Batch size for Parquet writes (trades, default: 7.5M)")
+    parser.add_argument("--mbp10-batch-size", type=int, default=None, help="Batch size for MBP-10 (default: 2x trades batch)")
     parser.add_argument("--verbose", action="store_true", help="Log progress during backfill")
-    parser.add_argument("--log-every", type=int, default=250000, help="Log progress every N rows")
+    parser.add_argument("--log-every", type=int, default=1000000, help="Log progress every N rows")
     parser.add_argument("--start-ns", type=int, default=None, help="Start timestamp (ns)")
     parser.add_argument("--end-ns", type=int, default=None, help="End timestamp (ns)")
     parser.add_argument("--force", action="store_true", help="Allow writing even if Bronze already exists")
+    parser.add_argument("--clean", action="store_true", help="Delete existing Bronze data before backfill")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be backfilled")
 
     args = parser.parse_args()
@@ -156,13 +159,31 @@ def main() -> int:
         if not args.skip_mbp10 and date not in mbp10_dates:
             raise ValueError(f"MBP-10 DBN missing for {date}")
 
-        if not args.force:
+        # Clean existing data if requested
+        if args.clean:
+            if not args.skip_trades:
+                trades_path = _bronze_date_path(data_root, "futures/trades", args.symbol, date)
+                if trades_path.exists():
+                    print(f"  Cleaning existing trades: {trades_path}")
+                    shutil.rmtree(trades_path)
+            if not args.skip_mbp10:
+                mbp10_path = _bronze_date_path(data_root, "futures/mbp10", args.symbol, date)
+                if mbp10_path.exists():
+                    print(f"  Cleaning existing MBP-10: {mbp10_path}")
+                    shutil.rmtree(mbp10_path)
+        
+        if not args.force and not args.clean:
             if not args.skip_trades and _check_existing(data_root, "futures/trades", args.symbol, date):
-                raise ValueError(f"Bronze futures trades already exist for {date} (use --force to override)")
+                raise ValueError(f"Bronze futures trades already exist for {date} (use --force or --clean)")
             if not args.skip_mbp10 and _check_existing(data_root, "futures/mbp10", args.symbol, date):
-                raise ValueError(f"Bronze futures MBP-10 already exist for {date} (use --force to override)")
+                raise ValueError(f"Bronze futures MBP-10 already exist for {date} (use --force or --clean)")
 
         print(f"\nBackfill {date} (symbol={args.symbol})")
+        if not args.skip_trades:
+            print(f"  Trades batch size: {args.batch_size:,}")
+        if not args.skip_mbp10:
+            mbp10_batch = args.mbp10_batch_size or (args.batch_size * 2)
+            print(f"  MBP-10 batch size: {mbp10_batch:,}")
         if args.dry_run:
             print("  dry-run: skipping writes")
             continue
@@ -186,12 +207,15 @@ def main() -> int:
             print(f"  Trades: {trades_count:,}")
 
         if not args.skip_mbp10:
+            # MBP-10 files are 300x larger than trades, so use larger batches
+            # Default: 2x trades batch size (optimal for 9GB MBP-10 files)
+            mbp10_batch = args.mbp10_batch_size or (args.batch_size * 2)
             mbp10_count = backfill_mbp10(
                 dbn=dbn,
                 writer=writer,
                 date=date,
                 symbol_partition=args.symbol,
-                batch_size=max(10000, args.batch_size // 5),
+                batch_size=mbp10_batch,
                 start_ns=args.start_ns,
                 end_ns=args.end_ns,
                 verbose=args.verbose,

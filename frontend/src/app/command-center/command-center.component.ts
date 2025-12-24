@@ -7,6 +7,7 @@ import { StrengthCockpitComponent } from '../strength-cockpit/strength-cockpit.c
 import { AttributionBarComponent } from '../attribution-bar/attribution-bar.component';
 import { ConfluenceStackComponent } from '../confluence-stack/confluence-stack.component';
 import { OptionsPanelComponent } from '../options-panel/options-panel.component';
+import { ViewportSelectorComponent } from '../viewport-selector/viewport-selector.component';
 
 @Component({
   selector: 'app-command-center',
@@ -17,7 +18,8 @@ import { OptionsPanelComponent } from '../options-panel/options-panel.component'
     StrengthCockpitComponent,
     AttributionBarComponent,
     ConfluenceStackComponent,
-    OptionsPanelComponent
+    OptionsPanelComponent,
+    ViewportSelectorComponent
   ],
   template: `
     <div class="command-center">
@@ -42,6 +44,7 @@ import { OptionsPanelComponent } from '../options-panel/options-panel.component'
         </section>
 
         <section class="panel cockpit-panel">
+          <app-viewport-selector></app-viewport-selector>
           <app-strength-cockpit></app-strength-cockpit>
           <app-attribution-bar></app-attribution-bar>
           <app-confluence-stack></app-confluence-stack>
