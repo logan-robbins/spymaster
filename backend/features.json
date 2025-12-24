@@ -21,8 +21,8 @@
         },
         "confirm_ts_ns": {
           "dtype": "float64",
-          "description": "Confirmation timestamp (t1 = t0 + 60s) in Unix nanoseconds UTC",
-          "example": 1765843260000000000
+          "description": "Confirmation timestamp (t1 = t0 + 240s = 4 minutes) in Unix nanoseconds UTC",
+          "example": 1765843440000000000
         },
         "date": {
           "dtype": "string",
@@ -304,7 +304,7 @@
       "methodology": {
         "es_spy_conversion": "ES price = SPY price * 10 (SPY $685 = ES $6850)",
         "zone_definition": "+-8 ES ticks around SPY strike ($1 = $10 ES = 40 ticks). Zone = +-$2 ES = +-$0.20 SPY",
-        "forward_window": "60 seconds from touch timestamp (bar START, look forward to capture trades during bar)"
+        "forward_window": "240 seconds (4 minutes) from touch timestamp for confirmation window"
       },
       "columns": {
         "barrier_state": {
@@ -576,7 +576,7 @@
       "methodology": {
         "threshold": "$2.00 (2 strikes) - meaningful move for options trading",
         "time_to_thresholds": "$1.00 and $2.00 for time-to-threshold metrics",
-        "lookforward": "5 minutes anchored at confirmation time t1",
+        "lookforward": "8 minutes anchored at confirmation time t1 (covers full outcome determination window)",
         "note": "Must move 2 strikes to be actionable for SPY options",
         "missing_data_policy": "If the lookforward window is incomplete, outcome is UNDEFINED and forward metrics are NaN"
       },
@@ -595,7 +595,7 @@
         },
         "future_price_5min": {
           "dtype": "float64",
-          "description": "SPY price 5 minutes after confirmation time (t1)",
+          "description": "SPY price at end of forward window after confirmation time (t1)",
           "example": 681.425
         },
         "anchor_spot": {
@@ -605,12 +605,12 @@
         },
         "tradeable_1": {
           "dtype": "int8",
-          "description": "Reached $1.00 in break direction within 5 minutes",
+          "description": "Reached $1.00 in break direction within forward window",
           "example": 1
         },
         "tradeable_2": {
           "dtype": "int8",
-          "description": "Reached $2.00 in break direction within 5 minutes",
+          "description": "Reached $2.00 in break direction within forward window",
           "example": 0
         },
         "excursion_max": {
@@ -642,7 +642,58 @@
           "dtype": "float64",
           "description": "Seconds to first $2 move in break direction from S(t1)",
           "example": 210.0
-        }
+        },
+        "outcome_2min": {
+          "dtype": "string",
+          "description": "Outcome at 2-minute confirmation (fast trades)",
+          "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
+          "example": "CHOP"
+        },
+        "outcome_4min": {
+          "dtype": "string",
+          "description": "Outcome at 4-minute confirmation (primary timeframe)",
+          "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
+          "example": "BOUNCE"
+        },
+        "outcome_8min": {
+          "dtype": "string",
+          "description": "Outcome at 8-minute confirmation (longer holds)",
+          "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
+          "example": "BREAK"
+        },
+        "excursion_max_2min": {"dtype": "float64", "description": "Max favorable excursion at 2min", "example": 1.25},
+        "excursion_max_4min": {"dtype": "float64", "description": "Max favorable excursion at 4min", "example": 2.50},
+        "excursion_max_8min": {"dtype": "float64", "description": "Max favorable excursion at 8min", "example": 3.75},
+        "excursion_min_2min": {"dtype": "float64", "description": "Max adverse excursion at 2min", "example": 0.50},
+        "excursion_min_4min": {"dtype": "float64", "description": "Max adverse excursion at 4min", "example": 0.80},
+        "excursion_min_8min": {"dtype": "float64", "description": "Max adverse excursion at 8min", "example": 1.00},
+        "strength_signed_2min": {"dtype": "float64", "description": "Signed strength at 2min", "example": 0.75},
+        "strength_signed_4min": {"dtype": "float64", "description": "Signed strength at 4min", "example": 1.70},
+        "strength_signed_8min": {"dtype": "float64", "description": "Signed strength at 8min", "example": 2.75},
+        "strength_abs_2min": {"dtype": "float64", "description": "Absolute strength at 2min", "example": 1.25},
+        "strength_abs_4min": {"dtype": "float64", "description": "Absolute strength at 4min", "example": 2.50},
+        "strength_abs_8min": {"dtype": "float64", "description": "Absolute strength at 8min", "example": 3.75},
+        "tradeable_1_2min": {"dtype": "int8", "description": "$1 reached at 2min", "example": 1},
+        "tradeable_1_4min": {"dtype": "int8", "description": "$1 reached at 4min", "example": 1},
+        "tradeable_1_8min": {"dtype": "int8", "description": "$1 reached at 8min", "example": 1},
+        "tradeable_2_2min": {"dtype": "int8", "description": "$2 reached at 2min", "example": 0},
+        "tradeable_2_4min": {"dtype": "int8", "description": "$2 reached at 4min", "example": 1},
+        "tradeable_2_8min": {"dtype": "int8", "description": "$2 reached at 8min", "example": 1},
+        "time_to_threshold_1_2min": {"dtype": "float64", "description": "Time to $1 from 2min confirmation", "example": 45.0},
+        "time_to_threshold_1_4min": {"dtype": "float64", "description": "Time to $1 from 4min confirmation", "example": 90.0},
+        "time_to_threshold_1_8min": {"dtype": "float64", "description": "Time to $1 from 8min confirmation", "example": 120.0},
+        "time_to_threshold_2_2min": {"dtype": "float64", "description": "Time to $2 from 2min confirmation", "example": null},
+        "time_to_threshold_2_4min": {"dtype": "float64", "description": "Time to $2 from 4min confirmation", "example": 180.0},
+        "time_to_threshold_2_8min": {"dtype": "float64", "description": "Time to $2 from 8min confirmation", "example": 210.0},
+        "confirm_ts_ns_2min": {"dtype": "float64", "description": "Confirmation timestamp at 2min", "example": 1765843320000000000},
+        "confirm_ts_ns_4min": {"dtype": "float64", "description": "Confirmation timestamp at 4min", "example": 1765843440000000000},
+        "confirm_ts_ns_8min": {"dtype": "float64", "description": "Confirmation timestamp at 8min", "example": 1765843680000000000},
+        "anchor_spot_2min": {"dtype": "float64", "description": "Anchor price at 2min confirmation", "example": 682.10},
+        "anchor_spot_4min": {"dtype": "float64", "description": "Anchor price at 4min confirmation", "example": 682.25},
+        "anchor_spot_8min": {"dtype": "float64", "description": "Anchor price at 8min confirmation", "example": 682.50},
+        "future_price_2min": {"dtype": "float64", "description": "Price at end of 2min forward window", "example": 681.80},
+        "future_price_4min": {"dtype": "float64", "description": "Price at end of 4min forward window", "example": 680.40},
+        "future_price_8min": {"dtype": "float64", "description": "Price at end of 8min forward window", "example": 679.25}
       }
     }
   },
@@ -769,9 +820,9 @@
     "barrier_zone": "+-8 ES ticks (+-$2 ES = +-$0.20 SPY) around strike-aligned levels",
     "touch_detection": "OHLCV high/low crosses level price within TOUCH_BAND (CONFIG.TOUCH_BAND)",
     "quality_filter": "Only signals where close price within $0.25 of level (critical zone)",
-    "outcome_threshold": "Move >=$2.00 (2 strikes) in 5 minutes for BREAK/BOUNCE - meaningful for options",
+    "outcome_threshold": "Move >=$2.00 (2 strikes) in forward window for BREAK/BOUNCE - meaningful for options",
     "lookback_context": "10 minutes backward for approach velocity, bars, distance",
-    "time_windows": "Forward-looking from bar START (60 seconds for tape/barrier)",
+    "time_windows": "Forward-looking from bar START (240s confirmation, 8min total forward window)",
     "sma_warmup": "SMA-200/400 computed on 2-min bars with up to CONFIG.SMA_WARMUP_DAYS prior sessions prepended when available"
   }
 }

@@ -158,39 +158,100 @@ def main() -> None:
         }
 
         # Tradeable_2 classifier
+        # Multi-timeframe models: Train separate models for 2min, 4min, 8min
+        timeframes = ['2min', '4min', '8min']
+        
+        for tf in timeframes:
+            print(f"\n  Training {tf} horizon models...")
+            
+            # Tradeable classifier for this timeframe
+            tradeable_col = f"tradeable_2_{tf}"
+            outcome_col = f"outcome_{tf}"
+            
+            if tradeable_col not in train_df.columns:
+                print(f"    WARNING: {tradeable_col} not found, skipping {tf} models")
+                continue
+            
+            tradeable_df = train_df.copy()
+            tradeable_val = val_df.copy()
+            tradeable_df[tradeable_col] = tradeable_df[tradeable_col].fillna(0).astype(int)
+            tradeable_val[tradeable_col] = tradeable_val[tradeable_col].fillna(0).astype(int)
+            
+            tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, tradeable_col)
+            joblib.dump(tradeable_fit["model"], output_dir / f"tradeable_2_{tf}_{args.stage}_{ablation}.joblib")
+            results["metrics"][f"tradeable_2_{tf}"] = tradeable_fit["metrics"]
+            
+            # Direction classifier (only tradeable events at this timeframe)
+            dir_train = train_df[train_df[tradeable_col] == 1].copy()
+            dir_val = val_df[val_df[tradeable_col] == 1].copy()
+            
+            if dir_train.empty or dir_val.empty:
+                print(f"    WARNING: Not enough tradeable samples for {tf} direction model")
+                continue
+            
+            dir_train["break_label"] = (dir_train[outcome_col] == "BREAK").astype(int)
+            dir_val["break_label"] = (dir_val[outcome_col] == "BREAK").astype(int)
+            
+            direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
+            joblib.dump(direction_fit["model"], output_dir / f"direction_{tf}_{args.stage}_{ablation}.joblib")
+            results["metrics"][f"direction_{tf}"] = direction_fit["metrics"]
+            
+            print(f"    {tf} - Tradeable: {tradeable_fit['metrics']['roc_auc']:.3f} AUC")
+            print(f"    {tf} - Direction: {direction_fit['metrics']['roc_auc']:.3f} AUC")
+        
+        # Backward compatibility: Also train legacy models using 4min as primary
+        print(f"\n  Training legacy single-timeframe models (4min)...")
         tradeable_df = train_df.copy()
         tradeable_val = val_df.copy()
-        tradeable_df["tradeable_2"] = tradeable_df["tradeable_2"].fillna(0).astype(int)
-        tradeable_val["tradeable_2"] = tradeable_val["tradeable_2"].fillna(0).astype(int)
+        tradeable_df["tradeable_2"] = tradeable_df["tradeable_2_4min"].fillna(0).astype(int)
+        tradeable_val["tradeable_2"] = tradeable_val["tradeable_2_4min"].fillna(0).astype(int)
         tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, "tradeable_2")
         joblib.dump(tradeable_fit["model"], output_dir / f"tradeable_2_{args.stage}_{ablation}.joblib")
         results["metrics"]["tradeable_2"] = tradeable_fit["metrics"]
 
-        # Direction classifier (only tradeable events)
-        dir_train = train_df[train_df["tradeable_2"] == 1].copy()
-        dir_val = val_df[val_df["tradeable_2"] == 1].copy()
-        if dir_train.empty or dir_val.empty:
-            raise ValueError("Not enough tradeable samples for direction model.")
-        dir_train["break_label"] = (dir_train["outcome"] == "BREAK").astype(int)
-        dir_val["break_label"] = (dir_val["outcome"] == "BREAK").astype(int)
-        direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
-        joblib.dump(direction_fit["model"], output_dir / f"direction_{args.stage}_{ablation}.joblib")
-        results["metrics"]["direction"] = direction_fit["metrics"]
+        # Direction classifier (4min outcomes)
+        dir_train = train_df[train_df["tradeable_2_4min"] == 1].copy()
+        dir_val = val_df[val_df["tradeable_2_4min"] == 1].copy()
+        if not dir_train.empty and not dir_val.empty:
+            dir_train["break_label"] = (dir_train["outcome_4min"] == "BREAK").astype(int)
+            dir_val["break_label"] = (dir_val["outcome_4min"] == "BREAK").astype(int)
+            direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
+            joblib.dump(direction_fit["model"], output_dir / f"direction_{args.stage}_{ablation}.joblib")
+            results["metrics"]["direction"] = direction_fit["metrics"]
 
-        # Strength regression (signed)
-        strength_fit = train_regressor(train_df, val_df, feature_set, "strength_signed")
+        # Multi-timeframe strength regressors
+        for tf in timeframes:
+            strength_col = f"strength_signed_{tf}"
+            
+            if strength_col not in train_df.columns:
+                print(f"    WARNING: {strength_col} not found, skipping {tf} strength model")
+                continue
+            
+            strength_fit = train_regressor(train_df, val_df, feature_set, strength_col)
+            joblib.dump(strength_fit["model"], output_dir / f"strength_{tf}_{args.stage}_{ablation}.joblib")
+            results["metrics"][f"strength_{tf}"] = strength_fit["metrics"]
+            print(f"    {tf} - Strength MAE: {strength_fit['metrics']['mae']:.3f}")
+        
+        # Legacy strength model (4min)
+        strength_fit = train_regressor(train_df, val_df, feature_set, "strength_signed_4min")
         joblib.dump(strength_fit["model"], output_dir / f"strength_{args.stage}_{ablation}.joblib")
         results["metrics"]["strength_signed"] = strength_fit["metrics"]
 
-        # Time-to-threshold reach probabilities
-        for threshold_col, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
-            for horizon in args.horizons:
-                col = f"{label_prefix}_{horizon}s"
-                train_h = train_df.copy()
-                val_h = val_df.copy()
-                train_h[col] = (train_h[threshold_col] <= horizon).astype(int).fillna(0)
-                val_h[col] = (val_h[threshold_col] <= horizon).astype(int).fillna(0)
-                fit = train_classifier(train_h, val_h, feature_set, col)
+        # Multi-timeframe time-to-threshold reach probabilities
+        for tf in timeframes:
+            for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
+                threshold_col = f"{threshold_col_base}_{tf}"
+                
+                if threshold_col not in train_df.columns:
+                    continue
+                
+                for horizon in args.horizons:
+                    col = f"{label_prefix}_{horizon}s_{tf}"
+                    train_h = train_df.copy()
+                    val_h = val_df.copy()
+                    train_h[col] = (train_h[threshold_col] <= horizon).astype(int).fillna(0)
+                    val_h[col] = (val_h[threshold_col] <= horizon).astype(int).fillna(0)
+                    fit = train_classifier(train_h, val_h, feature_set, col)
                 joblib.dump(
                     fit["model"],
                     output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"

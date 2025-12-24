@@ -1819,29 +1819,32 @@ def label_outcomes_vectorized(
     ohlcv_df: pd.DataFrame,
     lookforward_minutes: int = None,
     outcome_threshold: float = None,
-    confirmation_seconds: float = None
+    confirmation_seconds: float = None,
+    use_multi_timeframe: bool = True
 ) -> pd.DataFrame:
     """
-    Label outcomes using vectorized operations.
+    Label outcomes using vectorized operations with multi-timeframe support.
 
     Uses numpy searchsorted for O(log n) future price lookups.
     Threshold is $2.00 (2 strikes) for meaningful options trades.
+    
+    Multi-timeframe mode generates outcomes at 2min, 4min, 8min confirmations
+    to enable training models for different trading horizons.
 
     Args:
         signals_df: DataFrame with signals
         ohlcv_df: OHLCV DataFrame
         lookforward_minutes: Forward window for labeling (defaults to CONFIG.LOOKFORWARD_MINUTES)
         outcome_threshold: Price move threshold for BREAK/BOUNCE (defaults to CONFIG.OUTCOME_THRESHOLD)
+        use_multi_timeframe: If True, label at 2min/4min/8min; if False, use single confirmation
 
     Returns:
-        DataFrame with outcome labels added
+        DataFrame with outcome labels added (multi-timeframe or single)
     """
     if lookforward_minutes is None:
         lookforward_minutes = CONFIG.LOOKFORWARD_MINUTES
     if outcome_threshold is None:
         outcome_threshold = CONFIG.OUTCOME_THRESHOLD
-    if confirmation_seconds is None:
-        confirmation_seconds = CONFIG.CONFIRMATION_WINDOW_SECONDS
 
     if signals_df.empty or ohlcv_df.empty:
         return signals_df
@@ -1855,30 +1858,46 @@ def label_outcomes_vectorized(
 
     # Lookforward in nanoseconds
     lookforward_ns = int(lookforward_minutes * 60 * 1e9)
-    confirmation_ns = int(confirmation_seconds * 1e9)
-
+    
+    # Multi-timeframe windows or single window
+    if use_multi_timeframe:
+        confirmation_windows = CONFIG.CONFIRMATION_WINDOWS_MULTI  # [120, 240, 480]
+        window_labels = ['2min', '4min', '8min']
+    else:
+        confirmation_windows = [confirmation_seconds or CONFIG.CONFIRMATION_WINDOW_SECONDS]
+        window_labels = ['']
+    
     n = len(signals_df)
-    outcomes = np.empty(n, dtype=object)
-    future_prices = np.full(n, np.nan, dtype=np.float64)
-    excursion_max = np.full(n, np.nan, dtype=np.float64)
-    excursion_min = np.full(n, np.nan, dtype=np.float64)
-    strength_signed = np.full(n, np.nan, dtype=np.float64)
-    strength_abs = np.full(n, np.nan, dtype=np.float64)
-    time_to_threshold_1 = np.full(n, np.nan, dtype=np.float64)
-    time_to_threshold_2 = np.full(n, np.nan, dtype=np.float64)
-    tradeable_1 = np.zeros(n, dtype=np.int8)
-    tradeable_2 = np.zeros(n, dtype=np.int8)
-    confirm_ts_ns = np.full(n, np.nan, dtype=np.float64)
-    anchor_spot = np.full(n, np.nan, dtype=np.float64)
-
     signal_ts = signals_df['ts_ns'].values
     directions = signals_df['direction'].values
     bar_idx = signals_df['bar_idx'].values if 'bar_idx' in signals_df.columns else None
     threshold_1 = CONFIG.STRENGTH_THRESHOLD_1
     threshold_2 = CONFIG.STRENGTH_THRESHOLD_2
-
-    # Vectorized: find indices for each signal's lookforward window
-    for i in range(n):
+    
+    # Storage for multi-timeframe results
+    results_by_window = {}
+    
+    # Process each confirmation window
+    for window_sec, label in zip(confirmation_windows, window_labels):
+        suffix = f'_{label}' if label else ''
+        confirmation_ns = int(window_sec * 1e9)
+        
+        # Initialize arrays for this window
+        outcomes = np.empty(n, dtype=object)
+        future_prices = np.full(n, np.nan, dtype=np.float64)
+        excursion_max = np.full(n, np.nan, dtype=np.float64)
+        excursion_min = np.full(n, np.nan, dtype=np.float64)
+        strength_signed = np.full(n, np.nan, dtype=np.float64)
+        strength_abs = np.full(n, np.nan, dtype=np.float64)
+        time_to_threshold_1 = np.full(n, np.nan, dtype=np.float64)
+        time_to_threshold_2 = np.full(n, np.nan, dtype=np.float64)
+        tradeable_1 = np.zeros(n, dtype=np.int8)
+        tradeable_2 = np.zeros(n, dtype=np.int8)
+        confirm_ts_ns = np.full(n, np.nan, dtype=np.float64)
+        anchor_spot = np.full(n, np.nan, dtype=np.float64)
+        
+        # Vectorized: find indices for each signal's lookforward window
+        for i in range(n):
         ts = signal_ts[i]
         anchor_idx = None
         if bar_idx is not None:
@@ -1959,24 +1978,63 @@ def label_outcomes_vectorized(
                 idx = start_idx + below_2[0]
                 time_to_threshold_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
 
-        if np.isfinite(time_to_threshold_1[i]):
-            tradeable_1[i] = 1
-        if np.isfinite(time_to_threshold_2[i]):
-            tradeable_2[i] = 1
-
+            if np.isfinite(time_to_threshold_1[i]):
+                tradeable_1[i] = 1
+            if np.isfinite(time_to_threshold_2[i]):
+                tradeable_2[i] = 1
+        
+        # Store results for this window
+        results_by_window[label] = {
+            'outcomes': outcomes,
+            'future_prices': future_prices,
+            'excursion_max': excursion_max,
+            'excursion_min': excursion_min,
+            'strength_signed': strength_signed,
+            'strength_abs': strength_abs,
+            'time_to_threshold_1': time_to_threshold_1,
+            'time_to_threshold_2': time_to_threshold_2,
+            'tradeable_1': tradeable_1,
+            'tradeable_2': tradeable_2,
+            'confirm_ts_ns': confirm_ts_ns,
+            'anchor_spot': anchor_spot,
+        }
+    
+    # Build result DataFrame
     result = signals_df.copy()
-    result['outcome'] = outcomes
-    result['future_price_5min'] = future_prices
-    result['excursion_max'] = excursion_max
-    result['excursion_min'] = excursion_min
-    result['strength_signed'] = strength_signed
-    result['strength_abs'] = strength_abs
-    result['time_to_threshold_1'] = time_to_threshold_1
-    result['time_to_threshold_2'] = time_to_threshold_2
-    result['tradeable_1'] = tradeable_1
-    result['tradeable_2'] = tradeable_2
-    result['confirm_ts_ns'] = confirm_ts_ns
-    result['anchor_spot'] = anchor_spot
+    
+    # Add columns for each timeframe
+    for label, data in results_by_window.items():
+        suffix = f'_{label}' if label else ''
+        
+        result[f'outcome{suffix}'] = data['outcomes']
+        result[f'excursion_max{suffix}'] = data['excursion_max']
+        result[f'excursion_min{suffix}'] = data['excursion_min']
+        result[f'strength_signed{suffix}'] = data['strength_signed']
+        result[f'strength_abs{suffix}'] = data['strength_abs']
+        result[f'time_to_threshold_1{suffix}'] = data['time_to_threshold_1']
+        result[f'time_to_threshold_2{suffix}'] = data['time_to_threshold_2']
+        result[f'tradeable_1{suffix}'] = data['tradeable_1']
+        result[f'tradeable_2{suffix}'] = data['tradeable_2']
+        result[f'confirm_ts_ns{suffix}'] = data['confirm_ts_ns']
+        result[f'anchor_spot{suffix}'] = data['anchor_spot']
+        result[f'future_price{suffix}'] = data['future_prices']
+    
+    # For backward compatibility, also add non-suffixed columns using primary window (4min)
+    primary_label = '4min' if use_multi_timeframe else ''
+    if use_multi_timeframe and '4min' in results_by_window:
+        primary_data = results_by_window['4min']
+        result['outcome'] = primary_data['outcomes']
+        result['excursion_max'] = primary_data['excursion_max']
+        result['excursion_min'] = primary_data['excursion_min']
+        result['strength_signed'] = primary_data['strength_signed']
+        result['strength_abs'] = primary_data['strength_abs']
+        result['time_to_threshold_1'] = primary_data['time_to_threshold_1']
+        result['time_to_threshold_2'] = primary_data['time_to_threshold_2']
+        result['tradeable_1'] = primary_data['tradeable_1']
+        result['tradeable_2'] = primary_data['tradeable_2']
+        result['confirm_ts_ns'] = primary_data['confirm_ts_ns']
+        result['anchor_spot'] = primary_data['anchor_spot']
+        result['future_price_5min'] = primary_data['future_prices']
 
     return result
 

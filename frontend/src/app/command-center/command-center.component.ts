@@ -58,7 +58,7 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
   `,
   styles: [`
     .command-center {
-      min-height: 100vh;
+      height: 100vh;
       padding: 1.5rem;
       background: radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.12), transparent 40%),
         radial-gradient(circle at 80% 10%, rgba(248, 113, 113, 0.08), transparent 35%),
@@ -67,6 +67,7 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
+      overflow: hidden;
     }
 
     .command-header {
@@ -137,6 +138,8 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr) minmax(300px, 1fr);
       gap: 1.5rem;
       align-items: stretch;
+      flex: 1;
+      min-height: 0;
     }
 
     .panel {
@@ -144,6 +147,12 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       flex-direction: column;
       gap: 1rem;
       min-height: 0;
+      overflow: hidden;
+    }
+
+    .cockpit-panel {
+      overflow-y: auto;
+      padding-right: 0.25rem; /* small gutter so the scrollbar doesn't hug cards */
     }
 
     .options-panel {
@@ -151,6 +160,7 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 16px;
       padding: 1rem;
+      overflow: hidden;
     }
 
     @media (max-width: 1200px) {

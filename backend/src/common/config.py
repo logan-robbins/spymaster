@@ -90,9 +90,13 @@ class Config:
     OUTCOME_THRESHOLD: float = 2.0  # $2.00 SPY = 2 strikes minimum for BREAK/BOUNCE
     STRENGTH_THRESHOLD_1: float = 1.0  # $1.00 move
     STRENGTH_THRESHOLD_2: float = 2.0  # $2.00 move
-    LOOKFORWARD_MINUTES: int = 5    # Forward window for outcome determination
+    LOOKFORWARD_MINUTES: int = 8    # Forward window for outcome determination (8 min to cover all confirmations)
     LOOKBACK_MINUTES: int = 10      # Backward window for approach context
-    CONFIRMATION_WINDOW_SECONDS: float = 60.0  # Stage B confirmation window (t1 = t0 + 60s)
+    
+    # Multi-timeframe confirmation windows
+    # Generates outcomes at 2min, 4min, 8min to train models on different horizons
+    CONFIRMATION_WINDOW_SECONDS: float = 240.0  # Primary confirmation (4 minutes)
+    CONFIRMATION_WINDOWS_MULTI: list = [120.0, 240.0, 480.0]  # 2min, 4min, 8min
     
     # ========== Smoothing parameters (EWMA half-lives in seconds) ==========
     tau_score: float = 2.0        # break score smoothing
