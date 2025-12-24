@@ -1142,24 +1142,45 @@ def compute_attempt_features(
 
     time_window_ns = int(time_window_minutes * 60 * 1e9)
 
-    def _safe_value(value: Optional[float]) -> float:
-        try:
-            val = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        return val if np.isfinite(val) else 0.0
+    def _safe_array(series: Optional[pd.Series], size: int) -> np.ndarray:
+        if series is None:
+            return np.zeros(size, dtype=np.float64)
+        values = pd.to_numeric(series, errors='coerce').to_numpy(dtype=np.float64)
+        return np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
 
     grouped = df_sorted.groupby(['date', 'level_kind_name', 'direction'], sort=False)
     for _, group in grouped:
+        idxs = group.index.to_numpy()
+        size = len(group)
+        if size == 0:
+            continue
+
+        ts_values = group['ts_ns'].to_numpy(dtype=np.int64)
+        level_prices = group['level_price'].to_numpy(dtype=np.float64)
+        repl_ratio = _safe_array(group['barrier_replenishment_ratio'] if 'barrier_replenishment_ratio' in group.columns else None, size)
+        delta_liq = _safe_array(group['barrier_delta_liq'] if 'barrier_delta_liq' in group.columns else None, size)
+        tape_velocity = _safe_array(group['tape_velocity'] if 'tape_velocity' in group.columns else None, size)
+        tape_imbalance = _safe_array(group['tape_imbalance'] if 'tape_imbalance' in group.columns else None, size)
+
+        cluster_ids = np.zeros(size, dtype=np.int32)
+        attempt_indices = np.zeros(size, dtype=np.int32)
+        repl_trend = np.zeros(size, dtype=np.float64)
+        delta_liq_trend = np.zeros(size, dtype=np.float64)
+        tape_velocity_trend = np.zeros(size, dtype=np.float64)
+        tape_imbalance_trend = np.zeros(size, dtype=np.float64)
+
         cluster_id = 0
         attempt_index = 0
-        last_ts = None
-        last_price = None
-        first_metrics = None
+        last_ts: Optional[int] = None
+        last_price: Optional[float] = None
+        first_repl = 0.0
+        first_delta = 0.0
+        first_tape_velocity = 0.0
+        first_tape_imbalance = 0.0
 
-        for idx, row in group.iterrows():
-            ts = int(row['ts_ns'])
-            level_price = float(row['level_price'])
+        for i in range(size):
+            ts = ts_values[i]
+            level_price = level_prices[i]
             new_cluster = False
             if last_ts is None:
                 new_cluster = True
@@ -1172,26 +1193,29 @@ def compute_attempt_features(
             if new_cluster:
                 cluster_id += 1
                 attempt_index = 1
-                first_metrics = {
-                    "barrier_replenishment_ratio": _safe_value(row.get('barrier_replenishment_ratio', 0.0)),
-                    "barrier_delta_liq": _safe_value(row.get('barrier_delta_liq', 0.0)),
-                    "tape_velocity": _safe_value(row.get('tape_velocity', 0.0)),
-                    "tape_imbalance": _safe_value(row.get('tape_imbalance', 0.0)),
-                }
+                first_repl = repl_ratio[i]
+                first_delta = delta_liq[i]
+                first_tape_velocity = tape_velocity[i]
+                first_tape_imbalance = tape_imbalance[i]
             else:
                 attempt_index += 1
 
-            df.at[idx, 'attempt_cluster_id'] = cluster_id
-            df.at[idx, 'attempt_index'] = attempt_index
-
-            if first_metrics is not None:
-                df.at[idx, 'barrier_replenishment_trend'] = _safe_value(row.get('barrier_replenishment_ratio', 0.0)) - first_metrics['barrier_replenishment_ratio']
-                df.at[idx, 'barrier_delta_liq_trend'] = _safe_value(row.get('barrier_delta_liq', 0.0)) - first_metrics['barrier_delta_liq']
-                df.at[idx, 'tape_velocity_trend'] = _safe_value(row.get('tape_velocity', 0.0)) - first_metrics['tape_velocity']
-                df.at[idx, 'tape_imbalance_trend'] = _safe_value(row.get('tape_imbalance', 0.0)) - first_metrics['tape_imbalance']
+            cluster_ids[i] = cluster_id
+            attempt_indices[i] = attempt_index
+            repl_trend[i] = repl_ratio[i] - first_repl
+            delta_liq_trend[i] = delta_liq[i] - first_delta
+            tape_velocity_trend[i] = tape_velocity[i] - first_tape_velocity
+            tape_imbalance_trend[i] = tape_imbalance[i] - first_tape_imbalance
 
             last_ts = ts
             last_price = level_price
+
+        df.loc[idxs, 'attempt_cluster_id'] = cluster_ids
+        df.loc[idxs, 'attempt_index'] = attempt_indices
+        df.loc[idxs, 'barrier_replenishment_trend'] = repl_trend
+        df.loc[idxs, 'barrier_delta_liq_trend'] = delta_liq_trend
+        df.loc[idxs, 'tape_velocity_trend'] = tape_velocity_trend
+        df.loc[idxs, 'tape_imbalance_trend'] = tape_imbalance_trend
 
     return df
 

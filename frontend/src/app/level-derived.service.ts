@@ -1,8 +1,23 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { DataStreamService, LevelSignal, LevelsPayload } from './data-stream.service';
 
 type Direction = 'UP' | 'DOWN';
 type SignalBias = 'BREAK' | 'BOUNCE' | 'NEUTRAL';
+
+export interface ForceComponents {
+  barrier: number;
+  tape: number;
+  fuel: number;
+  approach: number;
+  confluence: number;
+  total: number;
+}
+
+export interface ForceVector {
+  break: ForceComponents;
+  bounce: ForceComponents;
+  net: number; // break.total - bounce.total (Positive = Break bias)
+}
 
 export interface DerivedLevel {
   id: string;
@@ -41,13 +56,7 @@ export interface DerivedLevel {
     barsSinceOpen: number;
     isFirst15m: boolean;
   };
-  contributions: {
-    barrier: number;
-    tape: number;
-    fuel: number;
-    approach: number;
-    confluence: number;
-  };
+  forces: ForceVector; // New Tug-of-War Vector
   confluenceId?: string;
 }
 
@@ -176,39 +185,6 @@ function computeApproachScores(level: LevelSignal) {
   return { breakScore, bounceScore };
 }
 
-function weightedStrength(components: { barrier: number; tape: number; fuel: number; approach: number; confluence: number }) {
-  const total = components.barrier * 0.3 +
-    components.tape * 0.25 +
-    components.fuel * 0.25 +
-    components.approach * 0.1 +
-    components.confluence * 0.1;
-
-  return clamp(total, 0, 1);
-}
-
-function computeContributionPercentages(components: { barrier: number; tape: number; fuel: number; approach: number; confluence: number }) {
-  const weighted = {
-    barrier: components.barrier * 0.3,
-    tape: components.tape * 0.25,
-    fuel: components.fuel * 0.25,
-    approach: components.approach * 0.1,
-    confluence: components.confluence * 0.1
-  };
-
-  const total = weighted.barrier + weighted.tape + weighted.fuel + weighted.approach + weighted.confluence;
-  if (total <= 0) {
-    return { barrier: 0, tape: 0, fuel: 0, approach: 0, confluence: 0 };
-  }
-
-  return {
-    barrier: Math.round((weighted.barrier / total) * 100),
-    tape: Math.round((weighted.tape / total) * 100),
-    fuel: Math.round((weighted.fuel / total) * 100),
-    approach: Math.round((weighted.approach / total) * 100),
-    confluence: Math.round((weighted.confluence / total) * 100)
-  };
-}
-
 function computeConfluenceGroups(levels: LevelSignal[], band: number): Array<{ id: string; center: number; score: number; levelIds: Set<string> }> {
   const sorted = [...levels].sort((a, b) => b.level_price - a.level_price);
   const groups: Array<{ id: string; center: number; score: number; levelIds: Set<string> }> = [];
@@ -258,7 +234,7 @@ export class LevelDerivedService {
   }
 
   private updateGammaVelocity(payload: LevelsPayload) {
-    const velocities: Record<string, number> = { ...this.gammaVelocity() };
+    const velocities: Record<string, number> = { ...untracked(() => this.gammaVelocity()) };
     const now = payload.ts;
 
     const levels = Array.isArray((payload as any).levels) ? (payload as any).levels as LevelSignal[] : [];
@@ -309,31 +285,48 @@ export class LevelDerivedService {
       const confluence = confluenceLookup.get(level.id);
       const confluenceStrength = confluence?.strength ?? 0;
 
-      const breakStrength = weightedStrength({
-        barrier: barrier.breakScore,
-        tape: tape.breakScore,
-        fuel: fuel.breakScore,
-        approach: approach.breakScore,
-        confluence: confluenceStrength
-      });
+      const weights = { barrier: 0.3, tape: 0.25, fuel: 0.25, approach: 0.1, confluence: 0.1 };
 
-      const bounceStrength = weightedStrength({
-        barrier: barrier.bounceScore,
-        tape: tape.bounceScore,
-        fuel: fuel.bounceScore,
-        approach: approach.bounceScore,
-        confluence: confluenceStrength
-      });
+      const breakTotal = 
+        barrier.breakScore * weights.barrier +
+        tape.breakScore * weights.tape +
+        fuel.breakScore * weights.fuel +
+        approach.breakScore * weights.approach +
+        confluenceStrength * weights.confluence;
 
-      const breakValue = toPercent(breakStrength);
-      const bounceValue = toPercent(bounceStrength);
+      const bounceTotal = 
+        barrier.bounceScore * weights.barrier +
+        tape.bounceScore * weights.tape +
+        fuel.bounceScore * weights.fuel +
+        approach.bounceScore * weights.approach +
+        confluenceStrength * weights.confluence;
+
+      const breakValue = toPercent(breakTotal);
+      const bounceValue = toPercent(bounceTotal);
+
+      // Force Vector (Tug-of-War): per-component contributions are WEIGHTED percent-points (0..100).
+      // These are designed to stack cleanly into break.total / bounce.total.
+      const forces: ForceVector = {
+        break: {
+          barrier: barrier.breakScore * weights.barrier * 100,
+          tape: tape.breakScore * weights.tape * 100,
+          fuel: fuel.breakScore * weights.fuel * 100,
+          approach: approach.breakScore * weights.approach * 100,
+          confluence: confluenceStrength * weights.confluence * 100,
+          total: breakValue
+        },
+        bounce: {
+          barrier: barrier.bounceScore * weights.barrier * 100,
+          tape: tape.bounceScore * weights.tape * 100,
+          fuel: fuel.bounceScore * weights.fuel * 100,
+          approach: approach.bounceScore * weights.approach * 100,
+          confluence: confluenceStrength * weights.confluence * 100,
+          total: bounceValue
+        },
+        net: breakValue - bounceValue
+      };
 
       const bias: SignalBias = breakValue > bounceValue ? 'BREAK' : bounceValue > breakValue ? 'BOUNCE' : 'NEUTRAL';
-      const contributions = computeContributionPercentages(
-        bias === 'BREAK'
-          ? { barrier: barrier.breakScore, tape: tape.breakScore, fuel: fuel.breakScore, approach: approach.breakScore, confluence: confluenceStrength }
-          : { barrier: barrier.bounceScore, tape: tape.bounceScore, fuel: fuel.bounceScore, approach: approach.bounceScore, confluence: confluenceStrength }
-      );
 
       return {
         id: level.id,
@@ -372,7 +365,7 @@ export class LevelDerivedService {
           barsSinceOpen: level.bars_since_open,
           isFirst15m: level.is_first_15m
         },
-        contributions,
+        forces, // Replaces contributions
         confluenceId: confluence?.id
       };
     }).sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance));

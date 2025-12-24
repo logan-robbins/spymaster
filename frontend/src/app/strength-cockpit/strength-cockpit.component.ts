@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { LevelDerivedService } from '../level-derived.service';
 import { DataStreamService } from '../data-stream.service';
 
+type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
+
 @Component({
   selector: 'app-strength-cockpit',
   standalone: true,
@@ -10,7 +12,13 @@ import { DataStreamService } from '../data-stream.service';
   template: `
     <div class="cockpit">
       <div class="cockpit-header">
-        <div class="title">Strength Cockpit</div>
+        <div class="header-top">
+          <div class="title">Strength Cockpit</div>
+          <div class="traffic-pill" [ngClass]="'traffic-' + tradeStatus().state">
+            <div class="traffic-label">{{ tradeStatus().label }}</div>
+            <div class="traffic-detail">{{ tradeStatus().detail }}</div>
+          </div>
+        </div>
         @if (level()) {
           <div class="meta">
             Nearest: {{ level()!.kind }} {{ level()!.price | number:'1.2-2' }} ({{ level()!.direction }})
@@ -100,6 +108,15 @@ import { DataStreamService } from '../data-stream.service';
               </div>
               <div class="mechanic-hint">{{ gammaVelocityHint() }}</div>
             </div>
+
+            <!-- Gamma Regime -->
+            <div class="mechanic-item">
+              <div class="mechanic-label">Gamma Regime</div>
+              <div class="mechanic-value" [ngClass]="gammaRegimeClass()">
+                {{ gammaRegimeLabel() }}
+              </div>
+              <div class="mechanic-hint">{{ gammaRegimeHint() }}</div>
+            </div>
           </div>
         </div>
       }
@@ -118,9 +135,17 @@ import { DataStreamService } from '../data-stream.service';
 
     .cockpit-header {
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
       gap: 1rem;
       align-items: baseline;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 1rem;
     }
 
     .title {
@@ -130,6 +155,58 @@ import { DataStreamService } from '../data-stream.service';
       text-transform: uppercase;
       color: #e2e8f0;
     }
+
+    .traffic-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.15rem;
+      padding: 0.35rem 0.55rem;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      background: rgba(15, 23, 42, 0.6);
+      font-family: 'IBM Plex Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      min-width: 92px;
+    }
+
+    .traffic-label {
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: #f8fafc;
+    }
+
+    .traffic-detail {
+      font-size: 0.55rem;
+      letter-spacing: 0.12em;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .traffic-go {
+      border-color: rgba(34, 197, 94, 0.35);
+      background: rgba(34, 197, 94, 0.10);
+    }
+    .traffic-go .traffic-label { color: #86efac; }
+
+    .traffic-wait {
+      border-color: rgba(251, 191, 36, 0.35);
+      background: rgba(251, 191, 36, 0.10);
+    }
+    .traffic-wait .traffic-label { color: #fbbf24; }
+
+    .traffic-no-go {
+      border-color: rgba(248, 113, 113, 0.35);
+      background: rgba(248, 113, 113, 0.10);
+    }
+    .traffic-no-go .traffic-label { color: #fca5a5; }
+
+    .traffic-offline {
+      border-color: rgba(148, 163, 184, 0.25);
+      background: rgba(148, 163, 184, 0.08);
+    }
+    .traffic-offline .traffic-label { color: #cbd5f5; }
 
     .meta {
       font-family: 'IBM Plex Mono', monospace;
@@ -362,9 +439,40 @@ import { DataStreamService } from '../data-stream.service';
 })
 export class StrengthCockpitComponent {
   private derived = inject(LevelDerivedService);
+  private stream = inject(DataStreamService);
   public Math = Math;  // Expose Math to template
 
   public level = this.derived.primaryLevel;
+
+  public tradeStatus = computed((): { state: TrafficState; label: string; detail: string } => {
+    const connection = this.stream.connectionStatus();
+    const dataStatus = this.stream.dataStatus();
+    if (connection !== 'connected') {
+      return { state: 'offline', label: 'OFFLINE', detail: 'NO STREAM' };
+    }
+    if (dataStatus !== 'ok') {
+      return { state: 'offline', label: 'OFFLINE', detail: 'NO DATA' };
+    }
+
+    const level = this.level();
+    if (!level) {
+      return { state: 'offline', label: 'WAIT', detail: 'NO LEVEL' };
+    }
+
+    const edge = level.breakStrength - level.bounceStrength;
+    const edgeAbs = Math.abs(edge);
+    const edgeText = `${edge >= 0 ? '+' : ''}${edge}`;
+    const conf = level.confidence;
+
+    // Simplified tradeability heuristic using existing schema.
+    if (conf === 'LOW' || level.signal === 'CHOP') {
+      return { state: 'no-go', label: 'NO-GO', detail: `${conf} · EDGE ${edgeText}` };
+    }
+    if (conf === 'HIGH' && edgeAbs >= 15) {
+      return { state: 'go', label: 'GO', detail: `${conf} · EDGE ${edgeText}` };
+    }
+    return { state: 'wait', label: 'WAIT', detail: `${conf} · EDGE ${edgeText}` };
+  });
 
   public callSuccess = computed(() => {
     const level = this.level();
@@ -462,6 +570,32 @@ export class StrengthCockpitComponent {
     if (vel < -500) return 'Dealers exiting FAST';
     if (vel < -100) return 'Dealers reducing exposure';
     return 'Stable positioning';
+  });
+
+  // Gamma Regime (Sticky vs Slippery)
+  public gammaRegimeLabel = computed(() => {
+    const level = this.level();
+    if (!level) return 'UNKNOWN';
+    const eff = level.fuel.effect;
+    if (eff === 'AMPLIFY') return 'SLIPPERY';
+    if (eff === 'DAMPEN') return 'STICKY';
+    return 'NEUTRAL';
+  });
+
+  public gammaRegimeClass = computed(() => {
+    const label = this.gammaRegimeLabel();
+    if (label === 'STICKY') return 'positive';
+    if (label === 'SLIPPERY') return 'negative';
+    return 'neutral';
+  });
+
+  public gammaRegimeHint = computed(() => {
+    const level = this.level();
+    if (!level) return 'No level selected';
+    const eff = level.fuel.effect;
+    if (eff === 'AMPLIFY') return 'Vol expands (dealers chase)';
+    if (eff === 'DAMPEN') return 'Pinning / mean reversion';
+    return 'Mixed regime';
   });
 
   public formatGamma(value: number): string {

@@ -17,8 +17,6 @@ Per §5.4 of PLAN.md:
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
-from collections import deque
-
 from .barrier_engine import BarrierMetrics, BarrierState
 from .tape_engine import TapeMetrics
 from .fuel_engine import FuelMetrics, FuelEffect

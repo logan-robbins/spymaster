@@ -22,7 +22,7 @@ from datetime import datetime
 from src.ingestor.dbn_ingestor import DBNIngestor
 from src.lake.bronze_writer import BronzeReader
 from src.common.bus import NATSBus
-from src.common.event_types import FuturesTrade, MBP10, OptionTrade, EventSource, Aggressor
+from src.common.event_types import FuturesTrade, MBP10, OptionTrade, EventSource, Aggressor, BidAskLevel
 
 
 @dataclass
@@ -73,12 +73,16 @@ class ReplayPublisher:
         bus: NATSBus,
         dbn_ingestor: DBNIngestor,
         replay_speed: float = 1.0,
-        bronze_reader: Optional[BronzeReader] = None
+        bronze_reader: Optional[BronzeReader] = None,
+        use_bronze_futures: bool = False,
+        futures_symbol: str = "ES"
     ):
         self.bus = bus
         self.dbn_ingestor = dbn_ingestor
         self.replay_speed = replay_speed
         self.bronze_reader = bronze_reader or BronzeReader()
+        self.use_bronze_futures = use_bronze_futures
+        self.futures_symbol = futures_symbol
         self.stats = ReplayStats()
     
     async def replay_date(
@@ -109,8 +113,21 @@ class ReplayPublisher:
         self.stats.start_time = time.time()
         
         # Stream-merge both iterators by event time to avoid materializing whole day in memory.
-        trade_iter = iter(self.dbn_ingestor.read_trades(date, start_ns, end_ns)) if include_trades else iter(())
-        mbp_iter = iter(self.dbn_ingestor.read_mbp10(date, start_ns, end_ns)) if include_mbp10 else iter(())
+        if include_trades:
+            if self.use_bronze_futures:
+                trade_iter = iter(self._iter_futures_trades_bronze(date, start_ns, end_ns))
+            else:
+                trade_iter = iter(self.dbn_ingestor.read_trades(date, start_ns, end_ns))
+        else:
+            trade_iter = iter(())
+
+        if include_mbp10:
+            if self.use_bronze_futures:
+                mbp_iter = iter(self._iter_futures_mbp10_bronze(date, start_ns, end_ns))
+            else:
+                mbp_iter = iter(self.dbn_ingestor.read_mbp10(date, start_ns, end_ns))
+        else:
+            mbp_iter = iter(())
         option_iter = self._iter_option_trades(date, start_ns, end_ns) if include_options else iter(())
 
         next_trade = next(trade_iter, None)
@@ -224,31 +241,159 @@ class ReplayPublisher:
         )
         if options_df.empty:
             raise ValueError(f"No Bronze option trades found for {date}")
+        required = ["ts_event_ns", "option_symbol", "exp_date", "strike", "right", "price", "size"]
+        missing = [col for col in required if col not in options_df.columns]
+        if missing:
+            raise ValueError(f"Bronze option trades missing columns: {missing}")
 
-        for row in options_df.itertuples(index=False):
-            aggressor = Aggressor.MID
-            agg_val = getattr(row, "aggressor", 0)
+        ts_event = options_df["ts_event_ns"].to_numpy()
+        ts_recv = options_df["ts_recv_ns"].to_numpy() if "ts_recv_ns" in options_df.columns else ts_event
+        underlying = options_df["underlying"].to_numpy() if "underlying" in options_df.columns else None
+        option_symbol = options_df["option_symbol"].to_numpy()
+        exp_date = options_df["exp_date"].to_numpy()
+        strike = options_df["strike"].to_numpy()
+        right = options_df["right"].to_numpy()
+        price = options_df["price"].to_numpy()
+        size = options_df["size"].to_numpy()
+        opt_bid = options_df["opt_bid"].to_numpy() if "opt_bid" in options_df.columns else None
+        opt_ask = options_df["opt_ask"].to_numpy() if "opt_ask" in options_df.columns else None
+        aggressor = options_df["aggressor"].to_numpy() if "aggressor" in options_df.columns else None
+        conditions = options_df["conditions"].to_numpy() if "conditions" in options_df.columns else None
+        seq = options_df["seq"].to_numpy() if "seq" in options_df.columns else None
+
+        for idx in range(len(options_df)):
+            agg_val = aggressor[idx] if aggressor is not None else 0
             if agg_val in (1, "BUY", "buy"):
-                aggressor = Aggressor.BUY
+                agg_enum = Aggressor.BUY
             elif agg_val in (-1, "SELL", "sell"):
-                aggressor = Aggressor.SELL
+                agg_enum = Aggressor.SELL
+            else:
+                agg_enum = Aggressor.MID
 
             yield OptionTrade(
-                ts_event_ns=int(row.ts_event_ns),
-                ts_recv_ns=int(getattr(row, "ts_recv_ns", row.ts_event_ns)),
+                ts_event_ns=int(ts_event[idx]),
+                ts_recv_ns=int(ts_recv[idx]),
                 source=EventSource.REPLAY,
-                underlying=getattr(row, "underlying", "SPY"),
-                option_symbol=row.option_symbol,
-                exp_date=str(row.exp_date),
-                strike=float(row.strike),
-                right=row.right,
-                price=float(row.price),
-                size=int(row.size),
-                opt_bid=getattr(row, "opt_bid", None),
-                opt_ask=getattr(row, "opt_ask", None),
-                aggressor=aggressor,
-                conditions=getattr(row, "conditions", None),
-                seq=getattr(row, "seq", None)
+                underlying=underlying[idx] if underlying is not None else "SPY",
+                option_symbol=option_symbol[idx],
+                exp_date=str(exp_date[idx]),
+                strike=float(strike[idx]),
+                right=right[idx],
+                price=float(price[idx]),
+                size=int(size[idx]),
+                opt_bid=opt_bid[idx] if opt_bid is not None else None,
+                opt_ask=opt_ask[idx] if opt_ask is not None else None,
+                aggressor=agg_enum,
+                conditions=conditions[idx] if conditions is not None else None,
+                seq=seq[idx] if seq is not None else None
+            )
+
+    def _iter_futures_trades_bronze(
+        self,
+        date: str,
+        start_ns: Optional[int],
+        end_ns: Optional[int]
+    ) -> Iterator[FuturesTrade]:
+        trades_df = self.bronze_reader.read_futures_trades(
+            symbol=self.futures_symbol,
+            date=date,
+            start_ns=start_ns,
+            end_ns=end_ns
+        )
+        if trades_df.empty:
+            raise ValueError(f"No Bronze futures trades found for {date} (symbol={self.futures_symbol})")
+        required = ["ts_event_ns", "ts_recv_ns", "source", "symbol", "price", "size"]
+        missing = [col for col in required if col not in trades_df.columns]
+        if missing:
+            raise ValueError(f"Bronze futures trades missing columns: {missing}")
+
+        ts_event = trades_df["ts_event_ns"].to_numpy()
+        ts_recv = trades_df["ts_recv_ns"].to_numpy()
+        source = trades_df["source"].to_numpy()
+        symbol = trades_df["symbol"].to_numpy()
+        price = trades_df["price"].to_numpy()
+        size = trades_df["size"].to_numpy()
+        aggressor = trades_df["aggressor"].to_numpy() if "aggressor" in trades_df.columns else None
+        exchange = trades_df["exchange"].to_numpy() if "exchange" in trades_df.columns else None
+        conditions = trades_df["conditions"].to_numpy() if "conditions" in trades_df.columns else None
+        seq = trades_df["seq"].to_numpy() if "seq" in trades_df.columns else None
+
+        for idx in range(len(trades_df)):
+            yield FuturesTrade(
+                ts_event_ns=int(ts_event[idx]),
+                ts_recv_ns=int(ts_recv[idx]),
+                source=EventSource(source[idx]),
+                symbol=symbol[idx],
+                price=float(price[idx]),
+                size=int(size[idx]),
+                aggressor=Aggressor(aggressor[idx]) if aggressor is not None else Aggressor.MID,
+                exchange=exchange[idx] if exchange is not None else None,
+                conditions=conditions[idx] if conditions is not None else None,
+                seq=seq[idx] if seq is not None else None
+            )
+
+    def _iter_futures_mbp10_bronze(
+        self,
+        date: str,
+        start_ns: Optional[int],
+        end_ns: Optional[int]
+    ) -> Iterator[MBP10]:
+        mbp_df = self.bronze_reader.read_futures_mbp10(
+            symbol=self.futures_symbol,
+            date=date,
+            start_ns=start_ns,
+            end_ns=end_ns
+        )
+        if mbp_df.empty:
+            raise ValueError(f"No Bronze futures MBP-10 found for {date} (symbol={self.futures_symbol})")
+        required = ["ts_event_ns", "ts_recv_ns", "source", "symbol"]
+        missing = [col for col in required if col not in mbp_df.columns]
+        if missing:
+            raise ValueError(f"Bronze futures MBP-10 missing columns: {missing}")
+
+        level_cols = []
+        for idx in range(1, 11):
+            level_cols.extend([
+                f"bid_px_{idx}",
+                f"bid_sz_{idx}",
+                f"ask_px_{idx}",
+                f"ask_sz_{idx}",
+            ])
+        missing_levels = [col for col in level_cols if col not in mbp_df.columns]
+        if missing_levels:
+            raise ValueError(f"Bronze futures MBP-10 missing level columns: {missing_levels}")
+
+        ts_event = mbp_df["ts_event_ns"].to_numpy()
+        ts_recv = mbp_df["ts_recv_ns"].to_numpy()
+        source = mbp_df["source"].to_numpy()
+        symbol = mbp_df["symbol"].to_numpy()
+        is_snapshot = mbp_df["is_snapshot"].to_numpy() if "is_snapshot" in mbp_df.columns else None
+        seq = mbp_df["seq"].to_numpy() if "seq" in mbp_df.columns else None
+
+        bid_px = [mbp_df[f"bid_px_{idx}"].to_numpy() for idx in range(1, 11)]
+        bid_sz = [mbp_df[f"bid_sz_{idx}"].to_numpy() for idx in range(1, 11)]
+        ask_px = [mbp_df[f"ask_px_{idx}"].to_numpy() for idx in range(1, 11)]
+        ask_sz = [mbp_df[f"ask_sz_{idx}"].to_numpy() for idx in range(1, 11)]
+
+        for row_idx in range(len(mbp_df)):
+            levels = [
+                BidAskLevel(
+                    bid_px=float(bid_px[level_idx][row_idx]),
+                    bid_sz=int(bid_sz[level_idx][row_idx]),
+                    ask_px=float(ask_px[level_idx][row_idx]),
+                    ask_sz=int(ask_sz[level_idx][row_idx])
+                )
+                for level_idx in range(10)
+            ]
+
+            yield MBP10(
+                ts_event_ns=int(ts_event[row_idx]),
+                ts_recv_ns=int(ts_recv[row_idx]),
+                source=EventSource(source[row_idx]),
+                symbol=symbol[row_idx],
+                levels=levels,
+                is_snapshot=bool(is_snapshot[row_idx]) if is_snapshot is not None else False,
+                seq=seq[row_idx] if seq is not None else None
             )
     
     def _print_stats(self):
@@ -297,7 +442,10 @@ async def main():
     replay_speed = CONFIG.REPLAY_SPEED
     replay_date = os.getenv("REPLAY_DATE")  # Single date or None for all
     include_options = os.getenv("REPLAY_INCLUDE_OPTIONS", "false").lower() == "true"
+    use_bronze_futures = os.getenv("REPLAY_USE_BRONZE_FUTURES", "false").lower() == "true"
+    futures_symbol = os.getenv("REPLAY_FUTURES_SYMBOL", "ES")
     print(f"   Options replay: {include_options}")
+    print(f"   Bronze futures replay: {use_bronze_futures} (symbol={futures_symbol})")
     
     # Initialize NATS
     bus = NATSBus(servers=[CONFIG.NATS_URL])
@@ -320,7 +468,9 @@ async def main():
     publisher = ReplayPublisher(
         bus=bus,
         dbn_ingestor=dbn_ingestor,
-        replay_speed=replay_speed
+        replay_speed=replay_speed,
+        use_bronze_futures=use_bronze_futures,
+        futures_symbol=futures_symbol
     )
     
     try:

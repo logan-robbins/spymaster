@@ -18,7 +18,6 @@ Interfaces consumed:
 
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
-from collections import deque
 import numpy as np
 
 from src.common.event_types import Aggressor

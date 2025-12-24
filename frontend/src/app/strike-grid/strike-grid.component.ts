@@ -40,9 +40,9 @@ export class StrikeGridComponent {
        ]
     */
 
-    rows = computed((): Array<{ strike: number; call?: FlowMetrics; put?: FlowMetrics }> => {
+    rows = computed((): Array<{ strike: number; call?: FlowMetrics; put?: FlowMetrics; netGamma: number; netDelta: number }> => {
         const data = this.flowData();
-        const map = new Map<number, { strike: number; call?: FlowMetrics; put?: FlowMetrics }>();
+        const map = new Map<number, { strike: number; call?: FlowMetrics; put?: FlowMetrics; netGamma: number; netDelta: number }>();
 
         // Group
         for (const key in data) {
@@ -50,7 +50,7 @@ export class StrikeGridComponent {
             const strike = item.strike_price;
 
             if (!map.has(strike)) {
-                map.set(strike, { strike });
+                map.set(strike, { strike, netGamma: 0, netDelta: 0 });
             }
 
             const row = map.get(strike)!;
@@ -61,9 +61,29 @@ export class StrikeGridComponent {
             }
         }
 
+        // Aggregate net gamma / delta at the strike level
+        for (const row of map.values()) {
+            const callGamma = row.call?.net_gamma_flow ?? 0;
+            const putGamma = row.put?.net_gamma_flow ?? 0;
+            const callDelta = row.call?.net_delta_flow ?? 0;
+            const putDelta = row.put?.net_delta_flow ?? 0;
+            row.netGamma = callGamma + putGamma;
+            row.netDelta = callDelta + putDelta;
+        }
+
         // Sort High to Low
         return Array.from(map.values()).sort((a, b) => b.strike - a.strike);
     });
+
+    maxAbsNetGamma = computed(() => {
+        let max = 1;
+        for (const row of this.rows()) {
+            max = Math.max(max, Math.abs(row.netGamma));
+        }
+        return max;
+    });
+
+    atmStrike = computed(() => this.analytics.atmStrike());
 
     // Helper for Net Delta Color
     getDeltaColor(val: number | null | undefined): string {
@@ -84,5 +104,25 @@ export class StrikeGridComponent {
         const alpha = 0.15 + intensity * 0.55; // Increased visibility
         // Calls = green, Puts = red
         return side === 'call' ? `rgba(34,197,94,${alpha})` : `rgba(244,63,94,${alpha})`;
+    }
+
+    getGammaBarWidth(netGamma: number): number {
+        const max = this.maxAbsNetGamma();
+        if (!Number.isFinite(netGamma) || !Number.isFinite(max) || max <= 0) return 0;
+        return Math.min(100, (Math.abs(netGamma) / max) * 100);
+    }
+
+    getGammaBarColor(netGamma: number): string {
+        if (!Number.isFinite(netGamma) || netGamma === 0) return 'rgba(148, 163, 184, 0.18)';
+        return netGamma > 0 ? 'rgba(34, 197, 94, 0.35)' : 'rgba(248, 113, 113, 0.35)';
+    }
+
+    formatK(value: number | null | undefined): string {
+        if (value == null || !Number.isFinite(value)) return '0';
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        const abs = Math.abs(value);
+        if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+        if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(1)}K`;
+        return `${sign}${abs.toFixed(0)}`;
     }
 }

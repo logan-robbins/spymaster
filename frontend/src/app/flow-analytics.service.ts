@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { DataStreamService, FlowMap, FlowMetrics } from './data-stream.service';
 
@@ -117,6 +117,62 @@ export class FlowAnalyticsService {
     private _tick = signal(0);
     private _atmStrike = signal<number | null>(null);
     public atmStrike = this._atmStrike.asReadonly();
+
+    // Per-strike net gamma (call + put). Useful for ladder markers / gamma profile.
+    public netGammaByStrike = computed(() => {
+        const snapshot = this.stream.flowData();
+        const map = new Map<number, number>();
+        for (const m of Object.values(snapshot)) {
+            if (!m) continue;
+            const strike = m.strike_price;
+            if (!Number.isFinite(strike) || strike <= 0) continue;
+            const gamma = Number.isFinite(m.net_gamma_flow) ? m.net_gamma_flow : 0;
+            map.set(strike, (map.get(strike) ?? 0) + gamma);
+        }
+        return map;
+    });
+
+    // Strike with largest positive net gamma (pinning / magnet)
+    public magnetStrike = computed(() => {
+        const gammaByStrike = this.netGammaByStrike();
+        let bestStrike: number | null = null;
+        let bestGamma = 0;
+        for (const [strike, g] of gammaByStrike.entries()) {
+            if (!Number.isFinite(g)) continue;
+            if (g > bestGamma) {
+                bestGamma = g;
+                bestStrike = strike;
+            }
+        }
+        return bestStrike;
+    });
+
+    // Nearest gamma sign-flip boundary to ATM (vol trigger / cliff)
+    public cliffStrike = computed(() => {
+        const gammaByStrike = this.netGammaByStrike();
+        const strikesAsc = Array.from(gammaByStrike.keys()).sort((a, b) => a - b);
+        if (strikesAsc.length < 2) return null;
+
+        const atm = this.atmStrike() ?? null;
+        let best: { strike: number; dist: number } | null = null;
+
+        for (let i = 1; i < strikesAsc.length; i++) {
+            const s0 = strikesAsc[i - 1];
+            const s1 = strikesAsc[i];
+            const a = gammaByStrike.get(s0) ?? 0;
+            const b = gammaByStrike.get(s1) ?? 0;
+            if (a === 0 || b === 0 || (a > 0) !== (b > 0)) {
+                // Choose the strike closer to the flip boundary (smaller abs gamma)
+                const candidate = Math.abs(a) < Math.abs(b) ? s0 : s1;
+                const dist = atm == null ? 0 : Math.abs(candidate - atm);
+                if (!best || dist < best.dist) {
+                    best = { strike: candidate, dist };
+                }
+            }
+        }
+
+        return best?.strike ?? null;
+    });
 
     // New: Hotzone Anchor (User defined). If null, falls back to ATM.
     public anchorStrike = signal<number | null>(null);

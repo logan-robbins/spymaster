@@ -31,8 +31,19 @@
           </td>
 
           <!-- STRIKE -->
-          <td class="strike-column">
-            {{ row.strike }}
+          <td class="strike-column"
+              [class.is-atm]="atmStrike() === row.strike"
+          >
+            <div class="strike-cell">
+              <div class="gamma-bar"
+                   [style.width.%]="getGammaBarWidth(row.netGamma)"
+                   [style.backgroundColor]="getGammaBarColor(row.netGamma)">
+              </div>
+              <div class="strike-main">
+                <div class="strike-num">{{ row.strike }}</div>
+                <div class="strike-gamma">GEX {{ formatK(row.netGamma) }}</div>
+              </div>
+            </div>
           </td>
 
           <!-- PUT SIDE -->

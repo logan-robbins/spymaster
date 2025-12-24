@@ -38,7 +38,7 @@ import { OptionsPanelComponent } from '../options-panel/options-panel.component'
 
       <div class="command-grid">
         <section class="panel ladder-panel">
-          <app-price-ladder [range]="6"></app-price-ladder>
+          <app-price-ladder [range]="2.5"></app-price-ladder>
         </section>
 
         <section class="panel cockpit-panel">

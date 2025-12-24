@@ -37,14 +37,56 @@ class ViewportInferenceEngine:
         tree_preds = self.model_bundle.predict(features_df)
         results: List[Dict[str, Any]] = []
 
-        for i, row in features_df.iterrows():
-            feature_vector = row[self.retrieval_index.feature_cols].to_numpy(dtype=np.float64)
+        features_matrix = features_df[self.retrieval_index.feature_cols].to_numpy(dtype=np.float64)
+        count = len(features_df)
+
+        def _col_or_none(name: str):
+            return features_df[name].to_numpy() if name in features_df.columns else None
+
+        def _float_or_default(value: Any, default: float) -> float:
+            if value is None:
+                return default
+            try:
+                if np.isnan(value):
+                    return default
+            except TypeError:
+                pass
+            return float(value)
+
+        def _maybe_float(value: Any) -> Optional[float]:
+            if value is None:
+                return None
+            try:
+                if np.isnan(value):
+                    return None
+            except TypeError:
+                pass
+            return float(value)
+
+        level_kind_name = _col_or_none("level_kind_name")
+        direction = _col_or_none("direction")
+        gamma_bucket = _col_or_none("gamma_bucket")
+        level_id = _col_or_none("level_id")
+        level_price = _col_or_none("level_price")
+        distance = _col_or_none("distance")
+        distance_signed = _col_or_none("distance_signed")
+        barrier_state = _col_or_none("barrier_state")
+        tape_imbalance = _col_or_none("tape_imbalance")
+        tape_velocity = _col_or_none("tape_velocity")
+        fuel_effect = _col_or_none("fuel_effect")
+        gamma_exposure = _col_or_none("gamma_exposure")
+
+        for i in range(count):
+            feature_vector = features_matrix[i]
+            level_kind_name_val = level_kind_name[i] if level_kind_name is not None else None
+            direction_val = direction[i] if direction is not None else "UP"
+
             filters = {
-                "level_kind_name": row.get("level_kind_name"),
-                "direction": row.get("direction")
+                "level_kind_name": level_kind_name_val,
+                "direction": direction_val
             }
-            if "gamma_bucket" in row:
-                filters["gamma_bucket"] = row.get("gamma_bucket")
+            if gamma_bucket is not None:
+                filters["gamma_bucket"] = gamma_bucket[i]
 
             retrieval = self.retrieval_index.query(feature_vector, filters=filters, k=20)
 
@@ -56,12 +98,12 @@ class ViewportInferenceEngine:
             )
 
             mask = self.feasibility_gate.compute_mask(
-                direction=row.get("direction", "UP"),
-                barrier_state=row.get("barrier_state", "NEUTRAL"),
-                tape_imbalance=float(row.get("tape_imbalance", 0.0)),
-                tape_velocity=float(row.get("tape_velocity", 0.0)),
-                fuel_effect=row.get("fuel_effect", "NEUTRAL"),
-                gamma_exposure=float(row.get("gamma_exposure", 0.0))
+                direction=direction_val if direction_val is not None else "UP",
+                barrier_state=barrier_state[i] if barrier_state is not None else "NEUTRAL",
+                tape_imbalance=_float_or_default(tape_imbalance[i] if tape_imbalance is not None else None, 0.0),
+                tape_velocity=_float_or_default(tape_velocity[i] if tape_velocity is not None else None, 0.0),
+                fuel_effect=fuel_effect[i] if fuel_effect is not None else "NEUTRAL",
+                gamma_exposure=_float_or_default(gamma_exposure[i] if gamma_exposure is not None else None, 0.0)
             )
             p_break = self.feasibility_gate.apply_mask(ensemble.p_break, mask)
 
@@ -69,17 +111,22 @@ class ViewportInferenceEngine:
             p_tradeable_2 = float(tree_preds.tradeable_2[i])
             utility = p_tradeable_2 * abs(strength)
 
-            level_id = row.get("level_id")
-            if not level_id:
-                level_id = f"{row.get('level_kind_name')}_{int(round(row.get('level_price', 0.0)))}"
+            level_id_val = level_id[i] if level_id is not None else None
+            level_price_val = _float_or_default(level_price[i] if level_price is not None else None, 0.0)
+            if not level_id_val:
+                kind_label = level_kind_name_val if level_kind_name_val is not None else "LEVEL"
+                level_id_val = f"{kind_label}_{int(round(level_price_val))}"
+
+            distance_val = _maybe_float(distance[i] if distance is not None else None)
+            distance_signed_val = _maybe_float(distance_signed[i] if distance_signed is not None else None)
 
             results.append({
-                "level_id": level_id,
-                "level_kind_name": row.get("level_kind_name"),
-                "level_price": float(row.get("level_price", 0.0)),
-                "direction": row.get("direction"),
-                "distance": float(row.get("distance", 0.0)) if row.get("distance") is not None else None,
-                "distance_signed": float(row.get("distance_signed", 0.0)) if row.get("distance_signed") is not None else None,
+                "level_id": level_id_val,
+                "level_kind_name": level_kind_name_val,
+                "level_price": level_price_val,
+                "direction": direction_val,
+                "distance": distance_val,
+                "distance_signed": distance_signed_val,
                 "p_tradeable_2": p_tradeable_2,
                 "p_break": p_break,
                 "p_bounce": 1.0 - p_break,

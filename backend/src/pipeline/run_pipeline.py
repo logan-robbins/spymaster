@@ -293,11 +293,16 @@ def detect_level_touches(
     """
     touches = []
 
-    for idx, row in ohlcv_df.iterrows():
-        ts_ns = int(row['timestamp'].value)
-        low = row['low']
-        high = row['high']
-        close = row['close']
+    ts_ns_values = ohlcv_df['timestamp'].to_numpy(dtype='datetime64[ns]').astype('int64')
+    lows = ohlcv_df['low'].to_numpy(dtype=np.float64)
+    highs = ohlcv_df['high'].to_numpy(dtype=np.float64)
+    closes = ohlcv_df['close'].to_numpy(dtype=np.float64)
+
+    for idx in range(len(ohlcv_df)):
+        ts_ns = int(ts_ns_values[idx])
+        low = lows[idx]
+        high = highs[idx]
+        close = closes[idx]
 
         # Check for whole number touches (STRIKE levels)
         for strike in range(int(low) - 1, int(high) + 2):

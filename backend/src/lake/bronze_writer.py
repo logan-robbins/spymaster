@@ -64,6 +64,64 @@ def dataclass_to_dict(obj: Any) -> Dict[str, Any]:
     return result
 
 
+def _normalize_enum(value: Any) -> Any:
+    """Normalize Enum values for serialization."""
+    if hasattr(value, "value"):
+        return value.value
+    return value
+
+
+def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
+    """Flatten MBP10 event levels into bid/ask fields."""
+    if isinstance(event, dict):
+        base = {
+            "ts_event_ns": event["ts_event_ns"],
+            "ts_recv_ns": event.get("ts_recv_ns", event["ts_event_ns"]),
+            "source": _normalize_enum(event.get("source")),
+            "symbol": event.get("symbol"),
+            "is_snapshot": event.get("is_snapshot", False),
+            "seq": event.get("seq"),
+        }
+        levels = event.get("levels", [])
+    else:
+        base = {
+            "ts_event_ns": event.ts_event_ns,
+            "ts_recv_ns": getattr(event, "ts_recv_ns", event.ts_event_ns),
+            "source": _normalize_enum(event.source),
+            "symbol": event.symbol,
+            "is_snapshot": getattr(event, "is_snapshot", False),
+            "seq": getattr(event, "seq", None),
+        }
+        levels = getattr(event, "levels", [])
+
+    # Pad/truncate to 10 levels
+    for idx in range(10):
+        level = levels[idx] if idx < len(levels) else None
+        if level is None:
+            bid_px = 0.0
+            bid_sz = 0
+            ask_px = 0.0
+            ask_sz = 0
+        elif isinstance(level, dict):
+            bid_px = float(level.get("bid_px", 0.0))
+            bid_sz = int(level.get("bid_sz", 0))
+            ask_px = float(level.get("ask_px", 0.0))
+            ask_sz = int(level.get("ask_sz", 0))
+        else:
+            bid_px = float(getattr(level, "bid_px", 0.0))
+            bid_sz = int(getattr(level, "bid_sz", 0))
+            ask_px = float(getattr(level, "ask_px", 0.0))
+            ask_sz = int(getattr(level, "ask_sz", 0))
+
+        level_idx = idx + 1
+        base[f"bid_px_{level_idx}"] = bid_px
+        base[f"bid_sz_{level_idx}"] = bid_sz
+        base[f"ask_px_{level_idx}"] = ask_px
+        base[f"ask_sz_{level_idx}"] = ask_sz
+
+    return base
+
+
 class BronzeWriter:
     """
     High-throughput Bronze layer Parquet writer (Phase 2: NATS + S3).
@@ -297,8 +355,8 @@ class BronzeWriter:
         Buffer an event and check flush triggers.
         """
         # Convert to dict if needed
-        if isinstance(event, dict):
-            event_dict = dataclass_to_dict(event)
+        if schema_name == 'futures.mbp10':
+            event_dict = _flatten_mbp10_event(event)
         else:
             event_dict = dataclass_to_dict(event)
         
@@ -515,6 +573,38 @@ class BronzeReader:
         return self._read_schema(
             'options/trades',
             f'underlying={underlying}',
+            date,
+            start_ns,
+            end_ns
+        )
+
+    def read_futures_trades(
+        self,
+        symbol: str = 'ES',
+        date: str = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame:
+        """Read futures trades from Bronze."""
+        return self._read_schema(
+            'futures/trades',
+            f'symbol={symbol}',
+            date,
+            start_ns,
+            end_ns
+        )
+
+    def read_futures_mbp10(
+        self,
+        symbol: str = 'ES',
+        date: str = None,
+        start_ns: Optional[int] = None,
+        end_ns: Optional[int] = None
+    ) -> pd.DataFrame:
+        """Read futures MBP-10 from Bronze."""
+        return self._read_schema(
+            'futures/mbp10',
+            f'symbol={symbol}',
             date,
             start_ns,
             end_ns
