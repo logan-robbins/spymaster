@@ -92,6 +92,7 @@ class Config:
     STRENGTH_THRESHOLD_2: float = 2.0  # $2.00 move
     LOOKFORWARD_MINUTES: int = 5    # Forward window for outcome determination
     LOOKBACK_MINUTES: int = 10      # Backward window for approach context
+    CONFIRMATION_WINDOW_SECONDS: float = 60.0  # Stage B confirmation window (t1 = t0 + 60s)
     
     # ========== Smoothing parameters (EWMA half-lives in seconds) ==========
     tau_score: float = 2.0        # break score smoothing
@@ -115,6 +116,26 @@ class Config:
     ROUND_LEVELS_SPACING: float = 1.0  # generate round levels every $1
     STRIKE_RANGE: float = 5.0          # monitor strikes within ±$5 of spot
     VWAP_ENABLED: bool = True
+
+    # ========== Viewport / Focus settings ==========
+    VIEWPORT_SCAN_RADIUS: float = 1.0
+    VIEWPORT_MAX_TARGETS: int = 8
+    VIEWPORT_W_DISTANCE: float = 0.45
+    VIEWPORT_W_VELOCITY: float = 0.20
+    VIEWPORT_W_CONFLUENCE: float = 0.20
+    VIEWPORT_W_GAMMA: float = 0.15
+    APPROACH_VELOCITY_NORM: float = 0.50
+
+    # ========== Touch clustering ==========
+    TOUCH_CLUSTER_TIME_MINUTES: int = 15
+    TOUCH_CLUSTER_PRICE_BAND: float = 0.10
+
+    # ========== Normalization ==========
+    ATR_WINDOW_MINUTES: int = 14
+
+    # ========== Feasibility gate thresholds ==========
+    FEASIBILITY_TAPE_IMBALANCE: float = 0.20
+    FEASIBILITY_GAMMA_EXPOSURE: float = 50000.0
     
     # ========== Storage/replay settings ==========
     DATA_ROOT: str = "backend/data/lake/"

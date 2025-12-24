@@ -18,8 +18,8 @@ class EventSource(Enum):
     """Where did this event originate?"""
     MASSIVE_WS = "massive_ws"
     MASSIVE_REST = "massive_rest"
-    POLYGON_WS = "polygon_ws"  # legacy
-    POLYGON_REST = "polygon_rest"  # legacy
+    POLYGON_WS = "polygon_ws"
+    POLYGON_REST = "polygon_rest"
     REPLAY = "replay"
     SIM = "sim"
     DIRECT_FEED = "direct_feed"
@@ -161,4 +161,3 @@ class MBP10:
     levels: List[BidAskLevel]  # 10 levels
     is_snapshot: bool = False  # vs incremental update
     seq: Optional[int] = None
-

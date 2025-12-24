@@ -36,7 +36,6 @@ class TimestampedESTrade:
 class OptionFlowAggregate:
     """
     Per-strike option flow metrics.
-    Compatible with existing flow_aggregator.py output.
     """
     strike: float
     right: str  # 'C' or 'P'
@@ -50,6 +49,28 @@ class OptionFlowAggregate:
     last_timestamp_ns: int = 0
     delta: float = 0.0
     gamma: float = 0.0
+
+
+@dataclass
+class MinuteBar:
+    """Aggregated 1-minute bar in SPY terms."""
+    start_ts_ns: int
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+@dataclass
+class SmaContext:
+    """SMA context metrics computed from 2-minute closes."""
+    sma_200: Optional[float]
+    sma_400: Optional[float]
+    sma_200_slope: Optional[float]
+    sma_400_slope: Optional[float]
+    sma_200_slope_5bar: Optional[float]
+    sma_400_slope_5bar: Optional[float]
+    sma_spread: Optional[float]
 
 
 class RingBuffer:
@@ -145,7 +166,11 @@ class MarketState:
         # 1-minute closes for approach context (SPY terms)
         self._current_minute_start_ns: Optional[int] = None
         self._current_minute_close_spy: Optional[float] = None
+        self._current_minute_open_spy: Optional[float] = None
+        self._current_minute_high_spy: Optional[float] = None
+        self._current_minute_low_spy: Optional[float] = None
         self._minute_closes: deque[Tuple[int, float]] = deque(maxlen=240)  # 4 hours of 1-min closes
+        self._minute_bars: deque[MinuteBar] = deque(maxlen=240)
 
         # 2-minute closes for SMA (SPY terms)
         self._current_2m_start_ns: Optional[int] = None
@@ -248,9 +273,13 @@ class MarketState:
             self._opening_range_high = None
             self._opening_range_low = None
             self._minute_closes.clear()
+            self._minute_bars.clear()
             self._two_minute_closes.clear()
             self._current_minute_start_ns = None
             self._current_minute_close_spy = None
+            self._current_minute_open_spy = None
+            self._current_minute_high_spy = None
+            self._current_minute_low_spy = None
             self._current_2m_start_ns = None
             self._current_2m_close_spy = None
             self._sma_200 = None
@@ -274,19 +303,41 @@ class MarketState:
             if self._opening_range_low is None or spy_price < self._opening_range_low:
                 self._opening_range_low = spy_price
 
-        # --- 1-minute closes (approach context) ---
+        # --- 1-minute bars (approach context + ATR) ---
         one_min_ns = 60 * 1_000_000_000
         minute_start_ns = (ts_event_ns // one_min_ns) * one_min_ns
         if self._current_minute_start_ns is None:
             self._current_minute_start_ns = minute_start_ns
+            self._current_minute_open_spy = spy_price
+            self._current_minute_high_spy = spy_price
+            self._current_minute_low_spy = spy_price
             self._current_minute_close_spy = spy_price
         elif minute_start_ns == self._current_minute_start_ns:
             self._current_minute_close_spy = spy_price
+            if self._current_minute_high_spy is None or spy_price > self._current_minute_high_spy:
+                self._current_minute_high_spy = spy_price
+            if self._current_minute_low_spy is None or spy_price < self._current_minute_low_spy:
+                self._current_minute_low_spy = spy_price
         else:
             # Finalize prior minute close
-            if self._current_minute_close_spy is not None:
+            if (
+                self._current_minute_close_spy is not None
+                and self._current_minute_open_spy is not None
+                and self._current_minute_high_spy is not None
+                and self._current_minute_low_spy is not None
+            ):
                 self._minute_closes.append((self._current_minute_start_ns, self._current_minute_close_spy))
+                self._minute_bars.append(MinuteBar(
+                    start_ts_ns=self._current_minute_start_ns,
+                    open=self._current_minute_open_spy,
+                    high=self._current_minute_high_spy,
+                    low=self._current_minute_low_spy,
+                    close=self._current_minute_close_spy
+                ))
             self._current_minute_start_ns = minute_start_ns
+            self._current_minute_open_spy = spy_price
+            self._current_minute_high_spy = spy_price
+            self._current_minute_low_spy = spy_price
             self._current_minute_close_spy = spy_price
 
         # --- 2-minute closes (SMA levels) ---
@@ -322,6 +373,146 @@ class MarketState:
         if self._current_minute_close_spy is not None:
             closes.append(self._current_minute_close_spy)
         return closes[-lookback_minutes:]
+
+    def get_recent_minute_bars(self, lookback_minutes: int) -> List[MinuteBar]:
+        """
+        Return the most recent minute bars (SPY terms), including the current in-progress bar.
+        """
+        if lookback_minutes <= 0:
+            return []
+
+        bars: List[MinuteBar] = list(self._minute_bars)
+        if (
+            self._current_minute_start_ns is not None
+            and self._current_minute_open_spy is not None
+            and self._current_minute_high_spy is not None
+            and self._current_minute_low_spy is not None
+            and self._current_minute_close_spy is not None
+        ):
+            bars.append(MinuteBar(
+                start_ts_ns=self._current_minute_start_ns,
+                open=self._current_minute_open_spy,
+                high=self._current_minute_high_spy,
+                low=self._current_minute_low_spy,
+                close=self._current_minute_close_spy
+            ))
+        return bars[-lookback_minutes:]
+
+    def get_atr(self, window_minutes: Optional[int] = None) -> Optional[float]:
+        """
+        Compute ATR from recent minute bars.
+        """
+        if window_minutes is None:
+            window_minutes = CONFIG.ATR_WINDOW_MINUTES
+
+        bars = self.get_recent_minute_bars(window_minutes)
+        if not bars:
+            return None
+
+        trs: List[float] = []
+        prev_close = bars[0].close
+        for bar in bars:
+            tr = max(
+                bar.high - bar.low,
+                abs(bar.high - prev_close),
+                abs(bar.low - prev_close)
+            )
+            trs.append(tr)
+            prev_close = bar.close
+
+        window = min(window_minutes, len(trs))
+        if window <= 0:
+            return None
+        return sum(trs[-window:]) / window
+
+    def get_sma_at_offset(self, period: int, offset_bars: int) -> Optional[float]:
+        closes = self._get_two_minute_closes(include_current=True)
+        if not closes:
+            return None
+        idx = len(closes) - 1 - offset_bars
+        return self._sma_at_index(closes, idx, period)
+
+    def get_sma_context(self) -> SmaContext:
+        """
+        Compute SMA values and slopes from recent 2-minute closes.
+        """
+        closes = self._get_two_minute_closes(include_current=True)
+        if not closes:
+            return SmaContext(
+                sma_200=None,
+                sma_400=None,
+                sma_200_slope=None,
+                sma_400_slope=None,
+                sma_200_slope_5bar=None,
+                sma_400_slope_5bar=None,
+                sma_spread=None
+            )
+
+        idx_now = len(closes) - 1
+        sma_200 = self._sma_at_index(closes, idx_now, 200)
+        if sma_200 is None:
+            sma_200 = self._sma_200
+        sma_400 = self._sma_at_index(closes, idx_now, 400)
+        if sma_400 is None:
+            sma_400 = self._sma_400
+
+        slope_minutes = max(1, CONFIG.SMA_SLOPE_WINDOW_MINUTES)
+        slope_bars = max(1, int(round(slope_minutes / 2)))
+        idx_prev = idx_now - slope_bars
+
+        sma_200_prev = self._sma_at_index(closes, idx_prev, 200)
+        sma_400_prev = self._sma_at_index(closes, idx_prev, 400)
+
+        sma_200_slope = None
+        sma_400_slope = None
+        if sma_200 is not None and sma_200_prev is not None:
+            sma_200_slope = (sma_200 - sma_200_prev) / slope_minutes
+        if sma_400 is not None and sma_400_prev is not None:
+            sma_400_slope = (sma_400 - sma_400_prev) / slope_minutes
+
+        slope_short_bars = max(1, CONFIG.SMA_SLOPE_SHORT_BARS)
+        slope_short_minutes = slope_short_bars * 2
+        idx_prev_short = idx_now - slope_short_bars
+
+        sma_200_prev_short = self._sma_at_index(closes, idx_prev_short, 200)
+        sma_400_prev_short = self._sma_at_index(closes, idx_prev_short, 400)
+
+        sma_200_slope_5bar = None
+        sma_400_slope_5bar = None
+        if sma_200 is not None and sma_200_prev_short is not None:
+            sma_200_slope_5bar = (sma_200 - sma_200_prev_short) / slope_short_minutes
+        if sma_400 is not None and sma_400_prev_short is not None:
+            sma_400_slope_5bar = (sma_400 - sma_400_prev_short) / slope_short_minutes
+
+        sma_spread = None
+        if sma_200 is not None and sma_400 is not None:
+            sma_spread = sma_200 - sma_400
+
+        return SmaContext(
+            sma_200=sma_200,
+            sma_400=sma_400,
+            sma_200_slope=sma_200_slope,
+            sma_400_slope=sma_400_slope,
+            sma_200_slope_5bar=sma_200_slope_5bar,
+            sma_400_slope_5bar=sma_400_slope_5bar,
+            sma_spread=sma_spread
+        )
+
+    def _get_two_minute_closes(self, include_current: bool = True) -> List[float]:
+        closes = list(self._two_minute_closes)
+        if include_current and self._current_2m_close_spy is not None:
+            closes.append(self._current_2m_close_spy)
+        return closes
+
+    @staticmethod
+    def _sma_at_index(closes: List[float], idx: int, period: int) -> Optional[float]:
+        if idx < 0 or idx + 1 < period:
+            return None
+        start = idx + 1 - period
+        window = closes[start: idx + 1]
+        if len(window) < period:
+            return None
+        return sum(window) / period
 
     def get_premarket_high(self) -> Optional[float]:
         return self._premarket_high
@@ -434,54 +625,6 @@ class MarketState:
         agg.last_timestamp_ns = trade.ts_event_ns
         agg.delta = delta
         agg.gamma = gamma
-
-    def integrate_flow_snapshot(self, flow_snapshot: Dict[str, Any]):
-        """
-        Integrate state from existing flow_aggregator.py snapshot.
-
-        Compatible with flow_aggregator.get_snapshot() output.
-
-        Args:
-            flow_snapshot: Dict[ticker, Dict] from FlowAggregator
-        """
-        for ticker, stats in flow_snapshot.items():
-            # Parse ticker to extract strike/right/exp
-            # Format: O:SPY251216C00676000
-            try:
-                if not ticker.startswith("O:"):
-                    continue
-
-                # Parse suffix (last 15 chars: YYMMDD + C/P + 8-digit strike)
-                suffix = ticker[-15:]
-                exp_yy = suffix[0:2]
-                exp_mm = suffix[2:4]
-                exp_dd = suffix[4:6]
-                exp_date = f"20{exp_yy}-{exp_mm}-{exp_dd}"
-                right = suffix[6]
-                strike = float(suffix[7:]) / 1000.0
-
-                key = (strike, right, exp_date)
-
-                # Create or update aggregate
-                if key not in self.option_flows:
-                    self.option_flows[key] = OptionFlowAggregate(
-                        strike=strike,
-                        right=right,
-                        exp_date=exp_date
-                    )
-
-                agg = self.option_flows[key]
-                agg.cumulative_volume = stats.get("cumulative_volume", 0)
-                agg.cumulative_premium = stats.get("cumulative_premium", 0.0)
-                agg.net_delta_flow = stats.get("net_delta_flow", 0.0)
-                agg.net_gamma_flow = stats.get("net_gamma_flow", 0.0)
-                agg.last_price = stats.get("last_price", 0.0)
-                agg.last_timestamp_ns = stats.get("last_timestamp", 0) * 1_000_000  # ms -> ns
-                agg.delta = stats.get("delta", 0.0)
-                agg.gamma = stats.get("gamma", 0.0)
-            except Exception:
-                # Skip malformed tickers
-                continue
 
     def get_option_flow_snapshot(
         self,
@@ -675,9 +818,13 @@ class MarketState:
         self._opening_range_high = None
         self._opening_range_low = None
         self._minute_closes.clear()
+        self._minute_bars.clear()
         self._two_minute_closes.clear()
         self._current_minute_start_ns = None
         self._current_minute_close_spy = None
+        self._current_minute_open_spy = None
+        self._current_minute_high_spy = None
+        self._current_minute_low_spy = None
         self._current_2m_start_ns = None
         self._current_2m_close_spy = None
         self._sma_200 = None

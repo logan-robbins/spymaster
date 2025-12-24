@@ -83,6 +83,68 @@ class CoreService:
             user_hotzones=user_hotzones,
             config=self.config
         )
+
+        # Optional viewport scoring (Phase 3)
+        self.viewport_scoring_service = None
+        if os.getenv("VIEWPORT_SCORING_ENABLED", "false").lower() == "true":
+            from pathlib import Path
+            import joblib
+
+            from src.core.viewport_feature_builder import ViewportFeatureBuilder
+            from src.core.viewport_manager import ViewportManager
+            from src.core.viewport_scoring_service import ViewportScoringService
+            from src.core.inference_engine import ViewportInferenceEngine
+            from src.ml.tree_inference import TreeModelBundle
+            from src.ml.retrieval_engine import RetrievalIndex
+
+            model_dir = Path(os.getenv("VIEWPORT_MODEL_DIR", "data/ml/boosted_trees"))
+            retrieval_path = Path(os.getenv("VIEWPORT_RETRIEVAL_INDEX", "data/ml/retrieval_index.joblib"))
+            ablation = os.getenv("VIEWPORT_ABLATION", "full")
+            horizons_env = os.getenv("VIEWPORT_HORIZONS", "")
+            horizons = [int(h) for h in horizons_env.split(",") if h.strip()] or [60, 120, 180, 300]
+
+            if not model_dir.exists():
+                raise FileNotFoundError(f"Viewport model dir missing: {model_dir}")
+            if not retrieval_path.exists():
+                raise FileNotFoundError(f"Viewport retrieval index missing: {retrieval_path}")
+
+            retrieval_index = joblib.load(retrieval_path)
+            if not isinstance(retrieval_index, RetrievalIndex):
+                raise ValueError("Viewport retrieval index is not a RetrievalIndex instance.")
+
+            stage_a_bundle = TreeModelBundle(
+                model_dir=model_dir,
+                stage="stage_a",
+                ablation=ablation,
+                horizons=horizons
+            )
+            stage_b_bundle = TreeModelBundle(
+                model_dir=model_dir,
+                stage="stage_b",
+                ablation=ablation,
+                horizons=horizons
+            )
+            stage_a_engine = ViewportInferenceEngine(stage_a_bundle, retrieval_index)
+            stage_b_engine = ViewportInferenceEngine(stage_b_bundle, retrieval_index)
+
+            viewport_manager = ViewportManager(
+                fuel_engine=self.level_signal_service.fuel_engine,
+                trading_date=self.level_signal_service._trading_date
+            )
+            feature_builder = ViewportFeatureBuilder(
+                barrier_engine=self.level_signal_service.barrier_engine,
+                tape_engine=self.level_signal_service.tape_engine,
+                fuel_engine=self.level_signal_service.fuel_engine
+            )
+            self.viewport_scoring_service = ViewportScoringService(
+                market_state=self.market_state,
+                level_universe=self.level_signal_service.level_universe,
+                viewport_manager=viewport_manager,
+                feature_builder=feature_builder,
+                stage_a_engine=stage_a_engine,
+                stage_b_engine=stage_b_engine,
+                trading_date=self.level_signal_service._trading_date
+            )
         
         # Snap loop control
         self.snap_task: Optional[asyncio.Task] = None
@@ -293,6 +355,12 @@ class CoreService:
             try:
                 # Compute level signals
                 payload = self.level_signal_service.compute_level_signals()
+                if self.viewport_scoring_service is not None:
+                    viewport_targets = self.viewport_scoring_service.score_viewport()
+                    payload["viewport"] = {
+                        "ts": payload.get("ts"),
+                        "targets": viewport_targets
+                    }
 
                 # Build flow snapshot for frontend strike grid (0DTE only)
                 spot = payload.get("spy", {}).get("spot")
@@ -317,8 +385,10 @@ class CoreService:
                 # Log summary (optional, can be removed for performance)
                 num_levels = len(payload.get("levels", []))
                 spot = payload.get("spy", {}).get("spot")
+                print(f"📊 Published {num_levels} level signals (spot={spot:.2f})")
                 if num_levels > 0:
-                    print(f"📊 Published {num_levels} level signals (spot={spot:.2f})")
+                    first_level = payload["levels"][0]
+                    print(f"   First level: {first_level.get('kind')} @ {first_level.get('price', 0):.2f}")
                 
             except Exception as e:
                 print(f"❌ Error in snap loop: {e}")

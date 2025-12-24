@@ -493,7 +493,7 @@ uv run pytest backend/tests/test_e2e_replay.py -v
 3. **WAL is ephemeral**: Safe to delete after flush (Phase 1 only)
 4. **Event-time ordering**: Use `ts_event_ns` for all time-based queries, NOT `ts_recv_ns`
 5. **Partition keys are immutable**: Changing partition scheme requires full backfill
-6. **Schema versioning**: Use `schema_version` field; never break backward compatibility
+6. **Schema versioning**: Use `schema_version` field; bump versions on breaking changes
 7. **Dedup key stability**: MD5 hash of `(source, ts_event_ns, symbol, price, size, seq)` must remain consistent
 
 ---
@@ -527,4 +527,3 @@ For questions or issues, consult:
 1. `PLAN.md` (canonical system design)
 2. `backend/tests/` (usage examples via tests)
 3. Inline docstrings in `backend/src/lake/*.py`
-

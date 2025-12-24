@@ -1,26 +1,28 @@
 """
-Replay Publisher for DBN Files
+Replay Publisher for DBN Files (+ Bronze Options)
 
-Reads Databento DBN files and publishes to NATS at configurable speed.
+Reads Databento DBN files and optional Bronze option trades, then publishes to NATS at configurable speed.
 This allows "Replay Mode" to just be a NATS publisher, so other services
 don't know the difference between live and replay.
 
 NATS Subjects Published:
 - market.futures.trades (FuturesTrade)
 - market.futures.mbp10 (MBP10)
+- market.options.trades (OptionTrade, optional)
 
 Per AGENT A tasks in NEXT.md.
 """
 
 import asyncio
 import time
-from typing import Iterator, Optional, List, Any
+from typing import Iterator, Optional, List, Any, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 
 from src.ingestor.dbn_ingestor import DBNIngestor
+from src.lake.bronze_writer import BronzeReader
 from src.common.bus import NATSBus
-from src.common.event_types import FuturesTrade, MBP10
+from src.common.event_types import FuturesTrade, MBP10, OptionTrade, EventSource, Aggressor
 
 
 @dataclass
@@ -29,6 +31,7 @@ class ReplayStats:
     events_published: int = 0
     trades_published: int = 0
     mbp10_published: int = 0
+    options_published: int = 0
     start_time: Optional[float] = None
     first_event_ts: Optional[int] = None
     last_event_ts: Optional[int] = None
@@ -56,7 +59,7 @@ class ReplayStats:
 
 class ReplayPublisher:
     """
-    Publishes DBN file contents to NATS at configurable speed.
+    Publishes DBN file contents (and optional Bronze options) to NATS at configurable speed.
     
     Replay Speed:
     - 0.0 = as fast as possible (no delays)
@@ -69,11 +72,13 @@ class ReplayPublisher:
         self,
         bus: NATSBus,
         dbn_ingestor: DBNIngestor,
-        replay_speed: float = 1.0
+        replay_speed: float = 1.0,
+        bronze_reader: Optional[BronzeReader] = None
     ):
         self.bus = bus
         self.dbn_ingestor = dbn_ingestor
         self.replay_speed = replay_speed
+        self.bronze_reader = bronze_reader or BronzeReader()
         self.stats = ReplayStats()
     
     async def replay_date(
@@ -82,7 +87,8 @@ class ReplayPublisher:
         start_ns: Optional[int] = None,
         end_ns: Optional[int] = None,
         include_trades: bool = True,
-        include_mbp10: bool = True
+        include_mbp10: bool = True,
+        include_options: bool = False
     ):
         """
         Replay all data for a specific date.
@@ -93,10 +99,11 @@ class ReplayPublisher:
             end_ns: Optional end time filter (nanoseconds)
             include_trades: Whether to replay trades
             include_mbp10: Whether to replay MBP-10
+            include_options: Whether to replay option trades from Bronze
         """
         print(f"🎬 Starting replay for {date}")
         print(f"   Speed: {self.replay_speed}x")
-        print(f"   Trades: {include_trades}, MBP-10: {include_mbp10}")
+        print(f"   Trades: {include_trades}, MBP-10: {include_mbp10}, Options: {include_options}")
         
         self.stats = ReplayStats()
         self.stats.start_time = time.time()
@@ -104,11 +111,13 @@ class ReplayPublisher:
         # Stream-merge both iterators by event time to avoid materializing whole day in memory.
         trade_iter = iter(self.dbn_ingestor.read_trades(date, start_ns, end_ns)) if include_trades else iter(())
         mbp_iter = iter(self.dbn_ingestor.read_mbp10(date, start_ns, end_ns)) if include_mbp10 else iter(())
+        option_iter = self._iter_option_trades(date, start_ns, end_ns) if include_options else iter(())
 
         next_trade = next(trade_iter, None)
         next_mbp = next(mbp_iter, None)
+        next_option = next(option_iter, None)
 
-        if next_trade is None and next_mbp is None:
+        if next_trade is None and next_mbp is None and next_option is None:
             print("  ⚠️  No events found for this date")
             return
 
@@ -116,12 +125,21 @@ class ReplayPublisher:
 
         prev_event_ns = None
 
-        while next_trade is not None or next_mbp is not None:
-            if next_mbp is None or (next_trade is not None and next_trade.ts_event_ns <= next_mbp.ts_event_ns):
-                event_type, event = "trade", next_trade
+        while next_trade is not None or next_mbp is not None or next_option is not None:
+            candidates: List[Tuple[int, int, str, Any]] = []
+            if next_trade is not None:
+                candidates.append((next_trade.ts_event_ns, 0, "trade", next_trade))
+            if next_option is not None:
+                candidates.append((next_option.ts_event_ns, 1, "option", next_option))
+            if next_mbp is not None:
+                candidates.append((next_mbp.ts_event_ns, 2, "mbp10", next_mbp))
+
+            _, _, event_type, event = min(candidates, key=lambda x: (x[0], x[1]))
+            if event_type == "trade":
                 next_trade = next(trade_iter, None)
+            elif event_type == "option":
+                next_option = next(option_iter, None)
             else:
-                event_type, event = "mbp10", next_mbp
                 next_mbp = next(mbp_iter, None)
 
             # Update stats
@@ -146,6 +164,9 @@ class ReplayPublisher:
             if event_type == "trade":
                 await self.bus.publish("market.futures.trades", event)
                 self.stats.trades_published += 1
+            elif event_type == "option":
+                await self.bus.publish("market.options.trades", event)
+                self.stats.options_published += 1
             elif event_type == "mbp10":
                 await self.bus.publish("market.futures.mbp10", event)
                 self.stats.mbp10_published += 1
@@ -157,6 +178,7 @@ class ReplayPublisher:
                 speed = self.stats.actual_speed()
                 print(f"    Progress: {self.stats.events_published:,} events "
                       f"({self.stats.trades_published:,} trades, "
+                      f"{self.stats.options_published:,} options, "
                       f"{self.stats.mbp10_published:,} mbp10) @ {speed:.2f}x")
         
         # Final stats
@@ -166,7 +188,8 @@ class ReplayPublisher:
         self,
         dates: Optional[List[str]] = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        include_options: bool = False
     ):
         """
         Replay multiple dates continuously.
@@ -184,8 +207,49 @@ class ReplayPublisher:
         print(f"   Range: {dates[0]} to {dates[-1]}")
         
         for date in dates:
-            await self.replay_date(date, start_ns, end_ns)
+            await self.replay_date(date, start_ns, end_ns, include_options=include_options)
             print(f"  ✅ Completed {date}\n")
+
+    def _iter_option_trades(
+        self,
+        date: str,
+        start_ns: Optional[int],
+        end_ns: Optional[int]
+    ) -> Iterator[OptionTrade]:
+        options_df = self.bronze_reader.read_option_trades(
+            underlying="SPY",
+            date=date,
+            start_ns=start_ns,
+            end_ns=end_ns
+        )
+        if options_df.empty:
+            raise ValueError(f"No Bronze option trades found for {date}")
+
+        for row in options_df.itertuples(index=False):
+            aggressor = Aggressor.MID
+            agg_val = getattr(row, "aggressor", 0)
+            if agg_val in (1, "BUY", "buy"):
+                aggressor = Aggressor.BUY
+            elif agg_val in (-1, "SELL", "sell"):
+                aggressor = Aggressor.SELL
+
+            yield OptionTrade(
+                ts_event_ns=int(row.ts_event_ns),
+                ts_recv_ns=int(getattr(row, "ts_recv_ns", row.ts_event_ns)),
+                source=EventSource.REPLAY,
+                underlying=getattr(row, "underlying", "SPY"),
+                option_symbol=row.option_symbol,
+                exp_date=str(row.exp_date),
+                strike=float(row.strike),
+                right=row.right,
+                price=float(row.price),
+                size=int(row.size),
+                opt_bid=getattr(row, "opt_bid", None),
+                opt_ask=getattr(row, "opt_ask", None),
+                aggressor=aggressor,
+                conditions=getattr(row, "conditions", None),
+                seq=getattr(row, "seq", None)
+            )
     
     def _print_stats(self):
         """Print replay statistics."""
@@ -198,6 +262,7 @@ class ReplayPublisher:
         print("=" * 60)
         print(f"  Events Published: {self.stats.events_published:,}")
         print(f"    - Trades: {self.stats.trades_published:,}")
+        print(f"    - Options: {self.stats.options_published:,}")
         print(f"    - MBP-10: {self.stats.mbp10_published:,}")
         print(f"  Wall Time: {wall:.2f}s")
         print(f"  Event Time: {event:.2f}s")
@@ -217,6 +282,7 @@ async def main():
     Usage:
         export REPLAY_SPEED=1.0  # 1x realtime
         export REPLAY_DATE=2025-12-16
+        export REPLAY_INCLUDE_OPTIONS=true
         uv run python -m src.ingestor.replay_publisher
     """
     import os
@@ -230,6 +296,8 @@ async def main():
     # Get configuration
     replay_speed = CONFIG.REPLAY_SPEED
     replay_date = os.getenv("REPLAY_DATE")  # Single date or None for all
+    include_options = os.getenv("REPLAY_INCLUDE_OPTIONS", "false").lower() == "true"
+    print(f"   Options replay: {include_options}")
     
     # Initialize NATS
     bus = NATSBus(servers=[CONFIG.NATS_URL])
@@ -261,10 +329,10 @@ async def main():
             if replay_date not in available_dates:
                 print(f"❌ Date {replay_date} not found in available data")
                 sys.exit(1)
-            await publisher.replay_date(replay_date)
+            await publisher.replay_date(replay_date, include_options=include_options)
         else:
             # Replay all dates
-            await publisher.replay_continuous(dates=available_dates)
+            await publisher.replay_continuous(dates=available_dates, include_options=include_options)
         
         print("\n✅ Replay complete")
         

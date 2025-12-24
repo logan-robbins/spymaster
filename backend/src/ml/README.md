@@ -1,130 +1,226 @@
-# ML Module — PatchTST Training & Sequence Dataset Builder
+# ML Module
 
-**Module**: `backend/src/ml/`  
-**Audience**: AI Coding Agents  
-**Role**: Build sequence datasets from level-touch signals + OHLCV, then train PatchTST for BREAK/BOUNCE classification and strength regression.  
-**Scope**: SPY 0DTE options only.
-
----
-
-## Overview
-
-This module turns the vectorized signal dataset into PatchTST-ready sequences and trains a multi-task model that outputs:
-- `p_break` vs `p_bounce` (binary classification)
-- `strength_signed` (regression)
-
-It is designed to align with the feature contract in `backend/features.json` and to support MLflow + W&B tracking.
+**Role**: Model training and inference  
+**Audience**: Data scientists and backend developers  
+**Interface**: [INTERFACES.md](INTERFACES.md)
 
 ---
 
-## Module Files
+## Purpose
 
-`backend/src/ml/` contains:
-- `__init__.py`
-- `sequence_dataset_builder.py` (builds `sequence_dataset_YYYY-MM-DD.npz`)
-- `patchtst_train.py` (multi-task PatchTST trainer, MPS compatible)
-- `README.md` (this file)
+Trains boosted-tree multi-head models for tradeability, direction, strength, and time-to-threshold predictions. Provides kNN retrieval for similar historical patterns. PatchTST sequence model serves as baseline.
+
+**Scope**: SPY 0DTE options only (consistent with system scope).
 
 ---
 
-## Data Flow
+## Model Architecture
 
-1. **Signals Parquet** (from vectorized pipeline)
-   - Default path from `features.json -> output_path`.
-2. **Sequence Dataset Builder**
-   - Reads signals for requested dates.
-   - Builds 1-min OHLCV (from DBN trades) + 2-min SMA context.
-   - Prepends up to `CONFIG.SMA_WARMUP_DAYS` prior weekday sessions for SMA warmup.
-   - Emits `sequence_dataset_YYYY-MM-DD.npz`.
-3. **PatchTST Trainer**
-   - Loads `sequence_dataset_*.npz`.
-   - Filters to BREAK/BOUNCE labels.
-   - Trains PatchTST with classification + regression heads.
-   - Logs to MLflow + W&B, saves best model checkpoint.
+### Primary: Boosted Trees
+Multi-head XGBoost models with walk-forward validation:
 
----
+**Heads**:
+1. `tradeable_2`: Binary classifier (will move ≥$2.00 in either direction?)
+2. `direction`: Binary classifier on tradeable samples (break vs bounce)
+3. `strength_signed`: Regressor for movement magnitude
+4. `t1_{horizon}s`: Reach probability for threshold 1 (e.g., $1.00)
+5. `t2_{horizon}s`: Reach probability for threshold 2 (e.g., $2.00)
 
-## Inputs and Outputs
+**Feature sets**:
+- **Stage A**: Core physics only (barrier, tape, fuel)
+- **Stage B**: Stage A + technical analysis (SMA, confluence, approach)
 
-### Inputs (Sequence Builder)
-- **Signals parquet** with `event_id`, `ts_ns`, `date`, `direction`, targets, and numeric/bool features.
-- **DBN trades** (ES) via `DBNIngestor` for OHLCV reconstruction.
-- **CONFIG** values:
-  - `MEAN_REVERSION_VOL_WINDOW_MINUTES`
-  - `SMA_SLOPE_SHORT_BARS`
-  - `SMA_WARMUP_DAYS`
+### Secondary: kNN Retrieval
+Normalized feature space search for similar historical patterns. Provides ensemble predictions with tree models.
 
-### Outputs (Sequence Builder)
-`sequence_dataset_YYYY-MM-DD.npz` containing:
-- `X`: `(n_samples, seq_len, n_features)` sequence data
-- `mask`: `(n_samples, seq_len)` padding mask
-- `static`: `(n_samples, n_static_features)` static event features
-- `y_break`: label mapping (BREAK=1, BOUNCE=0, CHOP/UNDEFINED=-1)
-- `y_strength`: `strength_signed`
-- `event_id`, `ts_ns`
-- `seq_feature_names`, `static_feature_names`
-
-### Outputs (Trainer)
-`patchtst_multitask.pt` checkpoint with:
-- model weights
-- PatchTST config
-- feature name lists
-
-`run_metadata.json` with:
-- schema version
-- dataset hash
-- train/val file list
-- sample counts
-- feature names
+### Baseline: PatchTST
+Sequence classification/regression over OHLCV context. Useful for comparing engineered features vs raw sequences.
 
 ---
 
-## Configuration Knobs
+## Training Pipeline
 
-### Sequence Builder
-- `SEQ_FEATURE_COLUMNS` (in `sequence_dataset_builder.py`): sequence channels.
-- Sequence length and output paths are configured via CLI arguments (see `sequence_dataset_builder.py`).
-- The default signals parquet path comes from `backend/features.json`.
+**Input**: Signals Parquet from vectorized pipeline (via `backend/features.json`)
 
-### PatchTST Trainer
-- Uses CLI arguments for data splits, hyperparameters, and loss weights (see `patchtst_train.py`).
-- Requires a validation split (explicit dates or a ratio with at least two dates).
+**Process**:
+1. Load signals with features + labels
+2. Walk-forward split by date (no random shuffles)
+3. Train boosted-tree heads independently
+4. Build kNN retrieval index from normalized features
+5. Evaluate calibration (reliability curves, Brier scores)
+6. Save model bundles + metadata
 
----
-
-## Tracking (MLflow + W&B)
-
-### MLflow
-- Experiment name: `spymaster_patchtst` (override with `MLFLOW_EXPERIMENT_NAME`).
-- Logs: params, metrics, `run_metadata.json`, `features.json`, model checkpoint.
-
-### W&B
-- Project name: `spymaster_patchtst` (override with `WANDB_PROJECT`).
-- Requires `WANDB_API_KEY`, or set `WANDB_MODE=offline`.
-- Logs: params, per-epoch metrics, model artifact with metadata.
+**Output**: Joblib models in `data/ml/boosted_trees/`, retrieval index in `data/ml/`
 
 ---
 
-## Entry Points (uv only)
+## Running
 
-Use `sequence_dataset_builder.py` to build datasets and `patchtst_train.py` to train PatchTST. Both scripts are intended to be executed with `uv run` and document their CLI arguments in-file.
+### Boosted Trees
+```bash
+cd backend
+uv run python -m src.ml.boosted_tree_train \
+  --stage stage_b \
+  --ablation all \
+  --train-dates 2025-12-14 2025-12-15 \
+  --val-dates 2025-12-16
+```
+
+### Retrieval Index
+```bash
+uv run python -m src.ml.build_retrieval_index \
+  --stage stage_b \
+  --ablation full \
+  --k-neighbors 50
+```
+
+### PatchTST Baseline
+```bash
+# Build sequence dataset
+uv run python -m src.ml.sequence_dataset_builder --date 2025-12-16
+
+# Train model
+uv run python -m src.ml.patchtst_train \
+  --train-files sequence_dataset_*.npz \
+  --val-files sequence_dataset_*.npz \
+  --epochs 100
+```
+
+### Calibration Evaluation
+```bash
+uv run python -m src.ml.calibration_eval \
+  --stage stage_b \
+  --ablation full \
+  --test-dates 2025-12-17 2025-12-18
+```
 
 ---
 
-## Failure Modes (Intentional)
+## Live Inference (Viewport Scoring)
 
-- Missing `features.json` or `signals` parquet → hard failure.
-- Missing DBN trades for date → hard failure.
-- No matching dates for split → hard failure.
-- Validation files missing → hard failure.
-- Missing W&B configuration (unless offline) → hard failure.
+**Integration**: Live scoring runs inside Core Service when enabled.
+
+**Prerequisites**:
+- Boosted-tree models: `data/ml/boosted_trees/`
+- Retrieval index: `data/ml/retrieval_index.joblib`
+- Environment variables:
+  ```bash
+  VIEWPORT_SCORING_ENABLED=true
+  VIEWPORT_MODEL_DIR=data/ml/boosted_trees
+  VIEWPORT_RETRIEVAL_INDEX=data/ml/retrieval_index.joblib
+  ```
+
+**Output**: Published to `viewport.targets` in level signals payload (optional field).
+
+**See**: [INTERFACES.md](INTERFACES.md) for viewport target schema.
 
 ---
 
-## Notes for Extensions
+## Feature Engineering
 
-- To add new sequence features, update `SEQ_FEATURE_COLUMNS` and ensure they exist in 1-min OHLCV.
-- To add new static features, modify `_build_static_features` (currently numeric + bool + `direction_sign`).
-- PatchTST is configured for MPS if available; falls back to CUDA/CPU.
-- Schema version is read from `backend/features.json` and used in run naming.
-- SMA warmup uses `CONFIG.SMA_WARMUP_DAYS` prior weekday sessions to reduce early-session NaNs.
+**Stage A** (core physics):
+- Barrier: `barrier_delta_liq`, `barrier_replenishment_ratio`, `wall_ratio`
+- Tape: `tape_imbalance`, `tape_velocity`, `sweep_detected`
+- Fuel: `gamma_exposure`, `fuel_effect`
+
+**Stage B** (+ technical analysis):
+- SMA: `sma_200_distance`, `sma_400_distance`, `sma_slope_short`
+- Confluence: `confluence_count`, `confluence_score`, `confluence_min_distance`
+- Approach: `approach_velocity`, `approach_bars`, `prior_touches`
+
+**Feature sets**: Defined in `feature_sets.py` with ablation support.
+
+---
+
+## Walk-Forward Validation
+
+**Critical**: Models MUST use walk-forward splits (no random shuffles).
+
+**Rationale**: Prevents look-ahead bias, matches live deployment conditions.
+
+**Implementation**: Sort dates chronologically, split by cutoff date.
+
+---
+
+## Model Bundles
+
+**Format**: Joblib serialized dictionaries containing:
+- Trained model (XGBClassifier/XGBRegressor)
+- Feature names (for consistency check)
+- Stage, ablation, head metadata
+- Train/val dates
+- Evaluation metrics
+- Timestamp
+
+**Location**: `data/ml/boosted_trees/{head}_{stage}_{ablation}.joblib`
+
+---
+
+## Experiment Tracking
+
+**MLflow**:
+- Experiment: `spymaster_patchtst`
+- Logs: params, metrics, model checkpoint, metadata
+
+**W&B** (Weights & Biases):
+- Project: `spymaster_patchtst`
+- Logs: per-epoch metrics, model artifact
+- Requires: `WANDB_API_KEY` or `WANDB_MODE=offline`
+
+---
+
+## Common Issues
+
+**Missing features.json**: Pipeline must run first to generate signals  
+**No matching dates**: Check train/val date ranges exist in signals Parquet  
+**Walk-forward violation**: Ensure no random shuffles in train/val split  
+**Model bundle missing**: Run training before attempting live inference  
+**W&B auth failure**: Set `WANDB_API_KEY` or use offline mode
+
+---
+
+## Testing
+
+```bash
+cd backend
+uv run pytest tests/test_research_lab.py -v
+# Tests feature engineering and model training workflows
+```
+
+---
+
+## Adding New Features
+
+To add new features to models:
+
+1. **Update vectorized pipeline** to compute feature
+2. **Add to `features.json`** schema
+3. **Update `feature_sets.py`** (Stage A or B)
+4. **Retrain models** with new feature set
+5. **Update INTERFACES.md** to document new feature
+
+---
+
+## Critical Invariants
+
+1. **Walk-forward only**: No random train/val splits
+2. **Feature stability**: Same features for training and inference
+3. **Label anchoring**: All labels anchored at `t1` (confirmation time)
+4. **No leakage**: Features computed from data before `t1`
+5. **Deterministic splits**: Same dates → same train/val split
+6. **Model versioning**: Bundle includes timestamp and data hash
+
+---
+
+## References
+
+- **Interface contract**: [INTERFACES.md](INTERFACES.md)
+- **Feature schema**: [../../features.json](../../features.json)
+- **Feature sets**: [feature_sets.py](feature_sets.py)
+- **Core interface**: [../core/INTERFACES.md](../core/INTERFACES.md) (viewport output)
+
+---
+
+**Scope**: SPY 0DTE only  
+**Dependencies**: `common` (schemas), vectorized pipeline (signals Parquet)  
+**Integration**: Core Service (live viewport scoring)

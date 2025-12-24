@@ -55,6 +55,9 @@ class Level:
     price: float
     kind: LevelKind
     metadata: Optional[dict] = None
+    valid_from_ns: Optional[int] = None
+    valid_to_ns: Optional[int] = None
+    dynamic: bool = False
     
     def __hash__(self):
         return hash(self.id)
@@ -88,7 +91,7 @@ class LevelUniverse:
         self._cached_put_wall: Optional[float] = None
         self._cached_gamma_flip: Optional[float] = None
     
-    def get_levels(self, market_state: MarketState) -> List[Level]:
+    def get_levels(self, market_state: MarketState, ts_ns: Optional[int] = None) -> List[Level]:
         """
         Generate all active levels for the current market state.
         
@@ -98,12 +101,23 @@ class LevelUniverse:
         Returns:
             List of Level objects
         """
-        levels = []
-        
+        levels: List[Level] = []
+
         spot = market_state.get_spot()
         if spot is None:
             # No spot price yet, return empty
             return levels
+        snapshot_ts_ns = ts_ns if ts_ns is not None else market_state.get_current_ts_ns()
+        dynamic_kinds = {
+            LevelKind.VWAP,
+            LevelKind.SMA_200,
+            LevelKind.SMA_400,
+            LevelKind.SESSION_HIGH,
+            LevelKind.SESSION_LOW,
+            LevelKind.CALL_WALL,
+            LevelKind.PUT_WALL,
+            LevelKind.GAMMA_FLIP
+        }
         
         # ========== VWAP ==========
         if CONFIG.VWAP_ENABLED:
@@ -112,33 +126,67 @@ class LevelUniverse:
                 levels.append(Level(
                     id="VWAP",
                     price=vwap,
-                    kind=LevelKind.VWAP
+                    kind=LevelKind.VWAP,
+                    valid_from_ns=snapshot_ts_ns,
+                    dynamic=True
                 ))
 
         # ========== Structural levels (Context) ==========
         pm_high = market_state.get_premarket_high()
         if pm_high is not None:
-            levels.append(Level(id="PM_HIGH", price=pm_high, kind=LevelKind.PM_HIGH))
+            levels.append(Level(
+                id="PM_HIGH",
+                price=pm_high,
+                kind=LevelKind.PM_HIGH,
+                valid_from_ns=snapshot_ts_ns
+            ))
 
         pm_low = market_state.get_premarket_low()
         if pm_low is not None:
-            levels.append(Level(id="PM_LOW", price=pm_low, kind=LevelKind.PM_LOW))
+            levels.append(Level(
+                id="PM_LOW",
+                price=pm_low,
+                kind=LevelKind.PM_LOW,
+                valid_from_ns=snapshot_ts_ns
+            ))
 
         or_high = market_state.get_opening_range_high()
         if or_high is not None:
-            levels.append(Level(id="OR_HIGH", price=or_high, kind=LevelKind.OR_HIGH))
+            levels.append(Level(
+                id="OR_HIGH",
+                price=or_high,
+                kind=LevelKind.OR_HIGH,
+                valid_from_ns=snapshot_ts_ns
+            ))
 
         or_low = market_state.get_opening_range_low()
         if or_low is not None:
-            levels.append(Level(id="OR_LOW", price=or_low, kind=LevelKind.OR_LOW))
+            levels.append(Level(
+                id="OR_LOW",
+                price=or_low,
+                kind=LevelKind.OR_LOW,
+                valid_from_ns=snapshot_ts_ns
+            ))
 
         sma_200 = market_state.get_sma_200()
         if sma_200 is not None:
-            levels.append(Level(id="SMA_200", price=sma_200, kind=LevelKind.SMA_200))
+            levels.append(Level(
+                id="SMA_200",
+                price=sma_200,
+                kind=LevelKind.SMA_200,
+                valid_from_ns=snapshot_ts_ns,
+                dynamic=True
+            ))
 
         sma_400 = market_state.get_sma_400()
         if sma_400 is not None:
-            levels.append(Level(id="SMA_400", price=sma_400, kind=LevelKind.SMA_400))
+            levels.append(Level(
+                id="SMA_400",
+                price=sma_400,
+                kind=LevelKind.SMA_400,
+                valid_from_ns=snapshot_ts_ns,
+                dynamic=True
+            ))
         
         # ========== Session High/Low ==========
         session_high = market_state.get_session_high()
@@ -146,7 +194,9 @@ class LevelUniverse:
             levels.append(Level(
                 id="SESSION_HIGH",
                 price=session_high,
-                kind=LevelKind.SESSION_HIGH
+                kind=LevelKind.SESSION_HIGH,
+                valid_from_ns=snapshot_ts_ns,
+                dynamic=True
             ))
         
         session_low = market_state.get_session_low()
@@ -154,19 +204,21 @@ class LevelUniverse:
             levels.append(Level(
                 id="SESSION_LOW",
                 price=session_low,
-                kind=LevelKind.SESSION_LOW
+                kind=LevelKind.SESSION_LOW,
+                valid_from_ns=snapshot_ts_ns,
+                dynamic=True
             ))
         
         # ========== Round numbers ==========
-        round_levels = self._generate_round_levels(spot)
+        round_levels = self._generate_round_levels(spot, snapshot_ts_ns)
         levels.extend(round_levels)
         
         # ========== Option strikes ==========
-        strike_levels = self._generate_strike_levels(market_state, spot)
+        strike_levels = self._generate_strike_levels(market_state, spot, snapshot_ts_ns)
         levels.extend(strike_levels)
         
         # ========== Flow-derived walls ==========
-        wall_levels = self._generate_wall_levels(market_state, spot)
+        wall_levels = self._generate_wall_levels(market_state, spot, snapshot_ts_ns)
         levels.extend(wall_levels)
         
         # ========== User hotzones ==========
@@ -174,15 +226,20 @@ class LevelUniverse:
             levels.append(Level(
                 id=f"HOTZONE_{int(hotzone_price)}",
                 price=hotzone_price,
-                kind=LevelKind.USER_HOTZONE
+                kind=LevelKind.USER_HOTZONE,
+                valid_from_ns=snapshot_ts_ns
             ))
         
         # Deduplicate by ID (in case of overlaps)
         unique_levels = list({level.id: level for level in levels}.values())
+        for level in unique_levels:
+            level.dynamic = level.dynamic or level.kind in dynamic_kinds
+            if level.valid_from_ns is None:
+                level.valid_from_ns = snapshot_ts_ns
         
         return unique_levels
     
-    def _generate_round_levels(self, spot: float) -> List[Level]:
+    def _generate_round_levels(self, spot: float, ts_ns: Optional[int]) -> List[Level]:
         """
         Generate round number levels near spot.
         
@@ -206,13 +263,19 @@ class LevelUniverse:
                 levels.append(Level(
                     id=f"ROUND_{int(current)}",
                     price=float(current),
-                    kind=LevelKind.ROUND
+                    kind=LevelKind.ROUND,
+                    valid_from_ns=ts_ns
                 ))
             current += spacing
         
         return levels
     
-    def _generate_strike_levels(self, market_state: MarketState, spot: float) -> List[Level]:
+    def _generate_strike_levels(
+        self,
+        market_state: MarketState,
+        spot: float,
+        ts_ns: Optional[int]
+    ) -> List[Level]:
         """
         Generate strike levels from active option flows.
         
@@ -244,12 +307,18 @@ class LevelUniverse:
                     metadata={
                         "has_calls": any(f.strike == strike and f.right == 'C' for f in option_flows),
                         "has_puts": any(f.strike == strike and f.right == 'P' for f in option_flows)
-                    }
+                    },
+                    valid_from_ns=ts_ns
                 ))
         
         return levels
     
-    def _generate_wall_levels(self, market_state: MarketState, spot: float) -> List[Level]:
+    def _generate_wall_levels(
+        self,
+        market_state: MarketState,
+        spot: float,
+        ts_ns: Optional[int]
+    ) -> List[Level]:
         """
         Generate flow-derived wall levels (call wall, put wall, gamma flip).
         
@@ -309,7 +378,9 @@ class LevelUniverse:
                     metadata={
                         "net_dealer_gamma": call_wall_gamma,
                         "strike": call_wall_strike
-                    }
+                    },
+                    valid_from_ns=ts_ns,
+                    dynamic=True
                 ))
         
         # Find put wall: strike with highest (most negative) dealer gamma from puts
@@ -326,7 +397,9 @@ class LevelUniverse:
                     metadata={
                         "net_dealer_gamma": put_wall_gamma,
                         "strike": put_wall_strike
-                    }
+                    },
+                    valid_from_ns=ts_ns,
+                    dynamic=True
                 ))
         
         # Optional: Gamma flip level (HVL approximation)

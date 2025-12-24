@@ -27,6 +27,7 @@ class SocketBroadcaster:
         self._subscriptions = []
         self._latest_levels: Optional[Dict[str, Any]] = None
         self._latest_flow: Optional[Dict[str, Any]] = None
+        self._latest_viewport: Optional[Dict[str, Any]] = None
 
     async def start(self):
         """Initialize NATS connection and subscribe to signals."""
@@ -55,12 +56,16 @@ class SocketBroadcaster:
         Callback for NATS messages on `levels.signals`.
         Relay directly to WebSocket clients.
         """
+        print(f"📥 Received level signal: {len(data.get('levels', []))} levels")
+        
         # Normalize to frontend payload contract
         normalized = self._normalize_levels_payload(data)
         self._latest_levels = normalized
+        self._latest_viewport = data.get("viewport")
 
         # Broadcast merged payload
         await self.broadcast(self._build_payload())
+        print(f"📡 Broadcasted to {len(self.active_connections)} clients")
 
     async def _on_flow_snapshot(self, data: Dict[str, Any]):
         """Callback for NATS messages on `market.flow`."""
@@ -118,6 +123,8 @@ class SocketBroadcaster:
             payload["flow"] = self._latest_flow
         if self._latest_levels is not None:
             payload["levels"] = self._latest_levels
+        if self._latest_viewport is not None:
+            payload["viewport"] = self._latest_viewport
         return payload
 
     def _normalize_levels_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -95,6 +95,7 @@ class LevelSignalV1(BaseModel):
     # ========== Identity & Timestamps ==========
     event_id: str = Field(..., description="Unique event identifier")
     ts_event_ns: int = Field(..., description="Event timestamp in nanoseconds UTC")
+    confirm_ts_ns: Optional[int] = Field(default=None, description="Confirmation timestamp t1 (ns)")
     symbol: str = Field(default="SPY", description="Underlying symbol")
     
     # ========== Market Context ==========
@@ -108,6 +109,9 @@ class LevelSignalV1(BaseModel):
     level_id: Optional[str] = Field(default=None, description="Level identifier (e.g., 'STRIKE_687')")
     direction: Optional[Direction] = Field(default=None, description="SUPPORT or RESISTANCE")
     distance: Optional[float] = Field(default=None, description="Distance from spot to level")
+    direction_sign: Optional[int] = Field(default=None, description="Direction sign (UP=1, DOWN=-1)")
+    distance_signed: Optional[float] = Field(default=None, description="Signed distance (level_price - spot)")
+    atr: Optional[float] = Field(default=None, description="ATR at event time for normalization")
     
     # ========== Context Features (Agent B) ==========
     is_first_15m: bool = Field(default=False, description="True if 09:30-09:45 ET")
@@ -130,6 +134,7 @@ class LevelSignalV1(BaseModel):
     confluence_weighted_score: Optional[float] = Field(default=None, description="Weighted confluence score")
     confluence_min_distance: Optional[float] = Field(default=None, description="Closest distance to a secondary key level")
     confluence_pressure: Optional[float] = Field(default=None, description="Normalized confluence strength")
+    confluence_alignment: Optional[int] = Field(default=None, description="Alignment of stacked levels with approach direction (-1,0,1)")
     gamma_flow_velocity: Optional[float] = Field(default=None, description="Net dealer gamma flow per minute near level")
     gamma_flow_impulse: Optional[float] = Field(default=None, description="Short-term gamma flow deviation vs baseline")
     gamma_flow_accel_1m: Optional[float] = Field(default=None, description="Change in 1-minute gamma flow velocity (acceleration)")
@@ -188,6 +193,9 @@ class LevelSignalV1(BaseModel):
     # ========== Outcome (Agent C) ==========
     outcome: OutcomeLabel = Field(default=OutcomeLabel.UNDEFINED, description="Outcome classification")
     future_price_5min: Optional[float] = Field(default=None, description="Price 5 minutes after touch")
+    anchor_spot: Optional[float] = Field(default=None, description="Spot price at confirmation time t1")
+    tradeable_1: Optional[int] = Field(default=None, description="Reached $1.00 in break direction within 5 minutes")
+    tradeable_2: Optional[int] = Field(default=None, description="Reached $2.00 in break direction within 5 minutes")
     strength_signed: Optional[float] = Field(default=None, description="Signed strength: break-direction excursion minus opposite")
     strength_abs: Optional[float] = Field(default=None, description="Absolute max excursion in either direction")
     time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first $1 move in break direction")

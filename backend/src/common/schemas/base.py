@@ -86,6 +86,7 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     # Timestamps (nanoseconds)
     'ts_event_ns': pa.int64(),
     'ts_recv_ns': pa.int64(),
+    'confirm_ts_ns': pa.int64(),
 
     # Identifiers
     'symbol': pa.utf8(),
@@ -103,6 +104,7 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     'spot': pa.float64(),
     'bid': pa.float64(),
     'ask': pa.float64(),
+    'anchor_spot': pa.float64(),
 
     # Sizes
     'size': pa.int32(),
@@ -153,15 +155,26 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     'break_score_raw': pa.float64(),
     'break_score_smooth': pa.float64(),
     'distance': pa.float64(),
+    'distance_signed': pa.float64(),
+    'atr': pa.float64(),
+    'distance_atr': pa.float64(),
+    'distance_pct': pa.float64(),
+    'distance_signed_atr': pa.float64(),
+    'distance_signed_pct': pa.float64(),
+    'level_price_pct': pa.float64(),
     'level_price': pa.float64(),
 
     # Barrier metrics
     'barrier_state': pa.utf8(),
     'barrier_delta_liq': pa.float64(),
     'barrier_replenishment_ratio': pa.float64(),
+    'barrier_replenishment_trend': pa.float64(),
+    'barrier_delta_liq_trend': pa.float64(),
     'barrier_added': pa.int64(),
     'barrier_canceled': pa.int64(),
     'barrier_filled': pa.int64(),
+    'barrier_delta_liq_nonzero': pa.int8(),
+    'barrier_delta_liq_log': pa.float64(),
 
     # Tape metrics
     'tape_imbalance': pa.float64(),
@@ -171,6 +184,8 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     'tape_sweep_detected': pa.bool_(),
     'tape_sweep_direction': pa.utf8(),
     'tape_sweep_notional': pa.float64(),
+    'tape_velocity_trend': pa.float64(),
+    'tape_imbalance_trend': pa.float64(),
 
     # Fuel metrics
     'fuel_effect': pa.utf8(),
@@ -178,6 +193,7 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     'fuel_call_wall': pa.float64(),
     'fuel_put_wall': pa.float64(),
     'fuel_hvl': pa.float64(),
+    'gamma_bucket': pa.utf8(),
 
     # Runway metrics
     'runway_direction': pa.utf8(),
@@ -185,6 +201,16 @@ ARROW_TYPE_MAP: Dict[str, pa.DataType] = {
     'runway_next_level_price': pa.float64(),
     'runway_distance': pa.float64(),
     'runway_quality': pa.utf8(),
+
+    # Labels and derived outcomes
+    'tradeable_1': pa.int8(),
+    'tradeable_2': pa.int8(),
+    'direction_sign': pa.int8(),
+    'attempt_index': pa.int32(),
+    'attempt_cluster_id': pa.int32(),
+    'confluence_alignment': pa.int8(),
+    'wall_ratio_nonzero': pa.int8(),
+    'wall_ratio_log': pa.float64(),
 
     # MBP-10 level prices and sizes (flattened)
     **{f'bid_px_{i}': pa.float64() for i in range(1, 11)},

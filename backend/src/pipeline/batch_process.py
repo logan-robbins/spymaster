@@ -152,7 +152,7 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
             initialize_market_state,
             detect_level_touches,
             calculate_real_physics,
-            get_future_prices,
+            get_anchor_and_future_prices,
         )
         from src.ingestor.dbn_ingestor import DBNIngestor
         from src.lake.bronze_writer import BronzeReader
@@ -163,6 +163,7 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
         from src.features.context_engine import ContextEngine
         from src.research.labeler import get_outcome
         from src.common.schemas.levels_signals import Direction, OutcomeLabel
+        from src.common.config import CONFIG
         import uuid
 
         print(f"\n--- Processing {date} ---")
@@ -232,11 +233,16 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
 
             for level_kind in level_kinds:
                 # Get future prices for labeling
-                future_prices = get_future_prices(ohlcv_df, ts_ns, 5)
+                anchor_price, future_prices = get_anchor_and_future_prices(
+                    ohlcv_df,
+                    ts_ns,
+                    confirmation_seconds=CONFIG.CONFIRMATION_WINDOW_SECONDS,
+                    lookforward_minutes=5
+                )
                 direction_str = "UP" if direction == Direction.UP else "DOWN"
 
-                if future_prices:
-                    outcome = get_outcome(level_price, future_prices, direction_str)
+                if future_prices and anchor_price is not None:
+                    outcome = get_outcome(anchor_price, future_prices, direction_str)
                     future_price_5min = future_prices[-1]
                 else:
                     outcome = OutcomeLabel.UNDEFINED

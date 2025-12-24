@@ -70,7 +70,7 @@ services:
     environment:
       NATS_URL: nats://nats:4222
       REPLAY_DATE: ${REPLAY_DATE:-2025-12-16}
-      REPLAY_SPEED: ${REPLAY_SPEED:-0}
+      REPLAY_SPEED: ${REPLAY_SPEED:-1.0}
     volumes:
       - ./dbn-data:/dbn-data:ro
     command: ["uv", "run", "python", "-m", "src.ingestor.replay_publisher"]

@@ -213,6 +213,31 @@ def build_ohlcv_vectorized(
     return ohlcv
 
 
+def compute_atr_vectorized(
+    ohlcv_df: pd.DataFrame,
+    window_minutes: Optional[int] = None
+) -> pd.Series:
+    """
+    Compute ATR on 1-minute bars for normalization.
+    """
+    if window_minutes is None:
+        window_minutes = CONFIG.ATR_WINDOW_MINUTES
+    if ohlcv_df.empty:
+        return pd.Series(dtype=np.float64)
+
+    df = ohlcv_df.sort_values('timestamp').copy()
+    high = df['high'].astype(np.float64).to_numpy()
+    low = df['low'].astype(np.float64).to_numpy()
+    close = df['close'].astype(np.float64).to_numpy()
+    prev_close = np.roll(close, 1)
+    prev_close[0] = close[0]
+
+    tr = np.maximum(high - low, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
+    atr = pd.Series(tr).rolling(window=window_minutes, min_periods=1).mean().to_numpy()
+
+    return pd.Series(atr, index=df.index)
+
+
 # =============================================================================
 # VECTORIZED LEVEL UNIVERSE GENERATION
 # =============================================================================
@@ -393,6 +418,324 @@ def generate_level_universe_vectorized(
         kinds=np.array(unique_kinds, dtype=np.int8),
         kind_names=unique_names
     )
+
+
+def compute_wall_series(
+    option_trades_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame,
+    date: str
+) -> tuple[pd.Series, pd.Series]:
+    """
+    Compute rolling call/put wall strikes using option flow data.
+    """
+    if option_trades_df is None or option_trades_df.empty:
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df = option_trades_df.copy()
+    required_cols = ['ts_event_ns', 'strike', 'size', 'gamma', 'aggressor', 'right']
+    if not set(required_cols).issubset(opt_df.columns):
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df = opt_df[required_cols + (['exp_date'] if 'exp_date' in opt_df.columns else [])].copy()
+    if 'exp_date' in opt_df.columns:
+        opt_df = opt_df[opt_df['exp_date'].astype(str) == date]
+    if opt_df.empty:
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df['ts_event_ns'] = pd.to_numeric(opt_df['ts_event_ns'], errors='coerce').fillna(0).astype(np.int64)
+    opt_df['strike'] = pd.to_numeric(opt_df['strike'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['size'] = pd.to_numeric(opt_df['size'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['gamma'] = pd.to_numeric(opt_df['gamma'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['aggressor'] = pd.to_numeric(opt_df['aggressor'], errors='coerce').fillna(0).astype(np.int8)
+    opt_df['right'] = opt_df['right'].astype(str)
+
+    opt_df['minute'] = pd.to_datetime(opt_df['ts_event_ns'], unit='ns', utc=True).dt.floor('1min')
+    opt_df['dealer_flow'] = -opt_df['aggressor'] * opt_df['size'] * opt_df['gamma'] * 100.0
+
+    window_minutes = max(1, int(round(CONFIG.W_wall / 60.0)))
+
+    def _wall_series_for_right(right: str) -> pd.Series:
+        subset = opt_df[opt_df['right'] == right]
+        if subset.empty:
+            return pd.Series(np.nan, index=ohlcv_df.index)
+
+        grouped = subset.groupby(['minute', 'strike'])['dealer_flow'].sum().reset_index()
+        pivot = grouped.pivot_table(
+            index='minute',
+            columns='strike',
+            values='dealer_flow',
+            aggfunc='sum',
+            fill_value=0.0
+        ).sort_index()
+
+        rolling = pivot.rolling(window=window_minutes, min_periods=1).sum()
+        total_abs = rolling.abs().sum(axis=1)
+        wall_strikes = rolling.idxmin(axis=1)
+        wall_strikes[total_abs == 0.0] = np.nan
+
+        ohlcv_minutes = ohlcv_df['timestamp'].dt.floor('1min')
+        aligned = pd.merge_asof(
+            pd.DataFrame({'minute': ohlcv_minutes}),
+            wall_strikes.rename('wall_strike').reset_index(),
+            on='minute',
+            direction='backward'
+        )['wall_strike']
+        return aligned
+
+    call_wall = _wall_series_for_right('C')
+    put_wall = _wall_series_for_right('P')
+    return call_wall, put_wall
+
+
+def compute_dynamic_level_series(
+    ohlcv_df: pd.DataFrame,
+    ohlcv_2min: pd.DataFrame,
+    option_trades_df: pd.DataFrame,
+    date: str
+) -> Dict[str, pd.Series]:
+    """
+    Build per-bar dynamic level series (causal) for structural levels.
+    """
+    df = ohlcv_df.copy()
+    df = df.sort_values('timestamp')
+    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+    df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
+
+    from datetime import time as dt_time
+    premarket_mask = (df['time_et'] >= dt_time(4, 0)) & (df['time_et'] < dt_time(9, 30))
+    session_mask = df['time_et'] >= dt_time(9, 30)
+    or_mask = (df['time_et'] >= dt_time(9, 30)) & (df['time_et'] < dt_time(9, 45))
+
+    pm_high_series = pd.Series(np.nan, index=df.index)
+    pm_low_series = pd.Series(np.nan, index=df.index)
+    if premarket_mask.any():
+        pm_high = df.loc[premarket_mask, 'high'].to_numpy(dtype=np.float64)
+        pm_low = df.loc[premarket_mask, 'low'].to_numpy(dtype=np.float64)
+        pm_high_series.loc[premarket_mask] = pd.Series(pm_high).cummax().values
+        pm_low_series.loc[premarket_mask] = pd.Series(pm_low).cummin().values
+        final_pm_high = float(np.nanmax(pm_high))
+        final_pm_low = float(np.nanmin(pm_low))
+        pm_high_series.loc[session_mask] = final_pm_high
+        pm_low_series.loc[session_mask] = final_pm_low
+
+    or_high_series = pd.Series(np.nan, index=df.index)
+    or_low_series = pd.Series(np.nan, index=df.index)
+    if or_mask.any():
+        or_high = df.loc[or_mask, 'high'].to_numpy(dtype=np.float64)
+        or_low = df.loc[or_mask, 'low'].to_numpy(dtype=np.float64)
+        or_high_series.loc[or_mask] = pd.Series(or_high).cummax().values
+        or_low_series.loc[or_mask] = pd.Series(or_low).cummin().values
+        final_or_high = float(np.nanmax(or_high))
+        final_or_low = float(np.nanmin(or_low))
+        or_high_series.loc[df['time_et'] >= dt_time(9, 45)] = final_or_high
+        or_low_series.loc[df['time_et'] >= dt_time(9, 45)] = final_or_low
+
+    session_high = df['high'].where(session_mask, np.nan)
+    session_low = df['low'].where(session_mask, np.nan)
+    session_high_series = session_high.expanding().max()
+    session_low_series = session_low.expanding().min()
+
+    typical_price = (df['high'] + df['low'] + df['close']) / 3.0
+    vwap_num = (typical_price * df['volume']).where(session_mask, 0.0).cumsum()
+    vwap_den = df['volume'].where(session_mask, 0.0).cumsum()
+    vwap_series = vwap_num / vwap_den.replace(0, np.nan)
+
+    df_2min = ohlcv_2min.copy()
+    df_2min = df_2min.sort_values('timestamp')
+    df_2min['timestamp'] = pd.to_datetime(df_2min['timestamp'], utc=True)
+    sma_200_series = df_2min['close'].rolling(200).mean()
+    sma_400_series = df_2min['close'].rolling(400).mean()
+    sma_df = pd.DataFrame({
+        'timestamp': df_2min['timestamp'],
+        'sma_200': sma_200_series,
+        'sma_400': sma_400_series
+    })
+    sma_aligned = pd.merge_asof(
+        df[['timestamp']],
+        sma_df.sort_values('timestamp'),
+        on='timestamp',
+        direction='backward'
+    )
+
+    call_wall_series, put_wall_series = compute_wall_series(option_trades_df, df, date)
+
+    return {
+        'PM_HIGH': pm_high_series,
+        'PM_LOW': pm_low_series,
+        'OR_HIGH': or_high_series,
+        'OR_LOW': or_low_series,
+        'SESSION_HIGH': session_high_series,
+        'SESSION_LOW': session_low_series,
+        'VWAP': vwap_series,
+        'SMA_200': sma_aligned['sma_200'],
+        'SMA_400': sma_aligned['sma_400'],
+        'CALL_WALL': call_wall_series,
+        'PUT_WALL': put_wall_series
+    }
+
+
+def detect_dynamic_level_touches(
+    ohlcv_df: pd.DataFrame,
+    dynamic_levels: Dict[str, pd.Series],
+    touch_tolerance: float = 0.10
+) -> pd.DataFrame:
+    """
+    Detect touches against dynamic level series (causal).
+    """
+    if ohlcv_df.empty or not dynamic_levels:
+        return pd.DataFrame(columns=['ts_ns', 'bar_idx', 'level_price', 'level_kind',
+                                     'level_kind_name', 'direction', 'distance', 'spot'])
+
+    df = ohlcv_df.copy()
+    timestamps = df['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+    lows = df['low'].values.astype(np.float64)
+    highs = df['high'].values.astype(np.float64)
+    closes = df['close'].values.astype(np.float64)
+
+    kind_map = {
+        'PM_HIGH': 0,
+        'PM_LOW': 1,
+        'OR_HIGH': 2,
+        'OR_LOW': 3,
+        'SESSION_HIGH': 4,
+        'SESSION_LOW': 5,
+        'SMA_200': 6,
+        'VWAP': 7,
+        'CALL_WALL': 10,
+        'PUT_WALL': 11,
+        'SMA_400': 12
+    }
+
+    rows = []
+    for kind_name, series in dynamic_levels.items():
+        if kind_name not in kind_map:
+            continue
+        values = series.to_numpy(dtype=np.float64)
+        mask = np.isfinite(values) & (lows - touch_tolerance <= values) & (values <= highs + touch_tolerance)
+        idx = np.where(mask)[0]
+        if len(idx) == 0:
+            continue
+        level_prices = values[idx]
+        direction = np.where(closes[idx] < level_prices, 'UP', 'DOWN')
+        distance = np.abs(closes[idx] - level_prices)
+        rows.append(pd.DataFrame({
+            'ts_ns': timestamps[idx],
+            'bar_idx': idx.astype(np.int64),
+            'level_price': level_prices,
+            'level_kind': kind_map[kind_name],
+            'level_kind_name': kind_name,
+            'direction': direction,
+            'distance': distance,
+            'spot': closes[idx]
+        }))
+
+    if not rows:
+        return pd.DataFrame(columns=['ts_ns', 'bar_idx', 'level_price', 'level_kind',
+                                     'level_kind_name', 'direction', 'distance', 'spot'])
+
+    result = pd.concat(rows, ignore_index=True)
+    result = result.drop_duplicates(subset=['ts_ns', 'level_kind_name', 'level_price'])
+    result = result[result['distance'] <= CONFIG.MONITOR_BAND]
+    return result
+
+
+def compute_confluence_features_dynamic(
+    signals_df: pd.DataFrame,
+    dynamic_levels: Dict[str, pd.Series]
+) -> pd.DataFrame:
+    """
+    Compute confluence metrics using per-bar dynamic levels (causal).
+    """
+    if signals_df.empty or not dynamic_levels:
+        return signals_df
+
+    key_weights = {
+        'PM_HIGH': 1.0,
+        'PM_LOW': 1.0,
+        'OR_HIGH': 0.9,
+        'OR_LOW': 0.9,
+        'SMA_200': 0.8,
+        'SMA_400': 0.8,
+        'VWAP': 0.7,
+        'SESSION_HIGH': 0.6,
+        'SESSION_LOW': 0.6,
+        'CALL_WALL': 1.0,
+        'PUT_WALL': 1.0
+    }
+
+    dynamic_arrays = {
+        name: series.to_numpy(dtype=np.float64)
+        for name, series in dynamic_levels.items()
+        if name in key_weights
+    }
+
+    if not dynamic_arrays:
+        result = signals_df.copy()
+        result['confluence_count'] = 0
+        result['confluence_weighted_score'] = 0.0
+        result['confluence_min_distance'] = np.nan
+        result['confluence_pressure'] = 0.0
+        return result
+
+    band = CONFIG.CONFLUENCE_BAND
+    eps = 1e-6
+
+    n = len(signals_df)
+    confluence_count = np.zeros(n, dtype=np.int32)
+    confluence_weighted = np.zeros(n, dtype=np.float64)
+    confluence_min_dist = np.full(n, np.nan, dtype=np.float64)
+    confluence_pressure = np.zeros(n, dtype=np.float64)
+
+    bar_idx = signals_df['bar_idx'].values.astype(np.int64)
+    level_prices = signals_df['level_price'].values.astype(np.float64)
+    level_kinds = signals_df['level_kind_name'].values.astype(object)
+
+    total_weight = sum(key_weights.values())
+
+    for i in range(n):
+        idx = bar_idx[i]
+        level_price = level_prices[i]
+        level_kind = level_kinds[i]
+
+        distances = []
+        weights = []
+        for name, arr in dynamic_arrays.items():
+            if idx < 0 or idx >= len(arr):
+                continue
+            val = arr[idx]
+            if not np.isfinite(val):
+                continue
+            if name == level_kind and abs(val - level_price) < eps:
+                continue
+            dist = abs(val - level_price)
+            distances.append(dist)
+            weights.append(key_weights[name])
+
+        if not distances:
+            continue
+
+        distances = np.array(distances, dtype=np.float64)
+        weights_arr = np.array(weights, dtype=np.float64)
+        confluence_min_dist[i] = float(np.min(distances))
+        within = distances <= band
+        if not np.any(within):
+            continue
+
+        distance_decay = np.clip(1.0 - (distances[within] / band), 0.0, 1.0)
+        confluence_count[i] = int(np.sum(within))
+        confluence_weighted[i] = float(np.sum(weights_arr[within] * distance_decay))
+        if total_weight > 0:
+            confluence_pressure[i] = confluence_weighted[i] / total_weight
+
+    result = signals_df.copy()
+    result['confluence_count'] = confluence_count
+    result['confluence_weighted_score'] = confluence_weighted
+    result['confluence_min_distance'] = confluence_min_dist
+    result['confluence_pressure'] = confluence_pressure
+    return result
 
 
 # =============================================================================
@@ -770,6 +1113,89 @@ def compute_approach_context_vectorized(
     return result
 
 
+def compute_attempt_features(
+    signals_df: pd.DataFrame,
+    time_window_minutes: Optional[int] = None,
+    price_band: Optional[float] = None
+) -> pd.DataFrame:
+    """
+    Compute touch clustering, attempt index, and deterioration trends.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    if time_window_minutes is None:
+        time_window_minutes = CONFIG.TOUCH_CLUSTER_TIME_MINUTES
+    if price_band is None:
+        price_band = CONFIG.TOUCH_CLUSTER_PRICE_BAND
+
+    df = signals_df.copy()
+    df['attempt_index'] = 0
+    df['attempt_cluster_id'] = 0
+    df['barrier_replenishment_trend'] = 0.0
+    df['barrier_delta_liq_trend'] = 0.0
+    df['tape_velocity_trend'] = 0.0
+    df['tape_imbalance_trend'] = 0.0
+
+    sort_cols = ['date', 'level_kind_name', 'direction', 'ts_ns']
+    df_sorted = df.sort_values(sort_cols)
+
+    time_window_ns = int(time_window_minutes * 60 * 1e9)
+
+    def _safe_value(value: Optional[float]) -> float:
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return val if np.isfinite(val) else 0.0
+
+    grouped = df_sorted.groupby(['date', 'level_kind_name', 'direction'], sort=False)
+    for _, group in grouped:
+        cluster_id = 0
+        attempt_index = 0
+        last_ts = None
+        last_price = None
+        first_metrics = None
+
+        for idx, row in group.iterrows():
+            ts = int(row['ts_ns'])
+            level_price = float(row['level_price'])
+            new_cluster = False
+            if last_ts is None:
+                new_cluster = True
+            else:
+                if ts - last_ts > time_window_ns:
+                    new_cluster = True
+                if abs(level_price - last_price) > price_band:
+                    new_cluster = True
+
+            if new_cluster:
+                cluster_id += 1
+                attempt_index = 1
+                first_metrics = {
+                    "barrier_replenishment_ratio": _safe_value(row.get('barrier_replenishment_ratio', 0.0)),
+                    "barrier_delta_liq": _safe_value(row.get('barrier_delta_liq', 0.0)),
+                    "tape_velocity": _safe_value(row.get('tape_velocity', 0.0)),
+                    "tape_imbalance": _safe_value(row.get('tape_imbalance', 0.0)),
+                }
+            else:
+                attempt_index += 1
+
+            df.at[idx, 'attempt_cluster_id'] = cluster_id
+            df.at[idx, 'attempt_index'] = attempt_index
+
+            if first_metrics is not None:
+                df.at[idx, 'barrier_replenishment_trend'] = _safe_value(row.get('barrier_replenishment_ratio', 0.0)) - first_metrics['barrier_replenishment_ratio']
+                df.at[idx, 'barrier_delta_liq_trend'] = _safe_value(row.get('barrier_delta_liq', 0.0)) - first_metrics['barrier_delta_liq']
+                df.at[idx, 'tape_velocity_trend'] = _safe_value(row.get('tape_velocity', 0.0)) - first_metrics['tape_velocity']
+                df.at[idx, 'tape_imbalance_trend'] = _safe_value(row.get('tape_imbalance', 0.0)) - first_metrics['tape_imbalance']
+
+            last_ts = ts
+            last_price = level_price
+
+    return df
+
+
 def compute_mean_reversion_features(
     signals_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
@@ -845,11 +1271,11 @@ def compute_mean_reversion_features(
     vel_ns = int(vel_minutes * 60 * 1e9)
 
     signal_ts = signals_df['ts_ns'].values.astype(np.int64)
-    spot_prices = signals_df['spot'].values.astype(np.float64)
+    level_prices = signals_df['level_price'].values.astype(np.float64)
 
     for i in range(n):
         ts = signal_ts[i]
-        spot = spot_prices[i]
+        level_price = level_prices[i]
 
         sma200 = _value_at_or_before(ts, sma_ts_ns, sma_200_values)
         sma400 = _value_at_or_before(ts, sma_ts_ns, sma_400_values)
@@ -858,9 +1284,9 @@ def compute_mean_reversion_features(
         sma_400[i] = sma400
 
         if np.isfinite(sma200):
-            dist_to_sma_200[i] = spot - sma200
+            dist_to_sma_200[i] = level_price - sma200
         if np.isfinite(sma400):
-            dist_to_sma_400[i] = spot - sma400
+            dist_to_sma_400[i] = level_price - sma400
 
         # SMA slopes
         idx_now = _index_at_or_before(ts, sma_ts_ns)
@@ -892,15 +1318,14 @@ def compute_mean_reversion_features(
 
         # Mean reversion velocity
         prev_ts = ts - vel_ns
-        prev_spot = _value_at_or_before(prev_ts, ohlcv_ts_ns, ohlcv_close)
         prev_sma200 = _value_at_or_before(prev_ts, sma_ts_ns, sma_200_values)
         prev_sma400 = _value_at_or_before(prev_ts, sma_ts_ns, sma_400_values)
 
-        if np.isfinite(prev_spot) and np.isfinite(prev_sma200) and np.isfinite(dist_to_sma_200[i]):
-            prev_dist_200 = prev_spot - prev_sma200
+        if np.isfinite(prev_sma200) and np.isfinite(dist_to_sma_200[i]):
+            prev_dist_200 = level_price - prev_sma200
             mean_rev_vel_200[i] = (dist_to_sma_200[i] - prev_dist_200) / vel_minutes
-        if np.isfinite(prev_spot) and np.isfinite(prev_sma400) and np.isfinite(dist_to_sma_400[i]):
-            prev_dist_400 = prev_spot - prev_sma400
+        if np.isfinite(prev_sma400) and np.isfinite(dist_to_sma_400[i]):
+            prev_dist_400 = level_price - prev_sma400
             mean_rev_vel_400[i] = (dist_to_sma_400[i] - prev_dist_400) / vel_minutes
 
     result = signals_df.copy()
@@ -926,7 +1351,7 @@ def compute_structural_distances(
     ohlcv_df: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Compute signed distances to structural levels (pre-market high/low).
+    Compute signed distances to structural levels (pre-market high/low) relative to target level.
     """
     if signals_df.empty or ohlcv_df.empty:
         return signals_df
@@ -947,14 +1372,14 @@ def compute_structural_distances(
         pm_high = pm_data['high'].max()
         pm_low = pm_data['low'].min()
 
-    spot = signals_df['spot'].values.astype(np.float64)
+    level_prices = signals_df['level_price'].values.astype(np.float64)
     dist_to_pm_high = np.full(len(signals_df), np.nan, dtype=np.float64)
     dist_to_pm_low = np.full(len(signals_df), np.nan, dtype=np.float64)
 
     if np.isfinite(pm_high):
-        dist_to_pm_high = spot - pm_high
+        dist_to_pm_high = level_prices - pm_high
     if np.isfinite(pm_low):
-        dist_to_pm_low = spot - pm_low
+        dist_to_pm_low = level_prices - pm_low
 
     result = signals_df.copy()
     result['dist_to_pm_high'] = dist_to_pm_high
@@ -1057,6 +1482,59 @@ def compute_confluence_features(
     result['confluence_min_distance'] = confluence_min_dist
     result['confluence_pressure'] = confluence_pressure
 
+    return result
+
+
+def compute_confluence_alignment(signals_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute confluence alignment based on SMA position/slope and approach direction.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    level_prices = signals_df['level_price'].values.astype(np.float64)
+    directions = signals_df['direction'].values.astype(object)
+    sma_200 = signals_df.get('sma_200')
+    sma_400 = signals_df.get('sma_400')
+    sma_200_slope = signals_df.get('sma_200_slope')
+    sma_400_slope = signals_df.get('sma_400_slope')
+
+    if sma_200 is None or sma_400 is None or sma_200_slope is None or sma_400_slope is None:
+        result = signals_df.copy()
+        result['confluence_alignment'] = np.zeros(len(signals_df), dtype=np.int8)
+        return result
+
+    sma_200_vals = sma_200.values.astype(np.float64)
+    sma_400_vals = sma_400.values.astype(np.float64)
+    sma_200_slope_vals = sma_200_slope.values.astype(np.float64)
+    sma_400_slope_vals = sma_400_slope.values.astype(np.float64)
+
+    alignment = np.zeros(len(signals_df), dtype=np.int8)
+    for i in range(len(signals_df)):
+        if not (np.isfinite(sma_200_vals[i]) and np.isfinite(sma_400_vals[i])):
+            continue
+        if not (np.isfinite(sma_200_slope_vals[i]) and np.isfinite(sma_400_slope_vals[i])):
+            continue
+
+        below_both = level_prices[i] < sma_200_vals[i] and level_prices[i] < sma_400_vals[i]
+        above_both = level_prices[i] > sma_200_vals[i] and level_prices[i] > sma_400_vals[i]
+        slopes_negative = sma_200_slope_vals[i] < 0 and sma_400_slope_vals[i] < 0
+        slopes_positive = sma_200_slope_vals[i] > 0 and sma_400_slope_vals[i] > 0
+        spread_slope = sma_200_slope_vals[i] - sma_400_slope_vals[i]
+
+        if directions[i] == 'UP':
+            if below_both and slopes_negative and spread_slope > 0:
+                alignment[i] = 1
+            elif above_both and slopes_positive and spread_slope < 0:
+                alignment[i] = -1
+        else:
+            if above_both and slopes_positive and spread_slope > 0:
+                alignment[i] = 1
+            elif below_both and slopes_negative and spread_slope < 0:
+                alignment[i] = -1
+
+    result = signals_df.copy()
+    result['confluence_alignment'] = alignment
     return result
 
 
@@ -1254,11 +1732,70 @@ def compute_pressure_indicators(signals_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def add_normalized_features(signals_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add ATR and spot-normalized distance features.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    if 'atr' not in signals_df.columns:
+        raise ValueError("ATR values missing; compute ATR before normalization.")
+
+    result = signals_df.copy()
+    spot = result['spot'].astype(np.float64).to_numpy()
+    atr = result['atr'].astype(np.float64).to_numpy()
+    eps = 1e-6
+
+    result['distance_signed'] = result['level_price'].astype(np.float64) - spot
+
+    distance_cols = [
+        'distance',
+        'distance_signed',
+        'dist_to_pm_high',
+        'dist_to_pm_low',
+        'dist_to_sma_200',
+        'dist_to_sma_400',
+        'confluence_min_distance',
+        'approach_distance'
+    ]
+    for col in distance_cols:
+        if col not in result.columns:
+            continue
+        values = result[col].astype(np.float64).to_numpy()
+        result[f"{col}_atr"] = values / (atr + eps)
+        result[f"{col}_pct"] = values / (spot + eps)
+
+    result['level_price_pct'] = (result['level_price'].astype(np.float64) - spot) / (spot + eps)
+
+    return result
+
+
+def add_sparse_feature_transforms(signals_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add indicator and signed-log transforms for sparse features.
+    """
+    if signals_df.empty:
+        return signals_df
+
+    result = signals_df.copy()
+    sparse_cols = ['wall_ratio', 'barrier_delta_liq']
+    for col in sparse_cols:
+        if col not in result.columns:
+            continue
+        values = result[col].astype(np.float64).to_numpy()
+        result[f"{col}_nonzero"] = (values != 0).astype(np.int8)
+        result[f"{col}_log"] = np.sign(values) * np.log1p(np.abs(values))
+
+    return result
+
+
 def label_outcomes_vectorized(
     signals_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
     lookforward_minutes: int = None,
-    outcome_threshold: float = None
+    outcome_threshold: float = None,
+    confirmation_seconds: float = None
 ) -> pd.DataFrame:
     """
     Label outcomes using vectorized operations.
@@ -1279,6 +1816,8 @@ def label_outcomes_vectorized(
         lookforward_minutes = CONFIG.LOOKFORWARD_MINUTES
     if outcome_threshold is None:
         outcome_threshold = CONFIG.OUTCOME_THRESHOLD
+    if confirmation_seconds is None:
+        confirmation_seconds = CONFIG.CONFIRMATION_WINDOW_SECONDS
 
     if signals_df.empty or ohlcv_df.empty:
         return signals_df
@@ -1292,6 +1831,7 @@ def label_outcomes_vectorized(
 
     # Lookforward in nanoseconds
     lookforward_ns = int(lookforward_minutes * 60 * 1e9)
+    confirmation_ns = int(confirmation_seconds * 1e9)
 
     n = len(signals_df)
     outcomes = np.empty(n, dtype=object)
@@ -1302,27 +1842,42 @@ def label_outcomes_vectorized(
     strength_abs = np.full(n, np.nan, dtype=np.float64)
     time_to_threshold_1 = np.full(n, np.nan, dtype=np.float64)
     time_to_threshold_2 = np.full(n, np.nan, dtype=np.float64)
+    tradeable_1 = np.zeros(n, dtype=np.int8)
+    tradeable_2 = np.zeros(n, dtype=np.int8)
+    confirm_ts_ns = np.full(n, np.nan, dtype=np.float64)
+    anchor_spot = np.full(n, np.nan, dtype=np.float64)
 
     signal_ts = signals_df['ts_ns'].values
-    level_prices = signals_df['level_price'].values
     directions = signals_df['direction'].values
+    bar_idx = signals_df['bar_idx'].values if 'bar_idx' in signals_df.columns else None
     threshold_1 = CONFIG.STRENGTH_THRESHOLD_1
     threshold_2 = CONFIG.STRENGTH_THRESHOLD_2
 
     # Vectorized: find indices for each signal's lookforward window
     for i in range(n):
         ts = signal_ts[i]
-        end_ts = ts + lookforward_ns
+        anchor_idx = None
+        if bar_idx is not None:
+            anchor_idx = int(bar_idx[i])
+        else:
+            anchor_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
 
-        # Find bars in window using binary search
-        start_idx = np.searchsorted(ohlcv_ts, ts, side='right')
-        end_idx = np.searchsorted(ohlcv_ts, end_ts, side='right')
+        if anchor_idx < 0 or anchor_idx >= len(ohlcv_ts):
+            outcomes[i] = 'UNDEFINED'
+            continue
+
+        anchor_price = ohlcv_close[anchor_idx]
+        anchor_time = ohlcv_ts[anchor_idx] + confirmation_ns
+        confirm_ts_ns[i] = anchor_time
+        anchor_spot[i] = anchor_price
+
+        start_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
+        end_idx = np.searchsorted(ohlcv_ts, anchor_time + lookforward_ns, side='right')
 
         if start_idx >= len(ohlcv_ts) or start_idx >= end_idx:
             outcomes[i] = 'UNDEFINED'
             continue
 
-        # Get future prices
         future_close = ohlcv_close[start_idx:end_idx]
         future_high = ohlcv_high[start_idx:end_idx]
         future_low = ohlcv_low[start_idx:end_idx]
@@ -1331,23 +1886,15 @@ def label_outcomes_vectorized(
             outcomes[i] = 'UNDEFINED'
             continue
 
-        level = level_prices[i]
         direction = directions[i]
-
-        # Store future price (last close in window)
         future_prices[i] = future_close[-1]
 
-        max_above = max(future_high.max() - level, 0.0)
-        max_below = max(level - future_low.min(), 0.0)
+        max_above = max(future_high.max() - anchor_price, 0.0)
+        max_below = max(anchor_price - future_low.min(), 0.0)
 
-        # Compute excursions
         if direction == 'UP':
-            # Testing resistance from below
             excursion_max[i] = max_above
             excursion_min[i] = max_below
-
-            # BREAK: moved >threshold above level
-            # BOUNCE: moved >threshold below level
             strength_signed[i] = max_above - max_below
             strength_abs[i] = max(max_above, max_below)
 
@@ -1358,20 +1905,17 @@ def label_outcomes_vectorized(
             else:
                 outcomes[i] = 'CHOP'
 
-            # Time to thresholds in break direction (UP)
-            above_1 = np.where(future_high >= level + threshold_1)[0]
-            above_2 = np.where(future_high >= level + threshold_2)[0]
+            above_1 = np.where(future_high >= anchor_price + threshold_1)[0]
+            above_2 = np.where(future_high >= anchor_price + threshold_2)[0]
             if len(above_1) > 0:
                 idx = start_idx + above_1[0]
-                time_to_threshold_1[i] = (ohlcv_ts[idx] - ts) / 1e9
+                time_to_threshold_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
             if len(above_2) > 0:
                 idx = start_idx + above_2[0]
-                time_to_threshold_2[i] = (ohlcv_ts[idx] - ts) / 1e9
+                time_to_threshold_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
         else:
-            # Testing support from above
             excursion_max[i] = max_below
             excursion_min[i] = max_above
-
             strength_signed[i] = max_below - max_above
             strength_abs[i] = max(max_below, max_above)
 
@@ -1382,15 +1926,19 @@ def label_outcomes_vectorized(
             else:
                 outcomes[i] = 'CHOP'
 
-            # Time to thresholds in break direction (DOWN)
-            below_1 = np.where(future_low <= level - threshold_1)[0]
-            below_2 = np.where(future_low <= level - threshold_2)[0]
+            below_1 = np.where(future_low <= anchor_price - threshold_1)[0]
+            below_2 = np.where(future_low <= anchor_price - threshold_2)[0]
             if len(below_1) > 0:
                 idx = start_idx + below_1[0]
-                time_to_threshold_1[i] = (ohlcv_ts[idx] - ts) / 1e9
+                time_to_threshold_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
             if len(below_2) > 0:
                 idx = start_idx + below_2[0]
-                time_to_threshold_2[i] = (ohlcv_ts[idx] - ts) / 1e9
+                time_to_threshold_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+
+        if np.isfinite(time_to_threshold_1[i]):
+            tradeable_1[i] = 1
+        if np.isfinite(time_to_threshold_2[i]):
+            tradeable_2[i] = 1
 
     result = signals_df.copy()
     result['outcome'] = outcomes
@@ -1401,6 +1949,10 @@ def label_outcomes_vectorized(
     result['strength_abs'] = strength_abs
     result['time_to_threshold_1'] = time_to_threshold_1
     result['time_to_threshold_2'] = time_to_threshold_2
+    result['tradeable_1'] = tradeable_1
+    result['tradeable_2'] = tradeable_2
+    result['confirm_ts_ns'] = confirm_ts_ns
+    result['anchor_spot'] = anchor_spot
 
     return result
 
@@ -1517,6 +2069,7 @@ class VectorizedPipeline:
 
         ohlcv_df = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='1min')
         ohlcv_2min = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='2min')
+        atr_series = compute_atr_vectorized(ohlcv_df)
         warmup_2min, warmup_dates = self._build_sma_warmup_2min(date)
         if not warmup_2min.empty:
             ohlcv_2min = pd.concat([warmup_2min, ohlcv_2min], ignore_index=True).sort_values('timestamp')
@@ -1543,6 +2096,23 @@ class VectorizedPipeline:
         level_info = generate_level_universe_vectorized(
             ohlcv_df, market_state.option_flows, date, ohlcv_2min=ohlcv_2min
         )
+        dynamic_levels = compute_dynamic_level_series(
+            ohlcv_df, ohlcv_2min, option_trades_df, date
+        )
+
+        static_prices = []
+        static_kinds = []
+        static_names = []
+        for price, kind, name in zip(level_info.prices, level_info.kinds, level_info.kind_names):
+            if name in ('ROUND', 'STRIKE'):
+                static_prices.append(price)
+                static_kinds.append(kind)
+                static_names.append(name)
+        static_level_info = LevelInfo(
+            prices=np.array(static_prices, dtype=np.float64),
+            kinds=np.array(static_kinds, dtype=np.int8),
+            kind_names=static_names
+        )
 
         log.info(f"  Generated {len(level_info.prices)} levels in {time.time()-stage_start:.2f}s")
 
@@ -1556,7 +2126,11 @@ class VectorizedPipeline:
         log.info("Detecting level touches...")
         stage_start = time.time()
 
-        touches_df = detect_touches_vectorized(ohlcv_df, level_info, touch_tolerance=0.10)
+        touches_df = detect_touches_vectorized(ohlcv_df, static_level_info, touch_tolerance=0.10)
+        dynamic_touches = detect_dynamic_level_touches(ohlcv_df, dynamic_levels, touch_tolerance=0.10)
+        if not dynamic_touches.empty:
+            touches_df = pd.concat([touches_df, dynamic_touches], ignore_index=True)
+            touches_df = touches_df.drop_duplicates(subset=['ts_ns', 'level_kind_name', 'level_price'])
 
         log.info(f"  Detected {len(touches_df):,} touches in {time.time()-stage_start:.2f}s")
 
@@ -1597,9 +2171,17 @@ class VectorizedPipeline:
         # Add date column
         signals_df['date'] = date
         signals_df['symbol'] = 'SPY'
+        signals_df['direction_sign'] = np.where(signals_df['direction'] == 'UP', 1, -1)
 
         # Generate event IDs
         signals_df['event_id'] = [str(uuid.uuid4()) for _ in range(len(signals_df))]
+
+        # Attach ATR for normalization
+        atr_values = atr_series.to_numpy()
+        bar_idx_vals = signals_df['bar_idx'].values.astype(np.int64)
+        if bar_idx_vals.max(initial=0) >= len(atr_values):
+            raise ValueError("Bar index exceeds ATR series length.")
+        signals_df['atr'] = atr_values[bar_idx_vals]
 
         # Structural distances (pre-market levels)
         signals_df = compute_structural_distances(signals_df, ohlcv_df)
@@ -1608,19 +2190,32 @@ class VectorizedPipeline:
         signals_df = compute_mean_reversion_features(signals_df, ohlcv_df, ohlcv_2min=ohlcv_2min)
 
         # Confluence features (stacked key levels)
-        signals_df = compute_confluence_features(signals_df, level_info)
+        signals_df = compute_confluence_features_dynamic(signals_df, dynamic_levels)
+        signals_df = compute_confluence_alignment(signals_df)
 
         # Dealer mechanics velocity features
         signals_df = compute_dealer_velocity_features(signals_df, option_trades_df)
 
         # Fluid pressure indicators
         signals_df = compute_pressure_indicators(signals_df)
+        gamma_exposure = signals_df.get('gamma_exposure')
+        if gamma_exposure is not None:
+            gamma_vals = gamma_exposure.values.astype(np.float64)
+            gamma_bucket = np.where(np.isfinite(gamma_vals), np.where(gamma_vals < 0, "SHORT_GAMMA", "LONG_GAMMA"), "UNKNOWN")
+            signals_df['gamma_bucket'] = gamma_bucket
 
         # ========== Stage 8: Approach Context (Backward) ==========
         log.info("Computing approach context...")
         stage_start = time.time()
 
         signals_df = compute_approach_context_vectorized(signals_df, ohlcv_df)
+
+        # Sparse feature transforms + normalization
+        signals_df = add_sparse_feature_transforms(signals_df)
+        signals_df = add_normalized_features(signals_df)
+
+        # Attempt clustering + deterioration trends
+        signals_df = compute_attempt_features(signals_df)
 
         log.info(f"  Computed approach context in {time.time()-stage_start:.2f}s")
 

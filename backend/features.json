@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
-  "description": "SPY 0DTE Level Signal Features for ML Training - Vectorized Pipeline",
+  "version": "1.4.0",
+  "description": "SPY 0DTE Level Signal Features for ML Training - Phase 3 Vectorized Pipeline",
   "output_path": "data/lake/gold/research/signals_vectorized.parquet",
   "label_column": "outcome",
   "label_values": ["BREAK", "BOUNCE"],
@@ -18,6 +18,11 @@
           "dtype": "int64",
           "description": "Event timestamp in Unix nanoseconds UTC",
           "example": 1765843200000000000
+        },
+        "confirm_ts_ns": {
+          "dtype": "float64",
+          "description": "Confirmation timestamp (t1 = t0 + 60s) in Unix nanoseconds UTC",
+          "example": 1765843260000000000
         },
         "date": {
           "dtype": "string",
@@ -76,10 +81,50 @@
           "values": ["UP", "DOWN"],
           "example": "UP"
         },
+        "direction_sign": {
+          "dtype": "int8",
+          "description": "Direction sign (UP=1, DOWN=-1)",
+          "example": 1
+        },
         "distance": {
           "dtype": "float64",
           "description": "Distance from spot to level in dollars (filtered to <= $0.50)",
           "example": 0.20
+        },
+        "distance_signed": {
+          "dtype": "float64",
+          "description": "Signed distance from spot to level (level_price - spot)",
+          "example": -0.20
+        },
+        "atr": {
+          "dtype": "float64",
+          "description": "ATR (1-min bars) at touch timestamp for normalization",
+          "example": 0.42
+        },
+        "distance_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance from spot to level",
+          "example": 0.48
+        },
+        "distance_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized distance from spot to level",
+          "example": 0.00029
+        },
+        "distance_signed_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized signed distance from spot to level",
+          "example": -0.48
+        },
+        "distance_signed_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized signed distance from spot to level",
+          "example": -0.00029
+        },
+        "level_price_pct": {
+          "dtype": "float64",
+          "description": "Level price expressed as percent difference from spot",
+          "example": -0.00029
         }
       }
     },
@@ -93,13 +138,33 @@
         },
         "dist_to_pm_high": {
           "dtype": "float64",
-          "description": "Signed distance from spot to pre-market high (spot - PM high)",
+          "description": "Signed distance from target level to pre-market high (level_price - PM high)",
           "example": 0.15
         },
         "dist_to_pm_low": {
           "dtype": "float64",
-          "description": "Signed distance from spot to pre-market low (spot - PM low)",
+          "description": "Signed distance from target level to pre-market low (level_price - PM low)",
           "example": -0.40
+        },
+        "dist_to_pm_high_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance from target level to pre-market high",
+          "example": 0.35
+        },
+        "dist_to_pm_high_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized distance from target level to pre-market high",
+          "example": 0.0005
+        },
+        "dist_to_pm_low_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance from target level to pre-market low",
+          "example": -0.45
+        },
+        "dist_to_pm_low_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized distance from target level to pre-market low",
+          "example": -0.0006
         }
       }
     },
@@ -118,13 +183,33 @@
         },
         "dist_to_sma_200": {
           "dtype": "float64",
-          "description": "Signed distance from spot to SMA-200 (spot - SMA)",
+          "description": "Signed distance from target level to SMA-200 (level_price - SMA)",
           "example": 0.25
         },
         "dist_to_sma_400": {
           "dtype": "float64",
-          "description": "Signed distance from spot to SMA-400 (spot - SMA)",
+          "description": "Signed distance from target level to SMA-400 (level_price - SMA)",
           "example": 0.80
+        },
+        "dist_to_sma_200_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance from target level to SMA-200",
+          "example": 0.60
+        },
+        "dist_to_sma_200_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized distance from target level to SMA-200",
+          "example": 0.0004
+        },
+        "dist_to_sma_400_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance from target level to SMA-400",
+          "example": 0.80
+        },
+        "dist_to_sma_400_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized distance from target level to SMA-400",
+          "example": 0.0006
         },
         "sma_200_slope": {
           "dtype": "float64",
@@ -191,10 +276,25 @@
           "description": "Minimum distance to a secondary key level",
           "example": 0.06
         },
+        "confluence_min_distance_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized minimum distance to a secondary key level",
+          "example": 0.15
+        },
+        "confluence_min_distance_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized minimum distance to a secondary key level",
+          "example": 0.0002
+        },
         "confluence_pressure": {
           "dtype": "float64",
           "description": "Normalized confluence strength indicator",
           "example": 0.42
+        },
+        "confluence_alignment": {
+          "dtype": "int8",
+          "description": "Alignment of stacked levels with approach direction (-1, 0, +1)",
+          "example": 1
         }
       }
     },
@@ -226,6 +326,16 @@
           "description": "Net change in defending liquidity (ES contracts). Negative = liquidity leaving.",
           "example": -150.0
         },
+        "barrier_delta_liq_nonzero": {
+          "dtype": "int8",
+          "description": "Indicator that barrier_delta_liq is non-zero",
+          "example": 1
+        },
+        "barrier_delta_liq_log": {
+          "dtype": "float64",
+          "description": "Signed log transform of barrier_delta_liq",
+          "example": -5.02
+        },
         "barrier_replenishment_ratio": {
           "dtype": "float64",
           "description": "Ratio of added to removed liquidity. >1.5 = WALL, <0.3 = VACUUM.",
@@ -235,6 +345,16 @@
           "dtype": "float64",
           "description": "Ratio of defending liquidity to baseline. Detects unusual concentration.",
           "example": 2.1
+        },
+        "wall_ratio_nonzero": {
+          "dtype": "int8",
+          "description": "Indicator that wall_ratio is non-zero",
+          "example": 0
+        },
+        "wall_ratio_log": {
+          "dtype": "float64",
+          "description": "Signed log transform of wall_ratio",
+          "example": 1.13
         }
       }
     },
@@ -297,6 +417,12 @@
             "NEUTRAL": "No significant gamma imbalance"
           },
           "example": "DAMPEN"
+        },
+        "gamma_bucket": {
+          "dtype": "string",
+          "description": "Gamma regime bucket for retrieval filters",
+          "values": ["SHORT_GAMMA", "LONG_GAMMA", "UNKNOWN"],
+          "example": "LONG_GAMMA"
         }
       }
     },
@@ -393,10 +519,50 @@
           "description": "Total price distance traveled toward level in lookback window",
           "example": 1.50
         },
+        "approach_distance_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized approach distance",
+          "example": 3.20
+        },
+        "approach_distance_pct": {
+          "dtype": "float64",
+          "description": "Spot-normalized approach distance",
+          "example": 0.0023
+        },
         "prior_touches": {
           "dtype": "int32",
           "description": "Count of previous touches at this exact level today",
           "example": 2
+        },
+        "attempt_index": {
+          "dtype": "int32",
+          "description": "Attempt index within touch cluster (1,2,3...)",
+          "example": 2
+        },
+        "attempt_cluster_id": {
+          "dtype": "int32",
+          "description": "Cluster identifier for repeated attempts at a level",
+          "example": 1
+        },
+        "barrier_replenishment_trend": {
+          "dtype": "float64",
+          "description": "Change in barrier replenishment ratio vs first attempt",
+          "example": -0.4
+        },
+        "barrier_delta_liq_trend": {
+          "dtype": "float64",
+          "description": "Change in barrier delta liquidity vs first attempt",
+          "example": -120.0
+        },
+        "tape_velocity_trend": {
+          "dtype": "float64",
+          "description": "Change in tape velocity vs first attempt",
+          "example": 0.12
+        },
+        "tape_imbalance_trend": {
+          "dtype": "float64",
+          "description": "Change in tape imbalance vs first attempt",
+          "example": -0.18
         },
         "bars_since_open": {
           "dtype": "int32",
@@ -410,7 +576,7 @@
       "methodology": {
         "threshold": "$2.00 (2 strikes) - meaningful move for options trading",
         "time_to_thresholds": "$1.00 and $2.00 for time-to-threshold metrics",
-        "lookforward": "5 minutes",
+        "lookforward": "5 minutes anchored at confirmation time t1",
         "note": "Must move 2 strikes to be actionable for SPY options",
         "missing_data_policy": "If the lookforward window is incomplete, outcome is UNDEFINED and forward metrics are NaN"
       },
@@ -420,46 +586,61 @@
           "description": "What happened after the level touch",
           "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
           "labeling": {
-            "BREAK": "Price moved through level by >=$2.00 in approach direction",
-            "BOUNCE": "Price reversed away from level by >=$2.00",
-            "CHOP": "Price didn't move $2.00 in either direction (not tradeable)",
+            "BREAK": "Price moved >=$2.00 in approach direction from S(t1)",
+            "BOUNCE": "Price moved >=$2.00 opposite the approach direction from S(t1)",
+            "CHOP": "Price didn't move $2.00 in either direction from S(t1) (not tradeable)",
             "UNDEFINED": "Insufficient forward window to label outcome"
           },
           "example": "BOUNCE"
         },
         "future_price_5min": {
           "dtype": "float64",
-          "description": "SPY price 5 minutes after signal (for P&L calculation)",
+          "description": "SPY price 5 minutes after confirmation time (t1)",
           "example": 681.425
+        },
+        "anchor_spot": {
+          "dtype": "float64",
+          "description": "Spot price at confirmation time t1 used for label anchoring",
+          "example": 682.10
+        },
+        "tradeable_1": {
+          "dtype": "int8",
+          "description": "Reached $1.00 in break direction within 5 minutes",
+          "example": 1
+        },
+        "tradeable_2": {
+          "dtype": "int8",
+          "description": "Reached $2.00 in break direction within 5 minutes",
+          "example": 0
         },
         "excursion_max": {
           "dtype": "float64",
-          "description": "Maximum favorable excursion in lookforward window (dollars)",
+          "description": "Maximum favorable excursion from S(t1) in lookforward window (dollars)",
           "example": 2.50
         },
         "excursion_min": {
           "dtype": "float64",
-          "description": "Maximum adverse excursion in lookforward window (dollars)",
+          "description": "Maximum adverse excursion from S(t1) in lookforward window (dollars)",
           "example": 0.80
         },
         "strength_signed": {
           "dtype": "float64",
-          "description": "Signed strength: break-direction excursion minus opposite",
+          "description": "Signed strength: break-direction excursion minus opposite (anchored at S(t1))",
           "example": 1.70
         },
         "strength_abs": {
           "dtype": "float64",
-          "description": "Absolute max excursion in either direction",
+          "description": "Absolute max excursion in either direction from S(t1)",
           "example": 2.10
         },
         "time_to_threshold_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in break direction",
+          "description": "Seconds to first $1 move in break direction from S(t1)",
           "example": 90.0
         },
         "time_to_threshold_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in break direction",
+          "description": "Seconds to first $2 move in break direction from S(t1)",
           "example": 210.0
         }
       }

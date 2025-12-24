@@ -1,268 +1,242 @@
 # Spymaster Backend
 
-ML feature engineering pipeline for SPY 0DTE options trading signals.
+Physics-based signal generation and ML feature engineering for SPY 0DTE break/bounce prediction.
 
-## Core Concept
+---
 
-**Goal:** Predict whether SPY price will BREAK through or BOUNCE off key price levels (strikes, VWAP, session highs/lows).
+## Purpose
 
-**Trading Context:** SPY options are traded at $1 strike intervals. When price approaches a strike level (e.g., $685), dealers must hedge their gamma exposure. This creates observable patterns in:
-1. **Order book liquidity** - Are dealers defending or abandoning the level?
-2. **Trade flow** - Is aggressive buying/selling pushing through or getting absorbed?
-3. **Options flow** - Will dealer hedging amplify or dampen the move?
+Predicts whether SPY price will BREAK through or BOUNCE off key levels ($1 strikes, VWAP, session extremes) by modeling:
+1. **Order book liquidity** (ES futures MBP-10): Dealer defense vs abandonment
+2. **Trade flow** (ES futures trades): Aggressive buying/selling pressure
+3. **Options flow** (SPY 0DTE): Dealer gamma hedging effects
 
-**Signal Generation:** When price enters the "critical zone" (±$0.25 of a level), we compute physics features and label the outcome based on whether price moved ≥$2.00 (2 strikes) in either direction within 5 minutes.
+**Signal Trigger**: Price enters critical zone (±$0.25 of level) → compute physics → publish break/bounce prediction (0-100 score)
 
-## Critical: ES/SPY Price Conversion
+---
 
-**This platform uses ES futures as a liquidity proxy for SPY.**
+## ES/SPY Price Conversion
 
-```
-ES_price = SPY_price × 10
-```
+**ES futures = SPY liquidity proxy** (SPY equity has no public order book)
 
-| SPY | ES | Notes |
-|-----|-----|-------|
-| $685.00 | $6850.00 | Price conversion |
-| $1 strike interval | $10 / 40 ticks | Strike spacing |
-| ±$0.25 critical zone | ±$2.50 / 10 ticks | MONITOR_BAND |
-| ±$0.20 barrier zone | ±$2.00 / 8 ticks | BARRIER_ZONE_ES_TICKS |
+**Conversion**: `ES_price = SPY_price × 10`
 
-**Why ES?** SPY equity has no public order book. ES futures provide:
-- Deep MBP-10 order book data
-- Trade-by-trade flow with aggressor flags
-- Direct hedging instrument for SPY option dealers
+| SPY | ES | Context |
+|-----|-----|---------|
+| $687.00 | $6870.00 | Price |
+| ±$0.25 | ±$2.50 (10 ticks) | MONITOR_BAND |
+| ±$0.20 | ±$2.00 (8 ticks) | BARRIER_ZONE |
 
-**ALL barrier and tape computations operate on ES data, then convert back to SPY scale for output.**
+**All barrier/tape computations use ES data, convert back to SPY for output.**
+
+**See**: `backend/src/common/price_converter.py` for implementation.
 
 ## Quick Start
 
+### Running Services
+
 ```bash
+# Full stack (Docker Compose)
+docker-compose up -d
+
+# Individual services (local dev)
 cd backend/
 
 # Install dependencies
 uv sync
 
-# Process all available dates
+# Run ingestor (replay mode)
+export REPLAY_SPEED=1.0
+export REPLAY_DATE=2025-12-16
+uv run python -m src.ingestor.replay_publisher
+
+# Run core service (separate terminal)
+uv run python -m src.core.main
+
+# Run gateway (separate terminal)
+uv run python -m src.gateway.main
+
+# Run lake service (separate terminal)
+uv run python -m src.lake.main
+```
+
+### Processing Historical Data
+
+```bash
+# Run vectorized pipeline (for ML training)
 uv run python -m src.pipeline.vectorized_pipeline --all
 
-# Validate generated data
+# Validate generated signals
 uv run python -m scripts.validate_data --verbose
 ```
 
-## Pipeline Stages
+---
 
+## Architecture
+
+**Microservices Pipeline** (Phase 2):
 ```
-Stage 1: Load Data
-    ├── ES trades (Databento DBN) - price, size, aggressor
-    ├── ES MBP-10 (Databento DBN) - 10 levels of bid/ask depth
-    └── SPY 0DTE options (Polygon) - trades for gamma calculation
-
-Stage 2: Build OHLCV
-    └── 1-minute bars from ES trades (converted to SPY scale)
-
-Stage 3: Generate Level Universe
-    ├── STRIKE levels ($1 intervals near spot)
-    ├── ROUND levels ($1 intervals)
-    ├── PM_HIGH, PM_LOW (pre-market extremes)
-    ├── OR_HIGH, OR_LOW (opening range)
-    ├── SESSION_HIGH, SESSION_LOW
-    ├── VWAP, SMA_200
-    └── CALL_WALL, PUT_WALL (from options flow)
-
-Stage 4: Detect Touches
-    └── When OHLCV high/low crosses a level price
-
-Stage 5: Filter to Critical Zone
-    └── Keep only signals where |close - level| ≤ $0.25
-
-Stage 6: Compute Physics (FORWARD-looking from touch)
-    ├── Barrier metrics (60s window) - order book dynamics
-    ├── Tape metrics (60s window) - trade flow imbalance
-    └── Fuel metrics - dealer gamma exposure
-
-Stage 7: Compute Approach Context (BACKWARD-looking)
-    └── How price approached the level (velocity, bars, distance)
-
-Stage 8: Label Outcomes (FORWARD 5 minutes)
-    ├── BREAK: moved ≥$2.00 through level
-    ├── BOUNCE: moved ≥$2.00 away from level
-    └── CHOP: didn't move $2.00 either direction
-
-Output: data/lake/gold/research/signals_vectorized.parquet
+Ingestor → NATS JetStream → Core/Lake/Gateway
+                              ↓
+                         Level Signals
 ```
 
-## Time Window Directions
+**Components**:
+- **Ingestor**: Normalize feeds, publish to NATS (`market.*` subjects)
+- **Core**: Physics engines, signal generation, publish to NATS (`levels.signals`)
+- **Lake**: Persist to Bronze/Silver/Gold Parquet (local or S3/MinIO)
+- **Gateway**: WebSocket relay to frontend
 
-**CRITICAL FOR AI AGENTS:** Touch timestamps are at the START of 1-minute bars.
+**See**: [COMPONENTS.md](../COMPONENTS.md) for complete architecture map.
 
-| Computation | Direction | Window | Why |
-|-------------|-----------|--------|-----|
-| Barrier physics | FORWARD | 60s | Capture trades/quotes during the bar |
-| Tape physics | FORWARD | 60s | Capture trade flow during the bar |
-| Approach context | BACKWARD | 10 min | How price got to this level |
-| Outcome labeling | FORWARD | 5 min | What happened after |
+## Data Pipeline
 
-**Wrong:** Looking backward from touch timestamp misses all activity.
-**Right:** Looking forward from touch timestamp captures the bar's activity.
+**Vectorized Processing** (for ML training):
+1. Load ES trades/MBP-10 (Databento) + SPY options (Polygon)
+2. Generate level universe (strikes, VWAP, PM/OR/session extremes, walls)
+3. Detect touches (OHLCV crosses level price)
+4. Filter to critical zone (|close - level| ≤ $0.25)
+5. Compute physics (barrier, tape, fuel) + approach context
+6. Label outcomes (BREAK/BOUNCE/CHOP based on $2.00 threshold)
+7. Output: `data/lake/gold/research/signals_vectorized.parquet`
+
+**Live Processing** (Core Service):
+1. Subscribe to NATS (`market.*` subjects)
+2. Update MarketState (ES MBP-10, trades, SPY option flow)
+3. Generate level universe every snap tick (250ms)
+4. Compute physics + score for levels within MONITOR_BAND
+5. Publish to NATS (`levels.signals`)
+
+**See**: [backend/src/core/INTERFACES.md](src/core/INTERFACES.md) for signal output schema.
+
+---
 
 ## Feature Schema
 
-### Identity
-- `event_id` - UUID
-- `ts_ns` - Unix nanoseconds UTC
-- `date` - Trading date
-- `symbol` - Always "SPY"
+**Authoritative source**: `backend/features.json`
 
-### Level Context
-- `level_price` - The price level being tested
-- `level_kind` / `level_kind_name` - Type (STRIKE, VWAP, PM_HIGH, etc.)
-- `direction` - UP (approaching resistance) or DOWN (approaching support)
-- `distance` - |spot - level| in dollars (filtered to ≤$0.25)
-- `spot` - Current SPY price
+**Feature Groups**:
+- **Identity**: `event_id`, `ts_ns`, `date`, `symbol`
+- **Level**: `level_price`, `level_kind`, `direction`, `distance`, `spot`
+- **Barrier**: `barrier_state`, `delta_liq`, `replenishment_ratio`, `wall_ratio`
+- **Tape**: `tape_imbalance`, `tape_velocity`, `buy_vol`, `sell_vol`, `sweep_detected`
+- **Fuel**: `gamma_exposure`, `fuel_effect`
+- **Approach**: `approach_velocity`, `approach_bars`, `prior_touches`
+- **Outcome**: `outcome` (BREAK/BOUNCE/CHOP), `strength_signed`, `tradeable_1/2`
 
-### Barrier Physics (ES Order Book)
-Measures liquidity dynamics at the level. Source: ES MBP-10.
+**See**: [backend/src/common/INTERFACES.md](src/common/INTERFACES.md) for event type contracts.
 
-- `barrier_state` - Classification:
-  - `VACUUM` - Liquidity pulled without fills → easy break
-  - `WALL` - Liquidity replenishing → likely reject
-  - `ABSORPTION` - Large orders absorbing flow
-  - `CONSUMED` - Defending liquidity was filled
-  - `WEAK` - Minimal liquidity present
-  - `NEUTRAL` - No significant signal
-- `barrier_delta_liq` - Net change in defending liquidity (ES contracts)
-- `barrier_replenishment_ratio` - added / (canceled + filled)
-- `wall_ratio` - Defending liquidity vs baseline
+## Configuration
 
-### Tape Physics (ES Trade Flow)
-Measures buy/sell pressure near the level. Source: ES trades.
+**Single source**: `backend/src/common/config.py` (CONFIG singleton)
 
-- `tape_imbalance` - (buy_vol - sell_vol) / total, range [-1, 1]
-- `tape_buy_vol` - Buy volume in price band (ES contracts)
-- `tape_sell_vol` - Sell volume in price band (ES contracts)
-- `tape_velocity` - Trades per second
-- `sweep_detected` - Rapid multi-level execution detected
+**Key parameters**:
+- `MONITOR_BAND = 0.50`: Compute signals if |spot - level| ≤ $0.50
+- `W_b = 10.0`: Barrier window (seconds)
+- `W_t = 5.0`: Tape window (seconds)
+- `W_g = 60.0`: Fuel window (seconds)
+- `R_vac = 0.3`, `R_wall = 1.5`: VACUUM/WALL thresholds
+- `w_L = 0.45`, `w_H = 0.35`, `w_T = 0.20`: Score weights
 
-### Fuel Physics (Dealer Gamma)
-Measures how dealer hedging will affect price movement. Source: SPY 0DTE options.
+**See**: [backend/src/common/INTERFACES.md](src/common/INTERFACES.md) for complete configuration contract.
 
-- `gamma_exposure` - Net dealer gamma at level
-  - Negative = dealers short gamma → will chase moves (AMPLIFY)
-  - Positive = dealers long gamma → will fade moves (DAMPEN)
-- `fuel_effect` - `AMPLIFY`, `DAMPEN`, or `NEUTRAL`
+---
 
-### Approach Context (Backward-Looking)
-How price approached the level - critical for ML.
-
-- `approach_velocity` - $/minute toward level (positive = moving toward)
-- `approach_bars` - Consecutive 1-min bars moving toward level
-- `approach_distance` - Total price distance traveled in lookback
-- `prior_touches` - Previous touches at this level today
-- `bars_since_open` - Session timing context
-
-### Outcome Labels
-Ground truth for supervised learning.
-
-- `outcome` - `BREAK`, `BOUNCE`, or `CHOP`
-- `future_price_5min` - SPY price 5 minutes after signal
-- `excursion_max` - Max favorable move in lookforward window
-- `excursion_min` - Max adverse move in lookforward window
-
-**Threshold:** $2.00 (2 strikes) required for BREAK/BOUNCE. This ensures outcomes are meaningful for options trading.
-
-## Key Configuration (src/common/config.py)
-
-```python
-# Critical zone - where bounce/break decision happens
-MONITOR_BAND: float = 0.25      # $0.25 SPY = 10 ES ticks
-
-# Barrier zone around strike-aligned levels
-BARRIER_ZONE_ES_TICKS: int = 8  # ±8 ticks = ±$2 ES = ±$0.20 SPY
-
-# Physics computation windows (FORWARD from touch)
-W_b: float = 60.0               # Barrier engine window (seconds)
-W_t: float = 60.0               # Tape engine window (seconds)
-
-# Outcome labeling
-OUTCOME_THRESHOLD: float = 2.0  # $2.00 = 2 strikes for BREAK/BOUNCE
-LOOKFORWARD_MINUTES: int = 5    # Forward window for outcome
-LOOKBACK_MINUTES: int = 10      # Backward window for approach context
-```
-
-## File Structure
+## Module Structure
 
 ```
-backend/
-├── src/
-│   ├── pipeline/
-│   │   └── vectorized_pipeline.py    # Main entry point
-│   ├── core/
-│   │   ├── vectorized_engines.py     # Batch physics (Numba JIT)
-│   │   ├── barrier_engine.py         # Order book physics
-│   │   ├── tape_engine.py            # Trade flow physics
-│   │   ├── fuel_engine.py            # Gamma exposure physics
-│   │   ├── market_state.py           # Ring buffers for streaming
-│   │   └── black_scholes.py          # Vectorized Greeks
-│   ├── ingestor/
-│   │   └── dbn_ingestor.py           # Databento DBN reader
-│   ├── lake/
-│   │   └── bronze_writer.py          # Options data reader
-│   └── common/
-│       ├── config.py                 # All tunable parameters
-│       └── event_types.py            # Data structures
-├── scripts/
-│   └── validate_data.py              # Data quality checks
-├── data/
-│   └── lake/gold/research/           # Output parquet files
-├── dbn-data/                         # Raw Databento DBN files
-│   ├── trades/                       # ES trades
-│   └── MBP-10/                       # ES order book snapshots
-├── features.json                     # Complete feature schema
-└── README.md
+backend/src/
+├── common/           # Shared contracts (event types, schemas, config)
+├── ingestor/         # Data normalization (Polygon, Databento)
+├── core/             # Physics engines + signal generation
+├── lake/             # Bronze/Silver/Gold persistence
+├── gateway/          # WebSocket relay
+└── ml/               # Model training + inference
 ```
+
+**See module INTERFACES.md files** for detailed technical contracts.
 
 ## Data Sources
 
-| Source | Provider | Format | Content |
-|--------|----------|--------|---------|
-| ES Trades | Databento | DBN | price, size, aggressor flag |
-| ES MBP-10 | Databento | DBN | 10 levels bid/ask depth |
-| SPY Options | Polygon | CSV.gz | 0DTE option trades |
+**Live feeds** (Ingestor service):
+- Polygon WebSocket: SPY equity + 0DTE options (trades, quotes)
+- Databento: ES futures (trades, MBP-10) [historical replay]
+
+**Storage locations**:
+- DBN files: `dbn-data/trades/`, `dbn-data/MBP-10/`
+- Parquet output: `backend/data/lake/` (Bronze/Silver/Gold)
+
+---
 
 ## Common Tasks
 
-### Process New Data
+### Training ML Models
 ```bash
-# Single date
-uv run python -m src.pipeline.vectorized_pipeline --date 2025-12-20
+# Boosted trees
+uv run python -m src.ml.boosted_tree_train --stage stage_b --ablation all
 
-# All available dates
-uv run python -m src.pipeline.vectorized_pipeline --all
+# Retrieval index
+uv run python -m src.ml.build_retrieval_index --stage stage_b
+
+# PatchTST baseline
+uv run python -m src.ml.sequence_dataset_builder --date 2025-12-16
+uv run python -m src.ml.patchtst_train --train-files <files> --val-files <files>
 ```
 
-### Validate Output
+### Processing Historical Data
 ```bash
+# Vectorized pipeline (all dates)
+uv run python -m src.pipeline.vectorized_pipeline --all
+
+# Validate signals
 uv run python -m scripts.validate_data --verbose
 ```
 
-### Run Tests
+### Running Tests
 ```bash
+# All tests
 uv run pytest tests/
+
+# Specific engine
+uv run pytest tests/test_barrier_engine.py -v
+
+# Replay determinism
+uv run pytest tests/test_replay_determinism.py -v
 ```
 
-## AI Agent Notes
+---
 
-1. **ES/SPY conversion is everywhere.** When debugging barrier/tape issues, always check if prices are being converted correctly (×10 for SPY→ES, ÷10 for ES→SPY).
+## Key Invariants
 
-2. **Time windows look FORWARD.** Touch timestamps are at bar START. Physics engines must look forward `[ts, ts + window_ns]` not backward.
+1. **ES/SPY conversion**: Always use `PriceConverter`, never hardcode ratio
+2. **Time windows**: Physics looks FORWARD from touch timestamp
+3. **Config authority**: All parameters in `src/common/config.py`
+4. **Event-time ordering**: Sort by `ts_event_ns`, not `ts_recv_ns`
+5. **$2.00 threshold**: BREAK/BOUNCE require ≥2 strikes movement
+6. **Critical zone**: Signals only when |spot - level| ≤ MONITOR_BAND
+7. **Deterministic replay**: Same inputs + config → same outputs
 
-3. **Config is the source of truth.** All thresholds, windows, and bands are in `src/common/config.py`. Don't hardcode values.
+---
 
-4. **Vectorized only.** There is no non-vectorized pipeline. All computation uses numpy/numba for performance.
+## Documentation
 
-5. **$2.00 outcome threshold.** BREAK/BOUNCE require ≥$2.00 moves (2 strikes). Smaller moves are CHOP.
+**Interface contracts** (authoritative for AI agents):
+- [common/INTERFACES.md](src/common/INTERFACES.md) - Event types, schemas, config
+- [ingestor/INTERFACES.md](src/ingestor/INTERFACES.md) - Data ingestion contracts
+- [core/INTERFACES.md](src/core/INTERFACES.md) - Physics engines + signal output
+- [lake/INTERFACES.md](src/lake/INTERFACES.md) - Storage schemas
+- [gateway/INTERFACES.md](src/gateway/INTERFACES.md) - WebSocket relay
+- [ml/INTERFACES.md](src/ml/INTERFACES.md) - Model training + inference
 
-6. **Barrier zone = ±8 ES ticks.** This is ±$0.20 SPY around strike-aligned levels. Wider zones dilute the signal.
+**Implementation details**:
+- [common/README.md](src/common/README.md) - Shared infrastructure
+- [core/README.md](src/core/README.md) - Physics engine specifications
+- [ingestor/README.md](src/ingestor/README.md) - Feed ingestion details
+- [lake/README.md](src/lake/README.md) - Data persistence architecture
+- [gateway/README.md](src/gateway/README.md) - WebSocket service details
+- [ml/README.md](src/ml/README.md) - ML training and evaluation
 
-7. **Critical zone = ±$0.25 SPY.** Only signals where close is within $0.25 of level are kept. This is where the decision happens.
+---
+
+**Version**: 2.0 (Phase 2)  
+**Status**: Active development

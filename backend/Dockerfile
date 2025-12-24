@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y \
 # Install uv
 RUN pip install uv
 
+# Ensure Python output is not buffered (for container logging)
+ENV PYTHONUNBUFFERED=1
+
 # Set working directory
 WORKDIR /app
 

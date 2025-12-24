@@ -60,6 +60,7 @@ from src.research.experiment_runner import ExperimentRunner
 # Import schemas and event types
 from src.common.schemas.levels_signals import LevelSignalV1, LevelKind, Direction, OutcomeLabel
 from src.common.event_types import MBP10, FuturesTrade, OptionTrade, Aggressor
+from src.common.config import CONFIG
 
 # Import Black-Scholes calculator for real greeks (we NEVER estimate)
 from src.core.black_scholes import BlackScholesCalculator, compute_greeks_for_dataframe
@@ -416,31 +417,30 @@ def calculate_real_physics(
     }
 
 
-def get_future_prices(
+def get_anchor_and_future_prices(
     ohlcv_df: pd.DataFrame,
-    current_ts_ns: int,
+    touch_ts_ns: int,
+    confirmation_seconds: float = 60.0,
     lookforward_minutes: int = 5
-) -> List[float]:
+) -> tuple[Optional[float], List[float]]:
     """
-    Get future prices for outcome labeling.
-
-    Args:
-        ohlcv_df: OHLCV DataFrame
-        current_ts_ns: Current timestamp in nanoseconds
-        lookforward_minutes: How many minutes to look forward
-
-    Returns:
-        List of future close prices
+    Get anchor price at t1 and future prices for outcome labeling.
     """
-    current_ts = pd.Timestamp(current_ts_ns, unit='ns', tz='UTC')
-    end_ts = current_ts + pd.Timedelta(minutes=lookforward_minutes)
+    touch_ts = pd.Timestamp(touch_ts_ns, unit='ns', tz='UTC')
+    anchor_row = ohlcv_df[ohlcv_df['timestamp'] == touch_ts]
+    if anchor_row.empty:
+        return None, []
+
+    anchor_price = anchor_row['close'].iloc[-1]
+    anchor_ts = touch_ts + pd.Timedelta(seconds=confirmation_seconds)
+    end_ts = anchor_ts + pd.Timedelta(minutes=lookforward_minutes)
 
     future_mask = (
-        (ohlcv_df['timestamp'] > current_ts) &
+        (ohlcv_df['timestamp'] > anchor_ts) &
         (ohlcv_df['timestamp'] <= end_ts)
     )
 
-    return ohlcv_df[future_mask]['close'].tolist()
+    return anchor_price, ohlcv_df[future_mask]['close'].tolist()
 
 
 def main(date: Optional[str] = None):
@@ -599,19 +599,20 @@ def main(date: Optional[str] = None):
     labeled_count = 0
 
     for signal in signals:
-        future_prices = get_future_prices(
+        anchor_price, future_prices = get_anchor_and_future_prices(
             ohlcv_df=ohlcv_df,
-            current_ts_ns=signal.ts_event_ns,
+            touch_ts_ns=signal.ts_event_ns,
+            confirmation_seconds=CONFIG.CONFIRMATION_WINDOW_SECONDS,
             lookforward_minutes=5
         )
 
-        if not future_prices:
+        if not future_prices or anchor_price is None:
             signal.outcome = OutcomeLabel.UNDEFINED
             continue
 
         direction_str = "UP" if signal.direction == Direction.UP else "DOWN"
         outcome = get_outcome(
-            signal_price=signal.level_price,
+            anchor_price=anchor_price,
             future_prices=future_prices,
             direction=direction_str
         )

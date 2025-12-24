@@ -68,8 +68,16 @@ class EWMA:
         # Compute time delta in seconds
         dt_seconds = (ts_ns - self.last_ts_ns) / 1e9
         
+        # Guard against out-of-order timestamps or huge gaps
+        if dt_seconds <= 0:
+            # Timestamp went backwards or same instant; just return current value
+            return self.value
+        
+        # Clamp dt to avoid math.exp overflow (max ~10 minutes equivalent)
+        dt_clamped = min(dt_seconds, 600.0)
+        
         # Compute alpha (adaptive based on actual time gap)
-        alpha = 1.0 - math.exp(-dt_seconds / self.tau)
+        alpha = 1.0 - math.exp(-dt_clamped / self.tau)
         alpha = max(0.0, min(1.0, alpha))  # Clamp to [0, 1]
         
         # Update smoothed value

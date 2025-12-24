@@ -1,12 +1,12 @@
 import asyncio
 import time
+import logging
 from polygon import WebSocketClient
 from polygon.websocket.models import WebSocketMessage
-from typing import Callable, List, Set, Optional
+from typing import List
 from src.core.strike_manager import StrikeManager
 from src.common.event_types import StockTrade, StockQuote, OptionTrade, EventSource, Aggressor
 from src.common.bus import NATSBus
-import logging
 
 class StreamIngestor:
     """
@@ -22,12 +22,10 @@ class StreamIngestor:
         self, 
         api_key: str, 
         bus: NATSBus, 
-        strike_manager: StrikeManager,
-        queue: Optional[asyncio.Queue] = None  # Backward compat for transition
+        strike_manager: StrikeManager
     ):
         self.api_key = api_key
         self.bus = bus
-        self.queue = queue  # Optional: for backward compatibility during transition
         self.strike_manager = strike_manager
         self.running = False
 
@@ -103,10 +101,6 @@ class StreamIngestor:
                 # Publish to NATS
                 await self.bus.publish("market.options.trades", normalized)
                 
-                # Backward compatibility: also put in queue if provided
-                if self.queue:
-                    await self.queue.put(normalized)
-                    
             except Exception as e:
                 logging.warning(f"Failed to normalize option trade {ticker}: {e}")
 
@@ -145,10 +139,6 @@ class StreamIngestor:
                 # Publish to NATS
                 await self.bus.publish("market.stocks.trades", normalized)
                 
-                # Backward compatibility
-                if self.queue:
-                    await self.queue.put(normalized)
-
             # Handle Quote messages (Q.SPY)
             elif hasattr(m, 'bid_price') and hasattr(m, 'ask_price'):
                 ts_event_ms = getattr(m, "timestamp", 0) or getattr(m, "sip_timestamp", 0)
@@ -171,10 +161,6 @@ class StreamIngestor:
                 # Publish to NATS
                 await self.bus.publish("market.stocks.quotes", normalized)
                 
-                # Backward compatibility
-                if self.queue:
-                    await self.queue.put(normalized)
-
     def update_subs(self, add: List[str], remove: List[str]):
         if add:
             self.client.subscribe(*add)
