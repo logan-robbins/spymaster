@@ -40,8 +40,8 @@ class Parameters:
     
     # Spatial bands
     MONITOR_BAND: float = 0.25  # Monitor band ($)
-    TOUCH_BAND: float = 0.05    # Touch band ($)
-    TAPE_BAND: float = 1.0      # Tape band ($)
+    TOUCH_BAND: float = 0.10    # Touch band ($)
+    TAPE_BAND: float = 0.50     # Tape band ($)
     
     # Thresholds
     R_vac: float = 0.3   # VACUUM threshold
@@ -54,7 +54,7 @@ class Parameters:
     SMA_WARMUP_DAYS: int = 3
     
     # Labeling
-    LOOKFORWARD_MINUTES: int = 5
+    LOOKFORWARD_MINUTES: int = 8
     OUTCOME_THRESHOLD: float = 2.0  # $2 move
     
     # Custom parameters (for experiment-specific values)
@@ -145,7 +145,7 @@ class FeatureManifest:
     
     def get_output_path(self, base_dir: Path) -> Path:
         """Get output directory for this feature set."""
-        return base_dir / "lake" / "silver" / "features" / self.version
+        return base_dir / "silver" / "features" / self.version
 
 
 @dataclass
@@ -346,4 +346,3 @@ def create_full_ensemble_manifest(version: str = "v2.0_full_ensemble") -> Featur
         tags=["full", "ensemble", "mechanics", "ta"],
         notes="Full feature set combining mechanics and technical analysis"
     )
-

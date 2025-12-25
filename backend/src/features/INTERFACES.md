@@ -547,11 +547,10 @@ def get_high_volume_nodes(self, num_nodes: int = 3) -> List[float]
 - **Tests**: [../../tests/test_context_engine.py](../../tests/test_context_engine.py)
 - **Module README**: [README.md](README.md)
 - **Level Schema**: [../common/schemas/levels_signals.py](../common/schemas/levels_signals.py)
-- **Pipeline Integration**: [../pipeline/vectorized_pipeline.py](../pipeline/vectorized_pipeline.py)
+- **Pipeline Integration**: [../pipeline/README.md](../pipeline/README.md)
 
 ---
 
 **Version**: 1.0  
 **Last Updated**: 2025-12-23  
 **Status**: Production
-

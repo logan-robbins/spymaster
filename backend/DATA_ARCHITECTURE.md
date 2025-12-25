@@ -21,7 +21,7 @@ Spymaster uses the **Medallion Architecture** (Bronze → Silver → Gold) for p
 ## Directory Structure
 
 ```
-backend/data/
+data/
 ├── raw/                                # Stage 0: Source data (DBN, Polygon)
 │   ├── dbn/trades/, dbn/mbp10/
 │   └── polygon/
@@ -30,8 +30,9 @@ backend/data/
 │   ├── bronze/                        # Stage 1: Normalized events (immutable)
 │   │   ├── futures/trades/symbol=ES/date=YYYY-MM-DD/hour=HH/*.parquet
 │   │   ├── futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/*.parquet
-│   │   ├── stocks/trades/symbol=SPY/date=YYYY-MM-DD/hour=HH/*.parquet
 │   │   └── options/trades/underlying=SPY/date=YYYY-MM-DD/hour=HH/*.parquet
+│   │   ├── options/greeks_snapshots/underlying=SPY/date=YYYY-MM-DD/*.parquet
+│   │   └── stocks/trades/symbol=SPY/date=YYYY-MM-DD/hour=HH/*.parquet
 │   │
 │   ├── silver/                        # Stage 2: Versioned feature experiments
 │   │   └── features/
@@ -54,6 +55,8 @@ backend/data/
     ├── production/boosted_trees/
     └── registry.json
 ```
+
+**Note**: Paths above are relative to `backend/`. From repo root, prefix with `backend/`.
 
 ---
 
@@ -558,7 +561,7 @@ builder.build_feature_set(manifest, dates=dates, force=True)
 ### High null rates in features
 Check validation report:
 ```bash
-cat backend/data/lake/silver/features/v2.0_full_ensemble/validation.json
+cat data/lake/silver/features/v2.0_full_ensemble/validation.json
 ```
 
 ### "No pipeline for version"

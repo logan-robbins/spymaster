@@ -45,12 +45,12 @@ class GoldCurator:
         Initialize Gold curator.
         
         Args:
-            data_root: Root data directory (default: CONFIG.DATA_ROOT)
+            data_root: Root lake directory (default: CONFIG.DATA_ROOT)
         """
         self.data_root = Path(data_root or CONFIG.DATA_ROOT)
         self.silver_builder = SilverFeatureBuilder(data_root=str(self.data_root))
         
-        self.gold_root = self.data_root / "lake" / "gold"
+        self.gold_root = self.data_root / "gold"
         self.training_root = self.gold_root / "training"
         self.evaluation_root = self.gold_root / "evaluation"
         self.streaming_root = self.gold_root / "streaming"
@@ -365,4 +365,3 @@ if __name__ == "__main__":
             validation = curator.validate_dataset(args.dataset_name)
             import json
             print(json.dumps(validation, indent=2, default=str))
-

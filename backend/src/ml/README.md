@@ -17,7 +17,7 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 ## Model Architecture
 
 ### Primary: Boosted Trees
-Multi-head XGBoost models with walk-forward validation:
+Multi-head HistGradientBoosting models with walk-forward validation:
 
 **Heads**:
 1. `tradeable_2`: Binary classifier (will move ≥$2.00 in either direction?)
@@ -74,30 +74,26 @@ Model Artifacts (production-ready, final hyperparameters)
 
 ## Running
 
-### Boosted Trees (on Silver Datasets)
+### Boosted Trees
 ```bash
 cd backend
-# Train on specific Silver feature version
+# Train using features.json output_path by default
 uv run python -m src.ml.boosted_tree_train \
-  --silver-version v2.0_full_ensemble \
-  --stage stage_b \
-  --ablation all \
-  --train-dates 2025-12-14 2025-12-15 \
-  --val-dates 2025-12-16
-
-# Or use Gold production dataset (after promotion)
-uv run python -m src.ml.boosted_tree_train \
-  --gold-dataset signals_production \
   --stage stage_b \
   --ablation all
+
+# Override dataset path (Gold or Silver parquet)
+uv run python -m src.ml.boosted_tree_train \
+  --data-path data/lake/gold/training/signals_production.parquet \
+  --stage stage_b \
+  --ablation full
 ```
 
 ### Retrieval Index
 ```bash
 uv run python -m src.ml.build_retrieval_index \
   --stage stage_b \
-  --ablation full \
-  --k-neighbors 50
+  --ablation full
 ```
 
 ### PatchTST Baseline
@@ -116,8 +112,7 @@ uv run python -m src.ml.patchtst_train \
 ```bash
 uv run python -m src.ml.calibration_eval \
   --stage stage_b \
-  --ablation full \
-  --test-dates 2025-12-17 2025-12-18
+  --ablation full
 ```
 
 ---
@@ -171,11 +166,11 @@ uv run python -m src.ml.calibration_eval \
 
 ## Model Bundles
 
-**Format**: Joblib serialized dictionaries containing:
-- Trained model (XGBClassifier/XGBRegressor)
+**Format**: Joblib serialized sklearn pipelines containing:
+- Trained HistGradientBoosting models with preprocessing
 - Feature names (for consistency check)
 - Stage, ablation, head metadata
-- Train/val dates
+- Train/val/test date ranges
 - Evaluation metrics
 - Timestamp
 
@@ -188,7 +183,7 @@ uv run python -m src.ml.calibration_eval \
 **MLflow** (Primary for Silver Experiments):
 - Experiments track Silver feature versions: `spymaster_v2.0_full_ensemble`, `spymaster_v1.0_mechanics_only`, etc.
 - Each run logs:
-  - Hyperparameters (stage, ablation, train/val dates, XGBoost params)
+  - Hyperparameters (stage, ablation, val/test sizes, HistGradientBoosting params)
   - Metrics (AUC, precision, recall, Brier scores per head)
   - Artifacts (model bundles, feature importance, calibration curves)
   - Dataset metadata (Silver version, manifest hash, signal count)
@@ -217,7 +212,7 @@ uv run python -m src.ml.calibration_eval \
 ## Common Issues
 
 **No Silver data**: Run `SilverFeatureBuilder.build_feature_set()` to create versioned features from Bronze  
-**No matching dates**: Check train/val date ranges exist in Silver feature version  
+**Not enough dates**: Ensure dataset has ≥ (val_size + test_size + 1) unique dates  
 **Walk-forward violation**: Ensure no random shuffles in train/val split  
 **Model bundle missing**: Run training before attempting live inference  
 **W&B auth failure**: Set `WANDB_API_KEY` or use offline mode  

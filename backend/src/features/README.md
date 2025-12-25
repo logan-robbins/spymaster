@@ -52,8 +52,8 @@ levels = engine.get_active_levels(
 - Timestamps in Unix nanoseconds (UTC) or datetime with timezone
 
 **Integration**:
-- Used in `src/pipeline/vectorized_pipeline.py` for level detection
-- Used in `src/pipeline/batch_process.py` for batch processing
+- Stage-based pipelines in `src/pipeline/` implement equivalent level/context logic directly.
+- ContextEngine is currently used by tests and available for research pipelines, but not wired into the production pipeline.
 
 **Test Coverage**: 19 tests in `tests/test_context_engine.py`
 
@@ -285,4 +285,3 @@ uv run pytest tests/test_context_engine.py -v
 **Version**: 1.0  
 **Last Updated**: 2025-12-23  
 **Status**: Production (ContextEngine), Legacy (PhysicsEngine)
-

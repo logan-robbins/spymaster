@@ -1,7 +1,7 @@
 # Features Module Analysis
 
 **Date**: 2025-12-23  
-**Status**: ✅ Operational, Partially Integrated  
+**Status**: ⚠️ Operational, not integrated into stage pipeline  
 **Test Coverage**: 29/29 tests passing
 
 ---
@@ -10,21 +10,20 @@
 
 The `features/` module contains two engines originally designed as "Agent A" (Physics) and "Agent B" (Context) for level analysis:
 
-1. **`context_engine.py`**: ✅ **ACTIVELY USED** - Structural level identification + timing context
+1. **`context_engine.py`**: ⚠️ **AVAILABLE, NOT WIRED INTO STAGE PIPELINE** - Structural level identification + timing context
 2. **`physics_engine.py`**: ⚠️ **LEGACY** - Prototype replaced by production engines in `core/`
 
 ---
 
 ## Module Status by Component
 
-### 1. ContextEngine (Agent B) - ✅ ACTIVELY USED
+### 1. ContextEngine (Agent B) - ⚠️ AVAILABLE, NOT IN STAGE PIPELINE
 
 **Purpose**: Macro context - structural levels and market timing
 
 **Integration Points**:
-- ✅ Used in `src/pipeline/vectorized_pipeline.py`
-- ✅ Used in `src/pipeline/batch_process.py`
-- ✅ Referenced in pipeline tests
+- ⚠️ Not wired into stage-based pipelines in `src/pipeline/` yet
+- ✅ Covered by unit tests in `tests/test_context_engine.py`
 
 **Key Functionality**:
 | Method | Purpose | Status |
@@ -94,18 +93,18 @@ The `features/` module contains two engines originally designed as "Agent A" (Ph
 ### Current Production Architecture
 
 ```
-Pipeline Flow (from vectorized_pipeline.py):
-1. Load ES futures data (DBN) → MarketState
-2. Load SPY option data → MarketState
-3. Build OHLCV from ES trades
-4. Initialize ContextEngine(ohlcv_df)           ← features/context_engine.py ✅
-5. Initialize BarrierEngine(config)             ← core/barrier_engine.py ✅
-6. Initialize TapeEngine(config)                ← core/tape_engine.py ✅
-7. Initialize FuelEngine(config)                ← core/fuel_engine.py ✅
-8. Detect touches via ContextEngine             ← features/context_engine.py ✅
-9. Calculate physics via production engines     ← core/* ✅
-10. Label outcomes → research signals
+Stage-based pipeline flow (`src/pipeline/`):
+1. Load Bronze via DuckDB
+2. Build OHLCV (1min/2min) + warmup
+3. Generate level universe (`generate_levels`)
+4. Detect touches (`detect_touches`)
+5. Compute physics (`compute_physics`)
+6. Add context features (`compute_context`)
+7. Label outcomes + filter RTH
 ```
+
+**Note**: ContextEngine is not currently wired into the stage-based pipeline; equivalent
+logic lives in `generate_levels` and `compute_context` stages.
 
 ### Legacy vs Production
 
@@ -255,15 +254,9 @@ backend/src/features/README.md
 
 These are mentioned in `features.json` and `LevelKind` enum but not implemented in ContextEngine.
 
-#### 5. No INTERFACES.md
+#### 5. INTERFACES.md Exists
 
-**Problem**: Features module has no interface documentation.
-
-**Recommendation**: Create `backend/src/features/INTERFACES.md` documenting:
-- ContextEngine API contract
-- Input/output schemas
-- Integration points with pipeline
-- Configuration parameters
+**Status**: `backend/src/features/INTERFACES.md` is present; keep it in sync with pipeline integration notes.
 
 ---
 
@@ -272,20 +265,12 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
 ### Where ContextEngine is Used
 
 **Primary**:
-1. `src/pipeline/vectorized_pipeline.py`:
-   ```python
-   from src.features.context_engine import ContextEngine
-   context_engine = ContextEngine(ohlcv_df=ohlcv)
-   is_first_15m = context_engine.is_first_15m(ts_ns)
-   sma_200 = context_engine.get_sma_200_at_time(ts_ns)
-   ```
-
-2. `src/pipeline/`:
-   - Uses modular stage-based pipelines for batch processing multiple dates
+- Not currently used by stage-based pipelines in `src/pipeline/` (equivalent logic lives in stages)
+- Available for research scripts or future pipeline refactors
 
 **Tests**:
-3. `tests/test_context_engine.py` - Unit tests
-4. `tests/test_agent_a_b_integration.py` - Integration with PhysicsEngine (legacy)
+- `tests/test_context_engine.py` - Unit tests
+- `tests/test_agent_a_b_integration.py` - Integration with PhysicsEngine (legacy)
 
 ### Where ContextEngine Should Be Used (But Isn't)
 
@@ -295,9 +280,9 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
    - Could leverage ContextEngine for PM high/low, SMA levels
    - Would unify level detection logic
 
-2. ❌ **Vectorized Pipeline** (`src/pipeline/vectorized_pipeline.py`):
-   - Has its own `detect_touches_vectorized()` function
-   - Could use ContextEngine for level identification
+2. ⚠️ **Stage-based Pipeline** (`src/pipeline/`):
+   - Uses inline level/context logic in stages
+   - Could be refactored to use ContextEngine for shared level definitions
    - Potential duplication of logic
 
 ---
@@ -373,9 +358,9 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
 - [x] Analyze features module structure
 - [x] Run existing tests (29/29 pass)
 - [x] Document findings in ANALYSIS.md
-- [ ] Create README.md for features/
-- [ ] Create INTERFACES.md for features/
-- [ ] Update COMPONENTS.md
+- [x] Create README.md for features/
+- [x] Create INTERFACES.md for features/
+- [ ] Update COMPONENTS.md with current pipeline integration status
 
 ### Next Session
 
@@ -391,13 +376,13 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
 **Overall Assessment**: ✅ **Healthy but Incomplete**
 
 **What Works**:
-- ContextEngine is production-ready and actively used
+- ContextEngine is production-ready (not yet wired into stage pipeline)
 - Excellent test coverage (29/29 passing)
 - Clean API design with proper separation of concerns
 
 **What Needs Attention**:
 - PhysicsEngine orphaned legacy code
-- Missing documentation (README, INTERFACES)
+- Keep README/INTERFACES in sync with pipeline integration
 - Incomplete level support (OR high/low, session extremes, VWAP)
 - Potential duplication with LevelUniverse logic
 
@@ -411,4 +396,3 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
 - Total: 29/29 tests passing
 - Coverage: Excellent for current functionality
 - Gaps: Missing tests for extended levels (OR, session, VWAP)
-

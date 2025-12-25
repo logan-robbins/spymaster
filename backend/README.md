@@ -63,11 +63,11 @@ uv run python -m src.lake.main
 ### Processing Historical Data
 
 ```bash
-# Run vectorized pipeline (for ML training)
-uv run python -m src.pipeline.vectorized_pipeline --all
+# Build baseline Silver + Gold datasets from Bronze
+uv run python scripts/bootstrap_medallion.py
 
-# Validate generated signals
-uv run python -m scripts.validate_data --verbose
+# Validate generated Gold dataset
+uv run python -m src.lake.gold_curator --action validate --dataset-name signals_production
 ```
 
 ---
@@ -91,8 +91,8 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 
 ## Data Pipeline
 
-**Vectorized Processing** (for ML training):
-1. Load ES trades/MBP-10 (Databento) + SPY options (Polygon)
+**Batch Processing** (for ML training):
+1. Load Bronze via DuckDB (ES trades/MBP-10 + SPY options)
 2. Generate level universe (strikes, VWAP, PM/OR/session extremes, walls)
 3. Detect touches (OHLCV crosses level price)
 4. Filter to critical zone (|close - level| ≤ $0.25)
@@ -164,7 +164,7 @@ backend/src/
 
 **Storage locations**:
 - DBN files: `dbn-data/trades/`, `dbn-data/MBP-10/`
-- Parquet output: `backend/data/lake/` (Bronze/Silver/Gold)
+- Parquet output: `data/lake/` (Bronze/Silver/Gold)
 
 ---
 
@@ -185,11 +185,11 @@ uv run python -m src.ml.patchtst_train --train-files <files> --val-files <files>
 
 ### Processing Historical Data
 ```bash
-# Vectorized pipeline (all dates)
-uv run python -m src.pipeline.vectorized_pipeline --all
+# Build baseline Silver + Gold datasets from Bronze
+uv run python scripts/bootstrap_medallion.py
 
-# Validate signals
-uv run python -m scripts.validate_data --verbose
+# Validate Gold dataset
+uv run python -m src.lake.gold_curator --action validate --dataset-name signals_production
 ```
 
 ### Running Tests
