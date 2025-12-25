@@ -103,8 +103,7 @@ npm run start
 ### System Overview
 - **[COMPONENTS.md](COMPONENTS.md)**: Architecture map with all component interfaces
 - **[frontend/README.md](frontend/README.md)**: Frontend implementation status and UI specifications
-- **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Medallion architecture and data flow
-- **[backend/MEDALLION_WORKFLOW.md](backend/MEDALLION_WORKFLOW.md)**: Feature engineering workflow guide
+- **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Medallion architecture & feature engineering workflow
 - **[backend/features.json](backend/features.json)**: Authoritative feature schema (legacy)
 
 ### Module Interfaces (Technical Contracts)

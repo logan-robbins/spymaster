@@ -80,7 +80,7 @@ builder.register_experiment(
 ```
 
 **Implementation**:
-- Uses `VectorizedPipeline` internally for feature computation
+- Uses versioned pipelines internally for feature computation
 - Applies RTH filtering (09:30-16:00 ET)
 - Writes to `silver/features/{version}/date=YYYY-MM-DD/*.parquet`
 - Creates `manifest.yaml` and `validation.json` per version
@@ -182,7 +182,7 @@ training/signals_production_metadata.json
 - Gold streaming: 500 records or 10s
 
 **Silver feature builder**:
-- Single date: ~2-5 seconds (VectorizedPipeline)
+- Single date: ~2-5 seconds (versioned pipeline)
 - 10 dates: ~30-60 seconds (M4 Mac)
 
 **Storage throughput**:

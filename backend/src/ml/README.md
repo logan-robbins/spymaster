@@ -44,30 +44,52 @@ Sequence classification/regression over OHLCV context. Useful for comparing engi
 
 ## Training Pipeline
 
-**Input**: Signals Parquet from vectorized pipeline (via `backend/features.json`)
+**Input**: Silver feature datasets (versioned experiments from Bronze)
 
 **Process**:
-1. Load signals with features + labels
+1. Load Silver features for specific version (e.g., `v2.0_full_ensemble`)
 2. Walk-forward split by date (no random shuffles)
 3. Train boosted-tree heads independently
 4. Build kNN retrieval index from normalized features
 5. Evaluate calibration (reliability curves, Brier scores)
-6. Save model bundles + metadata
+6. Log experiments to MLflow with metrics
+7. Save model bundles + metadata
 
-**Output**: Joblib models in `data/ml/boosted_trees/`, retrieval index in `data/ml/`
+**Output**: Model bundles in `data/ml/experiments/{exp_id}/`, tracked in MLflow
+
+**Workflow**:
+```
+Silver Features (versioned, e.g., v2.0_full_ensemble)
+    ↓ [MLflow Experiments]
+    └─ Train multiple models with different hyperparameters
+    └─ Evaluate on validation set
+    └─ Compare experiments in MLflow
+    ↓ [Promote Best]
+Gold Training Dataset (curated from best Silver version)
+    ↓ [Final Production Training]
+Model Artifacts (production-ready, final hyperparameters)
+```
 
 ---
 
 ## Running
 
-### Boosted Trees
+### Boosted Trees (on Silver Datasets)
 ```bash
 cd backend
+# Train on specific Silver feature version
 uv run python -m src.ml.boosted_tree_train \
+  --silver-version v2.0_full_ensemble \
   --stage stage_b \
   --ablation all \
   --train-dates 2025-12-14 2025-12-15 \
   --val-dates 2025-12-16
+
+# Or use Gold production dataset (after promotion)
+uv run python -m src.ml.boosted_tree_train \
+  --gold-dataset signals_production \
+  --stage stage_b \
+  --ablation all
 ```
 
 ### Retrieval Index
@@ -163,38 +185,43 @@ uv run python -m src.ml.calibration_eval \
 
 ## Experiment Tracking
 
-**MLflow**:
-- Experiment: `spymaster_patchtst`
-- Logs: params, metrics, model checkpoint, metadata
+**MLflow** (Primary for Silver Experiments):
+- Experiments track Silver feature versions: `spymaster_v2.0_full_ensemble`, `spymaster_v1.0_mechanics_only`, etc.
+- Each run logs:
+  - Hyperparameters (stage, ablation, train/val dates, XGBoost params)
+  - Metrics (AUC, precision, recall, Brier scores per head)
+  - Artifacts (model bundles, feature importance, calibration curves)
+  - Dataset metadata (Silver version, manifest hash, signal count)
+- Compare experiments across Silver versions to select best for Gold promotion
 
 **W&B** (Weights & Biases):
 - Project: `spymaster`
-- Logs: per-epoch metrics, model artifact
+- Logs: per-epoch metrics, model artifact (primarily for PatchTST)
 - Requires: `WANDB_API_KEY` (or `wandb.txt`) or `WANDB_MODE=offline`
 - Note: No tracking URL required for W&B; use `WANDB_ENTITY` only if logging to a team namespace.
 
-**Status**:
-- PatchTST training already logs to MLflow + W&B (`src/ml/patchtst_train.py`).
-- Boosted trees, retrieval index, and calibration eval do not yet emit runs.
+**Experiment Workflow**:
+1. Create Silver feature version (e.g., `v2.1_custom`)
+2. Run MLflow experiments on that Silver version
+3. Compare metrics across runs in MLflow UI
+4. Identify best model/hyperparameters
+5. Promote winning Silver version to Gold (`GoldCurator.promote_to_training()`)
+6. Optional: Run final production training on Gold with winning hyperparameters
 
-**Implementation Plan (MLflow + W&B)**:
-- [ ] Add a shared tracking helper (run naming, tags, dataset hash, git SHA).
-- [ ] Boosted trees: log hyperparams, stage/ablation, train/val dates, metrics, feature list, model bundle artifact.
-- [ ] Retrieval index: log k, normalization settings, feature list, index artifact, retrieval metrics (if available).
-- [ ] Calibration eval: log reliability metrics, Brier scores, and calibration curve artifacts.
-- [ ] Standardize run IDs so W&B and MLflow share a common `run_name` and metadata tags.
-- [ ] Add environment config to `.env`/docs for MLflow (`MLFLOW_TRACKING_URI` optional, `MLFLOW_EXPERIMENT_NAME`) and W&B (`WANDB_PROJECT`, `WANDB_ENTITY`, `WANDB_MODE`, `WANDB_API_KEY` or `wandb.txt`).
-- [ ] Add optional sweep wrappers (MLflow or W&B) for tuning `TOUCH_BAND`, `LOOKFORWARD_MINUTES`, and physics windows.
+**Status**:
+- PatchTST training logs to MLflow + W&B (`src/ml/patchtst_train.py`)
+- Boosted trees, retrieval index, and calibration eval will log to MLflow (implementation in progress)
 
 ---
 
 ## Common Issues
 
-**Missing features.json**: Pipeline must run first to generate signals  
-**No matching dates**: Check train/val date ranges exist in signals Parquet  
+**No Silver data**: Run `SilverFeatureBuilder.build_feature_set()` to create versioned features from Bronze  
+**No matching dates**: Check train/val date ranges exist in Silver feature version  
 **Walk-forward violation**: Ensure no random shuffles in train/val split  
 **Model bundle missing**: Run training before attempting live inference  
-**W&B auth failure**: Set `WANDB_API_KEY` or use offline mode
+**W&B auth failure**: Set `WANDB_API_KEY` or use offline mode  
+**Wrong Gold dataset**: Ensure correct Silver version was promoted to Gold
 
 ---
 
@@ -212,11 +239,13 @@ uv run pytest tests/test_research_lab.py -v
 
 To add new features to models:
 
-1. **Update vectorized pipeline** to compute feature
-2. **Add to `features.json`** schema
-3. **Update `feature_sets.py`** (Stage A or B)
-4. **Retrain models** with new feature set
-5. **Update INTERFACES.md** to document new feature
+1. **Add stage to pipeline** (in `src/pipeline/stages/`)
+2. **Create new Silver version** with updated feature manifest
+3. **Update `feature_sets.py`** (Stage A or B) if needed
+4. **Run MLflow experiments** on new Silver version
+5. **Compare with baseline** in MLflow UI
+6. **Promote to Gold** if better performance
+7. **Update INTERFACES.md** to document new feature
 
 ---
 
@@ -234,12 +263,15 @@ To add new features to models:
 ## References
 
 - **Interface contract**: [INTERFACES.md](INTERFACES.md)
-- **Feature schema**: [../../features.json](../../features.json)
+- **Data Architecture**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md) (Bronze/Silver/Gold)
+- **Feature manifests**: [../common/schemas/feature_manifest.py](../common/schemas/feature_manifest.py)
 - **Feature sets**: [feature_sets.py](feature_sets.py)
+- **Silver builder**: [../lake/silver_feature_builder.py](../lake/silver_feature_builder.py)
+- **Gold curator**: [../lake/gold_curator.py](../lake/gold_curator.py)
 - **Core interface**: [../core/INTERFACES.md](../core/INTERFACES.md) (viewport output)
 
 ---
 
 **Scope**: SPY 0DTE only  
-**Dependencies**: `common` (schemas), vectorized pipeline (signals Parquet)  
+**Dependencies**: `common` (schemas), `lake` (Silver/Gold datasets), `pipeline` (versioned pipelines)  
 **Integration**: Core Service (live viewport scoring)

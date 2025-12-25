@@ -1,216 +1,212 @@
 # Pipeline Module
 
-**Purpose**: VectorizedPipeline - core feature computation engine  
-**Status**: Production  
-**Primary Consumer**: SilverFeatureBuilder  
+**Purpose**: Modular stage-based feature engineering pipeline
+**Status**: Production
+**Primary Consumer**: SilverFeatureBuilder
 **Architecture**: See [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 
 ---
 
 ## Overview
 
-Provides the VectorizedPipeline class - a high-performance feature computation engine used internally by SilverFeatureBuilder to transform Bronze data into Silver features.
+Provides a modular, versioned pipeline architecture for transforming Bronze data into Silver features. Different pipeline versions use different stage compositions, allowing feature sets to be tailored to specific experiments.
 
-**Key Principle**: This is a utility class, not a standalone tool. Used by SilverFeatureBuilder in the Medallion pipeline.
+**Key Principle**: Pipelines are composed of independent stages. Each stage has explicit inputs/outputs and uses vectorized NumPy/pandas operations optimized for Apple M4 Silicon.
 
 ---
 
-## VectorizedPipeline
+## Architecture
 
-**File**: `vectorized_pipeline.py`  
-**Purpose**: High-performance batch processing using vectorized numpy operations optimized for Apple M4 Silicon
+```
+src/pipeline/
+├── core/
+│   ├── stage.py         # BaseStage, StageContext abstractions
+│   └── pipeline.py      # Pipeline orchestrator
+├── stages/
+│   ├── load_bronze.py           # Stage 1: DuckDB data loading
+│   ├── build_ohlcv.py           # Stage 2-3: OHLCV bar construction
+│   ├── init_market_state.py     # Stage 4: MarketState + Greeks
+│   ├── generate_levels.py       # Stage 5: Level universe
+│   ├── detect_touches.py        # Stage 6: Touch detection
+│   ├── compute_physics.py       # Stage 7: Barrier/Tape/Fuel
+│   ├── compute_context.py       # Stage 8: Context features
+│   ├── compute_sma.py           # Stage 9: SMA features (v2.0+)
+│   ├── compute_confluence.py    # Stage 10: Confluence (v2.0+)
+│   ├── compute_approach.py      # Stage 11: Approach features (v2.0+)
+│   ├── label_outcomes.py        # Stage 12: Outcome labeling
+│   └── filter_rth.py            # Stage 13: RTH filtering
+├── pipelines/
+│   ├── v1_0_mechanics_only.py   # 10 stages: pure physics
+│   ├── v2_0_full_ensemble.py    # 13 stages: physics + TA
+│   └── registry.py              # get_pipeline_for_version()
+└── utils/
+    ├── duckdb_reader.py         # DuckDB wrapper with downsampling
+    └── vectorized_ops.py        # Vectorized operation exports
+```
 
-**Key Stages**:
-1. **Data Loading**: Read Bronze parquet (ES trades, MBP-10, option trades)
-2. **OHLCV Building**: 1-min and 2-min bars from ES trades (converted to SPY scale)
-3. **Warmup**: Load 3 prior days for SMA-200/400, 7 prior days for relative volume
-4. **Level Universe**: Generate structural levels (PM/OR/SMA/VWAP/Walls)
-5. **Touch Detection**: Numpy broadcasting for monitor band filtering
-6. **Physics Computation**: Batch metrics from barrier/tape/fuel engines
-7. **Feature Transforms**: Normalization, sparse encoding, confluence features
-8. **Labeling**: Forward-looking outcome determination (competing risks)
-9. **RTH Filtering**: Output filtered to 09:30-16:00 ET with full forward window
+---
 
-**Usage** (via SilverFeatureBuilder):
+## Usage
+
+**Via SilverFeatureBuilder** (recommended):
 ```python
 from src.lake.silver_feature_builder import SilverFeatureBuilder
 
 builder = SilverFeatureBuilder()
 builder.build_feature_set(
-    manifest=manifest,
+    manifest=manifest,  # manifest.version determines pipeline
     dates=['2025-12-16', '2025-12-17']
 )
-# Internally calls VectorizedPipeline.run() for each date
+# Internally calls get_pipeline_for_version(manifest.version)
 ```
 
-**Direct Usage** (development/testing only):
+**Direct Usage**:
 ```python
-from src.pipeline.vectorized_pipeline import VectorizedPipeline
+from src.pipeline import get_pipeline_for_version
 
-pipeline = VectorizedPipeline()
-signals_df = pipeline.run(date='2025-12-16')
-# Returns DataFrame with ~800-3000 signals (RTH only)
+# Get pipeline for version
+pipeline = get_pipeline_for_version("v1.0_mechanics_only")
+signals_df = pipeline.run("2025-12-16")
+
+# Or use specific builders
+from src.pipeline.pipelines import build_v1_0_pipeline, build_v2_0_pipeline
+
+pipeline = build_v2_0_pipeline()
+signals_df = pipeline.run("2025-12-16")
 ```
+
+---
+
+## Pipeline Versions
+
+### v1.0 - Mechanics Only (10 stages)
+Pure physics features without TA indicators:
+1. LoadBronze → 2. BuildOHLCV (1min) → 3. BuildOHLCV (2min)
+4. InitMarketState → 5. GenerateLevels → 6. DetectTouches
+7. ComputePhysics → 8. ComputeContext → 9. LabelOutcomes → 10. FilterRTH
+
+### v2.0 - Full Ensemble (13 stages)
+All features including SMA, confluence, and approach context:
+1-8. Same as v1.0
+9. ComputeSMAFeatures → 10. ComputeConfluence → 11. ComputeApproachFeatures
+12. LabelOutcomes → 13. FilterRTH
+
+---
+
+## Stage Dependencies
+
+Each stage declares required inputs via `required_inputs` property:
+
+| Stage | Required Inputs |
+|-------|-----------------|
+| LoadBronze | (none) |
+| BuildOHLCV | trades |
+| InitMarketState | trades, mbp10_snapshots, option_trades_df |
+| GenerateLevels | ohlcv_1min, market_state |
+| DetectTouches | ohlcv_1min, static_level_info, dynamic_levels |
+| ComputePhysics | touches_df, market_state, trades, mbp10_snapshots |
+| ComputeContext | signals_df, atr, ohlcv_1min |
+| ComputeSMA | signals_df, ohlcv_1min |
+| ComputeConfluence | signals_df, dynamic_levels, option_trades_df, ohlcv_1min |
+| ComputeApproach | signals_df, ohlcv_1min |
+| LabelOutcomes | signals_df, ohlcv_1min |
+| FilterRTH | signals_df |
 
 ---
 
 ## Level Universe (SPY-Specific)
 
-VectorizedPipeline generates structural levels for SPY:
+Generated structural levels:
+- **PM_HIGH/PM_LOW**: Pre-market high/low (04:00-09:30 ET)
+- **OR_HIGH/OR_LOW**: Opening range (09:30-09:45 ET)
+- **SESSION_HIGH/SESSION_LOW**: Running session extremes
+- **SMA_200/SMA_400**: Moving averages on 2-min bars (requires warmup)
+- **VWAP**: Session volume-weighted average price
+- **CALL_WALL/PUT_WALL**: Max gamma concentration strikes
 
-1. **PM_HIGH/PM_LOW**: Pre-market high/low (04:00-09:30 ET)
-   - Computed from Bronze pre-market data
-   - Used as features but pre-market signals are filtered out
-
-2. **OR_HIGH/OR_LOW**: Opening range (09:30-09:45 ET)
-
-3. **SESSION_HIGH/SESSION_LOW**: Running session extremes
-
-4. **SMA_200/SMA_400**: Moving averages on 2-min bars
-   - Requires 3 prior days warmup
-
-5. **VWAP**: Session volume-weighted average price
-
-6. **CALL_WALL/PUT_WALL**: Max gamma concentration strikes
-
-**Note**: ROUND ($5, $10) and STRIKE (generic) levels are disabled for SPY due to duplicative $1 strike spacing.
+**Note**: ROUND and STRIKE levels are disabled for SPY due to $1 strike spacing.
 
 ---
 
 ## Feature Categories
 
 **Barrier Physics** (ES MBP-10 depth):
-- `barrier_state`: VACUUM/WALL/ABSORPTION/NEUTRAL
-- `barrier_delta_liq`: Net liquidity change
-- `barrier_replenishment_ratio`: Add/remove ratio
-- `wall_ratio`: Concentration vs baseline
+- `barrier_state`, `barrier_delta_liq`, `wall_ratio`
 
 **Tape Physics** (ES trade flow):
-- `tape_imbalance`: Buy/sell ratio [-1, 1]
-- `tape_velocity`: Trade arrival rate
-- `sweep_detected`: Aggressive multi-level execution
+- `tape_imbalance`, `tape_velocity`, `sweep_detected`
 
 **Fuel Physics** (SPY option gamma):
-- `gamma_exposure`: Net dealer gamma at level
-- `fuel_effect`: AMPLIFY/DAMPEN/NEUTRAL
-- `gamma_flow_velocity`: Flow per minute
-- `dealer_pressure`: Normalized pressure score
+- `gamma_exposure`, `fuel_effect`, `dealer_pressure`
 
-**Approach Context**:
-- `distance_atr`: ATR-normalized distance to level
-- `approach_velocity`: $/min toward level
-- `attempt_index`: Touch count in cluster
-- `prior_touches`: Historical touches at level
+**Approach Context** (v2.0+):
+- `approach_velocity`, `attempt_index`, `prior_touches`
 
-**Confluence Features**:
-- `confluence_level`: Hierarchical setup quality (1-10 scale)
-- `breakout_state`: Multi-timeframe trend alignment
-- `gex_alignment`: Gamma exposure alignment with direction
-- `rel_vol_ratio`: Current vs 7-day average volume
+**Confluence Features** (v2.0+):
+- `confluence_level`, `gex_alignment`, `rel_vol_ratio`
 
 **Labels** (competing risks):
-- `outcome`: BREAK_1/BOUNCE_1/BREAK_2/BOUNCE_2/CHOP
-- `strength_signed`: Signed distance moved
-- `t1_60`, `t1_120`: Time to first threshold (seconds)
-- `t2_60`, `t2_120`: Time to second threshold
-- `t1_break_60`, `t1_bounce_60`: Directional timing
-- `tradeable_1`, `tradeable_2`: Binary tradeable flags
+- `outcome`, `strength_signed`, `t1_60`, `t2_60`, `tradeable_1`, `tradeable_2`
 
 ---
 
-## RTH Filtering
-
-**Critical**: Silver and Gold datasets contain ONLY RTH (09:30-16:00 ET) signals.
-
-**Implementation** (lines 2814-2829 of vectorized_pipeline.py):
-- Filters output to 09:30-16:00 ET
-- Ensures full forward window available (no partial labels at 4pm)
-- Pre-market data still used for feature computation (PM_HIGH/PM_LOW)
-
----
-
-## Performance Optimizations
+## Performance
 
 **Apple M4 Silicon Optimized**:
-- All operations use numpy broadcasting (no Python loops)
+- All operations use numpy broadcasting
 - Batch processing of all touches simultaneously
 - Memory-efficient chunked processing
-- Optional Numba JIT compilation for hot paths
+- Optional Numba JIT compilation
 
-**Performance Targets**:
-- Process 1M+ trades in <10 seconds
-- Generate 10K+ signals per day
-- Memory usage <16GB for full day
-
-**Actual Performance** (M4 Mac, 128GB RAM):
+**Typical Performance** (M4 Mac, 128GB RAM):
 - Single date: ~2-5 seconds
 - 10 dates: ~30-60 seconds
 - ~500-1000 signals/sec throughput
 
 ---
 
-## Integration with SilverFeatureBuilder
-
-VectorizedPipeline is called internally by SilverFeatureBuilder. For each date, it:
-1. Loads Bronze data (ES trades + MBP-10 + options)
-2. Builds OHLCV (1min, 2min bars)
-3. Loads warmup data (SMA, relative volume)
-4. Generates level universe
-5. Detects touches (monitor band)
-6. Computes physics features (barrier/tape/fuel)
-7. Computes approach context
-8. Labels outcomes (competing risks)
-9. Filters to RTH (9:30-16:00)
-10. Returns in-memory DataFrame to SilverFeatureBuilder
-
----
-
 ## Configuration
 
-Pipeline behavior is controlled by `backend/src/common/config.py`:
-- Physics windows: `W_b`, `W_t`, `W_g` (barrier, tape, fuel)
+Pipeline behavior controlled by `backend/src/common/config.py`:
+- Physics windows: `W_b`, `W_t`, `W_g`
 - Touch detection: `MONITOR_BAND`, `TOUCH_BAND`
 - Confirmation windows: `CONFIRMATION_WINDOWS_MULTI`
 - Warmup: `SMA_WARMUP_DAYS`, `VOLUME_LOOKBACK_DAYS`
-- RTH session: Hardcoded 09:30-16:00 ET
 
 ---
 
-## Testing
+## Creating New Pipeline Versions
 
-```bash
-cd backend
+1. Create new file in `pipelines/` (e.g., `v2_1_custom.py`)
+2. Define stage sequence using existing or new stages
+3. Register in `pipelines/registry.py`
 
-# Test VectorizedPipeline (via unit tests)
-uv run pytest tests/test_vectorized_pipeline.py -v
+```python
+# pipelines/v2_1_custom.py
+def build_v2_1_pipeline() -> Pipeline:
+    return Pipeline(
+        stages=[
+            LoadBronzeStage(),
+            BuildOHLCVStage(freq='1min'),
+            # ... custom stage composition
+        ],
+        name="custom",
+        version="v2.1"
+    )
 
-# Test end-to-end determinism
-uv run pytest tests/test_replay_determinism.py -v
+# pipelines/registry.py
+_PIPELINES = {
+    'v1.0': build_v1_0_pipeline,
+    'v2.0': build_v2_0_pipeline,
+    'v2.1': build_v2_1_pipeline,  # Add new version
+}
 ```
-
----
-
-## Common Issues
-
-**"No signals generated"**:
-- Check Bronze data exists for date: `ls data/lake/bronze/futures/trades/symbol=ES/date=2025-12-16/`
-- Verify warmup data available (3 prior days)
-
-**"High null rates in features"**:
-- Option trades may be sparse: `gamma_exposure` can have 10-15% nulls
-- MBP-10 gaps: `barrier_state` should be <1% null
-
-**"Performance slow"**:
-- Check if Numba is installed: `pip list | grep numba`
-- Verify sufficient RAM (16GB+ recommended)
-- Consider reducing date range if memory-constrained
 
 ---
 
 ## References
 
-- **Architecture & Workflow**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
+- **Architecture**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 - **Feature Manifests**: [../common/schemas/feature_manifest.py](../common/schemas/feature_manifest.py)
-- **Physics Engines**: [../core/](../core/) (barrier, tape, fuel)
+- **Physics Engines**: [../core/](../core/)
 - **Silver Builder**: [../lake/silver_feature_builder.py](../lake/silver_feature_builder.py)
-- **Configuration**: [../common/config.py](../common/config.py)

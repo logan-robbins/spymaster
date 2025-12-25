@@ -16,18 +16,33 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 
 ### Training Data
 
-**Source**: `backend/features.json` → `output_path` (signals Parquet)
-**Schema**: Vectorized pipeline output with:
+**Source**: Silver feature datasets (versioned experiments from Bronze)
+
+**Location**: `backend/data/lake/silver/features/{version}/date=YYYY-MM-DD/*.parquet`
+
+**Access**:
+```python
+from src.lake.silver_feature_builder import SilverFeatureBuilder
+
+builder = SilverFeatureBuilder()
+df = builder.load_features('v2.0_full_ensemble')
+```
+
+**Schema**: Versioned feature set with:
 - Event identity: `event_id`, `ts_ns`, `date`, `symbol`
 - Level context: `level_price`, `level_kind_name`, `direction`, `distance`
-- Features: Barrier, tape, fuel, approach, confluence metrics
+- Features: Barrier, tape, fuel, approach, confluence metrics (per manifest)
 - Labels: `outcome`, `strength_signed`, `tradeable_1`, `tradeable_2`, time-to-threshold
 
-**Required Columns** (from `features.json`):
+**Required Columns**:
 - Identity: `event_id`, `ts_ns`, `date`
 - Context: `level_kind_name`, `direction`, `distance`
 - Physics: All numeric barrier/tape/fuel features
 - Labels: `tradeable_2`, `strength_signed`, `t1_60`, `t1_120`, `t2_60`, `t2_120`, `t1_break_60`, `t1_bounce_60`, `t2_break_60`, `t2_bounce_60`
+
+**Gold Production Data** (optional, after promotion):
+- Location: `backend/data/lake/gold/training/signals_production.parquet`
+- Same schema as Silver, curated from best experiment
 
 ---
 
@@ -80,11 +95,19 @@ def select_features(
 
 **CLI**:
 ```bash
+# Train on Silver dataset
 uv run python -m src.ml.boosted_tree_train \
+  --silver-version v2.0_full_ensemble \
   --stage stage_b \
   --ablation full \
   --train-dates 2025-12-14 2025-12-15 \
   --val-dates 2025-12-16
+
+# Or train on Gold production dataset
+uv run python -m src.ml.boosted_tree_train \
+  --gold-dataset signals_production \
+  --stage stage_b \
+  --ablation full
 ```
 
 **Ablation Options**: `ta`, `mechanics`, `full`
@@ -100,9 +123,12 @@ uv run python -m src.ml.boosted_tree_train \
 8. `t2_break_{horizon}s`: Reach probability for threshold 2 in break direction
 9. `t2_bounce_{horizon}s`: Reach probability for threshold 2 in bounce direction
 
-**Output Location**: `data/ml/boosted_trees/`
+**Output Location**: 
+- Experiments: `data/ml/experiments/{exp_id}/model.joblib`
+- Production (after promotion): `data/ml/production/boosted_trees/`
 - Models: `{head}_{stage}_{ablation}.joblib`
 - Metadata: `metadata_{stage}_{ablation}.json`
+- MLflow tracking: `mlruns/`
 
 ---
 
@@ -439,7 +465,10 @@ X_val = X[val_mask]
 ## References
 
 - Full module documentation: `backend/src/ml/README.md`
-- Feature contract: `backend/features.json`
+- Data Architecture: `backend/DATA_ARCHITECTURE.md` (Bronze/Silver/Gold)
+- Feature manifests: `backend/src/common/schemas/feature_manifest.py`
 - Feature sets: `backend/src/ml/feature_sets.py`
 - Training scripts: `backend/src/ml/boosted_tree_train.py`, `backend/src/ml/patchtst_train.py`
 - Inference: `backend/src/ml/tree_inference.py`, `backend/src/ml/retrieval_engine.py`
+- Silver builder: `backend/src/lake/silver_feature_builder.py`
+- Gold curator: `backend/src/lake/gold_curator.py`
