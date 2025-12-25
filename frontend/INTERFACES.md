@@ -609,6 +609,6 @@ function validateLevel(level: LevelSignal): boolean {
 
 ## References
 
-- Full frontend documentation: [FRONTEND.md](../FRONTEND.md)
+- Full frontend documentation: [frontend/README.md](../frontend/README.md)
 - Backend interface: [backend/src/gateway/INTERFACES.md](../backend/src/gateway/INTERFACES.md)
 - Level signals schema: [backend/src/core/INTERFACES.md](../backend/src/core/INTERFACES.md)

@@ -111,7 +111,7 @@ Each level is transformed by `_normalize_level_signal`:
     "note": Optional[str],
 
     # Confluence Level Features (TODO: Phase 3.1)
-    # See FRONTEND.md for full integration plan
+    # See frontend/README.md for full integration plan
     "confluence_level": int,            # 0-10 (0=undefined, 1=ultra premium, 10=consolidation)
     "confluence_level_name": str,       # ULTRA_PREMIUM, PREMIUM, STRONG, etc.
     "breakout_state": int,              # 0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL

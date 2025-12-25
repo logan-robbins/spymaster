@@ -91,10 +91,10 @@ npm run start
 - Walk-forward validation (no look-ahead bias)
 - Live viewport scoring (optional, gated by `VIEWPORT_SCORING_ENABLED`)
 
-**Data Persistence**:
-- Bronze: Raw normalized events (append-only, immutable)
-- Silver: Deduped and sorted (exactly-once semantics)
-- Gold: Derived signals and features (ML-ready, flattened schema)
+**Data Persistence** (Medallion Architecture):
+- Bronze: Raw normalized events (append-only, immutable source of truth)
+- Silver: Versioned feature engineering experiments (reproducible, A/B testable)
+- Gold: Production ML datasets (curated from best experiments) + streaming signals
 
 ---
 
@@ -102,8 +102,10 @@ npm run start
 
 ### System Overview
 - **[COMPONENTS.md](COMPONENTS.md)**: Architecture map with all component interfaces
-- **[FRONTEND.md](FRONTEND.md)**: Frontend implementation status and UI specifications
-- **[backend/features.json](backend/features.json)**: Authoritative feature schema
+- **[frontend/README.md](frontend/README.md)**: Frontend implementation status and UI specifications
+- **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Medallion architecture and data flow
+- **[backend/MEDALLION_WORKFLOW.md](backend/MEDALLION_WORKFLOW.md)**: Feature engineering workflow guide
+- **[backend/features.json](backend/features.json)**: Authoritative feature schema (legacy)
 
 ### Module Interfaces (Technical Contracts)
 - **[backend/src/common/INTERFACES.md](backend/src/common/INTERFACES.md)**: Event types, schemas, config
@@ -145,11 +147,13 @@ npm run start
 - Databento: ES futures (trades + MBP-10 depth) [historical only in current setup]
 
 **Historical Replay**:
-- Databento DBN files: `dbn-data/trades/`, `dbn-data/MBP-10/`
+- Databento DBN files: `backend/data/raw/dbn/` (trades, MBP-10)
 - Configurable replay speed (0x = fast, 1x = realtime, 2x = 2x speed)
 
-**Storage**:
-- Local: `backend/data/lake/` (Bronze/Silver/Gold Parquet)
+**Storage** (Medallion Architecture):
+- Bronze: `backend/data/lake/bronze/` (raw normalized events)
+- Silver: `backend/data/lake/silver/features/` (versioned feature experiments)
+- Gold: `backend/data/lake/gold/` (production datasets + streaming signals)
 - S3/MinIO: Optional via `USE_S3=true` config
 
 ---
@@ -168,9 +172,9 @@ npm run start
 - Gateway: 100+ concurrent WebSocket clients
 
 **Storage**:
-- Bronze: ~5-10GB/day (SPY + ES data)
-- Silver: ~4-8GB/day (after dedup)
-- Gold: ~100-500MB/day (signals)
+- Bronze: ~5-10GB/day (raw normalized events)
+- Silver: ~2-5GB/day per feature version (varies with experiments)
+- Gold: ~100-500MB/day (production datasets + streaming signals)
 
 ---
 
