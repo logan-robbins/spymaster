@@ -57,23 +57,55 @@ Consumes `levels.signals` from NATS, writes derived analytics to Gold tier.
 **Flattening**: Nested physics dicts → flat columns for Parquet efficiency  
 **Micro-batching**: Buffer 500 records or 10 seconds
 
+### SilverFeatureBuilder (`silver_feature_builder.py`)
+**New**: Versioned feature engineering for ML experiments.
+
+**Purpose**: Create reproducible feature sets from Bronze  
+**Versioning**: Semantic versioning with manifests  
+**Schema**: Defined in `src/common/schemas/feature_manifest.py`
+
+### GoldCurator (`gold_curator.py`)
+**New**: Promote best Silver experiments to Gold production.
+
+**Purpose**: Curate production ML datasets  
+**Input**: Silver feature versions  
+**Output**: Gold training datasets
+
 ### SilverCompactor (`silver_compactor.py`)
-Offline batch job that transforms Bronze → Silver.
+**Legacy**: Offline batch job for deduplication (cleanup only).
 
 **Deduplication**: MD5 hash of key columns → keep first by `ts_recv_ns`  
-**DuckDB-powered**: Efficient SQL queries over Parquet
+**DuckDB-powered**: Efficient SQL queries over Parquet  
+**Note**: Superseded by SilverFeatureBuilder for ML workflows
 
 ---
 
 ## Data Flow
 
+### Streaming Pipeline (Real-time)
 ```
 NATS (market.*) → BronzeWriter → Bronze Parquet
-                                      ↓
-                              SilverCompactor → Silver Parquet
 
-NATS (levels.signals) → GoldWriter → Gold Parquet
+NATS (levels.signals) → GoldWriter → Gold Streaming Parquet
 ```
+
+### Batch Training Pipeline (Offline)
+```
+Bronze Parquet → VectorizedPipeline → (in-memory features)
+                                              ↓
+                                    SilverFeatureBuilder → Silver Features (versioned)
+                                              ↓
+                                        GoldCurator → Gold Training Parquet
+```
+
+### Legacy Silver Compaction (Cleanup Only)
+```
+Bronze Parquet → SilverCompactor → Silver Datasets (deduped/sorted)
+```
+
+**Note**: Silver layer now serves two purposes:
+1. `silver/features/*` - Versioned feature engineering experiments (primary use)
+2. `silver/datasets/*` - Legacy cleaned datasets (dedup/sort only)
 
 ---
 

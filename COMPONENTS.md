@@ -128,8 +128,10 @@
 
 **Key Responsibilities**:
 - Bronze writer: NATS → append-only Parquet (raw, immutable)
-- Gold writer: NATS levels.signals → derived analytics Parquet
-- Silver compactor: Offline deduplication and sorting (Bronze → Silver)
+- Gold writer: NATS levels.signals → streaming signals Parquet
+- Silver feature builder: Versioned feature engineering (Bronze → Silver experiments)
+- Gold curator: Promote best experiments to production (Silver → Gold training)
+- Legacy silver compactor: Offline deduplication (Bronze → Silver datasets)
 - Storage backend: Local filesystem or S3/MinIO
 
 **Inputs**:
@@ -141,10 +143,15 @@
   - Silver: `silver/{asset_class}/{schema}/{partition}/date=YYYY-MM-DD/hour=HH/*.parquet`
   - Gold: `gold/levels/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/*.parquet`
 
-**Storage Tiers**:
-- **Bronze**: Raw normalized events (at-least-once, append-only)
-- **Silver**: Deduped and sorted (exactly-once via MD5 event_id)
-- **Gold**: Derived features and signals (ML-ready, flattened schema)
+**Storage Tiers** (Medallion Architecture):
+- **Bronze**: Raw normalized events (at-least-once, append-only, immutable)
+- **Silver**: Versioned feature engineering experiments (reproducible, exactly-once)
+  - `silver/features/*` - Feature set versions with manifests
+  - `silver/datasets/*` - Legacy cleaned datasets (dedup only)
+- **Gold**: Production ML datasets and streaming signals
+  - `gold/training/*` - Curated from best Silver experiments
+  - `gold/streaming/*` - Real-time signals from Core Service
+  - `gold/evaluation/*` - Backtest and validation results
 
 **Entry Point**: `uv run python -m src.lake.main`
 
@@ -193,12 +200,12 @@
 - Live viewport scoring (integrated into Core Service)
 
 **Inputs**:
-- Training data: Signals Parquet (from vectorized pipeline, via `features.json`)
+- Training data: Gold production dataset or Silver feature versions
 - Live features: Engineered features from Core Service
 
 **Outputs**:
-- Model bundles: `data/ml/boosted_trees/*.joblib`
-- Retrieval index: `data/ml/retrieval_index.joblib`
+- Model bundles: `data/ml/experiments/*/model.joblib`
+- Retrieval index: `data/ml/production/retrieval_index.joblib`
 - PatchTST checkpoint: `patchtst_multitask.pt`
 - Metadata: Train/val splits, metrics, feature names
 
@@ -539,11 +546,17 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 - ML: [backend/src/ml/INTERFACES.md](backend/src/ml/INTERFACES.md)
 - Frontend: [frontend/INTERFACES.md](frontend/INTERFACES.md)
 
+### Data Architecture
+- Medallion Overview: [backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)
+- Feature Engineering Workflow: [backend/MEDALLION_WORKFLOW.md](backend/MEDALLION_WORKFLOW.md)
+- Data Directory Structure: [backend/data/README.md](backend/data/README.md)
+- Feature Manifest Schema: [backend/src/common/schemas/feature_manifest.py](backend/src/common/schemas/feature_manifest.py)
+
 ### Full Documentation
 - Root: [README.md](README.md)
 - Backend: [backend/README.md](backend/README.md)
-- Frontend: [FRONTEND.md](FRONTEND.md)
-- Feature Contract: [backend/features.json](backend/features.json)
+- Frontend: [frontend/README.md](frontend/README.md)
+- Feature Contract (legacy): [backend/features.json](backend/features.json)
 
 ### Module READMEs (Detailed Specs)
 - Common: [backend/src/common/README.md](backend/src/common/README.md)
