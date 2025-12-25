@@ -1926,9 +1926,14 @@ def label_outcomes_vectorized(
     """
     Label outcomes using vectorized operations with multi-timeframe support.
 
+    Outcomes are anchored at confirmation time t1 and measured relative to the
+    tested level price (level frame). Break vs bounce is determined by the
+    first threshold hit (competing risks), with directional time-to-threshold
+    columns preserved alongside legacy "either-direction" labels.
+
     Uses numpy searchsorted for O(log n) future price lookups.
     Threshold is $2.00 (2 strikes) for meaningful options trades.
-    
+
     Multi-timeframe mode generates outcomes at 2min, 4min, 8min confirmations
     to enable training models for different trading horizons.
 
@@ -1953,6 +1958,7 @@ def label_outcomes_vectorized(
     # Prepare OHLCV data for fast lookup
     ohlcv_sorted = ohlcv_df.sort_values('timestamp')
     ohlcv_ts = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+    ohlcv_open = ohlcv_sorted['open'].values.astype(np.float64)
     ohlcv_close = ohlcv_sorted['close'].values.astype(np.float64)
     ohlcv_high = ohlcv_sorted['high'].values.astype(np.float64)
     ohlcv_low = ohlcv_sorted['low'].values.astype(np.float64)
@@ -1972,6 +1978,9 @@ def label_outcomes_vectorized(
     signal_ts = signals_df['ts_ns'].values
     directions = signals_df['direction'].values
     bar_idx = signals_df['bar_idx'].values if 'bar_idx' in signals_df.columns else None
+    if 'level_price' not in signals_df.columns:
+        raise ValueError("Missing level_price for outcome labeling.")
+    level_prices = signals_df['level_price'].values.astype(np.float64)
     threshold_1 = CONFIG.STRENGTH_THRESHOLD_1
     threshold_2 = CONFIG.STRENGTH_THRESHOLD_2
     
@@ -1992,6 +2001,10 @@ def label_outcomes_vectorized(
         strength_abs = np.full(n, np.nan, dtype=np.float64)
         time_to_threshold_1 = np.full(n, np.nan, dtype=np.float64)
         time_to_threshold_2 = np.full(n, np.nan, dtype=np.float64)
+        time_to_break_1 = np.full(n, np.nan, dtype=np.float64)
+        time_to_break_2 = np.full(n, np.nan, dtype=np.float64)
+        time_to_bounce_1 = np.full(n, np.nan, dtype=np.float64)
+        time_to_bounce_2 = np.full(n, np.nan, dtype=np.float64)
         tradeable_1 = np.zeros(n, dtype=np.int8)
         tradeable_2 = np.zeros(n, dtype=np.int8)
         confirm_ts_ns = np.full(n, np.nan, dtype=np.float64)
@@ -2010,12 +2023,24 @@ def label_outcomes_vectorized(
                 outcomes[i] = 'UNDEFINED'
                 continue
 
-            anchor_price = ohlcv_close[anchor_idx]
             anchor_time = ohlcv_ts[anchor_idx] + confirmation_ns
             confirm_ts_ns[i] = anchor_time
-            anchor_spot[i] = anchor_price
 
-            start_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
+            confirm_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
+            if confirm_idx >= len(ohlcv_ts):
+                outcomes[i] = 'UNDEFINED'
+                continue
+
+            if confirm_idx < len(ohlcv_ts) and ohlcv_ts[confirm_idx] == anchor_time:
+                anchor_spot[i] = ohlcv_open[confirm_idx]
+            else:
+                prior_idx = confirm_idx - 1
+                if prior_idx < 0:
+                    outcomes[i] = 'UNDEFINED'
+                    continue
+                anchor_spot[i] = ohlcv_close[prior_idx]
+
+            start_idx = confirm_idx
             end_idx = np.searchsorted(ohlcv_ts, anchor_time + lookforward_ns, side='right')
 
             if start_idx >= len(ohlcv_ts) or start_idx >= end_idx:
@@ -2031,34 +2056,52 @@ def label_outcomes_vectorized(
                 continue
 
             direction = directions[i]
+            level_price = level_prices[i]
             future_prices[i] = future_close[-1]
 
-            max_above = max(future_high.max() - anchor_price, 0.0)
-            max_below = max(anchor_price - future_low.min(), 0.0)
+            max_above = max(future_high.max() - level_price, 0.0)
+            max_below = max(level_price - future_low.min(), 0.0)
 
-            above_1 = np.where(future_high >= anchor_price + threshold_1)[0]
-            above_2 = np.where(future_high >= anchor_price + threshold_2)[0]
-            below_1 = np.where(future_low <= anchor_price - threshold_1)[0]
-            below_2 = np.where(future_low <= anchor_price - threshold_2)[0]
+            above_1 = np.where(future_high >= level_price + threshold_1)[0]
+            above_2 = np.where(future_high >= level_price + threshold_2)[0]
+            below_1 = np.where(future_low <= level_price - threshold_1)[0]
+            below_2 = np.where(future_low <= level_price - threshold_2)[0]
 
-            t1_candidates = []
-            if len(above_1) > 0:
-                idx = start_idx + above_1[0]
-                t1_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
-            if len(below_1) > 0:
-                idx = start_idx + below_1[0]
-                t1_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
+            if direction == 'UP':
+                break_1 = above_1
+                break_2 = above_2
+                bounce_1 = below_1
+                bounce_2 = below_2
+            else:
+                break_1 = below_1
+                break_2 = below_2
+                bounce_1 = above_1
+                bounce_2 = above_2
+
+            if len(break_1) > 0:
+                idx = start_idx + break_1[0]
+                time_to_break_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+            if len(bounce_1) > 0:
+                idx = start_idx + bounce_1[0]
+                time_to_bounce_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+
+            if len(break_2) > 0:
+                idx = start_idx + break_2[0]
+                time_to_break_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+            if len(bounce_2) > 0:
+                idx = start_idx + bounce_2[0]
+                time_to_bounce_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+
+            t1_candidates = [
+                v for v in (time_to_break_1[i], time_to_bounce_1[i]) if np.isfinite(v)
+            ]
             if t1_candidates:
                 time_to_threshold_1[i] = min(t1_candidates)
                 tradeable_1[i] = 1
 
-            t2_candidates = []
-            if len(above_2) > 0:
-                idx = start_idx + above_2[0]
-                t2_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
-            if len(below_2) > 0:
-                idx = start_idx + below_2[0]
-                t2_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
+            t2_candidates = [
+                v for v in (time_to_break_2[i], time_to_bounce_2[i]) if np.isfinite(v)
+            ]
             if t2_candidates:
                 time_to_threshold_2[i] = min(t2_candidates)
                 tradeable_2[i] = 1
@@ -2068,25 +2111,31 @@ def label_outcomes_vectorized(
                 excursion_min[i] = max_below
                 strength_signed[i] = max_above - max_below
                 strength_abs[i] = max(max_above, max_below)
-
-                if max_above >= outcome_threshold and max_above > max_below:
-                    outcomes[i] = 'BREAK'
-                elif max_below >= outcome_threshold:
-                    outcomes[i] = 'BOUNCE'
-                else:
-                    outcomes[i] = 'CHOP'
             else:
                 excursion_max[i] = max_below
                 excursion_min[i] = max_above
                 strength_signed[i] = max_below - max_above
                 strength_abs[i] = max(max_below, max_above)
-
-                if max_below >= outcome_threshold and max_below > max_above:
+            break_t2 = time_to_break_2[i]
+            bounce_t2 = time_to_bounce_2[i]
+            if np.isfinite(break_t2) and np.isfinite(bounce_t2):
+                if break_t2 < bounce_t2:
                     outcomes[i] = 'BREAK'
-                elif max_above >= outcome_threshold:
+                elif bounce_t2 < break_t2:
                     outcomes[i] = 'BOUNCE'
                 else:
-                    outcomes[i] = 'CHOP'
+                    if strength_signed[i] > 0:
+                        outcomes[i] = 'BREAK'
+                    elif strength_signed[i] < 0:
+                        outcomes[i] = 'BOUNCE'
+                    else:
+                        outcomes[i] = 'CHOP'
+            elif np.isfinite(break_t2):
+                outcomes[i] = 'BREAK'
+            elif np.isfinite(bounce_t2):
+                outcomes[i] = 'BOUNCE'
+            else:
+                outcomes[i] = 'CHOP'
         
         # Store results for this window
         results_by_window[label] = {
@@ -2098,6 +2147,10 @@ def label_outcomes_vectorized(
             'strength_abs': strength_abs,
             'time_to_threshold_1': time_to_threshold_1,
             'time_to_threshold_2': time_to_threshold_2,
+            'time_to_break_1': time_to_break_1,
+            'time_to_break_2': time_to_break_2,
+            'time_to_bounce_1': time_to_bounce_1,
+            'time_to_bounce_2': time_to_bounce_2,
             'tradeable_1': tradeable_1,
             'tradeable_2': tradeable_2,
             'confirm_ts_ns': confirm_ts_ns,
@@ -2118,6 +2171,10 @@ def label_outcomes_vectorized(
         result[f'strength_abs{suffix}'] = data['strength_abs']
         result[f'time_to_threshold_1{suffix}'] = data['time_to_threshold_1']
         result[f'time_to_threshold_2{suffix}'] = data['time_to_threshold_2']
+        result[f'time_to_break_1{suffix}'] = data['time_to_break_1']
+        result[f'time_to_break_2{suffix}'] = data['time_to_break_2']
+        result[f'time_to_bounce_1{suffix}'] = data['time_to_bounce_1']
+        result[f'time_to_bounce_2{suffix}'] = data['time_to_bounce_2']
         result[f'tradeable_1{suffix}'] = data['tradeable_1']
         result[f'tradeable_2{suffix}'] = data['tradeable_2']
         result[f'confirm_ts_ns{suffix}'] = data['confirm_ts_ns']
@@ -2135,6 +2192,10 @@ def label_outcomes_vectorized(
         result['strength_abs'] = primary_data['strength_abs']
         result['time_to_threshold_1'] = primary_data['time_to_threshold_1']
         result['time_to_threshold_2'] = primary_data['time_to_threshold_2']
+        result['time_to_break_1'] = primary_data['time_to_break_1']
+        result['time_to_break_2'] = primary_data['time_to_break_2']
+        result['time_to_bounce_1'] = primary_data['time_to_bounce_1']
+        result['time_to_bounce_2'] = primary_data['time_to_bounce_2']
         result['tradeable_1'] = primary_data['tradeable_1']
         result['tradeable_2'] = primary_data['tradeable_2']
         result['confirm_ts_ns'] = primary_data['confirm_ts_ns']
@@ -2515,7 +2576,8 @@ class VectorizedPipeline:
         date: str
     ) -> Tuple[MarketState, pd.DataFrame]:
         """Initialize MarketState with vectorized Greeks computation."""
-        market_state = MarketState(max_buffer_window_seconds=120.0)
+        buffer_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
+        market_state = MarketState(max_buffer_window_seconds=buffer_seconds * 2)
 
         # Load trades
         spot_price = None

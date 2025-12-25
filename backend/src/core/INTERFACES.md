@@ -371,8 +371,8 @@ output_spy = market_state.price_converter.es_to_spy(result_es)
 ## Critical Parameters (from CONFIG)
 
 **Windows**:
-- `W_b = 10.0` seconds (barrier)
-- `W_t = 5.0` seconds (tape)
+- `W_b = 240.0` seconds (barrier)
+- `W_t = 60.0` seconds (tape)
 - `W_g = 60.0` seconds (fuel)
 - `W_v = 3.0` seconds (velocity)
 - `W_wall` seconds (wall identification)
@@ -383,8 +383,8 @@ output_spy = market_state.price_converter.es_to_spy(result_es)
 - `FUEL_STRIKE_RANGE` (±N dollars for option flows)
 
 **Thresholds**:
-- `MONITOR_BAND = 0.50` (compute signals if |spot - level| ≤ $0.50)
-- `TOUCH_BAND = 0.05` (tight band for "touching")
+- `MONITOR_BAND = 0.25` (compute signals if |spot - level| ≤ $0.25)
+- `TOUCH_BAND = 0.10` (tight band for "touching")
 - `R_vac = 0.3` (VACUUM threshold)
 - `R_wall = 1.5` (WALL threshold)
 - `F_thresh = 100` (delta liquidity threshold, ES contracts)
@@ -423,4 +423,3 @@ output_spy = market_state.price_converter.es_to_spy(result_es)
 - Full module documentation: `backend/src/core/README.md`
 - Engine specifications: See README §6 (Engine Specifications)
 - Configuration: `backend/src/common/config.py`
-

@@ -88,6 +88,12 @@ def _extract_metrics(results: Dict[str, object]) -> Dict[str, float]:
         metrics[f"t2_{horizon}_brier"] = payload.get("brier")
         metrics[f"t2_{horizon}_samples"] = payload.get("samples")
 
+    for key in ("t1_break_reach", "t1_bounce_reach", "t2_break_reach", "t2_bounce_reach"):
+        block_metrics = block.get(key, {})
+        for horizon, payload in block_metrics.items():
+            metrics[f"{key}_{horizon}_brier"] = payload.get("brier")
+            metrics[f"{key}_{horizon}_samples"] = payload.get("samples")
+
     return metrics
 
 
@@ -240,6 +246,28 @@ def main() -> None:
 
         results["metrics"]["t1_reach"] = t1_metrics
         results["metrics"]["t2_reach"] = t2_metrics
+
+        directional_cols = {
+            "t1_break_reach": ("time_to_break_1", preds.t1_break_probs),
+            "t1_bounce_reach": ("time_to_bounce_1", preds.t1_bounce_probs),
+            "t2_break_reach": ("time_to_break_2", preds.t2_break_probs),
+            "t2_bounce_reach": ("time_to_bounce_2", preds.t2_bounce_probs),
+        }
+        for metric_key, (col_name, pred_map) in directional_cols.items():
+            col = test_df.get(col_name)
+            if col is None:
+                continue
+            col_vals = col.to_numpy(dtype=float)
+            metric_block = {}
+            for horizon in args.horizons:
+                true_vals = np.nan_to_num((col_vals <= horizon).astype(int), nan=0)
+                pred_vals = pred_map[horizon]
+                metric_block[horizon] = {
+                    "brier": float(brier_score_loss(true_vals, pred_vals)),
+                    "calibration": _calibration_points(true_vals, pred_vals),
+                    "samples": int(len(true_vals))
+                }
+            results["metrics"][metric_key] = metric_block
 
         output_path = Path(args.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)

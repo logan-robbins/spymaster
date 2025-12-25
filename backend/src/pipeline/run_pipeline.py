@@ -189,7 +189,8 @@ def initialize_market_state(
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
     log = logging.getLogger(__name__)
 
-    market_state = MarketState(max_buffer_window_seconds=120.0)
+    buffer_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
+    market_state = MarketState(max_buffer_window_seconds=buffer_seconds * 2)
 
     # Load trades into market state and get current spot price
     log.info(f"Loading {len(trades):,} ES trades...")
@@ -427,25 +428,29 @@ def get_anchor_and_future_prices(
     touch_ts_ns: int,
     confirmation_seconds: float = 60.0,
     lookforward_minutes: int = 5
-) -> tuple[Optional[float], List[float]]:
+) -> tuple[Optional[float], List[float], int]:
     """
-    Get anchor price at t1 and future prices for outcome labeling.
+    Get confirmation anchor price at t1 and future prices for outcome labeling.
     """
     touch_ts = pd.Timestamp(touch_ts_ns, unit='ns', tz='UTC')
-    anchor_row = ohlcv_df[ohlcv_df['timestamp'] == touch_ts]
-    if anchor_row.empty:
-        return None, []
+    confirm_ts = touch_ts + pd.Timedelta(seconds=confirmation_seconds)
+    end_ts = confirm_ts + pd.Timedelta(minutes=lookforward_minutes)
 
-    anchor_price = anchor_row['close'].iloc[-1]
-    anchor_ts = touch_ts + pd.Timedelta(seconds=confirmation_seconds)
-    end_ts = anchor_ts + pd.Timedelta(minutes=lookforward_minutes)
+    confirm_row = ohlcv_df[ohlcv_df['timestamp'] == confirm_ts]
+    if not confirm_row.empty:
+        anchor_price = confirm_row['open'].iloc[-1]
+    else:
+        prior_rows = ohlcv_df[ohlcv_df['timestamp'] < confirm_ts]
+        if prior_rows.empty:
+            return None, [], int(confirm_ts.value)
+        anchor_price = prior_rows['close'].iloc[-1]
 
     future_mask = (
-        (ohlcv_df['timestamp'] > anchor_ts) &
+        (ohlcv_df['timestamp'] >= confirm_ts) &
         (ohlcv_df['timestamp'] <= end_ts)
     )
 
-    return anchor_price, ohlcv_df[future_mask]['close'].tolist()
+    return anchor_price, ohlcv_df[future_mask]['close'].tolist(), int(confirm_ts.value)
 
 
 def main(date: Optional[str] = None):
@@ -604,7 +609,7 @@ def main(date: Optional[str] = None):
     labeled_count = 0
 
     for signal in signals:
-        anchor_price, future_prices = get_anchor_and_future_prices(
+        anchor_price, future_prices, confirm_ts_ns = get_anchor_and_future_prices(
             ohlcv_df=ohlcv_df,
             touch_ts_ns=signal.ts_event_ns,
             confirmation_seconds=CONFIG.CONFIRMATION_WINDOW_SECONDS,
@@ -617,12 +622,15 @@ def main(date: Optional[str] = None):
 
         direction_str = "UP" if signal.direction == Direction.UP else "DOWN"
         outcome = get_outcome(
-            anchor_price=anchor_price,
+            level_price=signal.level_price,
             future_prices=future_prices,
-            direction=direction_str
+            direction=direction_str,
+            threshold=CONFIG.OUTCOME_THRESHOLD
         )
 
         signal.outcome = outcome
+        signal.confirm_ts_ns = confirm_ts_ns
+        signal.anchor_spot = anchor_price
         signal.future_price_5min = future_prices[-1] if future_prices else None
         labeled_count += 1
 

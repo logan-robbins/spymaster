@@ -49,6 +49,10 @@ TARGET_COLUMNS = [
     "strength_abs",
     "time_to_threshold_1",
     "time_to_threshold_2",
+    "time_to_break_1",
+    "time_to_break_2",
+    "time_to_bounce_1",
+    "time_to_bounce_2",
 ]
 
 

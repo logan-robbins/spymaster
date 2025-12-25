@@ -205,6 +205,10 @@ def synthetic_signals_df() -> pd.DataFrame:
         "strength_abs": np.random.uniform(0.0, 4.0, n_samples),
         "time_to_threshold_1": np.random.uniform(10.0, 300.0, n_samples),
         "time_to_threshold_2": np.random.uniform(30.0, 300.0, n_samples),
+        "time_to_break_1": np.random.uniform(10.0, 300.0, n_samples),
+        "time_to_break_2": np.random.uniform(30.0, 300.0, n_samples),
+        "time_to_bounce_1": np.random.uniform(10.0, 300.0, n_samples),
+        "time_to_bounce_2": np.random.uniform(30.0, 300.0, n_samples),
     })
     
     df = pd.DataFrame(data)
@@ -296,6 +300,9 @@ def mock_tree_models(tmp_path: Path, synthetic_signals_df: pd.DataFrame) -> Path
             # Save time-to-threshold models
             for horizon in [60, 120]:
                 for threshold in ["t1", "t2"]:
+                    path = model_dir / f"{threshold}_{horizon}s_{stage}_{ablation}.joblib"
+                    joblib.dump(dummy_clf, path)
+                for threshold in ["t1_break", "t1_bounce", "t2_break", "t2_bounce"]:
                     path = model_dir / f"{threshold}_{horizon}s_{stage}_{ablation}.joblib"
                     joblib.dump(dummy_clf, path)
     
@@ -436,6 +443,14 @@ def test_tree_model_bundle_loads_all_heads(mock_tree_models):
     assert 120 in bundle.t1_models
     assert 60 in bundle.t2_models
     assert 120 in bundle.t2_models
+    assert 60 in bundle.t1_break_models
+    assert 120 in bundle.t1_break_models
+    assert 60 in bundle.t1_bounce_models
+    assert 120 in bundle.t1_bounce_models
+    assert 60 in bundle.t2_break_models
+    assert 120 in bundle.t2_break_models
+    assert 60 in bundle.t2_bounce_models
+    assert 120 in bundle.t2_bounce_models
 
 
 def test_tree_model_bundle_missing_model_raises_error(tmp_path):
@@ -473,6 +488,14 @@ def test_tree_model_bundle_predict_returns_correct_structure(mock_tree_models, s
     assert 120 in predictions.t1_probs
     assert 60 in predictions.t2_probs
     assert 120 in predictions.t2_probs
+    assert 60 in predictions.t1_break_probs
+    assert 120 in predictions.t1_break_probs
+    assert 60 in predictions.t1_bounce_probs
+    assert 120 in predictions.t1_bounce_probs
+    assert 60 in predictions.t2_break_probs
+    assert 120 in predictions.t2_break_probs
+    assert 60 in predictions.t2_bounce_probs
+    assert 120 in predictions.t2_bounce_probs
 
 
 def test_tree_model_bundle_predict_handles_missing_features(mock_tree_models, synthetic_signals_df):
@@ -510,6 +533,14 @@ def test_tree_predictions_probability_bounds(mock_tree_models, synthetic_signals
     assert np.all((predictions.tradeable_2 >= 0.0) & (predictions.tradeable_2 <= 1.0))
     assert np.all((predictions.p_break >= 0.0) & (predictions.p_break <= 1.0))
     for h in predictions.t1_probs.values():
+        assert np.all((h >= 0.0) & (h <= 1.0))
+    for h in predictions.t1_break_probs.values():
+        assert np.all((h >= 0.0) & (h <= 1.0))
+    for h in predictions.t1_bounce_probs.values():
+        assert np.all((h >= 0.0) & (h <= 1.0))
+    for h in predictions.t2_break_probs.values():
+        assert np.all((h >= 0.0) & (h <= 1.0))
+    for h in predictions.t2_bounce_probs.values():
         assert np.all((h >= 0.0) & (h <= 1.0))
 
 
@@ -885,4 +916,3 @@ def test_ablation_full_vs_ta_vs_mechanics_feature_count(synthetic_signals_df):
     assert full_count >= ta_count
     assert full_count >= mechanics_count
     # TA and mechanics can have different counts depending on dataset
-

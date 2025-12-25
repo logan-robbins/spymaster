@@ -17,6 +17,10 @@ class RetrievalSummary:
     strength_abs_mean: float
     time_to_threshold_1_mean: float
     time_to_threshold_2_mean: float
+    time_to_break_1_mean: float
+    time_to_bounce_1_mean: float
+    time_to_break_2_mean: float
+    time_to_bounce_2_mean: float
     similarity: float
     entropy: float
     neighbors: pd.DataFrame
@@ -44,6 +48,10 @@ class RetrievalIndex:
         self._strength_abs = None
         self._t1 = None
         self._t2 = None
+        self._t1_break = None
+        self._t1_bounce = None
+        self._t2_break = None
+        self._t2_bounce = None
         self._tradeable_2 = None
         self._feature_medians = None
 
@@ -65,6 +73,10 @@ class RetrievalIndex:
             self._strength_abs = np.abs(self._strength_signed)
         self._t1 = df.get("time_to_threshold_1", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
         self._t2 = df.get("time_to_threshold_2", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
+        self._t1_break = df.get("time_to_break_1", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
+        self._t1_bounce = df.get("time_to_bounce_1", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
+        self._t2_break = df.get("time_to_break_2", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
+        self._t2_bounce = df.get("time_to_bounce_2", pd.Series(np.nan, index=df.index)).astype(float).to_numpy()
         self._tradeable_2 = df.get("tradeable_2", pd.Series(0, index=df.index)).astype(int).to_numpy()
 
         if "gamma_bucket" in df.columns and "gamma_bucket" not in self._metadata.columns:
@@ -112,6 +124,10 @@ class RetrievalIndex:
         strength_abs = self._strength_abs[mask][top_idx]
         t1 = self._t1[mask][top_idx]
         t2 = self._t2[mask][top_idx]
+        t1_break = self._t1_break[mask][top_idx]
+        t1_bounce = self._t1_bounce[mask][top_idx]
+        t2_break = self._t2_break[mask][top_idx]
+        t2_bounce = self._t2_bounce[mask][top_idx]
         tradeable_2 = self._tradeable_2[mask][top_idx]
 
         break_mask = outcomes == "BREAK"
@@ -124,6 +140,10 @@ class RetrievalIndex:
         strength_abs_mean = float(np.sum(weights * strength_abs))
         time_to_threshold_1_mean = float(np.nanmean(t1)) if np.any(np.isfinite(t1)) else float("nan")
         time_to_threshold_2_mean = float(np.nanmean(t2)) if np.any(np.isfinite(t2)) else float("nan")
+        time_to_break_1_mean = float(np.nanmean(t1_break)) if np.any(np.isfinite(t1_break)) else float("nan")
+        time_to_bounce_1_mean = float(np.nanmean(t1_bounce)) if np.any(np.isfinite(t1_bounce)) else float("nan")
+        time_to_break_2_mean = float(np.nanmean(t2_break)) if np.any(np.isfinite(t2_break)) else float("nan")
+        time_to_bounce_2_mean = float(np.nanmean(t2_bounce)) if np.any(np.isfinite(t2_bounce)) else float("nan")
 
         similarity = float(np.mean(1.0 / (1.0 + top_dist)))
         probs = np.array([p_break, p_bounce, max(0.0, 1.0 - p_break - p_bounce)])
@@ -143,6 +163,10 @@ class RetrievalIndex:
             strength_abs_mean=strength_abs_mean,
             time_to_threshold_1_mean=time_to_threshold_1_mean,
             time_to_threshold_2_mean=time_to_threshold_2_mean,
+            time_to_break_1_mean=time_to_break_1_mean,
+            time_to_bounce_1_mean=time_to_bounce_1_mean,
+            time_to_break_2_mean=time_to_break_2_mean,
+            time_to_bounce_2_mean=time_to_bounce_2_mean,
             similarity=similarity,
             entropy=entropy,
             neighbors=neighbors

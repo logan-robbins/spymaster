@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "SPY 0DTE Level Signal Features for ML Training - Phase 3 Vectorized Pipeline",
   "output_path": "data/lake/gold/research/signals_vectorized.parquet",
   "label_column": "outcome",
@@ -586,9 +586,9 @@
           "description": "What happened after the level touch",
           "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
           "labeling": {
-            "BREAK": "Price moved >=$2.00 in approach direction from S(t1)",
-            "BOUNCE": "Price moved >=$2.00 opposite the approach direction from S(t1)",
-            "CHOP": "Price didn't move $2.00 in either direction from S(t1) (not tradeable)",
+            "BREAK": "First $2.00 move in approach direction relative to level price L after t1",
+            "BOUNCE": "First $2.00 move opposite the approach direction relative to level price L after t1",
+            "CHOP": "No $2.00 move in either direction relative to level price L after t1",
             "UNDEFINED": "Insufficient forward window to label outcome"
           },
           "example": "BOUNCE"
@@ -600,7 +600,7 @@
         },
         "anchor_spot": {
           "dtype": "float64",
-          "description": "Spot price at confirmation time t1 used for label anchoring",
+          "description": "Spot price at confirmation time t1 (bar open when aligned)",
           "example": 682.10
         },
         "tradeable_1": {
@@ -615,32 +615,52 @@
         },
         "excursion_max": {
           "dtype": "float64",
-          "description": "Maximum favorable excursion from S(t1) in lookforward window (dollars)",
+          "description": "Maximum excursion in approach direction relative to level price L",
           "example": 2.50
         },
         "excursion_min": {
           "dtype": "float64",
-          "description": "Maximum adverse excursion from S(t1) in lookforward window (dollars)",
+          "description": "Maximum excursion opposite approach direction relative to level price L",
           "example": 0.80
         },
         "strength_signed": {
           "dtype": "float64",
-          "description": "Signed strength: break-direction excursion minus opposite (anchored at S(t1))",
+          "description": "Signed strength: break-direction excursion minus opposite (relative to level price L)",
           "example": 1.70
         },
         "strength_abs": {
           "dtype": "float64",
-          "description": "Absolute max excursion in either direction from S(t1)",
+          "description": "Absolute max excursion in either direction relative to level price L",
           "example": 2.10
         },
         "time_to_threshold_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in either direction from S(t1)",
+          "description": "Seconds to first $1 move in either direction relative to level price L",
           "example": 90.0
         },
         "time_to_threshold_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in either direction from S(t1)",
+          "description": "Seconds to first $2 move in either direction relative to level price L",
+          "example": 210.0
+        },
+        "time_to_break_1": {
+          "dtype": "float64",
+          "description": "Seconds to first $1 move in break direction relative to level price L",
+          "example": 60.0
+        },
+        "time_to_bounce_1": {
+          "dtype": "float64",
+          "description": "Seconds to first $1 move in bounce direction relative to level price L",
+          "example": 120.0
+        },
+        "time_to_break_2": {
+          "dtype": "float64",
+          "description": "Seconds to first $2 move in break direction relative to level price L",
+          "example": 150.0
+        },
+        "time_to_bounce_2": {
+          "dtype": "float64",
+          "description": "Seconds to first $2 move in bounce direction relative to level price L",
           "example": 210.0
         },
         "outcome_2min": {
@@ -685,6 +705,18 @@
         "time_to_threshold_2_2min": {"dtype": "float64", "description": "Time to $2 from 2min confirmation", "example": null},
         "time_to_threshold_2_4min": {"dtype": "float64", "description": "Time to $2 from 4min confirmation", "example": 180.0},
         "time_to_threshold_2_8min": {"dtype": "float64", "description": "Time to $2 from 8min confirmation", "example": 210.0},
+        "time_to_break_1_2min": {"dtype": "float64", "description": "Time to $1 break from 2min confirmation", "example": 40.0},
+        "time_to_break_1_4min": {"dtype": "float64", "description": "Time to $1 break from 4min confirmation", "example": 80.0},
+        "time_to_break_1_8min": {"dtype": "float64", "description": "Time to $1 break from 8min confirmation", "example": 110.0},
+        "time_to_bounce_1_2min": {"dtype": "float64", "description": "Time to $1 bounce from 2min confirmation", "example": 50.0},
+        "time_to_bounce_1_4min": {"dtype": "float64", "description": "Time to $1 bounce from 4min confirmation", "example": 100.0},
+        "time_to_bounce_1_8min": {"dtype": "float64", "description": "Time to $1 bounce from 8min confirmation", "example": 130.0},
+        "time_to_break_2_2min": {"dtype": "float64", "description": "Time to $2 break from 2min confirmation", "example": null},
+        "time_to_break_2_4min": {"dtype": "float64", "description": "Time to $2 break from 4min confirmation", "example": 160.0},
+        "time_to_break_2_8min": {"dtype": "float64", "description": "Time to $2 break from 8min confirmation", "example": 200.0},
+        "time_to_bounce_2_2min": {"dtype": "float64", "description": "Time to $2 bounce from 2min confirmation", "example": null},
+        "time_to_bounce_2_4min": {"dtype": "float64", "description": "Time to $2 bounce from 4min confirmation", "example": 190.0},
+        "time_to_bounce_2_8min": {"dtype": "float64", "description": "Time to $2 bounce from 8min confirmation", "example": 230.0},
         "confirm_ts_ns_2min": {"dtype": "float64", "description": "Confirmation timestamp at 2min", "example": 1765843320000000000},
         "confirm_ts_ns_4min": {"dtype": "float64", "description": "Confirmation timestamp at 4min", "example": 1765843440000000000},
         "confirm_ts_ns_8min": {"dtype": "float64", "description": "Confirmation timestamp at 8min", "example": 1765843680000000000},

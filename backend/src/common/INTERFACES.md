@@ -75,7 +75,7 @@ from src.common.event_types import (
 from src.common.config import CONFIG
 
 # Physics windows
-barrier_window = CONFIG.W_b        # 60.0 seconds
+barrier_window = CONFIG.W_b        # 240.0 seconds
 tape_window = CONFIG.W_t           # 60.0 seconds
 fuel_window = CONFIG.W_g           # 60.0 seconds
 velocity_window = CONFIG.W_v       # 3.0 seconds
@@ -90,7 +90,7 @@ barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 **Key Sections**:
 
 **Window Sizes**:
-- `W_b`: Barrier engine window (60.0s)
+- `W_b`: Barrier engine window (240.0s)
 - `W_t`: Tape engine window (60.0s)
 - `W_g`: Fuel engine window (60.0s)
 - `W_v`: Velocity calculation window (3.0s)
@@ -123,11 +123,19 @@ barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 - `REJECT_SCORE_THRESHOLD`: 20.0
 - `TRIGGER_HOLD_TIME`: 3.0 seconds
 
+**Feasibility Priors**:
+- `FEASIBILITY_LOGIT_STEP`: 1.0
+- `FEASIBILITY_LOGIT_CAP`: 2.5
+
 **Smoothing (EWMA half-lives)**:
 - `tau_score`: 2.0 seconds
 - `tau_velocity`: 1.5 seconds
 - `tau_delta_liq`: 3.0 seconds
 - `tau_dealer_gamma`: 5.0 seconds
+
+**Outcome Labeling**:
+- `CONFIRMATION_WINDOW_SECONDS`: 240.0 (Stage B confirmation window)
+- `CONFIRMATION_WINDOWS_MULTI`: [120.0, 240.0, 480.0] (2/4/8 min horizons)
 
 **Snap Cadence**:
 - `SNAP_INTERVAL_MS`: 250 (publish every 250ms)
@@ -367,4 +375,3 @@ class StockTradeV2(BaseEventModel):
 - Full module documentation: `backend/src/common/README.md`
 - Configuration parameters: `backend/src/common/config.py` (inline comments)
 - Schema definitions: `backend/src/common/schemas/*.py`
-

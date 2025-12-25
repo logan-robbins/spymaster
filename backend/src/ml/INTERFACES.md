@@ -27,7 +27,7 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 - Identity: `event_id`, `ts_ns`, `date`
 - Context: `level_kind_name`, `direction`, `distance`
 - Physics: All numeric barrier/tape/fuel features
-- Labels: `tradeable_2`, `strength_signed`, `t1_60`, `t1_120`, `t2_60`, `t2_120`
+- Labels: `tradeable_2`, `strength_signed`, `t1_60`, `t1_120`, `t2_60`, `t2_120`, `t1_break_60`, `t1_bounce_60`, `t2_break_60`, `t2_bounce_60`
 
 ---
 
@@ -93,8 +93,12 @@ uv run python -m src.ml.boosted_tree_train \
 1. `tradeable_2`: Binary classifier (tradeable vs not)
 2. `direction`: Binary classifier on tradeable samples (break vs bounce)
 3. `strength`: Regressor for movement magnitude
-4. `t1_{horizon}s`: Reach probability for threshold 1
-5. `t2_{horizon}s`: Reach probability for threshold 2
+4. `t1_{horizon}s`: Reach probability for threshold 1 (either direction)
+5. `t2_{horizon}s`: Reach probability for threshold 2 (either direction)
+6. `t1_break_{horizon}s`: Reach probability for threshold 1 in break direction
+7. `t1_bounce_{horizon}s`: Reach probability for threshold 1 in bounce direction
+8. `t2_break_{horizon}s`: Reach probability for threshold 2 in break direction
+9. `t2_bounce_{horizon}s`: Reach probability for threshold 2 in bounce direction
 
 **Output Location**: `data/ml/boosted_trees/`
 - Models: `{head}_{stage}_{ablation}.joblib`
@@ -114,6 +118,10 @@ class TreePredictions:
     strength_signed: np.ndarray   # Predicted signed strength
     t1_probs: Dict[int, np.ndarray]  # {horizon: P(reach t1)}
     t2_probs: Dict[int, np.ndarray]  # {horizon: P(reach t2)}
+    t1_break_probs: Dict[int, np.ndarray]  # {horizon: P(reach t1 break)}
+    t1_bounce_probs: Dict[int, np.ndarray]  # {horizon: P(reach t1 bounce)}
+    t2_break_probs: Dict[int, np.ndarray]  # {horizon: P(reach t2 break)}
+    t2_bounce_probs: Dict[int, np.ndarray]  # {horizon: P(reach t2 bounce)}
 
 class TreeModelBundle:
     def __init__(
@@ -121,7 +129,8 @@ class TreeModelBundle:
         model_dir: Path,
         stage: str,               # 'stage_a' or 'stage_b'
         ablation: str,            # 'ta', 'mechanics', 'full'
-        horizons: List[int]       # e.g., [60, 120]
+        horizons: List[int],      # e.g., [60, 120]
+        timeframe: Optional[str] = None  # e.g., '2min', '4min', '8min'
     )
 
     def predict(self, df: pd.DataFrame) -> TreePredictions
@@ -129,7 +138,8 @@ class TreeModelBundle:
 
 **Model Loading**:
 - Expects models at: `{model_dir}/{head}_{stage}_{ablation}.joblib`
-- Heads loaded: `tradeable_2`, `direction`, `strength`, `t1_{h}s`, `t2_{h}s`
+- If `timeframe` is set, uses `{head}_{timeframe}_{stage}_{ablation}.joblib` for tradeable/direction/strength.
+- Heads loaded: `tradeable_2`, `direction`, `strength`, `t1_{h}s`, `t2_{h}s`, `t1_break_{h}s`, `t1_bounce_{h}s`, `t2_break_{h}s`, `t2_bounce_{h}s`
 
 ---
 
@@ -159,6 +169,10 @@ class RetrievalSummary:
     strength_abs_mean: float
     time_to_threshold_1_mean: float
     time_to_threshold_2_mean: float
+    time_to_break_1_mean: float
+    time_to_bounce_1_mean: float
+    time_to_break_2_mean: float
+    time_to_bounce_2_mean: float
     similarity: float              # Mean 1/(1+distance)
     entropy: float                 # Outcome distribution entropy
     neighbors: pd.DataFrame        # Neighbor metadata
@@ -269,7 +283,11 @@ uv run python -m src.ml.patchtst_train \
     'strength_abs': float,
     'time_to_threshold': {
         't1': {'60': float, '120': float},
-        't2': {'60': float, '120': float}
+        't2': {'60': float, '120': float},
+        't1_break': {'60': float, '120': float},
+        't1_bounce': {'60': float, '120': float},
+        't2_break': {'60': float, '120': float},
+        't2_bounce': {'60': float, '120': float}
     },
 
     # Retrieval predictions
@@ -281,6 +299,10 @@ uv run python -m src.ml.patchtst_train \
         'strength_abs_mean': float,
         'time_to_threshold_1_mean': float,
         'time_to_threshold_2_mean': float,
+        'time_to_break_1_mean': float,
+        'time_to_bounce_1_mean': float,
+        'time_to_break_2_mean': float,
+        'time_to_bounce_2_mean': float,
         'similarity': float,
         'entropy': float,
         'neighbors': []  # Optional: neighbor metadata
@@ -406,7 +428,7 @@ X_val = X[val_mask]
 
 1. **Walk-forward only**: No random train/val splits
 2. **Feature stability**: Same features for training and inference
-3. **Label anchoring**: All labels anchored at `t1` (confirmation time)
+3. **Label anchoring**: All labels anchored at `t1` (confirmation time) and measured in the level frame
 4. **No leakage**: Features computed from data before `t1`
 5. **Deterministic splits**: Same dates → same train/val split
 6. **Model versioning**: Bundle includes timestamp and data hash
@@ -421,4 +443,3 @@ X_val = X[val_mask]
 - Feature sets: `backend/src/ml/feature_sets.py`
 - Training scripts: `backend/src/ml/boosted_tree_train.py`, `backend/src/ml/patchtst_train.py`
 - Inference: `backend/src/ml/tree_inference.py`, `backend/src/ml/retrieval_engine.py`
-
