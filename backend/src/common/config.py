@@ -28,8 +28,8 @@ class Config:
     # ========== Window sizes (seconds) ==========
     # NOTE: Touch timestamps are at the START of minute bars, so these windows
     # look FORWARD in time to analyze trades/quotes that happened during the bar.
-    W_b: float = 60.0  # Barrier engine: forward window for quote/trade accounting (full bar)
-    W_t: float = 60.0  # Tape engine: forward imbalance window near level (full bar)
+    W_b: float = 240.0  # Barrier engine: confirmation window (aligned with Stage B t1)
+    W_t: float = 60.0  # Tape engine: fast imbalance window near level
     W_g: float = 60.0  # Fuel engine: option flow window for net dealer gamma
     W_v: float = 3.0   # Velocity: window for slope calculation
     W_wall: float = 300.0  # Call/Put wall lookback window (5 minutes)
@@ -142,6 +142,8 @@ class Config:
     # ========== Feasibility gate thresholds ==========
     FEASIBILITY_TAPE_IMBALANCE: float = 0.20
     FEASIBILITY_GAMMA_EXPOSURE: float = 50000.0
+    FEASIBILITY_LOGIT_STEP: float = 1.0
+    FEASIBILITY_LOGIT_CAP: float = 2.5
     
     # ========== Storage/replay settings ==========
     DATA_ROOT: str = "backend/data/lake/"

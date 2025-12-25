@@ -97,7 +97,7 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 3. Detect touches (OHLCV crosses level price)
 4. Filter to critical zone (|close - level| ≤ $0.25)
 5. Compute physics (barrier, tape, fuel) + approach context
-6. Label outcomes (BREAK/BOUNCE/CHOP based on $2.00 threshold)
+6. Label outcomes (BREAK/BOUNCE/CHOP based on $2.00 threshold, anchored at t1 and measured vs level price)
 7. Output: `data/lake/gold/research/signals_vectorized.parquet`
 
 **Live Processing** (Core Service):
@@ -122,7 +122,7 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 - **Tape**: `tape_imbalance`, `tape_velocity`, `buy_vol`, `sell_vol`, `sweep_detected`
 - **Fuel**: `gamma_exposure`, `fuel_effect`
 - **Approach**: `approach_velocity`, `approach_bars`, `prior_touches`
-- **Outcome**: `outcome` (BREAK/BOUNCE/CHOP), `strength_signed`, `tradeable_1/2`
+- **Outcome**: `outcome` (BREAK/BOUNCE/CHOP), `strength_signed`, `tradeable_1/2`, `time_to_break_*`, `time_to_bounce_*`
 
 **See**: [backend/src/common/INTERFACES.md](src/common/INTERFACES.md) for event type contracts.
 
@@ -131,9 +131,9 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 **Single source**: `backend/src/common/config.py` (CONFIG singleton)
 
 **Key parameters**:
-- `MONITOR_BAND = 0.50`: Compute signals if |spot - level| ≤ $0.50
-- `W_b = 10.0`: Barrier window (seconds)
-- `W_t = 5.0`: Tape window (seconds)
+- `MONITOR_BAND = 0.25`: Compute signals if |spot - level| ≤ $0.25
+- `W_b = 240.0`: Barrier window (seconds)
+- `W_t = 60.0`: Tape window (seconds)
 - `W_g = 60.0`: Fuel window (seconds)
 - `R_vac = 0.3`, `R_wall = 1.5`: VACUUM/WALL thresholds
 - `w_L = 0.45`, `w_H = 0.35`, `w_T = 0.20`: Score weights

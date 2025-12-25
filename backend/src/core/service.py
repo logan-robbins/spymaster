@@ -60,8 +60,9 @@ class CoreService:
         self.user_hotzones = user_hotzones
         
         # Initialize market state
+        buffer_seconds = max(self.config.W_b, self.config.CONFIRMATION_WINDOW_SECONDS)
         self.market_state = MarketState(
-            max_buffer_window_seconds=self.config.W_b * 2  # 2x barrier window for safety
+            max_buffer_window_seconds=buffer_seconds * 2  # 2x confirmation window for safety
         )
         
         # Initialize greek enricher (for option trades)
@@ -105,6 +106,7 @@ class CoreService:
             ablation = os.getenv("VIEWPORT_ABLATION", "full")
             horizons_env = os.getenv("VIEWPORT_HORIZONS", "")
             horizons = [int(h) for h in horizons_env.split(",") if h.strip()] or [60, 120, 180, 300]
+            timeframe = os.getenv("VIEWPORT_TIMEFRAME", "").strip() or None
 
             if not model_dir.exists():
                 raise FileNotFoundError(f"Viewport model dir missing: {model_dir}")
@@ -119,13 +121,15 @@ class CoreService:
                 model_dir=model_dir,
                 stage="stage_a",
                 ablation=ablation,
-                horizons=horizons
+                horizons=horizons,
+                timeframe=timeframe
             )
             stage_b_bundle = TreeModelBundle(
                 model_dir=model_dir,
                 stage="stage_b",
                 ablation=ablation,
-                horizons=horizons
+                horizons=horizons,
+                timeframe=timeframe
             )
             stage_a_engine = ViewportInferenceEngine(stage_a_bundle, retrieval_index)
             stage_b_engine = ViewportInferenceEngine(stage_b_bundle, retrieval_index)

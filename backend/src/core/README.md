@@ -105,8 +105,8 @@ NATS (market.*) → MarketState (ring buffers)
 
 All parameters sourced from `src/common/config.py`:
 
-**Windows**: `W_b=10s`, `W_t=5s`, `W_g=60s`, `W_v=3s`  
-**Bands**: `MONITOR_BAND=0.50`, `TOUCH_BAND=0.05`  
+**Windows**: `W_b=240s`, `W_t=60s`, `W_g=60s`, `W_v=3s`  
+**Bands**: `MONITOR_BAND=0.25`, `TOUCH_BAND=0.10`  
 **Thresholds**: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`  
 **Weights**: `w_L=0.45`, `w_H=0.35`, `w_T=0.20`  
 **Smoothing**: `tau_score=2.0s`, `tau_velocity=1.5s`
@@ -172,7 +172,7 @@ To add a new physics dimension (e.g., "Spread Engine"):
 
 ## Common Issues
 
-**No levels showing**: Check MONITOR_BAND allows levels (spot ± 0.50)  
+**No levels showing**: Check MONITOR_BAND allows levels (spot ± 0.25)  
 **Weird spot values**: Data parsing issue (ES/SPY conversion error)  
 **Flickering signals**: Increase `TRIGGER_HOLD_TIME` or smoothing `tau`  
 **High CPU usage**: Reduce snap interval or optimize query patterns

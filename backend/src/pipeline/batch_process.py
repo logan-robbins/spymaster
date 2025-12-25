@@ -233,7 +233,7 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
 
             for level_kind in level_kinds:
                 # Get future prices for labeling
-                anchor_price, future_prices = get_anchor_and_future_prices(
+                anchor_price, future_prices, confirm_ts_ns = get_anchor_and_future_prices(
                     ohlcv_df,
                     ts_ns,
                     confirmation_seconds=CONFIG.CONFIRMATION_WINDOW_SECONDS,
@@ -242,7 +242,12 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
                 direction_str = "UP" if direction == Direction.UP else "DOWN"
 
                 if future_prices and anchor_price is not None:
-                    outcome = get_outcome(anchor_price, future_prices, direction_str)
+                    outcome = get_outcome(
+                        level_price,
+                        future_prices,
+                        direction_str,
+                        threshold=CONFIG.OUTCOME_THRESHOLD
+                    )
                     future_price_5min = future_prices[-1]
                 else:
                     outcome = OutcomeLabel.UNDEFINED
@@ -270,6 +275,8 @@ def run_pipeline_for_date(date: str) -> Optional[List[Dict[str, Any]]]:
                     'fuel_effect': physics['fuel_effect'],
                     'outcome': outcome.value,
                     'future_price_5min': future_price_5min,
+                    'confirm_ts_ns': confirm_ts_ns,
+                    'anchor_spot': anchor_price,
                 }
                 signals.append(signal_dict)
 

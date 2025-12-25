@@ -125,7 +125,9 @@ class MarketState:
     Thread-safety: Not thread-safe by default. Use from single event loop.
     """
 
-    def __init__(self, max_buffer_window_seconds: float = 120.0):
+    def __init__(self, max_buffer_window_seconds: Optional[float] = None):
+        if max_buffer_window_seconds is None:
+            max_buffer_window_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
         # ========== Price Converter (ES <-> SPY) ==========
         self.price_converter = PriceConverter()
 

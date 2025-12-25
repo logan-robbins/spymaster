@@ -23,8 +23,12 @@ Multi-head XGBoost models with walk-forward validation:
 1. `tradeable_2`: Binary classifier (will move ≥$2.00 in either direction?)
 2. `direction`: Binary classifier on tradeable samples (break vs bounce)
 3. `strength_signed`: Regressor for movement magnitude
-4. `t1_{horizon}s`: Reach probability for threshold 1 (e.g., $1.00)
-5. `t2_{horizon}s`: Reach probability for threshold 2 (e.g., $2.00)
+4. `t1_{horizon}s`: Reach probability for threshold 1 (either direction)
+5. `t2_{horizon}s`: Reach probability for threshold 2 (either direction)
+6. `t1_break_{horizon}s`: Reach probability for threshold 1 in break direction
+7. `t1_bounce_{horizon}s`: Reach probability for threshold 1 in bounce direction
+8. `t2_break_{horizon}s`: Reach probability for threshold 2 in break direction
+9. `t2_bounce_{horizon}s`: Reach probability for threshold 2 in bounce direction
 
 **Feature sets**:
 - **Stage A**: Core physics only (barrier, tape, fuel)
@@ -108,6 +112,7 @@ uv run python -m src.ml.calibration_eval \
   VIEWPORT_SCORING_ENABLED=true
   VIEWPORT_MODEL_DIR=data/ml/boosted_trees
   VIEWPORT_RETRIEVAL_INDEX=data/ml/retrieval_index.joblib
+  VIEWPORT_TIMEFRAME=4min  # optional: use 2min/4min/8min heads for tradeable/direction/strength
   ```
 
 **Output**: Published to `viewport.targets` in level signals payload (optional field).
@@ -219,7 +224,7 @@ To add new features to models:
 
 1. **Walk-forward only**: No random train/val splits
 2. **Feature stability**: Same features for training and inference
-3. **Label anchoring**: All labels anchored at `t1` (confirmation time)
+3. **Label anchoring**: All labels anchored at `t1` (confirmation time) and measured in the level frame
 4. **No leakage**: Features computed from data before `t1`
 5. **Deterministic splits**: Same dates → same train/val split
 6. **Model versioning**: Bundle includes timestamp and data hash

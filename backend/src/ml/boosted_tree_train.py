@@ -326,25 +326,45 @@ def main() -> None:
             artifact_paths.append(model_path)
             results["metrics"]["strength_signed"] = strength_fit["metrics"]
 
-            # Multi-timeframe time-to-threshold reach probabilities
-            for tf in timeframes:
-                for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
-                    threshold_col = f"{threshold_col_base}_{tf}"
+            # Time-to-threshold reach probabilities (legacy either-direction, primary timeframe)
+            for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
+                if threshold_col_base not in train_df.columns:
+                    continue
 
-                    if threshold_col not in train_df.columns:
-                        continue
+                for horizon in args.horizons:
+                    col = f"{label_prefix}_{horizon}s"
+                    train_h = train_df.copy()
+                    val_h = val_df.copy()
+                    train_h[col] = (train_h[threshold_col_base] <= horizon).astype(int).fillna(0)
+                    val_h[col] = (val_h[threshold_col_base] <= horizon).astype(int).fillna(0)
+                    fit = train_classifier(train_h, val_h, feature_set, col)
+                    model_path = output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"
+                    joblib.dump(fit["model"], model_path)
+                    artifact_paths.append(model_path)
+                    results["metrics"][col] = fit["metrics"]
 
-                    for horizon in args.horizons:
-                        col = f"{label_prefix}_{horizon}s_{tf}"
-                        train_h = train_df.copy()
-                        val_h = val_df.copy()
-                        train_h[col] = (train_h[threshold_col] <= horizon).astype(int).fillna(0)
-                        val_h[col] = (val_h[threshold_col] <= horizon).astype(int).fillna(0)
-                        fit = train_classifier(train_h, val_h, feature_set, col)
-                        model_path = output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"
-                        joblib.dump(fit["model"], model_path)
-                        artifact_paths.append(model_path)
-                        results["metrics"][col] = fit["metrics"]
+            # Directional time-to-threshold reach probabilities (competing risks)
+            directional_targets = [
+                ("time_to_break_1", "t1_break"),
+                ("time_to_bounce_1", "t1_bounce"),
+                ("time_to_break_2", "t2_break"),
+                ("time_to_bounce_2", "t2_bounce"),
+            ]
+            for threshold_col_base, label_prefix in directional_targets:
+                if threshold_col_base not in train_df.columns:
+                    continue
+
+                for horizon in args.horizons:
+                    col = f"{label_prefix}_{horizon}s"
+                    train_h = train_df.copy()
+                    val_h = val_df.copy()
+                    train_h[col] = (train_h[threshold_col_base] <= horizon).astype(int).fillna(0)
+                    val_h[col] = (val_h[threshold_col_base] <= horizon).astype(int).fillna(0)
+                    fit = train_classifier(train_h, val_h, feature_set, col)
+                    model_path = output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"
+                    joblib.dump(fit["model"], model_path)
+                    artifact_paths.append(model_path)
+                    results["metrics"][col] = fit["metrics"]
 
             meta_path = output_dir / f"metadata_{args.stage}_{ablation}.json"
             with open(meta_path, "w", encoding="utf-8") as fh:

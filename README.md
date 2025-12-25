@@ -86,7 +86,7 @@ npm run start
 - Runway analysis (distance to next obstacle)
 
 **ML Pipeline**:
-- Multi-head boosted trees: tradeability, direction, strength, time-to-threshold
+- Multi-head boosted trees: tradeability, direction, strength, time-to-threshold (overall + break/bounce)
 - kNN retrieval for similar historical patterns
 - Walk-forward validation (no look-ahead bias)
 - Live viewport scoring (optional, gated by `VIEWPORT_SCORING_ENABLED`)
@@ -129,8 +129,9 @@ npm run start
 **Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
 
 **Key Parameters**:
-- Physics windows: `W_b=10s` (barrier), `W_t=5s` (tape), `W_g=60s` (fuel)
-- Monitoring: `MONITOR_BAND=0.50` (compute signals if |spot - level| ≤ $0.50)
+- Physics windows: `W_b=240s` (barrier), `W_t=60s` (tape), `W_g=60s` (fuel)
+- Confirmation: `CONFIRMATION_WINDOW_SECONDS=240` (Stage B t1)
+- Monitoring: `MONITOR_BAND=0.25` (compute signals if |spot - level| ≤ $0.25)
 - Thresholds: `R_vac=0.3` (VACUUM), `R_wall=1.5` (WALL), `F_thresh=100` (ES contracts)
 - Weights: `w_L=0.45` (liquidity), `w_H=0.35` (hedge), `w_T=0.20` (tape)
 - Smoothing: `tau_score=2.0s`, `tau_velocity=1.5s`

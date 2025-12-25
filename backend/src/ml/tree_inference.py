@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import joblib
 import numpy as np
@@ -18,6 +18,10 @@ class TreePredictions:
     strength_signed: np.ndarray
     t1_probs: Dict[int, np.ndarray]
     t2_probs: Dict[int, np.ndarray]
+    t1_break_probs: Dict[int, np.ndarray]
+    t1_bounce_probs: Dict[int, np.ndarray]
+    t2_break_probs: Dict[int, np.ndarray]
+    t2_bounce_probs: Dict[int, np.ndarray]
 
 
 class TreeModelBundle:
@@ -25,17 +29,33 @@ class TreeModelBundle:
     Loader + predictor for boosted tree models.
     """
 
-    def __init__(self, model_dir: Path, stage: str, ablation: str, horizons: List[int]):
+    def __init__(
+        self,
+        model_dir: Path,
+        stage: str,
+        ablation: str,
+        horizons: List[int],
+        timeframe: Optional[str] = None
+    ):
         self.model_dir = Path(model_dir)
         self.stage = stage
         self.ablation = ablation
         self.horizons = horizons
+        self.timeframe = timeframe
 
-        self.tradeable = self._load("tradeable_2")
-        self.direction = self._load("direction")
-        self.strength = self._load("strength")
+        tradeable_head = f"tradeable_2_{self.timeframe}" if self.timeframe else "tradeable_2"
+        direction_head = f"direction_{self.timeframe}" if self.timeframe else "direction"
+        strength_head = f"strength_{self.timeframe}" if self.timeframe else "strength"
+
+        self.tradeable = self._load(tradeable_head)
+        self.direction = self._load(direction_head)
+        self.strength = self._load(strength_head)
         self.t1_models = {h: self._load(f"t1_{h}s") for h in horizons}
         self.t2_models = {h: self._load(f"t2_{h}s") for h in horizons}
+        self.t1_break_models = {h: self._load(f"t1_break_{h}s") for h in horizons}
+        self.t1_bounce_models = {h: self._load(f"t1_bounce_{h}s") for h in horizons}
+        self.t2_break_models = {h: self._load(f"t2_break_{h}s") for h in horizons}
+        self.t2_bounce_models = {h: self._load(f"t2_bounce_{h}s") for h in horizons}
 
     def _load(self, name: str):
         path = self.model_dir / f"{name}_{self.stage}_{self.ablation}.joblib"
@@ -58,11 +78,19 @@ class TreeModelBundle:
 
         t1_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t1_models.items()}
         t2_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t2_models.items()}
+        t1_break_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t1_break_models.items()}
+        t1_bounce_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t1_bounce_models.items()}
+        t2_break_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t2_break_models.items()}
+        t2_bounce_probs = {h: model.predict_proba(X)[:, 1] for h, model in self.t2_bounce_models.items()}
 
         return TreePredictions(
             tradeable_2=tradeable_prob,
             p_break=p_break,
             strength_signed=strength,
             t1_probs=t1_probs,
-            t2_probs=t2_probs
+            t2_probs=t2_probs,
+            t1_break_probs=t1_break_probs,
+            t1_bounce_probs=t1_bounce_probs,
+            t2_break_probs=t2_break_probs,
+            t2_bounce_probs=t2_bounce_probs
         )

@@ -134,7 +134,11 @@ class ViewportInferenceEngine:
                 "strength_abs": abs(strength),
                 "time_to_threshold": {
                     "t1": {k: float(v[i]) for k, v in tree_preds.t1_probs.items()},
-                    "t2": {k: float(v[i]) for k, v in tree_preds.t2_probs.items()}
+                    "t2": {k: float(v[i]) for k, v in tree_preds.t2_probs.items()},
+                    "t1_break": {k: float(v[i]) for k, v in tree_preds.t1_break_probs.items()},
+                    "t1_bounce": {k: float(v[i]) for k, v in tree_preds.t1_bounce_probs.items()},
+                    "t2_break": {k: float(v[i]) for k, v in tree_preds.t2_break_probs.items()},
+                    "t2_bounce": {k: float(v[i]) for k, v in tree_preds.t2_bounce_probs.items()}
                 },
                 "retrieval": {
                     "p_break": retrieval.p_break,
@@ -144,6 +148,10 @@ class ViewportInferenceEngine:
                     "strength_abs_mean": retrieval.strength_abs_mean,
                     "time_to_threshold_1_mean": retrieval.time_to_threshold_1_mean,
                     "time_to_threshold_2_mean": retrieval.time_to_threshold_2_mean,
+                    "time_to_break_1_mean": retrieval.time_to_break_1_mean,
+                    "time_to_bounce_1_mean": retrieval.time_to_bounce_1_mean,
+                    "time_to_break_2_mean": retrieval.time_to_break_2_mean,
+                    "time_to_bounce_2_mean": retrieval.time_to_bounce_2_mean,
                     "neighbors": retrieval.neighbors.to_dict(orient="records")
                 },
                 "ensemble": {
@@ -152,7 +160,8 @@ class ViewportInferenceEngine:
                 },
                 "feasibility_mask": {
                     "allow_break": mask.allow_break,
-                    "allow_bounce": mask.allow_bounce
+                    "allow_bounce": mask.allow_bounce,
+                    "break_logit_bias": mask.break_logit_bias
                 },
                 "utility_score": utility
             })

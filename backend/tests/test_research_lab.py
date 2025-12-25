@@ -24,7 +24,7 @@ class TestLabeler:
         """Test BOUNCE classification when price rejects resistance."""
         # Price at 400.00, tries to go up, falls back down significantly
         signal_price = 400.00
-        future_prices = [400.05, 400.03, 399.90, 399.75, 399.80]  # Falls 0.25
+        future_prices = [400.05, 399.50, 398.90, 397.75, 398.10]  # Falls > $2.00
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.BOUNCE
@@ -33,7 +33,7 @@ class TestLabeler:
         """Test BREAK classification when price breaks through resistance."""
         # Price at 400.00, breaks up significantly
         signal_price = 400.00
-        future_prices = [400.10, 400.15, 400.25, 400.35]  # Breaks up 0.35
+        future_prices = [400.50, 401.20, 402.10, 402.35]  # Breaks up > $2.00
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.BREAK
@@ -42,7 +42,7 @@ class TestLabeler:
         """Test BOUNCE classification when price rejects support (bounces up)."""
         # Price at 400.00, tests support, bounces back up
         signal_price = 400.00
-        future_prices = [399.97, 399.95, 400.10, 400.25, 400.30]  # Bounces up 0.30
+        future_prices = [399.70, 400.10, 401.25, 402.05, 402.30]  # Bounces up > $2.00
         
         outcome = get_outcome(signal_price, future_prices, direction="DOWN")
         assert outcome == OutcomeLabel.BOUNCE
@@ -51,7 +51,7 @@ class TestLabeler:
         """Test BREAK classification when price breaks through support."""
         # Price at 400.00, breaks down significantly
         signal_price = 400.00
-        future_prices = [399.95, 399.85, 399.70, 399.75]  # Breaks down 0.30
+        future_prices = [399.80, 398.90, 397.85, 397.75]  # Breaks down > $2.00
         
         outcome = get_outcome(signal_price, future_prices, direction="DOWN")
         assert outcome == OutcomeLabel.BREAK
@@ -60,7 +60,7 @@ class TestLabeler:
         """Test CHOP classification when price consolidates."""
         # Price at 400.00, oscillates without clear resolution
         signal_price = 400.00
-        future_prices = [400.05, 399.95, 400.08, 399.92, 400.03]
+        future_prices = [400.50, 399.50, 400.80, 399.20, 400.03]
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.CHOP
@@ -68,7 +68,7 @@ class TestLabeler:
     def test_chop_small_movements(self):
         """Test CHOP when movements are below thresholds."""
         signal_price = 400.00
-        future_prices = [400.10, 400.05, 399.90, 400.02]  # Max move 0.10
+        future_prices = [400.90, 400.05, 399.20, 400.02]  # Max move < $2.00
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.CHOP
@@ -88,7 +88,7 @@ class TestLabeler:
         signal_price = 400.00
         future_prices = [400.02, 399.85, 399.90]  # Falls 0.15
         
-        # Default threshold (0.20) - should be CHOP
+        # Default threshold ($2.00) - should be CHOP
         outcome_default = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome_default == OutcomeLabel.CHOP
         
@@ -104,7 +104,7 @@ class TestLabeler:
     def test_label_signal_with_future_data(self):
         """Test convenience wrapper that returns outcome + future price."""
         signal_price = 400.00
-        future_prices = [400.05, 400.03, 399.75, 399.80]
+        future_prices = [400.05, 399.75, 397.80, 398.10]
         
         outcome, future_5min = label_signal_with_future_data(
             signal_price, 
@@ -113,12 +113,12 @@ class TestLabeler:
         )
         
         assert outcome == OutcomeLabel.BOUNCE
-        assert future_5min == 399.80  # Last price
+        assert future_5min == 398.10  # Last price
     
     def test_infer_direction_from_current_price(self):
         """Test automatic direction inference from current price."""
         signal_price = 400.00
-        future_prices = [400.10, 400.25]
+        future_prices = [401.10, 402.25]
         
         # Current price above signal = resistance test (UP)
         outcome, _ = label_signal_with_future_data(
@@ -390,8 +390,8 @@ class TestResearchIntegration:
             ))
         
         # Step 2: Label with outcomes
-        future_prices_bounce = [400.05, 400.03, 399.75]  # Bounce pattern
-        future_prices_break = [400.10, 400.25, 400.35]   # Break pattern
+        future_prices_bounce = [400.05, 399.00, 397.75]  # Bounce pattern (> $2.00 down)
+        future_prices_break = [400.10, 401.50, 402.35]   # Break pattern (> $2.00 up)
         
         labeled_signals = []
         for i, signal in enumerate(raw_signals):
@@ -442,4 +442,3 @@ class TestResearchIntegration:
         
         assert results["STRIKE"]["count"] == 1
         assert results["STRIKE"]["bounce_rate"] == 1.0
-
