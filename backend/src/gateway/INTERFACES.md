@@ -108,7 +108,16 @@ Each level is transformed by `_normalize_level_signal`:
     "break_score_smooth": float,
     "signal": str,                      # BREAK, BOUNCE, CHOP (normalized)
     "confidence": str,                  # HIGH, MEDIUM, LOW
-    "note": Optional[str]
+    "note": Optional[str],
+
+    # Confluence Level Features (TODO: Phase 3.1)
+    # See FRONTEND.md for full integration plan
+    "confluence_level": int,            # 0-10 (0=undefined, 1=ultra premium, 10=consolidation)
+    "confluence_level_name": str,       # ULTRA_PREMIUM, PREMIUM, STRONG, etc.
+    "breakout_state": int,              # 0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL
+    "breakout_state_name": str,         # INSIDE, PARTIAL, ABOVE_ALL, BELOW_ALL
+    "gex_alignment": int,               # -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+    "rel_vol_ratio": Optional[float]    # Current hour cumvol / 7-day avg (e.g., 1.25)
 }
 ```
 

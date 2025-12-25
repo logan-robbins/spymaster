@@ -22,7 +22,7 @@ The `features/` module contains two engines originally designed as "Agent A" (Ph
 **Purpose**: Macro context - structural levels and market timing
 
 **Integration Points**:
-- ✅ Used in `src/pipeline/run_pipeline.py` (line 54)
+- ✅ Used in `src/pipeline/vectorized_pipeline.py`
 - ✅ Used in `src/pipeline/batch_process.py`
 - ✅ Referenced in pipeline tests
 
@@ -94,9 +94,9 @@ The `features/` module contains two engines originally designed as "Agent A" (Ph
 ### Current Production Architecture
 
 ```
-Pipeline Flow (from run_pipeline.py):
+Pipeline Flow (from vectorized_pipeline.py):
 1. Load ES futures data (DBN) → MarketState
-2. Load SPY option data → MarketState  
+2. Load SPY option data → MarketState
 3. Build OHLCV from ES trades
 4. Initialize ContextEngine(ohlcv_df)           ← features/context_engine.py ✅
 5. Initialize BarrierEngine(config)             ← core/barrier_engine.py ✅
@@ -272,7 +272,7 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
 ### Where ContextEngine is Used
 
 **Primary**:
-1. `src/pipeline/run_pipeline.py` (line 54):
+1. `src/pipeline/vectorized_pipeline.py`:
    ```python
    from src.features.context_engine import ContextEngine
    context_engine = ContextEngine(ohlcv_df=ohlcv)
@@ -281,7 +281,7 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
    ```
 
 2. `src/pipeline/batch_process.py`:
-   - Similar usage for batch processing multiple dates
+   - Uses VectorizedPipeline for batch processing multiple dates
 
 **Tests**:
 3. `tests/test_context_engine.py` - Unit tests

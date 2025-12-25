@@ -233,4 +233,172 @@ This is currently used by `FlowDashboardComponent` (not part of the main command
 ## Known gaps / next work (frontend)
 
 - Canvas-based fluid overlays (membrane/current/ribbon) are not implemented yet.
-- A deep “Level Detail Drawer” for drilling into raw per-level metrics is not implemented yet.
+- A deep "Level Detail Drawer" for drilling into raw per-level metrics is not implemented yet.
+
+---
+
+## TODO: Confluence Level Feature Integration
+
+### Overview
+
+The backend pipeline now computes a hierarchical `confluence_level` feature (1-10 scale) that captures setup quality based on 5 dimensions. This feature should be streamed to the frontend for enhanced signal visualization and filtering.
+
+### New Fields to Add to `LevelSignal`
+
+```ts
+export interface LevelSignal {
+  // ... existing fields ...
+
+  // NEW: Confluence Level Feature (Phase 3.1)
+  confluence_level: number;        // 0-10 (0=undefined, 1=ultra premium, 10=consolidation)
+  confluence_level_name: string;   // "ULTRA_PREMIUM", "PREMIUM", "STRONG", etc.
+  breakout_state: number;          // 0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL
+  breakout_state_name: string;     // "INSIDE", "PARTIAL", "ABOVE_ALL", "BELOW_ALL"
+  gex_alignment: number;           // -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+  rel_vol_ratio: number;           // e.g., 1.25 means 25% above 7-day avg
+}
+```
+
+### Confluence Level Vocabulary
+
+| Level | Name | Description |
+|-------|------|-------------|
+| 0 | UNDEFINED | Missing data (PM/OR/SMA/volume not available) |
+| 1 | ULTRA_PREMIUM | Full breakout + SMA close + first hour + GEX aligned + high volume |
+| 2 | PREMIUM | Full breakout + SMA close + first hour + GEX aligned |
+| 3 | STRONG | Full breakout + SMA close + first hour |
+| 4 | MOMENTUM | Full breakout + SMA far + first hour + GEX aligned + high volume |
+| 5 | EXTENDED | Full breakout + SMA far + first hour |
+| 6 | LATE_REVERSION | Full breakout + SMA close + rest of day + high volume |
+| 7 | FADING | Full breakout + rest of day |
+| 8 | DEVELOPING | Partial breakout + SMA close + GEX aligned + high volume |
+| 9 | WEAK | Partial breakout |
+| 10 | CONSOLIDATION | Inside both PM and OR ranges |
+
+### Frontend UI Recommendations
+
+1. **Confluence Badge on Level Markers**:
+   - Show confluence level as a colored badge (1-3 = green, 4-6 = yellow, 7-10 = red)
+   - Tooltip with full confluence_level_name
+
+2. **Strength Cockpit Integration**:
+   - Add "Setup Quality" meter showing confluence_level
+   - Color code GO/WAIT/NO-GO based on confluence thresholds
+
+3. **Confluence Filter**:
+   - Add dropdown/slider to filter levels by confluence_level range
+   - Default: show all, recommend filtering to 1-5 for high-quality setups
+
+4. **Relative Volume Indicator**:
+   - Show rel_vol_ratio as a participation gauge
+   - Green (>1.3), Yellow (0.7-1.3), Red (<0.7)
+
+5. **GEX Alignment Visualization**:
+   - Add directional arrow/icon showing gex_alignment
+   - ALIGNED (green arrow with direction), OPPOSED (red arrow against), NEUTRAL (gray dash)
+
+6. **Breakout State Badge**:
+   - ABOVE_ALL / BELOW_ALL: Full breakout indicator (directional arrow)
+   - PARTIAL: Half-filled circle
+   - INSIDE: Consolidation/range icon
+
+### Backend Changes Required
+
+#### 1. Gateway Module (`src/gateway/`)
+
+Update `levels_publisher.py` or equivalent to include new fields in the WebSocket payload:
+
+```python
+def build_level_signal(signal: dict) -> dict:
+    return {
+        # ... existing fields ...
+
+        # Confluence features
+        "confluence_level": signal.get("confluence_level", 0),
+        "confluence_level_name": CONFLUENCE_LEVEL_NAMES.get(signal.get("confluence_level", 0), "UNDEFINED"),
+        "breakout_state": signal.get("breakout_state", 0),
+        "breakout_state_name": BREAKOUT_STATE_NAMES.get(signal.get("breakout_state", 0), "INSIDE"),
+        "gex_alignment": signal.get("gex_alignment", 0),
+        "rel_vol_ratio": signal.get("rel_vol_ratio", None),
+    }
+
+CONFLUENCE_LEVEL_NAMES = {
+    0: "UNDEFINED", 1: "ULTRA_PREMIUM", 2: "PREMIUM", 3: "STRONG",
+    4: "MOMENTUM", 5: "EXTENDED", 6: "LATE_REVERSION", 7: "FADING",
+    8: "DEVELOPING", 9: "WEAK", 10: "CONSOLIDATION"
+}
+
+BREAKOUT_STATE_NAMES = {
+    0: "INSIDE", 1: "PARTIAL", 2: "ABOVE_ALL", 3: "BELOW_ALL"
+}
+```
+
+#### 2. Core Module (`src/core/`)
+
+Add real-time confluence computation to `MarketState` or create new `ConfluenceEngine`:
+
+```python
+class ConfluenceEngine:
+    def __init__(self, volume_lookback_days: int = 7):
+        self.hourly_cumvol: Dict[str, Dict[int, float]] = {}
+
+    def update_hourly_volume(self, ts_ns: int, volume: float):
+        """Called on each trade to maintain hourly cumulative volume."""
+        pass
+
+    def compute_confluence_level(
+        self,
+        spot: float,
+        pm_high: float, pm_low: float,
+        or_high: float, or_low: float,
+        sma_200: float, sma_400: float,
+        call_wall: float, put_wall: float,
+        fuel_effect: str,
+        ts_ns: int
+    ) -> tuple[int, int, int, float]:
+        """
+        Returns: (confluence_level, breakout_state, gex_alignment, rel_vol_ratio)
+        """
+        pass
+```
+
+#### 3. Features Module (`src/features/`)
+
+Extend `ContextEngine` to track breakout state:
+
+```python
+class ContextEngine:
+    def get_breakout_state(self, spot: float, ts_ns: int) -> int:
+        """
+        Returns breakout state relative to PM/OR ranges.
+        0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL
+        """
+        pass
+```
+
+#### 4. Data Module (`src/data/`)
+
+Update `hourly_volume_tracker.py` or similar to maintain 7-day rolling volume baseline for real-time relative volume computation.
+
+### Testing
+
+Add integration tests to verify confluence features flow from pipeline → gateway → frontend:
+
+```python
+def test_confluence_level_in_websocket_payload():
+    """Verify confluence_level is present and valid in WS frames."""
+    pass
+
+def test_relative_volume_computation():
+    """Verify rel_vol_ratio matches 7-day baseline."""
+    pass
+```
+
+### Priority
+
+- **P1**: Add fields to WebSocket payload (backend gateway)
+- **P1**: Add confluence badge to ladder level markers (frontend)
+- **P2**: Add rel_vol_ratio gauge to Strength Cockpit (frontend)
+- **P2**: Add confluence filter dropdown (frontend)
+- **P3**: Add real-time ConfluenceEngine to core (backend)
+- **P3**: Add historical volume baseline loading (backend data)

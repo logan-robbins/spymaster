@@ -52,7 +52,7 @@ levels = engine.get_active_levels(
 - Timestamps in Unix nanoseconds (UTC) or datetime with timezone
 
 **Integration**:
-- Used in `src/pipeline/run_pipeline.py` for level detection
+- Used in `src/pipeline/vectorized_pipeline.py` for level detection
 - Used in `src/pipeline/batch_process.py` for batch processing
 
 **Test Coverage**: 19 tests in `tests/test_context_engine.py`

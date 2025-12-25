@@ -61,13 +61,14 @@
             "5": "SESSION_LOW",
             "6": "SMA_200",
             "7": "VWAP",
-            "8": "ROUND",
-            "9": "STRIKE",
+            "8": "ROUND (disabled for SPY)",
+            "9": "STRIKE (disabled for SPY)",
             "10": "CALL_WALL",
             "11": "PUT_WALL",
             "12": "SMA_400"
           },
-          "example": 8
+          "note": "ROUND (8) and STRIKE (9) levels disabled for SPY due to duplicative $1 strike spacing",
+          "example": 10
         },
         "level_kind_name": {
           "dtype": "string",
@@ -295,6 +296,50 @@
           "dtype": "int8",
           "description": "Alignment of stacked levels with approach direction (-1, 0, +1)",
           "example": 1
+        },
+        "confluence_level": {
+          "dtype": "int8",
+          "description": "Hierarchical confluence quality score based on 5 dimensions",
+          "values": {
+            "0": "UNDEFINED - Missing PM/OR/SMA/volume data",
+            "1": "ULTRA_PREMIUM - Full breakout + SMA close + first hour + GEX aligned + high volume",
+            "2": "PREMIUM - Full breakout + SMA close + first hour + GEX aligned",
+            "3": "STRONG - Full breakout + SMA close + first hour",
+            "4": "MOMENTUM - Full breakout + SMA far + first hour + GEX aligned + high volume",
+            "5": "EXTENDED - Full breakout + SMA far + first hour",
+            "6": "LATE_REVERSION - Full breakout + SMA close + rest of day + high volume",
+            "7": "FADING - Full breakout + rest of day",
+            "8": "DEVELOPING - Partial breakout + SMA close + GEX aligned + high volume",
+            "9": "WEAK - Partial breakout",
+            "10": "CONSOLIDATION - Inside both PM and OR ranges"
+          },
+          "example": 2
+        },
+        "breakout_state": {
+          "dtype": "int8",
+          "description": "Directional breakout classification relative to PM/OR ranges",
+          "values": {
+            "0": "INSIDE - Within both PM and OR ranges",
+            "1": "PARTIAL - Broken one range but not both",
+            "2": "ABOVE_ALL - Above both PM_HIGH and OR_HIGH",
+            "3": "BELOW_ALL - Below both PM_LOW and OR_LOW"
+          },
+          "example": 2
+        },
+        "gex_alignment": {
+          "dtype": "int8",
+          "description": "GEX alignment with directional move",
+          "values": {
+            "-1": "OPPOSED - Approaching wall with DAMPEN effect",
+            "0": "NEUTRAL - No significant gamma signal",
+            "1": "ALIGNED - Broken wall with AMPLIFY effect"
+          },
+          "example": 1
+        },
+        "rel_vol_ratio": {
+          "dtype": "float64",
+          "description": "Cumulative volume at event hour / 7-day average cumulative volume at same hour",
+          "example": 1.25
         }
       }
     },

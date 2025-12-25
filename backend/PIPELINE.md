@@ -310,19 +310,27 @@ put_wall = max(gamma_by_strike, key=lambda s: gamma_by_strike[s]['put_gamma'])
 
 ## Pipeline Execution
 
-### Single Date
-```bash
-uv run python -m src.pipeline.run_pipeline --date 2025-12-17
+### Single Date (Python API)
+```python
+from src.pipeline.vectorized_pipeline import VectorizedPipeline
+
+pipeline = VectorizedPipeline()
+signals_df = pipeline.run(date="2025-12-17")
 ```
 
-### Batch (All Dates)
+### Batch Processing (CLI)
 ```bash
+# Process all available dates (with sufficient warmup)
 uv run python -m src.pipeline.batch_process
-```
 
-### Force Regeneration
-```bash
-uv run python -m src.pipeline.batch_process --force
+# Process specific date range
+uv run python -m src.pipeline.batch_process --start-date 2025-12-10 --end-date 2025-12-19
+
+# Process specific dates only
+uv run python -m src.pipeline.batch_process --dates 2025-12-18,2025-12-19
+
+# Dry run (show what would be processed)
+uv run python -m src.pipeline.batch_process --dry-run
 ```
 
 ---

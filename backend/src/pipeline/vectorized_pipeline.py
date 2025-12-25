@@ -360,15 +360,16 @@ def generate_level_universe_vectorized(
     """
     Generate complete level universe using vectorized operations.
 
-    Levels generated:
-    - STRIKE: Option strikes with volume
-    - PM_HIGH/PM_LOW: Pre-market high/low
+    Levels generated (structural only for SPY):
+    - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
     - OR_HIGH/OR_LOW: Opening range (first 15min) high/low
     - SESSION_HIGH/SESSION_LOW: Running session extremes
-    - SMA_200: 200-period SMA on 2-min bars
+    - SMA_200/SMA_400: Moving averages on 2-min bars
     - VWAP: Session VWAP
-    - ROUND: Round dollar levels
     - CALL_WALL/PUT_WALL: Max gamma concentration
+
+    NOTE: ROUND (8) and STRIKE (9) levels removed for SPY due to
+    duplicative $1 strike spacing. Re-enable for other instruments.
 
     Returns:
         LevelInfo with arrays for vectorized processing
@@ -458,27 +459,11 @@ def generate_level_universe_vectorized(
             kinds.append(7)  # VWAP=7
             kind_names.append('VWAP')
 
-    # 6. ROUND LEVELS (every $1)
-    price_range_low = int(session_low) - 2
-    price_range_high = int(session_high) + 3
-    round_levels = np.arange(price_range_low, price_range_high, 1.0)
-    levels.extend(round_levels.tolist())
-    kinds.extend([8] * len(round_levels))  # ROUND=8
-    kind_names.extend(['ROUND'] * len(round_levels))
+    # NOTE: ROUND (8) and STRIKE (9) levels removed for SPY - duplicative with $1 strike spacing.
+    # These level kinds can be re-enabled for other instruments via config flag.
 
-    # 7. STRIKE LEVELS from option flows
+    # 6. CALL_WALL / PUT_WALL (max gamma concentration)
     if option_flows:
-        strikes = set()
-        for (strike, right, exp_date), flow in option_flows.items():
-            if exp_date == date and flow.cumulative_volume > 100:
-                strikes.add(strike)
-
-        strike_list = sorted(strikes)
-        levels.extend(strike_list)
-        kinds.extend([9] * len(strike_list))  # STRIKE=9
-        kind_names.extend(['STRIKE'] * len(strike_list))
-
-        # 8. CALL_WALL / PUT_WALL (max gamma concentration)
         call_gamma = {}
         put_gamma = {}
         for (strike, right, exp_date), flow in option_flows.items():
@@ -1663,6 +1648,258 @@ def compute_confluence_alignment(signals_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def compute_confluence_level_features(
+    signals_df: pd.DataFrame,
+    dynamic_levels: pd.DataFrame,
+    hourly_cumvol: Dict[str, Dict[int, float]],
+    date: str
+) -> pd.DataFrame:
+    """
+    Compute hierarchical confluence level (1-10) based on 5 dimensions:
+    1. Directional Breakout (ABOVE_ALL, BELOW_ALL, PARTIAL, INSIDE)
+    2. SMA Proximity (CLOSE, FAR)
+    3. Time Period (FIRST_HOUR, REST_OF_DAY)
+    4. GEX Alignment (ALIGNED, OPPOSED, NEUTRAL)
+    5. Relative Volume (HIGH, NORMAL, LOW)
+
+    Returns:
+        DataFrame with new columns: confluence_level, rel_vol_ratio, gex_alignment, breakout_state
+    """
+    from datetime import time as dt_time
+
+    if signals_df.empty:
+        result = signals_df.copy()
+        result['confluence_level'] = np.int8(0)
+        result['rel_vol_ratio'] = np.nan
+        result['gex_alignment'] = np.int8(0)
+        result['breakout_state'] = np.int8(0)
+        return result
+
+    n = len(signals_df)
+    result = signals_df.copy()
+
+    # Extract required columns
+    spot_vals = result['anchor_spot'].values.astype(np.float64) if 'anchor_spot' in result.columns else result['level_price'].values.astype(np.float64)
+    level_prices = result['level_price'].values.astype(np.float64)
+    ts_ns = result['ts_ns'].values.astype(np.int64)
+
+    # Get time in ET
+    ts_dt = pd.to_datetime(ts_ns, unit='ns', utc=True)
+    time_et = ts_dt.tz_convert('America/New_York')
+    hour_et = time_et.hour.values
+
+    # Initialize output arrays
+    confluence_level = np.zeros(n, dtype=np.int8)
+    rel_vol_ratio = np.full(n, np.nan, dtype=np.float64)
+    gex_alignment = np.zeros(n, dtype=np.int8)
+    breakout_state = np.zeros(n, dtype=np.int8)
+
+    # Get dynamic levels for each signal
+    if dynamic_levels.empty:
+        result['confluence_level'] = confluence_level
+        result['rel_vol_ratio'] = rel_vol_ratio
+        result['gex_alignment'] = gex_alignment
+        result['breakout_state'] = breakout_state
+        return result
+
+    # Merge dynamic levels to signals
+    # Ensure timestamp has UTC timezone
+    if 'timestamp' in dynamic_levels.columns:
+        dynamic_levels['timestamp'] = pd.to_datetime(dynamic_levels['timestamp'], utc=True)
+    dynamic_levels_idx = dynamic_levels.set_index('timestamp')
+
+    # Get PM/OR/SMA/Wall values for each signal timestamp
+    pm_high = np.full(n, np.nan, dtype=np.float64)
+    pm_low = np.full(n, np.nan, dtype=np.float64)
+    or_high = np.full(n, np.nan, dtype=np.float64)
+    or_low = np.full(n, np.nan, dtype=np.float64)
+    sma_200 = np.full(n, np.nan, dtype=np.float64)
+    sma_400 = np.full(n, np.nan, dtype=np.float64)
+    call_wall = np.full(n, np.nan, dtype=np.float64)
+    put_wall = np.full(n, np.nan, dtype=np.float64)
+    fuel_effect = np.full(n, '', dtype=object)
+
+    # Use asof join for dynamic levels
+    ts_floor = pd.to_datetime(ts_ns, unit='ns', utc=True).floor('1min')
+
+    # Map expected column names to actual column names (uppercase in source)
+    col_map = {
+        'pm_high': 'PM_HIGH',
+        'pm_low': 'PM_LOW',
+        'or_high': 'OR_HIGH',
+        'or_low': 'OR_LOW',
+        'sma_200': 'SMA_200',
+        'sma_400': 'SMA_400',
+        'call_wall': 'CALL_WALL',
+        'put_wall': 'PUT_WALL',
+    }
+    for target_col, source_col in col_map.items():
+        if source_col in dynamic_levels_idx.columns:
+            merged = pd.merge_asof(
+                pd.DataFrame({'ts': ts_floor}).sort_values('ts'),
+                dynamic_levels_idx[[source_col]].reset_index().sort_values('timestamp'),
+                left_on='ts',
+                right_on='timestamp',
+                direction='backward'
+            )
+            if target_col == 'pm_high':
+                pm_high = merged[source_col].values.astype(np.float64)
+            elif target_col == 'pm_low':
+                pm_low = merged[source_col].values.astype(np.float64)
+            elif target_col == 'or_high':
+                or_high = merged[source_col].values.astype(np.float64)
+            elif target_col == 'or_low':
+                or_low = merged[source_col].values.astype(np.float64)
+            elif target_col == 'sma_200':
+                sma_200 = merged[source_col].values.astype(np.float64)
+            elif target_col == 'sma_400':
+                sma_400 = merged[source_col].values.astype(np.float64)
+            elif target_col == 'call_wall':
+                call_wall = merged[source_col].values.astype(np.float64)
+            elif target_col == 'put_wall':
+                put_wall = merged[source_col].values.astype(np.float64)
+
+    # Get fuel_effect from signals if available
+    if 'fuel_effect' in result.columns:
+        fuel_effect = result['fuel_effect'].values.astype(object)
+
+    # === Compute relative volume ratio ===
+    prior_dates = [d for d in hourly_cumvol.keys() if d < date]
+    for i in range(n):
+        hour = hour_et[i]
+        if hour < 9 or hour > 15:
+            continue
+
+        # Current day cumulative volume at this hour
+        if date not in hourly_cumvol or hour not in hourly_cumvol[date]:
+            continue
+        cumvol_now = hourly_cumvol[date][hour]
+
+        # Average of prior days at same hour
+        prior_cumvols = [
+            hourly_cumvol[d][hour]
+            for d in prior_dates
+            if d in hourly_cumvol and hour in hourly_cumvol[d]
+        ]
+        if prior_cumvols:
+            avg_cumvol = np.mean(prior_cumvols)
+            if avg_cumvol > 0:
+                rel_vol_ratio[i] = cumvol_now / avg_cumvol
+
+    # === Compute per-signal confluence level ===
+    wall_prox = CONFIG.WALL_PROXIMITY_DOLLARS
+    sma_thresh = CONFIG.SMA_PROXIMITY_THRESHOLD
+    vol_high = CONFIG.REL_VOL_HIGH_THRESHOLD
+    vol_low = CONFIG.REL_VOL_LOW_THRESHOLD
+
+    for i in range(n):
+        spot = spot_vals[i]
+
+        # === Dimension 1: Breakout State ===
+        pm_h, pm_l = pm_high[i], pm_low[i]
+        or_h, or_l = or_high[i], or_low[i]
+
+        if np.isnan(pm_h) or np.isnan(pm_l) or np.isnan(or_h) or np.isnan(or_l):
+            confluence_level[i] = 0  # UNDEFINED
+            breakout_state[i] = 0
+            continue
+
+        above_all = (spot > pm_h) and (spot > or_h)
+        below_all = (spot < pm_l) and (spot < or_l)
+        full_breakout = above_all or below_all
+
+        partial_breakout = (
+            (spot > pm_h or spot < pm_l or spot > or_h or spot < or_l)
+            and not full_breakout
+        )
+
+        if above_all:
+            breakout_state[i] = 2  # ABOVE_ALL
+        elif below_all:
+            breakout_state[i] = 3  # BELOW_ALL
+        elif partial_breakout:
+            breakout_state[i] = 1  # PARTIAL
+        else:
+            breakout_state[i] = 0  # INSIDE
+
+        # === Dimension 2: SMA Proximity ===
+        sma_close = False
+        sma_200_v, sma_400_v = sma_200[i], sma_400[i]
+        if np.isfinite(sma_200_v) and np.isfinite(sma_400_v) and spot > 0:
+            dist_200_pct = abs(spot - sma_200_v) / spot
+            dist_400_pct = abs(spot - sma_400_v) / spot
+            sma_close = (dist_200_pct < sma_thresh) and (dist_400_pct < sma_thresh)
+
+        # === Dimension 3: Time Period ===
+        first_hour = (hour_et[i] == 9) or (hour_et[i] == 10 and time_et[i].minute < 30)
+
+        # === Dimension 4: GEX Alignment ===
+        cw, pw = call_wall[i], put_wall[i]
+        fe = fuel_effect[i] if fuel_effect[i] else ''
+        gex_aligned = False
+        gex_opposed = False
+
+        if full_breakout and np.isfinite(cw) and np.isfinite(pw):
+            if above_all:
+                # Bullish breakout
+                if spot > cw and fe == 'AMPLIFY':
+                    gex_aligned = True  # Broken call wall, dealers chasing
+                elif abs(spot - cw) < wall_prox and fe == 'DAMPEN':
+                    gex_opposed = True  # Approaching resistance
+            else:  # below_all
+                # Bearish breakout
+                if spot < pw and fe == 'AMPLIFY':
+                    gex_aligned = True  # Broken put wall, dealers chasing
+                elif abs(spot - pw) < wall_prox and fe == 'DAMPEN':
+                    gex_opposed = True  # Approaching support
+
+        if gex_aligned:
+            gex_alignment[i] = 1
+        elif gex_opposed:
+            gex_alignment[i] = -1
+        else:
+            gex_alignment[i] = 0
+
+        # === Dimension 5: Relative Volume ===
+        rv = rel_vol_ratio[i]
+        vol_is_high = np.isfinite(rv) and rv >= vol_high
+        vol_is_low = np.isfinite(rv) and rv <= vol_low
+
+        # === Determine Confluence Level (1-10) ===
+        if full_breakout:
+            if sma_close and first_hour:
+                if gex_aligned and vol_is_high:
+                    confluence_level[i] = 1   # Ultra Premium
+                elif gex_aligned:
+                    confluence_level[i] = 2   # Premium
+                else:
+                    confluence_level[i] = 3   # Strong
+            elif not sma_close and first_hour:
+                if gex_aligned and vol_is_high:
+                    confluence_level[i] = 4   # Momentum
+                else:
+                    confluence_level[i] = 5   # Extended
+            else:  # Rest of day
+                if sma_close and vol_is_high:
+                    confluence_level[i] = 6   # Late Reversion
+                else:
+                    confluence_level[i] = 7   # Fading
+        elif partial_breakout:
+            if sma_close and gex_aligned and vol_is_high:
+                confluence_level[i] = 8   # Developing
+            else:
+                confluence_level[i] = 9   # Weak
+        else:
+            confluence_level[i] = 10  # Consolidation
+
+    result['confluence_level'] = confluence_level
+    result['rel_vol_ratio'] = rel_vol_ratio
+    result['gex_alignment'] = gex_alignment
+    result['breakout_state'] = breakout_state
+
+    return result
+
+
 def compute_dealer_velocity_features(
     signals_df: pd.DataFrame,
     option_trades_df: pd.DataFrame
@@ -2280,6 +2517,90 @@ class VectorizedPipeline:
         warmup_df = pd.concat(frames, ignore_index=True).sort_values('timestamp')
         return warmup_df, warmup_dates
 
+    def _get_volume_warmup_dates(self, date: str) -> List[str]:
+        """Get prior trading dates for relative volume computation."""
+        warmup_days = max(0, CONFIG.VOLUME_LOOKBACK_DAYS)
+        if warmup_days == 0:
+            return []
+
+        available = self.bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
+        weekday_dates = [
+            d for d in available
+            if datetime.strptime(d, '%Y-%m-%d').weekday() < 5
+        ]
+        if date not in weekday_dates:
+            return []
+
+        idx = weekday_dates.index(date)
+        start_idx = max(0, idx - warmup_days)
+        return weekday_dates[start_idx:idx]
+
+    def _build_hourly_cumvol_table(
+        self,
+        date: str,
+        current_ohlcv: pd.DataFrame
+    ) -> Dict[str, Dict[int, float]]:
+        """
+        Build hourly cumulative volume lookup table for relative volume computation.
+
+        Returns:
+            Dict[date, Dict[hour, cumvol]] where hour is ET hour (9-15)
+            and cumvol is cumulative volume from 9:30 to end of that hour.
+        """
+        from datetime import time as dt_time
+
+        hourly_cumvol: Dict[str, Dict[int, float]] = {}
+
+        def _compute_hourly_cumvol(ohlcv: pd.DataFrame, date_str: str) -> Dict[int, float]:
+            """Compute hourly cumulative volume for a single date."""
+            if ohlcv.empty or 'timestamp' not in ohlcv.columns:
+                return {}
+
+            df = ohlcv.copy()
+            if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+
+            df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York')
+            df['hour_et'] = df['time_et'].dt.hour
+
+            # Filter to RTH (9:30-16:00)
+            rth_mask = (df['time_et'].dt.time >= dt_time(9, 30)) & (df['time_et'].dt.time < dt_time(16, 0))
+            df = df[rth_mask]
+
+            if df.empty:
+                return {}
+
+            # Compute cumulative volume up to end of each hour
+            hourly = {}
+            for hour in [9, 10, 11, 12, 13, 14, 15]:
+                if hour == 9:
+                    hour_end = dt_time(9, 59, 59)
+                else:
+                    hour_end = dt_time(hour, 59, 59)
+
+                mask = df['time_et'].dt.time <= hour_end
+                if mask.any():
+                    hourly[hour] = df.loc[mask, 'volume'].sum()
+
+            return hourly
+
+        # Process prior dates for lookback
+        prior_dates = self._get_volume_warmup_dates(date)
+        for prior_date in prior_dates:
+            trades_df = self.bronze_reader.read_futures_trades(symbol='ES', date=prior_date)
+            trades = _futures_trades_from_df(trades_df)
+            if not trades:
+                continue
+            ohlcv = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='1min')
+            if not ohlcv.empty:
+                hourly_cumvol[prior_date] = _compute_hourly_cumvol(ohlcv, prior_date)
+
+        # Add current date
+        if not current_ohlcv.empty:
+            hourly_cumvol[date] = _compute_hourly_cumvol(current_ohlcv, date)
+
+        return hourly_cumvol
+
     def run(self, date: str, log_level: int = None) -> pd.DataFrame:
         """
         Run complete pipeline for a date.
@@ -2324,6 +2645,11 @@ class VectorizedPipeline:
         if not warmup_2min.empty:
             ohlcv_2min = pd.concat([warmup_2min, ohlcv_2min], ignore_index=True).sort_values('timestamp')
             log.info(f"  SMA warmup: {len(warmup_2min):,} 2-min bars from {len(warmup_dates)} dates")
+
+        # Build hourly cumulative volume lookup for relative volume computation
+        hourly_cumvol = self._build_hourly_cumvol_table(date, ohlcv_df)
+        vol_warmup_dates = self._get_volume_warmup_dates(date)
+        log.info(f"  Volume warmup: {len(vol_warmup_dates)} prior dates for relative volume")
 
         log.info(f"  Built {len(ohlcv_df):,} 1-min bars in {time.time()-stage_start:.2f}s")
         log.info(f"  Price range: ${ohlcv_df['low'].min():.2f} - ${ohlcv_df['high'].max():.2f}")
@@ -2466,6 +2792,14 @@ class VectorizedPipeline:
 
         # Attempt clustering + deterioration trends
         signals_df = compute_attempt_features(signals_df)
+
+        # Hierarchical confluence level (requires dynamic_levels and hourly_cumvol)
+        # Convert dynamic_levels dict to DataFrame
+        dynamic_levels_df = pd.DataFrame(dynamic_levels)
+        dynamic_levels_df['timestamp'] = ohlcv_df['timestamp'].values
+        signals_df = compute_confluence_level_features(
+            signals_df, dynamic_levels_df, hourly_cumvol, date
+        )
 
         log.info(f"  Computed approach context in {time.time()-stage_start:.2f}s")
 
