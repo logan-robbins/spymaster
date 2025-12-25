@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import joblib
@@ -13,6 +14,13 @@ import pandas as pd
 
 from src.ml.feature_sets import select_features
 from src.ml.retrieval_engine import RetrievalIndex
+from src.ml.tracking import (
+    hash_file,
+    log_artifacts,
+    resolve_git_sha,
+    resolve_repo_root,
+    tracking_run,
+)
 
 
 def _resolve_signals_path(signals_path: str | None) -> Path:
@@ -31,6 +39,17 @@ def _resolve_signals_path(signals_path: str | None) -> Path:
         raise ValueError("features.json missing output_path")
 
     return features_path.parent / output_path
+
+
+def _load_features_version(backend_root: Path) -> str:
+    features_path = backend_root / "features.json"
+    if not features_path.exists():
+        raise FileNotFoundError(f"features.json not found at {features_path}")
+    payload = json.loads(features_path.read_text())
+    version = payload.get("version")
+    if not version:
+        raise ValueError("features.json missing version field")
+    return version
 
 
 def main() -> None:
@@ -57,23 +76,77 @@ def main() -> None:
     if not feature_set.numeric:
         raise ValueError("No numeric features available for retrieval index.")
 
-    index = RetrievalIndex(feature_cols=feature_set.numeric)
-    index.fit(df)
+    backend_root = Path(__file__).resolve().parents[2]
+    repo_root = resolve_repo_root()
+    git_sha = resolve_git_sha(repo_root)
+    features_version = _load_features_version(backend_root)
+    dataset_hash = hash_file(signals_path)
 
-    output_path = Path(args.output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(index, output_path)
+    dates = sorted(df["date"].dropna().unique())
+    if not dates:
+        raise ValueError("No date values found for retrieval index.")
 
-    meta = {
+    run_name = f"retrieval_index-v{features_version}-{args.stage}-{args.ablation}-{dates[0]}_{dates[-1]}"
+    experiment = os.getenv("MLFLOW_EXPERIMENT_NAME", "spymaster_retrieval")
+    project = os.getenv("WANDB_PROJECT", "spymaster")
+    params = {
         "data_path": str(signals_path),
-        "rows": int(len(df)),
+        "output_path": args.output_path,
         "stage": args.stage,
         "ablation": args.ablation,
-        "feature_cols": feature_set.numeric
+        "rows": len(df),
+        "feature_count": len(feature_set.numeric),
+        "dataset_hash": dataset_hash,
+        "features_version": features_version,
+        "git_sha": git_sha,
+        "date_range": [dates[0], dates[-1]],
     }
-    meta_path = output_path.with_suffix(".json")
-    with meta_path.open("w", encoding="utf-8") as fh:
-        json.dump(meta, fh, indent=2)
+    tags = {
+        "stage": args.stage,
+        "ablation": args.ablation,
+        "dataset_hash": dataset_hash,
+        "git_sha": git_sha,
+        "features_version": features_version,
+    }
+    wandb_tags = ["retrieval_index", args.stage, args.ablation]
+
+    with tracking_run(
+        run_name=run_name,
+        experiment=experiment,
+        params=params,
+        tags=tags,
+        wandb_tags=wandb_tags,
+        project=project,
+        repo_root=repo_root,
+    ) as tracking:
+        index = RetrievalIndex(feature_cols=feature_set.numeric)
+        index.fit(df)
+
+        output_path = Path(args.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(index, output_path)
+
+        meta = {
+            "data_path": str(signals_path),
+            "rows": int(len(df)),
+            "stage": args.stage,
+            "ablation": args.ablation,
+            "feature_cols": feature_set.numeric,
+            "features_version": features_version,
+            "dataset_hash": dataset_hash,
+            "git_sha": git_sha,
+        }
+        meta_path = output_path.with_suffix(".json")
+        with meta_path.open("w", encoding="utf-8") as fh:
+            json.dump(meta, fh, indent=2)
+
+        features_path = backend_root / "features.json"
+        log_artifacts(
+            [output_path, meta_path, features_path],
+            name=f"retrieval_index_{args.stage}_{args.ablation}",
+            artifact_type="model",
+            wandb_run=tracking.wandb_run,
+        )
 
 
 if __name__ == "__main__":

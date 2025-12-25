@@ -194,12 +194,12 @@ class LevelSignalV1(BaseModel):
     outcome: OutcomeLabel = Field(default=OutcomeLabel.UNDEFINED, description="Outcome classification")
     future_price_5min: Optional[float] = Field(default=None, description="Price 5 minutes after touch")
     anchor_spot: Optional[float] = Field(default=None, description="Spot price at confirmation time t1")
-    tradeable_1: Optional[int] = Field(default=None, description="Reached $1.00 in break direction within 5 minutes")
-    tradeable_2: Optional[int] = Field(default=None, description="Reached $2.00 in break direction within 5 minutes")
+    tradeable_1: Optional[int] = Field(default=None, description="Reached $1.00 in either direction within 5 minutes")
+    tradeable_2: Optional[int] = Field(default=None, description="Reached $2.00 in either direction within 5 minutes")
     strength_signed: Optional[float] = Field(default=None, description="Signed strength: break-direction excursion minus opposite")
     strength_abs: Optional[float] = Field(default=None, description="Absolute max excursion in either direction")
-    time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first $1 move in break direction")
-    time_to_threshold_2: Optional[float] = Field(default=None, description="Seconds to first $2 move in break direction")
+    time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first $1 move in either direction")
+    time_to_threshold_2: Optional[float] = Field(default=None, description="Seconds to first $2 move in either direction")
     
     # ========== Optional Note ==========
     note: Optional[str] = Field(default=None, description="Human-readable signal summary")

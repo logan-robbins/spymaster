@@ -26,6 +26,17 @@ LABEL_COLUMNS = {
     "anchor_spot"
 }
 
+LABEL_PREFIXES = (
+    "outcome_",
+    "future_price_",
+    "excursion_",
+    "strength_",
+    "time_to_threshold_",
+    "tradeable_",
+    "anchor_spot_",
+    "confirm_ts_ns_",
+)
+
 BASE_CATEGORICAL = ["level_kind_name", "direction"]
 MECHANICS_CATEGORICAL = ["barrier_state", "fuel_effect", "gamma_bucket"]
 
@@ -89,7 +100,10 @@ def select_features(df, stage: str, ablation: str = "full") -> FeatureSet:
     exclude = set(IDENTITY_COLUMNS) | set(LABEL_COLUMNS)
     exclude.add("level_kind")
 
-    candidate_cols = [c for c in df.columns if c not in exclude]
+    candidate_cols = [
+        c for c in df.columns
+        if c not in exclude and not c.startswith(LABEL_PREFIXES)
+    ]
 
     if stage == "stage_a":
         candidate_cols = [

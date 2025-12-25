@@ -27,6 +27,8 @@ from transformers import PatchTSTConfig, PatchTSTModel
 import mlflow
 import wandb
 
+from src.ml.tracking import ensure_wandb_config, resolve_repo_root
+
 
 @dataclass
 class DatasetBundle:
@@ -254,12 +256,9 @@ def _load_features_version(backend_root: Path) -> str:
     return version
 
 
-def _require_wandb_config() -> None:
-    if os.getenv("WANDB_API_KEY"):
-        return
-    if os.getenv("WANDB_MODE") == "offline":
-        return
-    raise EnvironmentError("WANDB_API_KEY not set and WANDB_MODE is not 'offline'")
+def _require_wandb_config(repo_root: Path) -> None:
+    project = os.getenv("WANDB_PROJECT", "spymaster")
+    ensure_wandb_config(project, repo_root)
 
 
 def _resolve_run_dates(train_dates: List[str], val_dates: List[str]) -> Tuple[str, str]:
@@ -279,6 +278,7 @@ def train(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     backend_root = Path(__file__).resolve().parents[2]
+    repo_root = resolve_repo_root()
 
     all_dates = _get_all_dates(data_dir)
     if args.train_dates or args.val_dates:
@@ -344,7 +344,7 @@ def train(args: argparse.Namespace) -> int:
     classification_loss = nn.CrossEntropyLoss()
     regression_loss = nn.SmoothL1Loss()
 
-    _require_wandb_config()
+    _require_wandb_config(repo_root)
     schema_version = _load_features_version(backend_root)
     run_start, run_end = _resolve_run_dates(train_dates, val_dates)
     run_name = f"patchtst-v{schema_version}-{run_start}_{run_end}-{args.seed}"
@@ -414,12 +414,16 @@ def train(args: argparse.Namespace) -> int:
         mlflow.log_artifact(str(metadata_path))
         mlflow.log_artifact(str(features_path))
 
-        wandb_run = wandb.init(
-            project=os.getenv("WANDB_PROJECT", "spymaster_patchtst"),
-            name=run_name,
-            config=params,
-            tags=wandb_tags,
-        )
+        entity = os.getenv("WANDB_ENTITY")
+        wandb_kwargs = {
+            "project": os.getenv("WANDB_PROJECT", "spymaster"),
+            "name": run_name,
+            "config": params,
+            "tags": wandb_tags,
+        }
+        if entity:
+            wandb_kwargs["entity"] = entity
+        wandb_run = wandb.init(**wandb_kwargs)
 
         for epoch in range(1, args.epochs + 1):
             model.train()

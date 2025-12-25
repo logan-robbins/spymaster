@@ -605,12 +605,12 @@
         },
         "tradeable_1": {
           "dtype": "int8",
-          "description": "Reached $1.00 in break direction within forward window",
+          "description": "Reached $1.00 in either direction within forward window",
           "example": 1
         },
         "tradeable_2": {
           "dtype": "int8",
-          "description": "Reached $2.00 in break direction within forward window",
+          "description": "Reached $2.00 in either direction within forward window",
           "example": 0
         },
         "excursion_max": {
@@ -635,12 +635,12 @@
         },
         "time_to_threshold_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in break direction from S(t1)",
+          "description": "Seconds to first $1 move in either direction from S(t1)",
           "example": 90.0
         },
         "time_to_threshold_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in break direction from S(t1)",
+          "description": "Seconds to first $2 move in either direction from S(t1)",
           "example": 210.0
         },
         "outcome_2min": {

@@ -94,8 +94,17 @@ out-tsc/
 *.parquet
 backend/data/historical/trades/
 backend/s3:/
+backend/datab/*
+!backend/datab/.gitkeep
+backend/data/*
+!backend/data/.gitkeep
+backend/mlruns/*
+!backend/mlruns/.gitkeep
+backend/wandb/*
+!backend/wandb/.gitkeep
+dbn-data/*
+!dbn-data/.gitkeep
 
 # Temporary files
 *.tmp
 test_cache_logic.py
-

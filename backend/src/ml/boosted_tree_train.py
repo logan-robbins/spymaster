@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -19,6 +20,14 @@ from sklearn.preprocessing import OneHotEncoder
 import joblib
 
 from src.ml.feature_sets import select_features
+from src.ml.tracking import (
+    hash_file,
+    log_artifacts,
+    log_metrics,
+    resolve_git_sha,
+    resolve_repo_root,
+    tracking_run,
+)
 
 
 DEFAULT_HORIZONS = [60, 120, 180, 300]
@@ -111,6 +120,17 @@ def train_regressor(train_df: pd.DataFrame, val_df: pd.DataFrame, feature_set, l
     return {"model": reg, "metrics": metrics}
 
 
+def _flatten_metrics(metrics: Dict[str, object], prefix: str = "") -> Dict[str, float]:
+    flat: Dict[str, float] = {}
+    for key, value in metrics.items():
+        name = f"{prefix}_{key}" if prefix else key
+        if isinstance(value, dict):
+            flat.update(_flatten_metrics(value, name))
+        elif isinstance(value, (int, float)):
+            flat[name] = float(value)
+    return flat
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-path", type=str, default=None)
@@ -123,6 +143,9 @@ def main() -> None:
     args = parser.parse_args()
 
     features_json = load_features_json()
+    features_version = features_json.get("version")
+    if not features_version:
+        raise ValueError("features.json missing version field")
     data_path = args.data_path or features_json["output_path"]
     data_path = Path(data_path)
     if not data_path.exists():
@@ -136,6 +159,10 @@ def main() -> None:
     df = df[valid_mask].copy()
     splits = split_by_date(df, args.val_size, args.test_size)
 
+    repo_root = resolve_repo_root()
+    git_sha = resolve_git_sha(repo_root)
+    dataset_hash = hash_file(data_path)
+
     train_df = df[df["date"].isin(splits["train"])]
     val_df = df[df["date"].isin(splits["val"])]
     test_df = df[df["date"].isin(splits["test"])]
@@ -145,6 +172,46 @@ def main() -> None:
     ablations = ["full", "ta", "mechanics"] if args.ablation == "all" else [args.ablation]
 
     for ablation in ablations:
+        train_range = (splits["train"][0], splits["train"][-1])
+        test_range = (splits["test"][0], splits["test"][-1])
+        run_name = (
+            f"boosted_trees-v{features_version}-{args.stage}-{ablation}-"
+            f"{train_range[0]}_{test_range[1]}"
+        )
+        experiment = os.getenv("MLFLOW_EXPERIMENT_NAME", "spymaster_boosted_trees")
+        project = os.getenv("WANDB_PROJECT", "spymaster")
+        params = {
+            "data_path": str(data_path),
+            "output_dir": str(output_dir),
+            "stage": args.stage,
+            "ablation": ablation,
+            "val_size": args.val_size,
+            "test_size": args.test_size,
+            "horizons": args.horizons,
+            "rows": len(df),
+            "train_rows": len(train_df),
+            "val_rows": len(val_df),
+            "test_rows": len(test_df),
+            "train_dates": splits["train"],
+            "val_dates": splits["val"],
+            "test_dates": splits["test"],
+            "dataset_hash": dataset_hash,
+            "features_version": features_version,
+            "git_sha": git_sha,
+            "model_type": "HistGradientBoosting",
+            "max_depth": 6,
+            "learning_rate": 0.05,
+            "max_iter": 300,
+            "random_state": 42,
+        }
+        tags = {
+            "stage": args.stage,
+            "ablation": ablation,
+            "dataset_hash": dataset_hash,
+            "git_sha": git_sha,
+            "features_version": features_version,
+        }
+        wandb_tags = ["boosted_trees", args.stage, ablation]
         feature_set = select_features(train_df, stage=args.stage, ablation=ablation)
         results = {
             "stage": args.stage,
@@ -157,110 +224,143 @@ def main() -> None:
             "metrics": {}
         }
 
-        # Tradeable_2 classifier
-        # Multi-timeframe models: Train separate models for 2min, 4min, 8min
-        timeframes = ['2min', '4min', '8min']
-        
-        for tf in timeframes:
-            print(f"\n  Training {tf} horizon models...")
-            
-            # Tradeable classifier for this timeframe
-            tradeable_col = f"tradeable_2_{tf}"
-            outcome_col = f"outcome_{tf}"
-            
-            if tradeable_col not in train_df.columns:
-                print(f"    WARNING: {tradeable_col} not found, skipping {tf} models")
-                continue
-            
+        with tracking_run(
+            run_name=run_name,
+            experiment=experiment,
+            params=params,
+            tags=tags,
+            wandb_tags=wandb_tags,
+            project=project,
+            repo_root=repo_root,
+        ) as tracking:
+            artifact_paths: List[Path] = []
+
+            # Tradeable_2 classifier
+            # Multi-timeframe models: Train separate models for 2min, 4min, 8min
+            timeframes = ["2min", "4min", "8min"]
+
+            for tf in timeframes:
+                print(f"\n  Training {tf} horizon models...")
+
+                # Tradeable classifier for this timeframe
+                tradeable_col = f"tradeable_2_{tf}"
+                outcome_col = f"outcome_{tf}"
+
+                if tradeable_col not in train_df.columns:
+                    print(f"    WARNING: {tradeable_col} not found, skipping {tf} models")
+                    continue
+
+                tradeable_df = train_df.copy()
+                tradeable_val = val_df.copy()
+                tradeable_df[tradeable_col] = tradeable_df[tradeable_col].fillna(0).astype(int)
+                tradeable_val[tradeable_col] = tradeable_val[tradeable_col].fillna(0).astype(int)
+
+                tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, tradeable_col)
+                model_path = output_dir / f"tradeable_2_{tf}_{args.stage}_{ablation}.joblib"
+                joblib.dump(tradeable_fit["model"], model_path)
+                artifact_paths.append(model_path)
+                results["metrics"][f"tradeable_2_{tf}"] = tradeable_fit["metrics"]
+
+                # Direction classifier (only tradeable events at this timeframe)
+                dir_train = train_df[train_df[tradeable_col] == 1].copy()
+                dir_val = val_df[val_df[tradeable_col] == 1].copy()
+
+                if dir_train.empty or dir_val.empty:
+                    print(f"    WARNING: Not enough tradeable samples for {tf} direction model")
+                    continue
+
+                dir_train["break_label"] = (dir_train[outcome_col] == "BREAK").astype(int)
+                dir_val["break_label"] = (dir_val[outcome_col] == "BREAK").astype(int)
+
+                direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
+                model_path = output_dir / f"direction_{tf}_{args.stage}_{ablation}.joblib"
+                joblib.dump(direction_fit["model"], model_path)
+                artifact_paths.append(model_path)
+                results["metrics"][f"direction_{tf}"] = direction_fit["metrics"]
+
+                print(f"    {tf} - Tradeable: {tradeable_fit['metrics']['roc_auc']:.3f} AUC")
+                print(f"    {tf} - Direction: {direction_fit['metrics']['roc_auc']:.3f} AUC")
+
+            # Backward compatibility: Also train legacy models using 4min as primary
+            print("\n  Training legacy single-timeframe models (4min)...")
             tradeable_df = train_df.copy()
             tradeable_val = val_df.copy()
-            tradeable_df[tradeable_col] = tradeable_df[tradeable_col].fillna(0).astype(int)
-            tradeable_val[tradeable_col] = tradeable_val[tradeable_col].fillna(0).astype(int)
-            
-            tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, tradeable_col)
-            joblib.dump(tradeable_fit["model"], output_dir / f"tradeable_2_{tf}_{args.stage}_{ablation}.joblib")
-            results["metrics"][f"tradeable_2_{tf}"] = tradeable_fit["metrics"]
-            
-            # Direction classifier (only tradeable events at this timeframe)
-            dir_train = train_df[train_df[tradeable_col] == 1].copy()
-            dir_val = val_df[val_df[tradeable_col] == 1].copy()
-            
-            if dir_train.empty or dir_val.empty:
-                print(f"    WARNING: Not enough tradeable samples for {tf} direction model")
-                continue
-            
-            dir_train["break_label"] = (dir_train[outcome_col] == "BREAK").astype(int)
-            dir_val["break_label"] = (dir_val[outcome_col] == "BREAK").astype(int)
-            
-            direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
-            joblib.dump(direction_fit["model"], output_dir / f"direction_{tf}_{args.stage}_{ablation}.joblib")
-            results["metrics"][f"direction_{tf}"] = direction_fit["metrics"]
-            
-            print(f"    {tf} - Tradeable: {tradeable_fit['metrics']['roc_auc']:.3f} AUC")
-            print(f"    {tf} - Direction: {direction_fit['metrics']['roc_auc']:.3f} AUC")
-        
-        # Backward compatibility: Also train legacy models using 4min as primary
-        print(f"\n  Training legacy single-timeframe models (4min)...")
-        tradeable_df = train_df.copy()
-        tradeable_val = val_df.copy()
-        tradeable_df["tradeable_2"] = tradeable_df["tradeable_2_4min"].fillna(0).astype(int)
-        tradeable_val["tradeable_2"] = tradeable_val["tradeable_2_4min"].fillna(0).astype(int)
-        tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, "tradeable_2")
-        joblib.dump(tradeable_fit["model"], output_dir / f"tradeable_2_{args.stage}_{ablation}.joblib")
-        results["metrics"]["tradeable_2"] = tradeable_fit["metrics"]
+            tradeable_df["tradeable_2"] = tradeable_df["tradeable_2_4min"].fillna(0).astype(int)
+            tradeable_val["tradeable_2"] = tradeable_val["tradeable_2_4min"].fillna(0).astype(int)
+            tradeable_fit = train_classifier(tradeable_df, tradeable_val, feature_set, "tradeable_2")
+            model_path = output_dir / f"tradeable_2_{args.stage}_{ablation}.joblib"
+            joblib.dump(tradeable_fit["model"], model_path)
+            artifact_paths.append(model_path)
+            results["metrics"]["tradeable_2"] = tradeable_fit["metrics"]
 
-        # Direction classifier (4min outcomes)
-        dir_train = train_df[train_df["tradeable_2_4min"] == 1].copy()
-        dir_val = val_df[val_df["tradeable_2_4min"] == 1].copy()
-        if not dir_train.empty and not dir_val.empty:
-            dir_train["break_label"] = (dir_train["outcome_4min"] == "BREAK").astype(int)
-            dir_val["break_label"] = (dir_val["outcome_4min"] == "BREAK").astype(int)
-            direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
-            joblib.dump(direction_fit["model"], output_dir / f"direction_{args.stage}_{ablation}.joblib")
-            results["metrics"]["direction"] = direction_fit["metrics"]
+            # Direction classifier (4min outcomes)
+            dir_train = train_df[train_df["tradeable_2_4min"] == 1].copy()
+            dir_val = val_df[val_df["tradeable_2_4min"] == 1].copy()
+            if not dir_train.empty and not dir_val.empty:
+                dir_train["break_label"] = (dir_train["outcome_4min"] == "BREAK").astype(int)
+                dir_val["break_label"] = (dir_val["outcome_4min"] == "BREAK").astype(int)
+                direction_fit = train_classifier(dir_train, dir_val, feature_set, "break_label")
+                model_path = output_dir / f"direction_{args.stage}_{ablation}.joblib"
+                joblib.dump(direction_fit["model"], model_path)
+                artifact_paths.append(model_path)
+                results["metrics"]["direction"] = direction_fit["metrics"]
 
-        # Multi-timeframe strength regressors
-        for tf in timeframes:
-            strength_col = f"strength_signed_{tf}"
-            
-            if strength_col not in train_df.columns:
-                print(f"    WARNING: {strength_col} not found, skipping {tf} strength model")
-                continue
-            
-            strength_fit = train_regressor(train_df, val_df, feature_set, strength_col)
-            joblib.dump(strength_fit["model"], output_dir / f"strength_{tf}_{args.stage}_{ablation}.joblib")
-            results["metrics"][f"strength_{tf}"] = strength_fit["metrics"]
-            print(f"    {tf} - Strength MAE: {strength_fit['metrics']['mae']:.3f}")
-        
-        # Legacy strength model (4min)
-        strength_fit = train_regressor(train_df, val_df, feature_set, "strength_signed_4min")
-        joblib.dump(strength_fit["model"], output_dir / f"strength_{args.stage}_{ablation}.joblib")
-        results["metrics"]["strength_signed"] = strength_fit["metrics"]
+            # Multi-timeframe strength regressors
+            for tf in timeframes:
+                strength_col = f"strength_signed_{tf}"
 
-        # Multi-timeframe time-to-threshold reach probabilities
-        for tf in timeframes:
-            for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
-                threshold_col = f"{threshold_col_base}_{tf}"
-                
-                if threshold_col not in train_df.columns:
+                if strength_col not in train_df.columns:
+                    print(f"    WARNING: {strength_col} not found, skipping {tf} strength model")
                     continue
-                
-                for horizon in args.horizons:
-                    col = f"{label_prefix}_{horizon}s_{tf}"
-                    train_h = train_df.copy()
-                    val_h = val_df.copy()
-                    train_h[col] = (train_h[threshold_col] <= horizon).astype(int).fillna(0)
-                    val_h[col] = (val_h[threshold_col] <= horizon).astype(int).fillna(0)
-                    fit = train_classifier(train_h, val_h, feature_set, col)
-                joblib.dump(
-                    fit["model"],
-                    output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"
-                )
-                results["metrics"][col] = fit["metrics"]
+                strength_fit = train_regressor(train_df, val_df, feature_set, strength_col)
+                model_path = output_dir / f"strength_{tf}_{args.stage}_{ablation}.joblib"
+                joblib.dump(strength_fit["model"], model_path)
+                artifact_paths.append(model_path)
+                results["metrics"][f"strength_{tf}"] = strength_fit["metrics"]
+                print(f"    {tf} - Strength MAE: {strength_fit['metrics']['mae']:.3f}")
 
-        meta_path = output_dir / f"metadata_{args.stage}_{ablation}.json"
-        with open(meta_path, "w", encoding="utf-8") as fh:
-            json.dump(results, fh, indent=2)
+            # Legacy strength model (4min)
+            strength_fit = train_regressor(train_df, val_df, feature_set, "strength_signed_4min")
+            model_path = output_dir / f"strength_{args.stage}_{ablation}.joblib"
+            joblib.dump(strength_fit["model"], model_path)
+            artifact_paths.append(model_path)
+            results["metrics"]["strength_signed"] = strength_fit["metrics"]
+
+            # Multi-timeframe time-to-threshold reach probabilities
+            for tf in timeframes:
+                for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
+                    threshold_col = f"{threshold_col_base}_{tf}"
+
+                    if threshold_col not in train_df.columns:
+                        continue
+
+                    for horizon in args.horizons:
+                        col = f"{label_prefix}_{horizon}s_{tf}"
+                        train_h = train_df.copy()
+                        val_h = val_df.copy()
+                        train_h[col] = (train_h[threshold_col] <= horizon).astype(int).fillna(0)
+                        val_h[col] = (val_h[threshold_col] <= horizon).astype(int).fillna(0)
+                        fit = train_classifier(train_h, val_h, feature_set, col)
+                        model_path = output_dir / f"{label_prefix}_{horizon}s_{args.stage}_{ablation}.joblib"
+                        joblib.dump(fit["model"], model_path)
+                        artifact_paths.append(model_path)
+                        results["metrics"][col] = fit["metrics"]
+
+            meta_path = output_dir / f"metadata_{args.stage}_{ablation}.json"
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(results, fh, indent=2)
+            artifact_paths.append(meta_path)
+
+            flat_metrics = _flatten_metrics(results["metrics"])
+            log_metrics(flat_metrics, tracking.wandb_run)
+
+            features_path = Path(__file__).resolve().parents[2] / "features.json"
+            log_artifacts(
+                artifact_paths + [features_path],
+                name=f"boosted_trees_{args.stage}_{ablation}",
+                artifact_type="model",
+                wandb_run=tracking.wandb_run,
+            )
 
     print(f"Saved models and metadata to {output_dir}")
 
