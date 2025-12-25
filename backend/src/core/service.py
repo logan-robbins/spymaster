@@ -78,10 +78,13 @@ class CoreService:
             self.greek_enricher = greek_enricher
         
         # Initialize level signal service
+        # Use REPLAY_DATE if set, otherwise use current date
+        trading_date = os.getenv("REPLAY_DATE", None)
         self.level_signal_service = LevelSignalService(
             market_state=self.market_state,
             user_hotzones=user_hotzones,
-            config=self.config
+            config=self.config,
+            trading_date=trading_date
         )
 
         # Optional viewport scoring (Phase 3)
@@ -321,16 +324,11 @@ class CoreService:
             gamma = 0.0
             
             if self.greek_enricher:
-                greeks = self.greek_enricher.get_greeks(
-                    underlying=trade.underlying,
-                    strike=trade.strike,
-                    exp_date=trade.exp_date,
-                    right=trade.right
-                )
-                
+                greeks = self.greek_enricher.get_greeks(trade.option_symbol)
+
                 if greeks:
-                    delta = greeks.get("delta", 0.0)
-                    gamma = greeks.get("gamma", 0.0)
+                    delta = greeks.delta
+                    gamma = greeks.gamma
             
             # Update market state
             self.market_state.update_option_trade(
@@ -385,7 +383,8 @@ class CoreService:
                 # Log summary (optional, can be removed for performance)
                 num_levels = len(payload.get("levels", []))
                 spot = payload.get("spy", {}).get("spot")
-                print(f"📊 Published {num_levels} level signals (spot={spot:.2f})")
+                spot_str = f"{spot:.2f}" if spot is not None else "N/A"
+                print(f"📊 Published {num_levels} level signals (spot={spot_str})")
                 if num_levels > 0:
                     first_level = payload["levels"][0]
                     print(f"   First level: {first_level.get('kind')} @ {first_level.get('price', 0):.2f}")
