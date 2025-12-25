@@ -6,7 +6,45 @@ import pandas as pd
 import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
-from src.pipeline.utils.vectorized_ops import compute_structural_distances
+
+
+def compute_structural_distances(
+    signals_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Compute signed distances to structural levels (pre-market high/low) relative to target level."""
+    if signals_df.empty or ohlcv_df.empty:
+        return signals_df
+
+    df = ohlcv_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+
+    df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
+
+    pm_mask = (df['time_et'] >= dt_time(4, 0)) & (df['time_et'] < dt_time(9, 30))
+
+    pm_high = np.nan
+    pm_low = np.nan
+    if pm_mask.any():
+        pm_data = df[pm_mask]
+        pm_high = pm_data['high'].max()
+        pm_low = pm_data['low'].min()
+
+    level_prices = signals_df['level_price'].values.astype(np.float64)
+    dist_to_pm_high = np.full(len(signals_df), np.nan, dtype=np.float64)
+    dist_to_pm_low = np.full(len(signals_df), np.nan, dtype=np.float64)
+
+    if np.isfinite(pm_high):
+        dist_to_pm_high = level_prices - pm_high
+    if np.isfinite(pm_low):
+        dist_to_pm_low = level_prices - pm_low
+
+    result = signals_df.copy()
+    result['dist_to_pm_high'] = dist_to_pm_high
+    result['dist_to_pm_low'] = dist_to_pm_low
+
+    return result
 
 
 class ComputeContextFeaturesStage(BaseStage):

@@ -1,18 +1,329 @@
 """Generate level universe stage."""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Optional
+from dataclasses import dataclass
+from datetime import time as dt_time
 import pandas as pd
 import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
-from src.pipeline.utils.vectorized_ops import (
-    LevelInfo,
-    generate_level_universe_vectorized,
-    compute_dynamic_level_series,
-)
+from src.core.market_state import OptionFlowAggregate
+from src.common.config import CONFIG
+
+
+@dataclass
+class LevelInfo:
+    """Level information for processing."""
+    prices: np.ndarray
+    kinds: np.ndarray  # integer codes for LevelKind
+    kind_names: List[str]
+
+
+def generate_level_universe(
+    ohlcv_df: pd.DataFrame,
+    option_flows: Dict[Tuple[float, str, str], OptionFlowAggregate],
+    date: str,
+    ohlcv_2min: Optional[pd.DataFrame] = None
+) -> LevelInfo:
+    """
+    Generate complete level universe.
+
+    Levels generated (structural only for SPY):
+    - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
+    - OR_HIGH/OR_LOW: Opening range (first 15min) high/low
+    - SESSION_HIGH/SESSION_LOW: Running session extremes
+    - SMA_200/SMA_400: Moving averages on 2-min bars
+    - VWAP: Session VWAP
+    - CALL_WALL/PUT_WALL: Max gamma concentration
+
+    NOTE: ROUND (8) and STRIKE (9) levels removed for SPY due to
+    duplicative $1 strike spacing. Re-enable for other instruments.
+
+    Returns:
+        LevelInfo with arrays for processing
+    """
+    levels = []
+    kinds = []
+    kind_names = []
+
+    if ohlcv_df.empty:
+        return LevelInfo(
+            prices=np.array([]),
+            kinds=np.array([], dtype=np.int8),
+            kind_names=[]
+        )
+
+    # Ensure timestamp is datetime
+    df = ohlcv_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+
+    # Convert to ET for time-of-day logic
+    df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
+
+    # 1. PRE-MARKET HIGH/LOW (04:00-09:30 ET)
+    pm_mask = (df['time_et'] >= dt_time(4, 0)) & (df['time_et'] < dt_time(9, 30))
+    if pm_mask.any():
+        pm_data = df[pm_mask]
+        pm_high = pm_data['high'].max()
+        pm_low = pm_data['low'].min()
+        levels.extend([pm_high, pm_low])
+        kinds.extend([0, 1])  # PM_HIGH=0, PM_LOW=1
+        kind_names.extend(['PM_HIGH', 'PM_LOW'])
+
+    # 2. OPENING RANGE HIGH/LOW (09:30-09:45 ET)
+    or_mask = (df['time_et'] >= dt_time(9, 30)) & (df['time_et'] < dt_time(9, 45))
+    if or_mask.any():
+        or_data = df[or_mask]
+        or_high = or_data['high'].max()
+        or_low = or_data['low'].min()
+        levels.extend([or_high, or_low])
+        kinds.extend([2, 3])  # OR_HIGH=2, OR_LOW=3
+        kind_names.extend(['OR_HIGH', 'OR_LOW'])
+
+    # 3. SESSION HIGH/LOW (running)
+    session_high = df['high'].max()
+    session_low = df['low'].min()
+    levels.extend([session_high, session_low])
+    kinds.extend([4, 5])  # SESSION_HIGH=4, SESSION_LOW=5
+    kind_names.extend(['SESSION_HIGH', 'SESSION_LOW'])
+
+    # 4. SMA-200 / SMA-400 on 2-min bars
+    if ohlcv_2min is None:
+        df_2min = df.set_index('timestamp').resample('2min').agg({
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+        }).dropna()
+        df_2min = df_2min.reset_index()
+    else:
+        df_2min = ohlcv_2min.copy()
+
+    if not df_2min.empty and 'timestamp' in df_2min.columns:
+        df_2min = df_2min.sort_values('timestamp')
+
+    if len(df_2min) >= 200:
+        sma_200 = df_2min['close'].rolling(200).mean().iloc[-1]
+        if pd.notna(sma_200):
+            levels.append(sma_200)
+            kinds.append(6)  # SMA_200=6
+            kind_names.append('SMA_200')
+
+    if len(df_2min) >= 400:
+        sma_400 = df_2min['close'].rolling(400).mean().iloc[-1]
+        if pd.notna(sma_400):
+            levels.append(sma_400)
+            kinds.append(12)  # SMA_400=12
+            kind_names.append('SMA_400')
+
+    # 5. VWAP
+    session_mask = df['time_et'] >= dt_time(9, 30)
+    if session_mask.any():
+        session_df = df[session_mask]
+        typical_price = (session_df['high'] + session_df['low'] + session_df['close']) / 3
+        vwap = (typical_price * session_df['volume']).sum() / session_df['volume'].sum()
+        if pd.notna(vwap):
+            levels.append(vwap)
+            kinds.append(7)  # VWAP=7
+            kind_names.append('VWAP')
+
+    # NOTE: ROUND (8) and STRIKE (9) levels removed for SPY - duplicative with $1 strike spacing.
+
+    # 6. CALL_WALL / PUT_WALL (max gamma concentration)
+    if option_flows:
+        call_gamma = {}
+        put_gamma = {}
+        for (strike, right, exp_date), flow in option_flows.items():
+            if exp_date == date:
+                if right == 'C':
+                    call_gamma[strike] = call_gamma.get(strike, 0) + abs(flow.net_gamma_flow)
+                else:
+                    put_gamma[strike] = put_gamma.get(strike, 0) + abs(flow.net_gamma_flow)
+
+        if call_gamma:
+            call_wall = max(call_gamma, key=call_gamma.get)
+            levels.append(call_wall)
+            kinds.append(10)  # CALL_WALL=10
+            kind_names.append('CALL_WALL')
+
+        if put_gamma:
+            put_wall = max(put_gamma, key=put_gamma.get)
+            levels.append(put_wall)
+            kinds.append(11)  # PUT_WALL=11
+            kind_names.append('PUT_WALL')
+
+    # Remove duplicates while preserving order
+    unique_levels = []
+    unique_kinds = []
+    unique_names = []
+    seen = set()
+
+    for lvl, kind, name in zip(levels, kinds, kind_names):
+        key = round(lvl, 2)
+        if key not in seen:
+            seen.add(key)
+            unique_levels.append(lvl)
+            unique_kinds.append(kind)
+            unique_names.append(name)
+
+    return LevelInfo(
+        prices=np.array(unique_levels, dtype=np.float64),
+        kinds=np.array(unique_kinds, dtype=np.int8),
+        kind_names=unique_names
+    )
+
+
+def compute_wall_series(
+    option_trades_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame,
+    date: str
+) -> tuple[pd.Series, pd.Series]:
+    """Compute rolling call/put wall strikes using option flow data."""
+    if option_trades_df is None or option_trades_df.empty:
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df = option_trades_df.copy()
+    required_cols = ['ts_event_ns', 'strike', 'size', 'gamma', 'aggressor', 'right']
+    if not set(required_cols).issubset(opt_df.columns):
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df = opt_df[required_cols + (['exp_date'] if 'exp_date' in opt_df.columns else [])].copy()
+    if 'exp_date' in opt_df.columns:
+        opt_df = opt_df[opt_df['exp_date'].astype(str) == date]
+    if opt_df.empty:
+        empty = pd.Series(np.nan, index=ohlcv_df.index)
+        return empty, empty
+
+    opt_df['ts_event_ns'] = pd.to_numeric(opt_df['ts_event_ns'], errors='coerce').fillna(0).astype(np.int64)
+    opt_df['strike'] = pd.to_numeric(opt_df['strike'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['size'] = pd.to_numeric(opt_df['size'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['gamma'] = pd.to_numeric(opt_df['gamma'], errors='coerce').fillna(0).astype(np.float64)
+    opt_df['aggressor'] = pd.to_numeric(opt_df['aggressor'], errors='coerce').fillna(0).astype(np.int8)
+    opt_df['right'] = opt_df['right'].astype(str)
+
+    opt_df['minute'] = pd.to_datetime(opt_df['ts_event_ns'], unit='ns', utc=True).dt.floor('1min')
+    opt_df['dealer_flow'] = -opt_df['aggressor'] * opt_df['size'] * opt_df['gamma'] * 100.0
+
+    window_minutes = max(1, int(round(CONFIG.W_wall / 60.0)))
+
+    def _wall_series_for_right(right: str) -> pd.Series:
+        subset = opt_df[opt_df['right'] == right]
+        if subset.empty:
+            return pd.Series(np.nan, index=ohlcv_df.index)
+
+        grouped = subset.groupby(['minute', 'strike'])['dealer_flow'].sum().reset_index()
+        pivot = grouped.pivot_table(
+            index='minute',
+            columns='strike',
+            values='dealer_flow',
+            aggfunc='sum',
+            fill_value=0.0
+        ).sort_index()
+
+        rolling = pivot.rolling(window=window_minutes, min_periods=1).sum()
+        total_abs = rolling.abs().sum(axis=1)
+        wall_strikes = rolling.idxmin(axis=1)
+        wall_strikes[total_abs == 0.0] = np.nan
+
+        ohlcv_minutes = ohlcv_df['timestamp'].dt.floor('1min')
+        aligned = pd.merge_asof(
+            pd.DataFrame({'minute': ohlcv_minutes}),
+            wall_strikes.rename('wall_strike').reset_index(),
+            on='minute',
+            direction='backward'
+        )['wall_strike']
+        return aligned
+
+    call_wall = _wall_series_for_right('C')
+    put_wall = _wall_series_for_right('P')
+    return call_wall, put_wall
+
+
+def compute_dynamic_level_series(
+    ohlcv_df: pd.DataFrame,
+    ohlcv_2min: pd.DataFrame,
+    option_trades_df: pd.DataFrame,
+    date: str
+) -> Dict[str, pd.Series]:
+    """Build per-bar dynamic level series (causal) for structural levels."""
+    df = ohlcv_df.copy()
+    df = df.sort_values('timestamp')
+    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+    df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
+
+    premarket_mask = (df['time_et'] >= dt_time(4, 0)) & (df['time_et'] < dt_time(9, 30))
+    session_mask = df['time_et'] >= dt_time(9, 30)
+    or_mask = (df['time_et'] >= dt_time(9, 30)) & (df['time_et'] < dt_time(9, 45))
+
+    pm_high_series = pd.Series(np.nan, index=df.index)
+    pm_low_series = pd.Series(np.nan, index=df.index)
+    if premarket_mask.any():
+        pm_high = df.loc[premarket_mask, 'high'].to_numpy(dtype=np.float64)
+        pm_low = df.loc[premarket_mask, 'low'].to_numpy(dtype=np.float64)
+        pm_high_series.loc[premarket_mask] = pd.Series(pm_high).cummax().values
+        pm_low_series.loc[premarket_mask] = pd.Series(pm_low).cummin().values
+        final_pm_high = float(np.nanmax(pm_high))
+        final_pm_low = float(np.nanmin(pm_low))
+        pm_high_series.loc[session_mask] = final_pm_high
+        pm_low_series.loc[session_mask] = final_pm_low
+
+    or_high_series = pd.Series(np.nan, index=df.index)
+    or_low_series = pd.Series(np.nan, index=df.index)
+    if or_mask.any():
+        or_high = df.loc[or_mask, 'high'].to_numpy(dtype=np.float64)
+        or_low = df.loc[or_mask, 'low'].to_numpy(dtype=np.float64)
+        or_high_series.loc[or_mask] = pd.Series(or_high).cummax().values
+        or_low_series.loc[or_mask] = pd.Series(or_low).cummin().values
+        final_or_high = float(np.nanmax(or_high))
+        final_or_low = float(np.nanmin(or_low))
+        or_high_series.loc[df['time_et'] >= dt_time(9, 45)] = final_or_high
+        or_low_series.loc[df['time_et'] >= dt_time(9, 45)] = final_or_low
+
+    session_high = df['high'].where(session_mask, np.nan)
+    session_low = df['low'].where(session_mask, np.nan)
+    session_high_series = session_high.expanding().max()
+    session_low_series = session_low.expanding().min()
+
+    typical_price = (df['high'] + df['low'] + df['close']) / 3.0
+    vwap_num = (typical_price * df['volume']).where(session_mask, 0.0).cumsum()
+    vwap_den = df['volume'].where(session_mask, 0.0).cumsum()
+    vwap_series = vwap_num / vwap_den.replace(0, np.nan)
+
+    df_2min = ohlcv_2min.copy()
+    df_2min = df_2min.sort_values('timestamp')
+    df_2min['timestamp'] = pd.to_datetime(df_2min['timestamp'], utc=True)
+    sma_200_series = df_2min['close'].rolling(200).mean()
+    sma_400_series = df_2min['close'].rolling(400).mean()
+    sma_df = pd.DataFrame({
+        'timestamp': df_2min['timestamp'],
+        'sma_200': sma_200_series,
+        'sma_400': sma_400_series
+    })
+    sma_aligned = pd.merge_asof(
+        df[['timestamp']],
+        sma_df.sort_values('timestamp'),
+        on='timestamp',
+        direction='backward'
+    )
+
+    call_wall_series, put_wall_series = compute_wall_series(option_trades_df, df, date)
+
+    return {
+        'PM_HIGH': pm_high_series,
+        'PM_LOW': pm_low_series,
+        'OR_HIGH': or_high_series,
+        'OR_LOW': or_low_series,
+        'SESSION_HIGH': session_high_series,
+        'SESSION_LOW': session_low_series,
+        'VWAP': vwap_series,
+        'SMA_200': sma_aligned['sma_200'],
+        'SMA_400': sma_aligned['sma_400'],
+        'CALL_WALL': call_wall_series,
+        'PUT_WALL': put_wall_series
+    }
 
 
 class GenerateLevelsStage(BaseStage):
-    """Generate level universe using vectorized operations.
+    """Generate level universe.
 
     Generates:
     - Static levels: ROUND, STRIKE
@@ -40,7 +351,7 @@ class GenerateLevelsStage(BaseStage):
         option_trades_df = ctx.data.get('option_trades_df', pd.DataFrame())
 
         # Generate full level universe
-        level_info = generate_level_universe_vectorized(
+        level_info = generate_level_universe(
             ohlcv_df,
             market_state.option_flows,
             ctx.date,
