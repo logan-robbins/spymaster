@@ -4,7 +4,7 @@
   "output_path": "data/lake/gold/training/signals_production.parquet",
   "label_column": "outcome",
   "label_values": ["BREAK", "BOUNCE"],
-  "pipeline": "src.pipeline.vectorized_pipeline",
+  "pipeline": "src.pipeline.pipelines.v2_0_full_ensemble",
   "features": {
     "identity": {
       "description": "Signal identification fields",

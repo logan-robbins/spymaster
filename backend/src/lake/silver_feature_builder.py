@@ -55,12 +55,12 @@ class SilverFeatureBuilder:
         Initialize Silver feature builder.
         
         Args:
-            data_root: Root data directory (default: CONFIG.DATA_ROOT)
+            data_root: Root lake directory (default: CONFIG.DATA_ROOT)
         """
         self.data_root = Path(data_root or CONFIG.DATA_ROOT)
         self.bronze_reader = BronzeReader(data_root=str(self.data_root))
         
-        self.silver_root = self.data_root / "lake" / "silver"
+        self.silver_root = self.data_root / "silver"
         self.features_root = self.silver_root / "features"
         self.datasets_root = self.silver_root / "datasets"
         
@@ -441,4 +441,3 @@ if __name__ == "__main__":
             comparison = builder.compare_versions(args.version_a, args.version_b)
             import json
             print(json.dumps(comparison, indent=2))
-

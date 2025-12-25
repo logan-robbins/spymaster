@@ -15,6 +15,10 @@ import os
 from dataclasses import dataclass, field
 
 
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+_DEFAULT_DATA_ROOT = os.path.join(_BASE_DIR, "data", "lake")
+
+
 @dataclass
 class Config:
     """
@@ -153,7 +157,7 @@ class Config:
     FEASIBILITY_LOGIT_CAP: float = 2.5
     
     # ========== Storage/replay settings ==========
-    DATA_ROOT: str = "backend/data/lake/"
+    DATA_ROOT: str = os.getenv("DATA_ROOT", _DEFAULT_DATA_ROOT)
     MICRO_BATCH_INTERVAL_S: float = 5.0  # flush bronze parquet every 5s
     
     # ========== Out-of-order tolerance ==========

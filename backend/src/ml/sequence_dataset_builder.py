@@ -26,7 +26,7 @@ import pandas as pd
 from src.common.config import CONFIG
 from src.ingestor.dbn_ingestor import DBNIngestor
 from src.ml.data_filters import filter_rth_signals
-from src.pipeline.vectorized_pipeline import build_ohlcv_vectorized
+from src.pipeline.stages.build_ohlcv import build_ohlcv
 
 
 SEQ_FEATURE_COLUMNS = [
@@ -117,15 +117,15 @@ def _build_ohlcv_features(date: str) -> pd.DataFrame:
     if not trades:
         raise ValueError(f"No ES trades found for {date}")
 
-    ohlcv_1m = build_ohlcv_vectorized(trades, convert_to_spy=True, freq="1min")
-    ohlcv_2m = build_ohlcv_vectorized(trades, convert_to_spy=True, freq="2min")
+    ohlcv_1m = build_ohlcv(trades, convert_to_spy=True, freq="1min")
+    ohlcv_2m = build_ohlcv(trades, convert_to_spy=True, freq="2min")
     warmup_dates = _get_warmup_dates(ingestor, date)
     warmup_frames = []
     for warmup_date in warmup_dates:
         warmup_trades = list(ingestor.read_trades(date=warmup_date))
         if not warmup_trades:
             continue
-        warmup_2m = build_ohlcv_vectorized(warmup_trades, convert_to_spy=True, freq="2min")
+        warmup_2m = build_ohlcv(warmup_trades, convert_to_spy=True, freq="2min")
         if not warmup_2m.empty:
             warmup_frames.append(warmup_2m)
     if warmup_frames:
