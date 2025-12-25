@@ -74,7 +74,7 @@ NATS (market.*)
 
 ```
 Bronze (all hours, immutable)
-    ↓ [SilverFeatureBuilder uses VectorizedPipeline]
+    ↓ [SilverFeatureBuilder uses versioned pipelines]
 Silver Features (versioned, RTH only 9:30-16:00 ET)
     ↓ [GoldCurator]
 Gold Training (production ML dataset)
@@ -327,7 +327,7 @@ Why?
 - Liquidity is highest during RTH
 - ML models train on actionable trading hours
 - Pre-market data is used for feature computation (PM_HIGH/PM_LOW) but not for training labels
-- Implementation: VectorizedPipeline automatically filters output to RTH
+- Implementation: Pipeline FilterRTHStage automatically filters output to RTH
 
 ### Experiment Tracking
 Always register experiments with meaningful metadata including metrics, model path, and hypothesis notes.
@@ -346,10 +346,11 @@ Always register experiments with meaningful metadata including metrics, model pa
 **Purpose**: Promote best Silver experiments to Gold production  
 **Key Methods**: `promote_to_training()`, `validate_dataset()`, `list_datasets()`
 
-### VectorizedPipeline
-**File**: `src/pipeline/vectorized_pipeline.py`  
-**Purpose**: Internal feature computation engine (used by SilverFeatureBuilder)  
-**Note**: Not intended for standalone use - see `src/pipeline/README.md` for technical details
+### Pipeline (Modular)
+**File**: `src/pipeline/` (modular stage-based architecture)
+**Purpose**: Versioned feature computation pipelines (used by SilverFeatureBuilder)
+**Key APIs**: `get_pipeline_for_version()`, `build_v1_0_pipeline()`, `build_v2_0_pipeline()`
+**Note**: See `src/pipeline/README.md` for architecture details
 
 ### BronzeWriter / GoldWriter
 **File**: `src/lake/bronze_writer.py`, `src/lake/gold_writer.py`  

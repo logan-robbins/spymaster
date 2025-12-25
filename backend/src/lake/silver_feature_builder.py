@@ -106,11 +106,11 @@ class SilverFeatureBuilder:
         # Save manifest
         manifest.to_file(output_dir / "manifest.yaml")
         
-        # Import vectorized pipeline for feature computation
-        from src.pipeline.vectorized_pipeline import VectorizedPipeline
-        
-        # Create pipeline with parameters from manifest
-        pipeline = VectorizedPipeline()
+        # Get versioned pipeline for this manifest
+        from src.pipeline.pipelines import get_pipeline_for_version
+
+        # Create pipeline matching manifest version
+        pipeline = get_pipeline_for_version(version)
         
         # Process each date
         all_signals = []

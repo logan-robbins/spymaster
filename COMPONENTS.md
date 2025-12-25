@@ -547,8 +547,7 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 - Frontend: [frontend/INTERFACES.md](frontend/INTERFACES.md)
 
 ### Data Architecture
-- Medallion Overview: [backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)
-- Feature Engineering Workflow: [backend/MEDALLION_WORKFLOW.md](backend/MEDALLION_WORKFLOW.md)
+- Data Architecture & Workflow: [backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)
 - Data Directory Structure: [backend/data/README.md](backend/data/README.md)
 - Feature Manifest Schema: [backend/src/common/schemas/feature_manifest.py](backend/src/common/schemas/feature_manifest.py)
 

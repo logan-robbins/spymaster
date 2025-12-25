@@ -280,8 +280,8 @@ These are mentioned in `features.json` and `LevelKind` enum but not implemented 
    sma_200 = context_engine.get_sma_200_at_time(ts_ns)
    ```
 
-2. `src/pipeline/batch_process.py`:
-   - Uses VectorizedPipeline for batch processing multiple dates
+2. `src/pipeline/`:
+   - Uses modular stage-based pipelines for batch processing multiple dates
 
 **Tests**:
 3. `tests/test_context_engine.py` - Unit tests
