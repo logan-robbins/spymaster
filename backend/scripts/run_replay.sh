@@ -23,11 +23,14 @@ echo "  Date:  $DATE"
 echo "  Speed: ${SPEED}x (0 = max speed)"
 echo "=============================================="
 
-# Ensure Docker services are running
+# Ensure Docker services are running with REPLAY_DATE
 echo ""
 echo ">>> Ensuring NATS, Core, Gateway are running..."
 cd "$PROJECT_DIR"
-docker-compose up -d nats core gateway lake
+export REPLAY_DATE=$DATE
+docker-compose up -d nats gateway lake
+# Restart Core to pick up REPLAY_DATE
+docker-compose up -d --force-recreate core
 
 # Wait for services to be healthy
 echo ""
