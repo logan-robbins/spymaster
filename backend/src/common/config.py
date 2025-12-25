@@ -139,6 +139,13 @@ class Config:
     # ========== Normalization ==========
     ATR_WINDOW_MINUTES: int = 14
 
+    # ========== Confluence feature settings ==========
+    VOLUME_LOOKBACK_DAYS: int = 7          # Days for relative volume baseline
+    SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
+    WALL_PROXIMITY_DOLLARS: float = 1.0     # $1 (1 strike) for GEX wall proximity
+    REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
+    REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
+
     # ========== Feasibility gate thresholds ==========
     FEASIBILITY_TAPE_IMBALANCE: float = 0.20
     FEASIBILITY_GAMMA_EXPOSURE: float = 50000.0

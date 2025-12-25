@@ -214,7 +214,65 @@
 
 ---
 
-### 7. Frontend (Angular)
+### 7. Pipeline Module
+
+**Location**: `backend/src/pipeline/`
+**Role**: Offline feature engineering and signal generation for ML training
+**Interface**: [backend/src/pipeline/README.md](backend/src/pipeline/README.md)
+
+**Key Responsibilities**:
+- Bronze → Gold data transformation (vectorized operations)
+- Level universe generation (PM/OR/SMA/VWAP/Walls)
+- Touch detection with monitor band filtering
+- Physics feature computation (barrier, tape, fuel)
+- Confluence level feature computation (hierarchical 1-10 scale)
+- Outcome labeling (BREAK/BOUNCE with competing-risks timing)
+
+**Inputs**:
+- Bronze Parquet: ES trades, MBP-10, option trades
+- Warmup data: 3 prior days (SMA), 7 prior days (relative volume)
+
+**Outputs**:
+- Gold Parquet: `gold/research/signals_vectorized.parquet`
+- Schema defined in `backend/features.json`
+
+**Key Components**:
+- `VectorizedPipeline`: High-performance batch processing
+- `compute_confluence_level_features`: Hierarchical setup quality scoring
+- `generate_level_universe_vectorized`: Structural level detection
+
+**Level Universe** (SPY-specific):
+- PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
+- OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET)
+- SESSION_HIGH/SESSION_LOW: Running session extremes
+- SMA_200/SMA_400: Moving averages on 2-min bars
+- VWAP: Session volume-weighted average price
+- CALL_WALL/PUT_WALL: Max gamma concentration strikes
+- Note: ROUND/STRIKE levels disabled for SPY (duplicative with $1 strikes)
+
+**Entry Point**: `uv run python -m src.pipeline.batch_process --start-date 2025-11-01`
+
+---
+
+### 8. Features Module
+
+**Location**: `backend/src/features/`
+**Role**: Context analysis and structural level identification
+**Interface**: [backend/src/features/INTERFACES.md](backend/src/features/INTERFACES.md)
+
+**Key Responsibilities**:
+- Timing context detection (first 15 minutes, bars since open)
+- Structural level identification (PM high/low, SMA-200/400)
+- Level proximity detection
+
+**Key Components**:
+- `ContextEngine`: Caches PM/OR levels, SMA series, timing context
+
+**Entry Point**: Used as library by Pipeline and Core modules
+
+---
+
+### 9. Frontend (Angular)
 
 **Location**: `frontend/`  
 **Role**: Real-time UI for SPY 0DTE break/bounce signals  
@@ -305,12 +363,15 @@
 **Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
 
 **Key Parameters**:
-- Physics windows: `W_b=10s`, `W_t=5s`, `W_g=60s`
-- Monitoring bands: `MONITOR_BAND=0.50`, `TOUCH_BAND=0.05`
+- Physics windows: `W_b=240s` (barrier/confirmation), `W_t=60s` (tape), `W_g=60s` (fuel)
+- Monitoring bands: `MONITOR_BAND=0.25`, `TOUCH_BAND=0.10`
 - Thresholds: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`
 - Score weights: `w_L=0.45`, `w_H=0.35`, `w_T=0.20`
 - Smoothing: `tau_score=2.0s`, `tau_velocity=1.5s`
 - Snap interval: `SNAP_INTERVAL_MS=250`
+- Warmup: `SMA_WARMUP_DAYS=3`, `VOLUME_LOOKBACK_DAYS=7`
+- Confluence: `SMA_PROXIMITY_THRESHOLD=0.005`, `WALL_PROXIMITY_DOLLARS=1.0`
+- Relative volume: `REL_VOL_HIGH_THRESHOLD=1.3`, `REL_VOL_LOW_THRESHOLD=0.7`
 
 **Access Pattern**:
 ```python
@@ -491,10 +552,12 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 - Lake: [backend/src/lake/README.md](backend/src/lake/README.md)
 - Gateway: [backend/src/gateway/README.md](backend/src/gateway/README.md)
 - ML: [backend/src/ml/README.md](backend/src/ml/README.md)
+- Pipeline: [backend/src/pipeline/README.md](backend/src/pipeline/README.md)
+- Features: [backend/src/features/README.md](backend/src/features/README.md)
 
 ---
 
-**Version**: 1.0  
-**Last Updated**: 2025-12-23  
-**Status**: Active (Phase 2 architecture)
+**Version**: 1.1
+**Last Updated**: 2025-12-24
+**Status**: Active (Phase 3 architecture - confluence level feature)
 
