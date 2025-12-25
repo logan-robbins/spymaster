@@ -19,6 +19,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 import joblib
 
+from src.ml.data_filters import filter_rth_signals
 from src.ml.feature_sets import select_features
 from src.ml.tracking import (
     hash_file,
@@ -154,6 +155,10 @@ def main() -> None:
     df = pd.read_parquet(data_path)
     if df.empty:
         raise ValueError("Signals dataset is empty.")
+
+    df = filter_rth_signals(df)
+    if df.empty:
+        raise ValueError("No signals left after RTH filter.")
 
     valid_mask = df["outcome"].isin(["BREAK", "BOUNCE", "CHOP"])
     df = df[valid_mask].copy()

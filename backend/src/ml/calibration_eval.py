@@ -15,6 +15,7 @@ import pandas as pd
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss
 
+from src.ml.data_filters import filter_rth_signals
 from src.ml.tree_inference import TreeModelBundle
 from src.ml.tracking import (
     hash_file,
@@ -121,6 +122,10 @@ def main() -> None:
     df = pd.read_parquet(data_path)
     if df.empty:
         raise ValueError("Signals dataset is empty.")
+
+    df = filter_rth_signals(df)
+    if df.empty:
+        raise ValueError("No signals left after RTH filter.")
 
     df = df[df["outcome"].isin(["BREAK", "BOUNCE", "CHOP"])].copy()
     if df.empty:

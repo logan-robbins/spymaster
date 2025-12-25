@@ -98,7 +98,7 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 4. Filter to critical zone (|close - level| ≤ $0.25)
 5. Compute physics (barrier, tape, fuel) + approach context
 6. Label outcomes (BREAK/BOUNCE/CHOP based on $2.00 threshold, anchored at t1 and measured vs level price)
-7. Output: `data/lake/gold/research/signals_vectorized.parquet`
+7. Output: Silver features → Gold training via GoldCurator (`data/lake/gold/training/signals_production.parquet`)
 
 **Live Processing** (Core Service):
 1. Subscribe to NATS (`market.*` subjects)

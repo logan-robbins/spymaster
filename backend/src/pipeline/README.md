@@ -1,198 +1,178 @@
 # Pipeline Module
 
-**Purpose**: Offline feature engineering and signal generation for SPY 0DTE ML training
-**Status**: Production
-**Primary Output**: Gold-layer parquet files with labeled signals
+**Purpose**: VectorizedPipeline - core feature computation engine  
+**Status**: Production  
+**Primary Consumer**: SilverFeatureBuilder  
+**Architecture**: See [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 
 ---
 
 ## Overview
 
-The pipeline module orchestrates the complete Bronze → Gold data transformation:
-- **Data Loading**: Read ES futures trades, MBP-10 quotes, and option trades from Bronze layer
-- **Feature Engineering**: Compute physics-based features (barrier, tape, fuel, approach)
-- **Level Detection**: Generate structural level universe and detect touches
-- **Labeling**: Create supervised learning targets (BREAK/BOUNCE/CHOP)
-- **Export**: Write ML-ready parquet files to Gold layer
+Provides the VectorizedPipeline class - a high-performance feature computation engine used internally by SilverFeatureBuilder to transform Bronze data into Silver features.
+
+**Key Principle**: This is a utility class, not a standalone tool. Used by SilverFeatureBuilder in the Medallion pipeline.
 
 ---
 
-## Components
+## VectorizedPipeline
 
-### VectorizedPipeline (Primary)
-
-**File**: `vectorized_pipeline.py`
-**Purpose**: High-performance batch processing using numpy/pandas vectorized operations
+**File**: `vectorized_pipeline.py`  
+**Purpose**: High-performance batch processing using vectorized numpy operations optimized for Apple M4 Silicon
 
 **Key Stages**:
-1. **Data Loading**: Parallel file reads from Bronze parquet
+1. **Data Loading**: Read Bronze parquet (ES trades, MBP-10, option trades)
 2. **OHLCV Building**: 1-min and 2-min bars from ES trades (converted to SPY scale)
-3. **SMA Warmup**: Load 3 prior days for SMA-200/400 computation
-4. **Volume Warmup**: Load 7 prior days for relative volume computation
-5. **Level Universe**: Generate structural levels (PM/OR/SMA/VWAP/Walls)
-6. **Touch Detection**: Numpy broadcasting for monitor band filtering
-7. **Physics Computation**: Batch metrics from barrier/tape/fuel engines
-8. **Feature Transforms**: Normalization, sparse encoding, confluence features
-9. **Labeling**: Forward-looking outcome determination (competing risks)
+3. **Warmup**: Load 3 prior days for SMA-200/400, 7 prior days for relative volume
+4. **Level Universe**: Generate structural levels (PM/OR/SMA/VWAP/Walls)
+5. **Touch Detection**: Numpy broadcasting for monitor band filtering
+6. **Physics Computation**: Batch metrics from barrier/tape/fuel engines
+7. **Feature Transforms**: Normalization, sparse encoding, confluence features
+8. **Labeling**: Forward-looking outcome determination (competing risks)
+9. **RTH Filtering**: Output filtered to 09:30-16:00 ET with full forward window
 
-**Usage**:
+**Usage** (via SilverFeatureBuilder):
+```python
+from src.lake.silver_feature_builder import SilverFeatureBuilder
+
+builder = SilverFeatureBuilder()
+builder.build_feature_set(
+    manifest=manifest,
+    dates=['2025-12-16', '2025-12-17']
+)
+# Internally calls VectorizedPipeline.run() for each date
+```
+
+**Direct Usage** (development/testing only):
 ```python
 from src.pipeline.vectorized_pipeline import VectorizedPipeline
 
 pipeline = VectorizedPipeline()
-signals_df = pipeline.run(date="2025-12-16")
-
-# Output: DataFrame with ~800-3000 signals per day
-print(f"Generated {len(signals_df)} signals")
-print(signals_df.columns.tolist())
+signals_df = pipeline.run(date='2025-12-16')
+# Returns DataFrame with ~800-3000 signals (RTH only)
 ```
 
 ---
 
-### BatchProcess
+## Level Universe (SPY-Specific)
 
-**File**: `batch_process.py`
-**Purpose**: Multi-date batch orchestration using VectorizedPipeline
+VectorizedPipeline generates structural levels for SPY:
 
-**Usage**:
-```bash
-cd backend
+1. **PM_HIGH/PM_LOW**: Pre-market high/low (04:00-09:30 ET)
+   - Computed from Bronze pre-market data
+   - Used as features but pre-market signals are filtered out
 
-# Process all available dates (with sufficient warmup)
-uv run python -m src.pipeline.batch_process
+2. **OR_HIGH/OR_LOW**: Opening range (09:30-09:45 ET)
 
-# Process specific date range
-uv run python -m src.pipeline.batch_process --start-date 2025-12-10 --end-date 2025-12-19
+3. **SESSION_HIGH/SESSION_LOW**: Running session extremes
 
-# Process specific dates only
-uv run python -m src.pipeline.batch_process --dates 2025-12-18,2025-12-19
+4. **SMA_200/SMA_400**: Moving averages on 2-min bars
+   - Requires 3 prior days warmup
 
-# Dry run (show what would be processed)
-uv run python -m src.pipeline.batch_process --dry-run
-```
+5. **VWAP**: Session volume-weighted average price
 
----
+6. **CALL_WALL/PUT_WALL**: Max gamma concentration strikes
 
-## Level Universe
-
-### Active Level Types (SPY-specific)
-
-| Code | Name | Description |
-|------|------|-------------|
-| 0 | PM_HIGH | Pre-market high (04:00-09:30 ET) |
-| 1 | PM_LOW | Pre-market low (04:00-09:30 ET) |
-| 2 | OR_HIGH | Opening range high (09:30-09:45 ET) |
-| 3 | OR_LOW | Opening range low (09:30-09:45 ET) |
-| 4 | SESSION_HIGH | Running session high |
-| 5 | SESSION_LOW | Running session low |
-| 6 | SMA_200 | 200-period SMA on 2-min bars |
-| 7 | VWAP | Session volume-weighted average price |
-| 10 | CALL_WALL | Max call gamma concentration strike |
-| 11 | PUT_WALL | Max put gamma concentration strike |
-| 12 | SMA_400 | 400-period SMA on 2-min bars |
-
-**Disabled for SPY**:
-- Code 8 (ROUND): Duplicative with $1 strike spacing
-- Code 9 (STRIKE): Duplicative with $1 strike spacing
+**Note**: ROUND ($5, $10) and STRIKE (generic) levels are disabled for SPY due to duplicative $1 strike spacing.
 
 ---
 
-## Confluence Level Feature
+## Feature Categories
 
-### Overview
+**Barrier Physics** (ES MBP-10 depth):
+- `barrier_state`: VACUUM/WALL/ABSORPTION/NEUTRAL
+- `barrier_delta_liq`: Net liquidity change
+- `barrier_replenishment_ratio`: Add/remove ratio
+- `wall_ratio`: Concentration vs baseline
 
-The `confluence_level` feature provides a hierarchical quality score (1-10) for each signal based on 5 dimensions:
+**Tape Physics** (ES trade flow):
+- `tape_imbalance`: Buy/sell ratio [-1, 1]
+- `tape_velocity`: Trade arrival rate
+- `sweep_detected`: Aggressive multi-level execution
 
-| Dimension | States | Description |
-|-----------|--------|-------------|
-| Breakout State | INSIDE, PARTIAL, ABOVE_ALL, BELOW_ALL | Relationship to PM/OR ranges |
-| SMA Proximity | CLOSE, FAR | Distance to SMA-200 AND SMA-400 |
-| Time Period | FIRST_HOUR, REST_OF_DAY | 09:30-10:30 ET vs after |
-| GEX Alignment | ALIGNED, OPPOSED, NEUTRAL | Gamma supports/resists move |
-| Relative Volume | HIGH, NORMAL, LOW | Participation vs 7-day average |
+**Fuel Physics** (SPY option gamma):
+- `gamma_exposure`: Net dealer gamma at level
+- `fuel_effect`: AMPLIFY/DAMPEN/NEUTRAL
+- `gamma_flow_velocity`: Flow per minute
+- `dealer_pressure`: Normalized pressure score
 
-### Confluence Levels
+**Approach Context**:
+- `distance_atr`: ATR-normalized distance to level
+- `approach_velocity`: $/min toward level
+- `attempt_index`: Touch count in cluster
+- `prior_touches`: Historical touches at level
 
-| Level | Name | Conditions |
-|-------|------|------------|
-| 1 | ULTRA_PREMIUM | Full breakout + SMA close + first hour + GEX aligned + high volume |
-| 2 | PREMIUM | Full breakout + SMA close + first hour + GEX aligned |
-| 3 | STRONG | Full breakout + SMA close + first hour |
-| 4 | MOMENTUM | Full breakout + SMA far + first hour + GEX aligned + high volume |
-| 5 | EXTENDED | Full breakout + SMA far + first hour |
-| 6 | LATE_REVERSION | Full breakout + SMA close + rest of day + high volume |
-| 7 | FADING | Full breakout + rest of day |
-| 8 | DEVELOPING | Partial breakout + SMA close + GEX aligned + high volume |
-| 9 | WEAK | Partial breakout |
-| 10 | CONSOLIDATION | Inside both PM and OR ranges |
-| 0 | UNDEFINED | Missing PM/OR/SMA/volume data |
+**Confluence Features**:
+- `confluence_level`: Hierarchical setup quality (1-10 scale)
+- `breakout_state`: Multi-timeframe trend alignment
+- `gex_alignment`: Gamma exposure alignment with direction
+- `rel_vol_ratio`: Current vs 7-day average volume
 
-### Related Features
+**Labels** (competing risks):
+- `outcome`: BREAK_1/BOUNCE_1/BREAK_2/BOUNCE_2/CHOP
+- `strength_signed`: Signed distance moved
+- `t1_60`, `t1_120`: Time to first threshold (seconds)
+- `t2_60`, `t2_120`: Time to second threshold
+- `t1_break_60`, `t1_bounce_60`: Directional timing
+- `tradeable_1`, `tradeable_2`: Binary tradeable flags
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `confluence_level` | int8 | Hierarchical quality score (0-10) |
-| `breakout_state` | int8 | 0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL |
-| `gex_alignment` | int8 | -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED |
-| `rel_vol_ratio` | float64 | Current hour cumvol / 7-day avg at same hour |
+---
+
+## RTH Filtering
+
+**Critical**: Silver and Gold datasets contain ONLY RTH (09:30-16:00 ET) signals.
+
+**Implementation** (lines 2814-2829 of vectorized_pipeline.py):
+- Filters output to 09:30-16:00 ET
+- Ensures full forward window available (no partial labels at 4pm)
+- Pre-market data still used for feature computation (PM_HIGH/PM_LOW)
+
+---
+
+## Performance Optimizations
+
+**Apple M4 Silicon Optimized**:
+- All operations use numpy broadcasting (no Python loops)
+- Batch processing of all touches simultaneously
+- Memory-efficient chunked processing
+- Optional Numba JIT compilation for hot paths
+
+**Performance Targets**:
+- Process 1M+ trades in <10 seconds
+- Generate 10K+ signals per day
+- Memory usage <16GB for full day
+
+**Actual Performance** (M4 Mac, 128GB RAM):
+- Single date: ~2-5 seconds
+- 10 dates: ~30-60 seconds
+- ~500-1000 signals/sec throughput
+
+---
+
+## Integration with SilverFeatureBuilder
+
+VectorizedPipeline is called internally by SilverFeatureBuilder. For each date, it:
+1. Loads Bronze data (ES trades + MBP-10 + options)
+2. Builds OHLCV (1min, 2min bars)
+3. Loads warmup data (SMA, relative volume)
+4. Generates level universe
+5. Detects touches (monitor band)
+6. Computes physics features (barrier/tape/fuel)
+7. Computes approach context
+8. Labels outcomes (competing risks)
+9. Filters to RTH (9:30-16:00)
+10. Returns in-memory DataFrame to SilverFeatureBuilder
 
 ---
 
 ## Configuration
 
-### Key Constants (from `src/common/config.py`)
-
-```python
-# Monitoring bands
-MONITOR_BAND = 0.25       # $0.25 - compute signals within this distance
-TOUCH_BAND = 0.10         # $0.10 - tight band for "touching level"
-
-# Warmup periods
-SMA_WARMUP_DAYS = 3       # Prior days for SMA-200/400
-VOLUME_LOOKBACK_DAYS = 7  # Prior days for relative volume
-
-# Confluence thresholds
-SMA_PROXIMITY_THRESHOLD = 0.005   # 0.5% of spot for "close to SMA"
-WALL_PROXIMITY_DOLLARS = 1.0      # $1 for GEX wall proximity
-REL_VOL_HIGH_THRESHOLD = 1.3      # 30% above average = HIGH
-REL_VOL_LOW_THRESHOLD = 0.7       # 30% below average = LOW
-
-# Confirmation windows
-CONFIRMATION_WINDOWS_MULTI = [120, 240, 480]  # 2min, 4min, 8min
-```
-
----
-
-## Output Schema
-
-The pipeline outputs a parquet file with columns defined in `backend/features.json`.
-
-**Key Column Groups**:
-- `identity`: event_id, ts_ns, date, symbol
-- `level`: level_price, level_kind, direction, distance
-- `confluence`: confluence_level, breakout_state, gex_alignment, rel_vol_ratio
-- `barrier_physics`: barrier_state, barrier_delta_liq, wall_ratio
-- `tape_physics`: tape_imbalance, tape_velocity, sweep_detected
-- `fuel_physics`: gamma_exposure, fuel_effect, dealer_flow_*
-- `outcomes`: outcome (BREAK/BOUNCE), time_to_break_*, time_to_bounce_*
-
----
-
-## Performance
-
-### Typical Runtime (M4 Silicon, 128GB RAM)
-
-| Date Characteristics | Runtime | Signals |
-|---------------------|---------|---------|
-| Normal day (~500K trades) | 15-25s | 800-1500 |
-| High volume day (~1M trades) | 30-45s | 2000-3500 |
-| Low volume day (~200K trades) | 8-12s | 400-800 |
-
-### Memory Usage
-
-- Peak: ~4-8GB during physics computation
-- Steady state: ~1-2GB for data structures
-- Output parquet: ~5-15MB per day
+Pipeline behavior is controlled by `backend/src/common/config.py`:
+- Physics windows: `W_b`, `W_t`, `W_g` (barrier, tape, fuel)
+- Touch detection: `MONITOR_BAND`, `TOUCH_BAND`
+- Confirmation windows: `CONFIRMATION_WINDOWS_MULTI`
+- Warmup: `SMA_WARMUP_DAYS`, `VOLUME_LOOKBACK_DAYS`
+- RTH session: Hardcoded 09:30-16:00 ET
 
 ---
 
@@ -200,20 +180,37 @@ The pipeline outputs a parquet file with columns defined in `backend/features.js
 
 ```bash
 cd backend
-uv run pytest tests/test_ml_module.py tests/test_research_lab.py -v
+
+# Test VectorizedPipeline (via unit tests)
+uv run pytest tests/test_vectorized_pipeline.py -v
+
+# Test end-to-end determinism
+uv run pytest tests/test_replay_determinism.py -v
 ```
+
+---
+
+## Common Issues
+
+**"No signals generated"**:
+- Check Bronze data exists for date: `ls data/lake/bronze/futures/trades/symbol=ES/date=2025-12-16/`
+- Verify warmup data available (3 prior days)
+
+**"High null rates in features"**:
+- Option trades may be sparse: `gamma_exposure` can have 10-15% nulls
+- MBP-10 gaps: `barrier_state` should be <1% null
+
+**"Performance slow"**:
+- Check if Numba is installed: `pip list | grep numba`
+- Verify sufficient RAM (16GB+ recommended)
+- Consider reducing date range if memory-constrained
 
 ---
 
 ## References
 
-- **Feature Schema**: `backend/features.json`
-- **Configuration**: `src/common/config.py`
-- **Bronze Reader**: `src/lake/bronze_reader.py`
-- **Physics Engines**: `src/core/barrier_engine.py`, `src/core/tape_engine.py`, `src/core/fuel_engine.py`
-
----
-
-**Version**: 1.0
-**Last Updated**: 2025-12-24
-**Status**: Production
+- **Architecture & Workflow**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
+- **Feature Manifests**: [../common/schemas/feature_manifest.py](../common/schemas/feature_manifest.py)
+- **Physics Engines**: [../core/](../core/) (barrier, tape, fuel)
+- **Silver Builder**: [../lake/silver_feature_builder.py](../lake/silver_feature_builder.py)
+- **Configuration**: [../common/config.py](../common/config.py)
