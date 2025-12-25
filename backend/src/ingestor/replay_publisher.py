@@ -17,9 +17,39 @@ import asyncio
 import time
 from typing import Iterator, Optional, List, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from src.ingestor.dbn_ingestor import DBNIngestor
+
+
+# US Eastern timezone for market hours
+ET = ZoneInfo("America/New_York")
+
+# Pre-market starts at 4:00 AM ET
+PREMARKET_START_HOUR = 4
+PREMARKET_START_MINUTE = 0
+
+
+def get_premarket_start_ns(date_str: str) -> int:
+    """
+    Get the start timestamp (nanoseconds) for pre-market on a given date.
+
+    Pre-market starts at 4:00 AM ET.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format
+
+    Returns:
+        Unix nanoseconds for 4:00 AM ET on that date
+    """
+    year, month, day = map(int, date_str.split('-'))
+
+    # Create datetime at 4:00 AM ET
+    dt_et = datetime(year, month, day, PREMARKET_START_HOUR, PREMARKET_START_MINUTE, 0, tzinfo=ET)
+
+    # Convert to Unix timestamp (seconds) then to nanoseconds
+    return int(dt_et.timestamp() * 1_000_000_000)
 from src.lake.bronze_writer import BronzeReader
 from src.common.bus import NATSBus
 from src.common.event_types import FuturesTrade, MBP10, OptionTrade, EventSource, Aggressor, BidAskLevel
@@ -204,26 +234,27 @@ class ReplayPublisher:
     async def replay_continuous(
         self,
         dates: Optional[List[str]] = None,
-        start_ns: Optional[int] = None,
         end_ns: Optional[int] = None,
-        include_options: bool = False
+        include_options: bool = True
     ):
         """
-        Replay multiple dates continuously.
-        
+        Replay multiple dates continuously, each starting from pre-market (4:00 AM ET).
+
         Args:
             dates: List of dates to replay, or None for all available
-            start_ns: Optional start time filter
             end_ns: Optional end time filter
+            include_options: Whether to include options (default True)
         """
         if dates is None:
             dates = self.dbn_ingestor.get_available_dates('trades')
-        
+
         print(f"🎬 Continuous replay mode")
         print(f"   Dates: {len(dates)} days")
         print(f"   Range: {dates[0]} to {dates[-1]}")
-        
+
         for date in dates:
+            # Each date starts from pre-market (4:00 AM ET)
+            start_ns = get_premarket_start_ns(date)
             await self.replay_date(date, start_ns, end_ns, include_options=include_options)
             print(f"  ✅ Completed {date}\n")
 
@@ -441,7 +472,7 @@ async def main():
     # Get configuration
     replay_speed = CONFIG.REPLAY_SPEED
     replay_date = os.getenv("REPLAY_DATE")  # Single date or None for all
-    include_options = os.getenv("REPLAY_INCLUDE_OPTIONS", "false").lower() == "true"
+    include_options = os.getenv("REPLAY_INCLUDE_OPTIONS", "true").lower() == "true"
     use_bronze_futures = os.getenv("REPLAY_USE_BRONZE_FUTURES", "false").lower() == "true"
     futures_symbol = os.getenv("REPLAY_FUTURES_SYMBOL", "ES")
     print(f"   Options replay: {include_options}")
@@ -479,9 +510,15 @@ async def main():
             if replay_date not in available_dates:
                 print(f"❌ Date {replay_date} not found in available data")
                 sys.exit(1)
-            await publisher.replay_date(replay_date, include_options=include_options)
+
+            # Start from pre-market (4:00 AM ET)
+            start_ns = get_premarket_start_ns(replay_date)
+            start_dt = datetime.fromtimestamp(start_ns / 1e9, tz=ET)
+            print(f"   Start time: {start_dt.strftime('%H:%M:%S %Z')} (pre-market)")
+
+            await publisher.replay_date(replay_date, start_ns=start_ns, include_options=include_options)
         else:
-            # Replay all dates
+            # Replay all dates (each starting from pre-market)
             await publisher.replay_continuous(dates=available_dates, include_options=include_options)
         
         print("\n✅ Replay complete")

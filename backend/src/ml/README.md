@@ -163,9 +163,23 @@ uv run python -m src.ml.calibration_eval \
 - Logs: params, metrics, model checkpoint, metadata
 
 **W&B** (Weights & Biases):
-- Project: `spymaster_patchtst`
+- Project: `spymaster`
 - Logs: per-epoch metrics, model artifact
-- Requires: `WANDB_API_KEY` or `WANDB_MODE=offline`
+- Requires: `WANDB_API_KEY` (or `wandb.txt`) or `WANDB_MODE=offline`
+- Note: No tracking URL required for W&B; use `WANDB_ENTITY` only if logging to a team namespace.
+
+**Status**:
+- PatchTST training already logs to MLflow + W&B (`src/ml/patchtst_train.py`).
+- Boosted trees, retrieval index, and calibration eval do not yet emit runs.
+
+**Implementation Plan (MLflow + W&B)**:
+- [ ] Add a shared tracking helper (run naming, tags, dataset hash, git SHA).
+- [ ] Boosted trees: log hyperparams, stage/ablation, train/val dates, metrics, feature list, model bundle artifact.
+- [ ] Retrieval index: log k, normalization settings, feature list, index artifact, retrieval metrics (if available).
+- [ ] Calibration eval: log reliability metrics, Brier scores, and calibration curve artifacts.
+- [ ] Standardize run IDs so W&B and MLflow share a common `run_name` and metadata tags.
+- [ ] Add environment config to `.env`/docs for MLflow (`MLFLOW_TRACKING_URI` optional, `MLFLOW_EXPERIMENT_NAME`) and W&B (`WANDB_PROJECT`, `WANDB_ENTITY`, `WANDB_MODE`, `WANDB_API_KEY` or `wandb.txt`).
+- [ ] Add optional sweep wrappers (MLflow or W&B) for tuning `TOUCH_BAND`, `LOOKFORWARD_MINUTES`, and physics windows.
 
 ---
 

@@ -151,6 +151,7 @@ class DataValidator:
         self._check_spot_level_consistency(df)
         self._check_timestamp_ordering(df)
         self._check_nan_inf_values(df)
+        self._check_gold_invariants(df)
 
         return ValidationReport(
             file_path=file_path,
@@ -413,6 +414,105 @@ class DataValidator:
         else:
             self._add_result("inf_values", True, "INFO",
                            "No Inf values found in numeric columns")
+
+    def _check_gold_invariants(self, df: pd.DataFrame):
+        """Validate gold dataset invariants per VALIDATE.md."""
+        if df.empty:
+            return
+
+        # Minimum size
+        if len(df) < 10000:
+            self._add_result("gold_row_count", False, "ERROR",
+                           f"Too few events: {len(df):,} (expected > 10,000)")
+        else:
+            self._add_result("gold_row_count", True, "INFO",
+                           f"{len(df):,} events (>= 10,000)")
+
+        # Confirmation time delta (primary 4min)
+        if "confirm_ts_ns" in df.columns and "ts_ns" in df.columns:
+            delta = (df["confirm_ts_ns"] - df["ts_ns"]) / 1e9
+            delta = delta[np.isfinite(delta)]
+            if len(delta) > 0:
+                mean_delta = float(delta.mean())
+                std_delta = float(delta.std())
+                if abs(mean_delta - 240.0) > 1.0:
+                    self._add_result("confirm_delta", False, "ERROR",
+                                   f"Confirmation time != 240s: {mean_delta:.1f}s ± {std_delta:.1f}s")
+                else:
+                    self._add_result("confirm_delta", True, "INFO",
+                                   f"Confirm delta: {mean_delta:.1f}s ± {std_delta:.1f}s")
+
+        # Distance geometry
+        if {"level_price", "spot", "distance"}.issubset(df.columns):
+            distance_calc = (df["level_price"] - df["spot"]).abs().to_numpy()
+            distance = df["distance"].to_numpy()
+            distance_match = np.allclose(distance, distance_calc, atol=0.01)
+            if not distance_match:
+                self._add_result("distance_geometry", False, "ERROR",
+                               "Distance != |level_price - spot|")
+            else:
+                self._add_result("distance_geometry", True, "INFO",
+                               "Distance geometry matches")
+
+            max_distance = float(np.nanmax(distance))
+            if max_distance > 0.50:
+                self._add_result("distance_range", False, "ERROR",
+                               f"Distance exceeds monitor band: max={max_distance:.3f}")
+            else:
+                self._add_result("distance_range", True, "INFO",
+                               f"Distance within monitor band (max={max_distance:.3f})")
+
+        # Direction consistency
+        if {"direction", "distance_signed"}.issubset(df.columns):
+            up_valid = df[df["direction"] == "UP"]["distance_signed"].ge(-0.01).all()
+            down_valid = df[df["direction"] == "DOWN"]["distance_signed"].le(0.01).all()
+            if not (up_valid and down_valid):
+                self._add_result("direction_consistency", False, "ERROR",
+                               f"Direction consistency failed: UP={up_valid}, DOWN={down_valid}")
+            else:
+                self._add_result("direction_consistency", True, "INFO",
+                               "Direction consistency OK")
+
+        # Tradeable consistency
+        if {"tradeable_1", "time_to_threshold_1"}.issubset(df.columns):
+            t1_match = ((df["tradeable_1"] == 1) == df["time_to_threshold_1"].notna()).mean()
+            if t1_match < 0.95:
+                self._add_result("tradeable_1_consistency", False, "ERROR",
+                               f"tradeable_1 mismatch: {t1_match:.1%}")
+            elif t1_match < 0.99:
+                self._add_result("tradeable_1_consistency", False, "WARNING",
+                               f"tradeable_1 mismatch: {t1_match:.1%}")
+            else:
+                self._add_result("tradeable_1_consistency", True, "INFO",
+                               f"tradeable_1 match: {t1_match:.1%}")
+
+        if {"tradeable_2", "time_to_threshold_2"}.issubset(df.columns):
+            t2_match = ((df["tradeable_2"] == 1) == df["time_to_threshold_2"].notna()).mean()
+            if t2_match < 0.99:
+                self._add_result("tradeable_2_consistency", False, "ERROR",
+                               f"tradeable_2 mismatch: {t2_match:.1%}")
+            else:
+                self._add_result("tradeable_2_consistency", True, "INFO",
+                               f"tradeable_2 match: {t2_match:.1%}")
+
+        # Feature coverage
+        if "gamma_exposure" in df.columns:
+            gamma_nonzero = (df["gamma_exposure"] != 0).mean()
+            if gamma_nonzero < 0.90:
+                self._add_result("gamma_exposure_nonzero", False, "ERROR",
+                               f"gamma_exposure non-zero rate {gamma_nonzero:.1%} < 90%")
+            else:
+                self._add_result("gamma_exposure_nonzero", True, "INFO",
+                               f"gamma_exposure non-zero {gamma_nonzero:.1%}")
+
+        if "tape_velocity" in df.columns:
+            tape_nonzero = (df["tape_velocity"] != 0).mean()
+            if tape_nonzero < 0.90:
+                self._add_result("tape_velocity_nonzero", False, "ERROR",
+                               f"tape_velocity non-zero rate {tape_nonzero:.1%} < 90%")
+            else:
+                self._add_result("tape_velocity_nonzero", True, "INFO",
+                               f"tape_velocity non-zero {tape_nonzero:.1%}")
 
 
 def print_report(report: ValidationReport, verbose: bool = False):

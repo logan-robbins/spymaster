@@ -12,7 +12,7 @@ All values are tunable mechanical constants (no trained calibration in v1).
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -96,7 +96,9 @@ class Config:
     # Multi-timeframe confirmation windows
     # Generates outcomes at 2min, 4min, 8min to train models on different horizons
     CONFIRMATION_WINDOW_SECONDS: float = 240.0  # Primary confirmation (4 minutes)
-    CONFIRMATION_WINDOWS_MULTI: list = [120.0, 240.0, 480.0]  # 2min, 4min, 8min
+    CONFIRMATION_WINDOWS_MULTI: list = field(
+        default_factory=lambda: [120.0, 240.0, 480.0]
+    )  # 2min, 4min, 8min
     
     # ========== Smoothing parameters (EWMA half-lives in seconds) ==========
     tau_score: float = 2.0        # break score smoothing

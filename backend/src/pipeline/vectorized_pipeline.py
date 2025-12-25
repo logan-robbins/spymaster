@@ -36,7 +36,6 @@ import warnings
 warnings.filterwarnings('ignore', category=pd.errors.SettingWithCopyWarning)
 
 # Import data loading
-from src.ingestor.dbn_ingestor import DBNIngestor
 from src.lake.bronze_writer import BronzeReader
 
 # Import production engines
@@ -47,7 +46,14 @@ from src.core.fuel_engine import FuelEngine, FuelEffect
 
 # Import schemas and event types
 from src.common.schemas.levels_signals import LevelSignalV1, LevelKind, Direction, OutcomeLabel
-from src.common.event_types import MBP10, FuturesTrade, OptionTrade, Aggressor
+from src.common.event_types import (
+    MBP10,
+    FuturesTrade,
+    OptionTrade,
+    Aggressor,
+    BidAskLevel,
+    EventSource,
+)
 from src.common.config import CONFIG
 
 # Import Black-Scholes calculator
@@ -211,6 +217,101 @@ def build_ohlcv_vectorized(
         ohlcv[['open', 'high', 'low', 'close']] /= 10.0
 
     return ohlcv
+
+
+def _futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
+    """Convert Bronze futures trades DataFrame to FuturesTrade objects."""
+    if trades_df.empty:
+        return []
+
+    df = trades_df
+    if not df["ts_event_ns"].is_monotonic_increasing:
+        df = df.sort_values("ts_event_ns")
+
+    ts_event = df["ts_event_ns"].to_numpy()
+    ts_recv = df["ts_recv_ns"].to_numpy() if "ts_recv_ns" in df.columns else ts_event
+    prices = df["price"].to_numpy()
+    sizes = df["size"].to_numpy()
+    symbols = df["symbol"].to_numpy() if "symbol" in df.columns else np.array(["ES"] * len(df))
+
+    if "aggressor" in df.columns:
+        aggressors = pd.to_numeric(df["aggressor"], errors="coerce").fillna(0).astype(int).to_numpy()
+    else:
+        aggressors = np.zeros(len(df), dtype=int)
+
+    exchange_vals = (
+        pd.to_numeric(df["exchange"], errors="coerce").to_numpy()
+        if "exchange" in df.columns
+        else None
+    )
+    seq_vals = df["seq"].to_numpy() if "seq" in df.columns else None
+
+    agg_map = {1: Aggressor.BUY, -1: Aggressor.SELL, 0: Aggressor.MID}
+
+    trades: List[FuturesTrade] = []
+    for i in range(len(df)):
+        exchange = None
+        if exchange_vals is not None:
+            val = exchange_vals[i]
+            exchange = None if pd.isna(val) else int(val)
+
+        seq = None
+        if seq_vals is not None:
+            val = seq_vals[i]
+            seq = None if pd.isna(val) else int(val)
+
+        trades.append(FuturesTrade(
+            ts_event_ns=int(ts_event[i]),
+            ts_recv_ns=int(ts_recv[i]),
+            source=EventSource.DIRECT_FEED,
+            symbol=str(symbols[i]),
+            price=float(prices[i]),
+            size=int(sizes[i]),
+            aggressor=agg_map.get(int(aggressors[i]), Aggressor.MID),
+            exchange=exchange,
+            conditions=None,
+            seq=seq
+        ))
+
+    return trades
+
+
+def _mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
+    """Convert Bronze MBP-10 DataFrame to MBP10 objects."""
+    if mbp_df.empty:
+        return []
+
+    df = mbp_df
+    if not df["ts_event_ns"].is_monotonic_increasing:
+        df = df.sort_values("ts_event_ns")
+
+    mbp_list: List[MBP10] = []
+    for row in df.itertuples(index=False):
+        levels = [
+            BidAskLevel(
+                bid_px=getattr(row, f"bid_px_{i}"),
+                bid_sz=getattr(row, f"bid_sz_{i}"),
+                ask_px=getattr(row, f"ask_px_{i}"),
+                ask_sz=getattr(row, f"ask_sz_{i}")
+            )
+            for i in range(1, 11)
+        ]
+        symbol = getattr(row, "symbol", "ES")
+        is_snapshot = bool(getattr(row, "is_snapshot", False))
+        seq = getattr(row, "seq", None)
+        seq_val = None if pd.isna(seq) else int(seq)
+
+        mbp_list.append(MBP10(
+            ts_event_ns=int(row.ts_event_ns),
+            ts_recv_ns=int(getattr(row, "ts_recv_ns", row.ts_event_ns)),
+            source=EventSource.DIRECT_FEED,
+            symbol=str(symbol),
+            levels=levels,
+            is_snapshot=is_snapshot,
+            seq=seq_val
+        ))
+
+    return mbp_list
 
 
 def compute_atr_vectorized(
@@ -1898,90 +1999,94 @@ def label_outcomes_vectorized(
         
         # Vectorized: find indices for each signal's lookforward window
         for i in range(n):
-        ts = signal_ts[i]
-        anchor_idx = None
-        if bar_idx is not None:
-            anchor_idx = int(bar_idx[i])
-        else:
-            anchor_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
-
-        if anchor_idx < 0 or anchor_idx >= len(ohlcv_ts):
-            outcomes[i] = 'UNDEFINED'
-            continue
-
-        anchor_price = ohlcv_close[anchor_idx]
-        anchor_time = ohlcv_ts[anchor_idx] + confirmation_ns
-        confirm_ts_ns[i] = anchor_time
-        anchor_spot[i] = anchor_price
-
-        start_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
-        end_idx = np.searchsorted(ohlcv_ts, anchor_time + lookforward_ns, side='right')
-
-        if start_idx >= len(ohlcv_ts) or start_idx >= end_idx:
-            outcomes[i] = 'UNDEFINED'
-            continue
-
-        future_close = ohlcv_close[start_idx:end_idx]
-        future_high = ohlcv_high[start_idx:end_idx]
-        future_low = ohlcv_low[start_idx:end_idx]
-
-        if len(future_close) == 0:
-            outcomes[i] = 'UNDEFINED'
-            continue
-
-        direction = directions[i]
-        future_prices[i] = future_close[-1]
-
-        max_above = max(future_high.max() - anchor_price, 0.0)
-        max_below = max(anchor_price - future_low.min(), 0.0)
-
-        if direction == 'UP':
-            excursion_max[i] = max_above
-            excursion_min[i] = max_below
-            strength_signed[i] = max_above - max_below
-            strength_abs[i] = max(max_above, max_below)
-
-            if max_above >= outcome_threshold and max_above > max_below:
-                outcomes[i] = 'BREAK'
-            elif max_below >= outcome_threshold:
-                outcomes[i] = 'BOUNCE'
+            ts = signal_ts[i]
+            anchor_idx = None
+            if bar_idx is not None:
+                anchor_idx = int(bar_idx[i])
             else:
-                outcomes[i] = 'CHOP'
+                anchor_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
+
+            if anchor_idx < 0 or anchor_idx >= len(ohlcv_ts):
+                outcomes[i] = 'UNDEFINED'
+                continue
+
+            anchor_price = ohlcv_close[anchor_idx]
+            anchor_time = ohlcv_ts[anchor_idx] + confirmation_ns
+            confirm_ts_ns[i] = anchor_time
+            anchor_spot[i] = anchor_price
+
+            start_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
+            end_idx = np.searchsorted(ohlcv_ts, anchor_time + lookforward_ns, side='right')
+
+            if start_idx >= len(ohlcv_ts) or start_idx >= end_idx:
+                outcomes[i] = 'UNDEFINED'
+                continue
+
+            future_close = ohlcv_close[start_idx:end_idx]
+            future_high = ohlcv_high[start_idx:end_idx]
+            future_low = ohlcv_low[start_idx:end_idx]
+
+            if len(future_close) == 0:
+                outcomes[i] = 'UNDEFINED'
+                continue
+
+            direction = directions[i]
+            future_prices[i] = future_close[-1]
+
+            max_above = max(future_high.max() - anchor_price, 0.0)
+            max_below = max(anchor_price - future_low.min(), 0.0)
 
             above_1 = np.where(future_high >= anchor_price + threshold_1)[0]
             above_2 = np.where(future_high >= anchor_price + threshold_2)[0]
-            if len(above_1) > 0:
-                idx = start_idx + above_1[0]
-                time_to_threshold_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
-            if len(above_2) > 0:
-                idx = start_idx + above_2[0]
-                time_to_threshold_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
-        else:
-            excursion_max[i] = max_below
-            excursion_min[i] = max_above
-            strength_signed[i] = max_below - max_above
-            strength_abs[i] = max(max_below, max_above)
-
-            if max_below >= outcome_threshold and max_below > max_above:
-                outcomes[i] = 'BREAK'
-            elif max_above >= outcome_threshold:
-                outcomes[i] = 'BOUNCE'
-            else:
-                outcomes[i] = 'CHOP'
-
             below_1 = np.where(future_low <= anchor_price - threshold_1)[0]
             below_2 = np.where(future_low <= anchor_price - threshold_2)[0]
+
+            t1_candidates = []
+            if len(above_1) > 0:
+                idx = start_idx + above_1[0]
+                t1_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
             if len(below_1) > 0:
                 idx = start_idx + below_1[0]
-                time_to_threshold_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+                t1_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
+            if t1_candidates:
+                time_to_threshold_1[i] = min(t1_candidates)
+                tradeable_1[i] = 1
+
+            t2_candidates = []
+            if len(above_2) > 0:
+                idx = start_idx + above_2[0]
+                t2_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
             if len(below_2) > 0:
                 idx = start_idx + below_2[0]
-                time_to_threshold_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
-
-            if np.isfinite(time_to_threshold_1[i]):
-                tradeable_1[i] = 1
-            if np.isfinite(time_to_threshold_2[i]):
+                t2_candidates.append((ohlcv_ts[idx] - anchor_time) / 1e9)
+            if t2_candidates:
+                time_to_threshold_2[i] = min(t2_candidates)
                 tradeable_2[i] = 1
+
+            if direction == 'UP':
+                excursion_max[i] = max_above
+                excursion_min[i] = max_below
+                strength_signed[i] = max_above - max_below
+                strength_abs[i] = max(max_above, max_below)
+
+                if max_above >= outcome_threshold and max_above > max_below:
+                    outcomes[i] = 'BREAK'
+                elif max_below >= outcome_threshold:
+                    outcomes[i] = 'BOUNCE'
+                else:
+                    outcomes[i] = 'CHOP'
+            else:
+                excursion_max[i] = max_below
+                excursion_min[i] = max_above
+                strength_signed[i] = max_below - max_above
+                strength_abs[i] = max(max_below, max_above)
+
+                if max_below >= outcome_threshold and max_below > max_above:
+                    outcomes[i] = 'BREAK'
+                elif max_above >= outcome_threshold:
+                    outcomes[i] = 'BOUNCE'
+                else:
+                    outcomes[i] = 'CHOP'
         
         # Store results for this window
         results_by_window[label] = {
@@ -2069,7 +2174,6 @@ class VectorizedPipeline:
         self.max_touches = max_touches
 
         # Data sources
-        self.dbn_ingestor = DBNIngestor()
         self.bronze_reader = BronzeReader()
 
         # Engines
@@ -2082,7 +2186,7 @@ class VectorizedPipeline:
         if warmup_days == 0:
             return []
 
-        available = self.dbn_ingestor.get_available_dates('trades')
+        available = self.bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
         weekday_dates = [
             d for d in available
             if datetime.strptime(d, '%Y-%m-%d').weekday() < 5
@@ -2101,7 +2205,8 @@ class VectorizedPipeline:
 
         frames = []
         for warmup_date in warmup_dates:
-            trades = list(self.dbn_ingestor.read_trades(date=warmup_date))
+            trades_df = self.bronze_reader.read_futures_trades(symbol='ES', date=warmup_date)
+            trades = _futures_trades_from_df(trades_df)
             if not trades:
                 continue
             ohlcv = build_ohlcv_vectorized(trades, convert_to_spy=True, freq='2min')
@@ -2114,7 +2219,7 @@ class VectorizedPipeline:
         warmup_df = pd.concat(frames, ignore_index=True).sort_values('timestamp')
         return warmup_df, warmup_dates
 
-    def run(self, date: str) -> pd.DataFrame:
+    def run(self, date: str, log_level: int = None) -> pd.DataFrame:
         """
         Run complete pipeline for a date.
 
@@ -2127,7 +2232,9 @@ class VectorizedPipeline:
         import time
         import logging
 
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+        if log_level is None:
+            log_level = logging.INFO
+        logging.basicConfig(level=log_level, format='%(asctime)s - %(message)s', force=True)
         log = logging.getLogger(__name__)
 
         total_start = time.time()
@@ -2309,6 +2416,23 @@ class VectorizedPipeline:
 
         log.info(f"  Labeled {len(signals_df):,} signals in {time.time()-stage_start:.2f}s")
 
+        # Restrict training signals to regular session (09:30-16:00 ET) with full forward window
+        session_start = pd.Timestamp(date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
+        session_end = pd.Timestamp(date, tz="America/New_York") + pd.Timedelta(hours=16)
+        session_start_ns = session_start.tz_convert("UTC").value
+        session_end_ns = session_end.tz_convert("UTC").value
+        max_confirm = max(CONFIG.CONFIRMATION_WINDOWS_MULTI or [CONFIG.CONFIRMATION_WINDOW_SECONDS])
+        max_window_ns = int((max_confirm + CONFIG.LOOKFORWARD_MINUTES * 60) * 1e9)
+        latest_end_ns = signals_df["ts_ns"].astype("int64") + max_window_ns
+        rth_mask = (
+            (signals_df["ts_ns"] >= session_start_ns)
+            & (signals_df["ts_ns"] <= session_end_ns)
+            & (latest_end_ns <= session_end_ns)
+        )
+        before = len(signals_df)
+        signals_df = signals_df.loc[rth_mask].copy()
+        log.info(f"  RTH filter kept {len(signals_df):,}/{before:,} signals (full forward window)")
+
         # Outcome distribution
         outcome_counts = signals_df['outcome'].value_counts()
         for outcome, count in outcome_counts.items():
@@ -2331,43 +2455,57 @@ class VectorizedPipeline:
 
     def _load_data(self, date: str):
         """Load all data sources with timestamp filtering."""
-        from datetime import datetime, timezone
+        # Load ES trades from Bronze
+        trades_df = self.bronze_reader.read_futures_trades(symbol='ES', date=date)
+        if trades_df.empty:
+            return [], [], pd.DataFrame()
 
-        # Load ES trades
-        trades = list(self.dbn_ingestor.read_trades(date=date))
+        trades = _futures_trades_from_df(trades_df)
 
-        if not trades:
-            return trades, [], pd.DataFrame()
+        # Load MBP-10 downsampled to snap cadence across RTH
+        session_start = pd.Timestamp(date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
+        session_end = pd.Timestamp(date, tz="America/New_York") + pd.Timedelta(hours=16)
+        session_start_ns = int(session_start.tz_convert("UTC").value)
+        session_end_ns = int(session_end.tz_convert("UTC").value)
+        buffer_ns = int(CONFIG.W_b * 1e9)
+        ts_start = session_start_ns - buffer_ns
+        ts_end = session_end_ns + buffer_ns
 
-        # Get timestamp range from trades to filter MBP-10
-        trade_ts_min = min(t.ts_event_ns for t in trades[:1000])
-        trade_ts_max = max(t.ts_event_ns for t in trades[-1000:])
+        mbp_df = self._read_mbp10_downsampled(date=date, start_ns=ts_start, end_ns=ts_end)
+        if mbp_df.empty:
+            raise ValueError(f"No MBP-10 data after downsampling for {date}")
 
-        # Load MBP-10 filtered by timestamp range (with buffer)
-        buffer_ns = int(60 * 1e9)  # 1 minute buffer
-        ts_start = trade_ts_min - buffer_ns
-        ts_end = trade_ts_max + buffer_ns
-
-        mbp10_snapshots = []
-        skipped = 0
-        for mbp in self.dbn_ingestor.read_mbp10(date=date):
-            if mbp.ts_event_ns < ts_start:
-                skipped += 1
-                continue
-            if mbp.ts_event_ns > ts_end:
-                break  # MBP-10 is sorted, so we can stop early
-            mbp10_snapshots.append(mbp)
-            if len(mbp10_snapshots) >= self.max_mbp10:
-                break
-
-        if skipped > 0:
-            import logging
-            logging.getLogger(__name__).info(f"  Skipped {skipped:,} MBP-10 snapshots before trade range")
+        mbp10_snapshots = _mbp10_from_df(mbp_df)
 
         # Load options
         option_trades_df = self.bronze_reader.read_option_trades(underlying='SPY', date=date)
 
         return trades, mbp10_snapshots, option_trades_df
+
+    def _read_mbp10_downsampled(self, date: str, start_ns: int, end_ns: int) -> pd.DataFrame:
+        """
+        Downsample MBP-10 snapshots to the configured snap cadence within a time window.
+        Keeps the latest snapshot per bucket to preserve order book state.
+        """
+        base = Path(self.bronze_reader.bronze_root) / "futures" / "mbp10" / f"symbol=ES" / f"date={date}"
+        if not base.exists():
+            return pd.DataFrame()
+
+        bucket_ns = int(CONFIG.SNAP_INTERVAL_MS * 1e6)
+        glob_pattern = str(base / "**" / "*.parquet")
+        query = f"""
+            SELECT * EXCLUDE(bucket, rn)
+            FROM (
+                SELECT *,
+                    CAST((ts_event_ns - {start_ns}) / {bucket_ns} AS BIGINT) AS bucket,
+                    row_number() OVER (PARTITION BY bucket ORDER BY ts_event_ns DESC) AS rn
+                FROM read_parquet('{glob_pattern}', hive_partitioning=true)
+                WHERE ts_event_ns BETWEEN {start_ns} AND {end_ns}
+            )
+            WHERE rn = 1
+            ORDER BY ts_event_ns
+        """
+        return self.bronze_reader.duckdb.execute(query).fetchdf()
 
     def _initialize_market_state(
         self,
@@ -2449,7 +2587,8 @@ class VectorizedPipeline:
 def batch_process_vectorized(
     dates: Optional[List[str]] = None,
     output_path: Optional[Path] = None,
-    skip_download: bool = False
+    skip_download: bool = False,
+    log_level: int = None
 ) -> pd.DataFrame:
     """
     Process multiple dates with optimized pipeline.
@@ -2465,11 +2604,11 @@ def batch_process_vectorized(
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    dbn_ingestor = DBNIngestor()
+    bronze_reader = BronzeReader()
 
     # Discover dates
     if dates is None:
-        all_dates = dbn_ingestor.get_available_dates('trades')
+        all_dates = bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
         dates = [d for d in all_dates if datetime.strptime(d, '%Y-%m-%d').weekday() < 5]
 
     print(f"\n{'='*70}")
@@ -2483,7 +2622,7 @@ def batch_process_vectorized(
 
     for date in dates:
         try:
-            signals_df = pipeline.run(date)
+            signals_df = pipeline.run(date, log_level=log_level)
             if not signals_df.empty:
                 all_signals.append(signals_df)
         except KeyboardInterrupt:
@@ -2499,6 +2638,7 @@ def batch_process_vectorized(
 
     # Combine all signals
     combined_df = pd.concat(all_signals, ignore_index=True)
+    combined_df = combined_df.sort_values(["date", "ts_ns"]).reset_index(drop=True)
 
     # Export to Parquet
     if output_path is None:
@@ -2564,12 +2704,22 @@ def main():
         action='store_true',
         help='Run performance benchmark'
     )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose logging'
+    )
 
     args = parser.parse_args()
 
+    log_level = None
+    if args.verbose:
+        import logging
+        log_level = logging.DEBUG
+
     if args.list_dates:
-        dbn = DBNIngestor()
-        dates = dbn.get_available_dates('trades')
+        bronze_reader = BronzeReader()
+        dates = bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
         print(f"Available dates ({len(dates)}):")
         for d in dates:
             dt = datetime.strptime(d, '%Y-%m-%d')
@@ -2580,20 +2730,20 @@ def main():
         print("Running benchmark...")
         import time
 
-        dbn = DBNIngestor()
-        dates = dbn.get_available_dates('trades')
+        bronze_reader = BronzeReader()
+        dates = bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
         if dates:
             date = dates[-1]
             pipeline = VectorizedPipeline()
 
             # Warmup
             print(f"Warmup run on {date}...")
-            _ = pipeline.run(date)
+            _ = pipeline.run(date, log_level=log_level)
 
             # Benchmark
             print(f"\nBenchmark run on {date}...")
             start = time.time()
-            signals_df = pipeline.run(date)
+            signals_df = pipeline.run(date, log_level=log_level)
             elapsed = time.time() - start
 
             print(f"\nBenchmark Results:")
@@ -2608,7 +2758,7 @@ def main():
     if args.date:
         # Single date
         pipeline = VectorizedPipeline()
-        signals_df = pipeline.run(args.date)
+        signals_df = pipeline.run(args.date, log_level=log_level)
 
         if output_path and not signals_df.empty:
             import pyarrow as pa
@@ -2623,21 +2773,21 @@ def main():
 
     if args.dates:
         dates = [d.strip() for d in args.dates.split(',')]
-        batch_process_vectorized(dates=dates, output_path=output_path)
+        batch_process_vectorized(dates=dates, output_path=output_path, log_level=log_level)
         return 0
 
     if args.all:
-        batch_process_vectorized(output_path=output_path)
+        batch_process_vectorized(output_path=output_path, log_level=log_level)
         return 0
 
     # Default: process most recent date
-    dbn = DBNIngestor()
-    dates = dbn.get_available_dates('trades')
+    bronze_reader = BronzeReader()
+    dates = bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
     if dates:
         weekday_dates = [d for d in dates if datetime.strptime(d, '%Y-%m-%d').weekday() < 5]
         if weekday_dates:
             pipeline = VectorizedPipeline()
-            signals_df = pipeline.run(weekday_dates[-1])
+            signals_df = pipeline.run(weekday_dates[-1], log_level=log_level)
             return 0
 
     print("No dates available. Check dbn-data/ directory.")
