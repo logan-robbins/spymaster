@@ -1,15 +1,99 @@
 """Build OHLCV bars stage."""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
-from src.pipeline.utils.vectorized_ops import (
-    build_ohlcv_vectorized,
-    compute_atr_vectorized,
-    futures_trades_from_df,
-)
+from src.common.event_types import FuturesTrade
 from src.common.config import CONFIG
+
+
+def build_ohlcv(
+    trades: List[FuturesTrade],
+    convert_to_spy: bool = True,
+    freq: str = '1min'
+) -> pd.DataFrame:
+    """
+    Build OHLCV bars using pandas operations optimized for M4 Silicon.
+
+    Args:
+        trades: List of FuturesTrade objects
+        convert_to_spy: Divide prices by 10 for SPY equivalent
+        freq: Bar frequency ('1min', '2min', '5min')
+
+    Returns:
+        DataFrame with OHLCV columns
+    """
+    if not trades:
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+    # Extract numpy arrays directly
+    n = len(trades)
+    ts_ns = np.empty(n, dtype=np.int64)
+    prices = np.empty(n, dtype=np.float64)
+    sizes = np.empty(n, dtype=np.int64)
+
+    for i, trade in enumerate(trades):
+        ts_ns[i] = trade.ts_event_ns
+        prices[i] = trade.price
+        sizes[i] = trade.size
+
+    # Filter outliers using vectorized operations
+    valid_mask = (prices > 3000) & (prices < 10000)
+    ts_ns = ts_ns[valid_mask]
+    prices = prices[valid_mask]
+    sizes = sizes[valid_mask]
+
+    if len(ts_ns) == 0:
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+    # Create DataFrame with numpy arrays
+    df = pd.DataFrame({
+        'timestamp': pd.to_datetime(ts_ns, unit='ns', utc=True),
+        'price': prices,
+        'size': sizes
+    })
+
+    # Set index and resample (pandas optimized)
+    df.set_index('timestamp', inplace=True)
+
+    # Vectorized aggregation
+    ohlcv = df['price'].resample(freq).agg(['first', 'max', 'min', 'last'])
+    ohlcv.columns = ['open', 'high', 'low', 'close']
+    ohlcv['volume'] = df['size'].resample(freq).sum()
+
+    # Drop NaN bars
+    ohlcv = ohlcv.dropna(subset=['open'])
+    ohlcv = ohlcv.reset_index()
+
+    # Convert ES to SPY (vectorized)
+    if convert_to_spy:
+        ohlcv[['open', 'high', 'low', 'close']] /= 10.0
+
+    return ohlcv
+
+
+def compute_atr(
+    ohlcv_df: pd.DataFrame,
+    window_minutes: Optional[int] = None
+) -> pd.Series:
+    """Compute ATR on 1-minute bars for normalization."""
+    if window_minutes is None:
+        window_minutes = CONFIG.ATR_WINDOW_MINUTES
+    if ohlcv_df.empty:
+        return pd.Series(dtype=np.float64)
+
+    df = ohlcv_df.sort_values('timestamp').copy()
+    high = df['high'].astype(np.float64).to_numpy()
+    low = df['low'].astype(np.float64).to_numpy()
+    close = df['close'].astype(np.float64).to_numpy()
+    prev_close = np.roll(close, 1)
+    prev_close[0] = close[0]
+
+    tr = np.maximum(high - low, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
+    atr = pd.Series(tr).rolling(window=window_minutes, min_periods=1).mean().to_numpy()
+
+    return pd.Series(atr, index=df.index)
 
 
 class BuildOHLCVStage(BaseStage):
@@ -49,13 +133,13 @@ class BuildOHLCVStage(BaseStage):
         trades = ctx.data['trades']
 
         # Build OHLCV bars
-        ohlcv_df = build_ohlcv_vectorized(trades, convert_to_spy=True, freq=self.freq)
+        ohlcv_df = build_ohlcv(trades, convert_to_spy=True, freq=self.freq)
 
         result = {self.output_key: ohlcv_df}
 
         # Compute ATR only for 1min bars
         if self.freq == '1min':
-            result['atr'] = compute_atr_vectorized(ohlcv_df)
+            result['atr'] = compute_atr(ohlcv_df)
 
         # Add warmup for 2min SMA calculation
         if self.include_warmup and self.freq == '2min':
@@ -71,6 +155,7 @@ class BuildOHLCVStage(BaseStage):
     def _build_warmup(self, ctx: StageContext):
         """Build warmup bars from prior dates for SMA calculation."""
         from datetime import datetime
+        from src.pipeline.stages.load_bronze import futures_trades_from_df
 
         reader = ctx.data.get('_reader')
         if reader is None:
@@ -91,7 +176,7 @@ class BuildOHLCVStage(BaseStage):
             trades = futures_trades_from_df(trades_df)
             if not trades:
                 continue
-            ohlcv = build_ohlcv_vectorized(trades, convert_to_spy=True, freq=self.freq)
+            ohlcv = build_ohlcv(trades, convert_to_spy=True, freq=self.freq)
             if not ohlcv.empty:
                 frames.append(ohlcv)
 

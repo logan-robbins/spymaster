@@ -1,6 +1,6 @@
 # Data Architecture & Workflow
 
-**Version**: 3.1  
+**Version**: 4.0  
 **Last Updated**: 2025-12-24  
 **Status**: Production
 
@@ -74,7 +74,7 @@ NATS (market.*)
 
 ```
 Bronze (all hours, immutable)
-    ↓ [SilverFeatureBuilder uses versioned pipelines]
+    ↓ [Pipeline stages via SilverFeatureBuilder]
 Silver Features (versioned, RTH only 9:30-16:00 ET)
     ↓ [GoldCurator]
 Gold Training (production ML dataset)
@@ -97,6 +97,9 @@ Model Artifacts
 
 **Why all hours?** Pre-market (04:00-09:30 ET) data is required for PM_HIGH/PM_LOW feature computation, but downstream layers filter to RTH.
 
+**Writer**: `src/lake/bronze_writer.py` (BronzeWriter class)  
+**Reader**: `src/lake/bronze_writer.py` (BronzeReader class) and `src/pipeline/utils/duckdb_reader.py`
+
 ### Silver (Stage 2)
 
 **Purpose**: Versioned feature engineering experiments  
@@ -112,7 +115,7 @@ Model Artifacts
 - Track hyperparameters per experiment via manifests
 - Reproducible: Bronze + manifest → deterministic Silver output
 
-**Implementation**: `SilverFeatureBuilder` class (see `src/lake/silver_feature_builder.py`)
+**Implementation**: `SilverFeatureBuilder` class (`src/lake/silver_feature_builder.py`)
 
 ### Gold (Stage 3)
 
@@ -127,7 +130,125 @@ Model Artifacts
 - `gold/streaming/`: Real-time signals from Core Service
 - `gold/evaluation/`: Backtest and validation results
 
-**Implementation**: `GoldCurator` class (see `src/lake/gold_curator.py`)
+**Implementation**: `GoldCurator` class (`src/lake/gold_curator.py`)
+
+---
+
+## Pipeline Architecture
+
+The pipeline module (`src/pipeline/`) provides modular, versioned feature engineering. Each pipeline version uses a different stage composition.
+
+### Core Components
+
+```
+src/pipeline/
+├── core/
+│   ├── stage.py         # BaseStage, StageContext abstractions
+│   └── pipeline.py      # Pipeline orchestrator
+├── stages/              # Individual processing stages
+├── pipelines/           # Pipeline version definitions
+│   ├── v1_0_mechanics_only.py
+│   ├── v2_0_full_ensemble.py
+│   └── registry.py      # get_pipeline_for_version()
+└── utils/
+    ├── duckdb_reader.py     # DuckDB wrapper with downsampling
+    └── vectorized_ops.py    # Vectorized NumPy/pandas operations
+```
+
+### Pipeline Stages
+
+Each stage is a class extending `BaseStage` with explicit inputs/outputs:
+
+| Stage | Class | Description | Outputs |
+|-------|-------|-------------|---------|
+| 1 | `LoadBronzeStage` | Load Bronze data via DuckDB | `trades`, `mbp10_snapshots`, `option_trades_df` |
+| 2 | `BuildOHLCVStage` (1min) | Build 1-minute OHLCV bars | `ohlcv_1min`, `atr` |
+| 3 | `BuildOHLCVStage` (2min) | Build 2-minute bars with warmup | `ohlcv_2min` |
+| 4 | `InitMarketStateStage` | Initialize MarketState, compute Greeks | `market_state`, `spot_price` |
+| 5 | `GenerateLevelsStage` | Generate level universe | `level_info`, `static_level_info`, `dynamic_levels` |
+| 6 | `DetectTouchesStage` | Detect level touches | `touches_df` |
+| 7 | `ComputePhysicsStage` | Compute barrier/tape/fuel physics | `signals_df` |
+| 8 | `ComputeContextFeaturesStage` | Add context features | `signals_df` (updated) |
+| 9 | `ComputeSMAFeaturesStage` | SMA mean reversion (v2.0+) | `signals_df` (updated) |
+| 10 | `ComputeConfluenceStage` | Confluence + pressure (v2.0+) | `signals_df` (updated) |
+| 11 | `ComputeApproachFeaturesStage` | Approach context (v2.0+) | `signals_df` (updated) |
+| 12 | `LabelOutcomesStage` | Label outcomes (competing risks) | `signals_df` (updated) |
+| 13 | `FilterRTHStage` | Filter to RTH (09:30-16:00 ET) | `signals` (final) |
+
+### Pipeline Versions
+
+#### v1.0 - Mechanics Only (10 stages)
+
+Pure physics features without TA indicators:
+
+```
+LoadBronze → BuildOHLCV(1min) → BuildOHLCV(2min) → InitMarketState
+→ GenerateLevels → DetectTouches → ComputePhysics → ComputeContext
+→ LabelOutcomes → FilterRTH
+```
+
+**Features**: Barrier state, tape imbalance, fuel effects, basic context
+
+#### v2.0 - Full Ensemble (13 stages)
+
+All features including SMA, confluence, and approach context:
+
+```
+LoadBronze → BuildOHLCV(1min) → BuildOHLCV(2min) → InitMarketState
+→ GenerateLevels → DetectTouches → ComputePhysics → ComputeContext
+→ ComputeSMA → ComputeConfluence → ComputeApproach
+→ LabelOutcomes → FilterRTH
+```
+
+**Additional Features**: SMA distances, confluence alignment, dealer velocity, pressure indicators, approach context, normalized features
+
+### Level Universe
+
+Generated structural levels (SPY-specific):
+
+| Level Type | Description |
+|------------|-------------|
+| PM_HIGH/PM_LOW | Pre-market high/low (04:00-09:30 ET) |
+| OR_HIGH/OR_LOW | Opening range (09:30-09:45 ET) |
+| SESSION_HIGH/SESSION_LOW | Running session extremes |
+| SMA_200/SMA_400 | Moving averages on 2-min bars |
+| VWAP | Session volume-weighted average price |
+| CALL_WALL/PUT_WALL | Max gamma concentration strikes |
+
+**Note**: ROUND and STRIKE levels are extracted but SPY uses $1 strike spacing.
+
+### Feature Categories
+
+**Barrier Physics** (ES MBP-10 depth):
+- `barrier_state`, `barrier_delta_liq`, `barrier_replenishment_ratio`, `wall_ratio`
+
+**Tape Physics** (ES trade flow):
+- `tape_imbalance`, `tape_buy_vol`, `tape_sell_vol`, `tape_velocity`, `sweep_detected`
+
+**Fuel Physics** (SPY option gamma):
+- `gamma_exposure`, `fuel_effect`
+
+**Context Features**:
+- `is_first_15m`, `date`, `symbol`, `direction_sign`, `event_id`, `atr`
+- Structural distances to key levels
+
+**SMA Features** (v2.0+):
+- Mean reversion distances and velocities
+
+**Confluence Features** (v2.0+):
+- `confluence_level`, `gex_alignment`, `rel_vol_ratio`
+- Dealer velocity features, pressure indicators
+- `gamma_bucket` (SHORT_GAMMA/LONG_GAMMA)
+
+**Approach Features** (v2.0+):
+- `approach_velocity`, `attempt_index`, prior touch counts
+- Sparse feature transforms, normalized features
+
+**Labels** (competing risks):
+- `outcome` (BREAK, BOUNCE, STALL)
+- `strength_signed` (signed magnitude)
+- `t1_60`, `t1_120`, `t2_60`, `t2_120` (confirmation timestamps)
+- `tradeable_1`, `tradeable_2` (tradeable flags)
 
 ---
 
@@ -222,7 +343,7 @@ parent_version: "v2.0_full_ensemble"
 
 ```bash
 cd backend
-python -c "
+uv run python -c "
 from src.lake.silver_feature_builder import SilverFeatureBuilder
 from src.common.schemas.feature_manifest import FeatureManifest
 
@@ -264,7 +385,7 @@ builder.register_experiment(
 
 ```bash
 cd backend
-python -c "
+uv run python -c "
 from src.lake.gold_curator import GoldCurator
 
 curator = GoldCurator()
@@ -306,6 +427,30 @@ uv run python -m src.lake.gold_curator --action validate \
   --dataset-name signals_production
 ```
 
+### Run Pipeline Directly
+
+```python
+from src.pipeline import get_pipeline_for_version
+
+# Get pipeline for version
+pipeline = get_pipeline_for_version("v2.0_full_ensemble")
+signals_df = pipeline.run("2025-12-16")
+```
+
+---
+
+## Configuration
+
+Pipeline behavior controlled by `backend/src/common/config.py`:
+
+| Category | Parameters |
+|----------|------------|
+| Physics Windows | `W_b` (240s), `W_t` (60s), `W_g` (60s) |
+| Touch Detection | `MONITOR_BAND` (0.25), `TOUCH_BAND` (0.10) |
+| Confirmation | `CONFIRMATION_WINDOWS_MULTI` [120, 240, 480]s |
+| Warmup | `SMA_WARMUP_DAYS` (3), `VOLUME_LOOKBACK_DAYS` (7) |
+| Outcome | `OUTCOME_THRESHOLD` (2.0), `LOOKFORWARD_MINUTES` (8) |
+
 ---
 
 ## Best Practices
@@ -327,10 +472,24 @@ Why?
 - Liquidity is highest during RTH
 - ML models train on actionable trading hours
 - Pre-market data is used for feature computation (PM_HIGH/PM_LOW) but not for training labels
-- Implementation: Pipeline FilterRTHStage automatically filters output to RTH
+- Implementation: `FilterRTHStage` automatically filters output to RTH
 
 ### Experiment Tracking
 Always register experiments with meaningful metadata including metrics, model path, and hypothesis notes.
+
+---
+
+## Performance
+
+**Apple M4 Silicon Optimized**:
+- All operations use NumPy broadcasting
+- Batch processing of all touches simultaneously
+- Memory-efficient chunked processing
+
+**Typical Performance** (M4 Mac, 128GB RAM):
+- Single date: ~2-5 seconds
+- 10 dates: ~30-60 seconds
+- ~500-1000 signals/sec throughput
 
 ---
 
@@ -346,16 +505,25 @@ Always register experiments with meaningful metadata including metrics, model pa
 **Purpose**: Promote best Silver experiments to Gold production  
 **Key Methods**: `promote_to_training()`, `validate_dataset()`, `list_datasets()`
 
-### Pipeline (Modular)
-**File**: `src/pipeline/` (modular stage-based architecture)
-**Purpose**: Versioned feature computation pipelines (used by SilverFeatureBuilder)
-**Key APIs**: `get_pipeline_for_version()`, `build_v1_0_pipeline()`, `build_v2_0_pipeline()`
-**Note**: See `src/pipeline/README.md` for architecture details
+### Pipeline
+**File**: `src/pipeline/core/pipeline.py`  
+**Purpose**: Execute stage sequences for feature computation  
+**Key Methods**: `run(date)`
 
-### BronzeWriter / GoldWriter
-**File**: `src/lake/bronze_writer.py`, `src/lake/gold_writer.py`  
-**Purpose**: Streaming NATS → Parquet writers for real-time data  
-**Note**: See `src/lake/README.md` for implementation details
+### Pipeline Registry
+**File**: `src/pipeline/pipelines/registry.py`  
+**Purpose**: Map version strings to pipeline builders  
+**Key Methods**: `get_pipeline_for_version()`, `list_available_versions()`
+
+### BronzeWriter / BronzeReader
+**File**: `src/lake/bronze_writer.py`  
+**Purpose**: Write/read Bronze Parquet files from NATS streams  
+**Note**: BronzeWriter subscribes to NATS; BronzeReader uses DuckDB for efficient queries
+
+### DuckDBReader
+**File**: `src/pipeline/utils/duckdb_reader.py`  
+**Purpose**: Efficient Bronze data reading with downsampling for MBP-10  
+**Key Methods**: `read_futures_trades()`, `read_futures_mbp10_downsampled()`, `get_warmup_dates()`
 
 ---
 
@@ -393,6 +561,13 @@ Check validation report:
 cat backend/data/lake/silver/features/v2.0_full_ensemble/validation.json
 ```
 
+### "No pipeline for version"
+Check available pipeline versions:
+```python
+from src.pipeline.pipelines import list_available_versions
+print(list_available_versions())  # ['v1.0', 'v2.0']
+```
+
 ---
 
 ## References
@@ -403,3 +578,4 @@ cat backend/data/lake/silver/features/v2.0_full_ensemble/validation.json
 - **Pipeline module**: `backend/src/pipeline/` (see `src/pipeline/README.md`)
 - **Silver builder**: `backend/src/lake/silver_feature_builder.py`
 - **Gold curator**: `backend/src/lake/gold_curator.py`
+- **Configuration**: `backend/src/common/config.py`

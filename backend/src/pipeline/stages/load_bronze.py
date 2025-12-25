@@ -1,11 +1,107 @@
 """Load Bronze data stage - first stage in all pipelines."""
 from typing import Any, Dict, List
 import pandas as pd
+import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.pipeline.utils.duckdb_reader import DuckDBReader
-from src.pipeline.utils.vectorized_ops import futures_trades_from_df, mbp10_from_df
+from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
 from src.common.config import CONFIG
+
+
+def futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
+    """Convert Bronze futures trades DataFrame to FuturesTrade objects."""
+    if trades_df.empty:
+        return []
+
+    df = trades_df
+    if not df["ts_event_ns"].is_monotonic_increasing:
+        df = df.sort_values("ts_event_ns")
+
+    ts_event = df["ts_event_ns"].to_numpy()
+    ts_recv = df["ts_recv_ns"].to_numpy() if "ts_recv_ns" in df.columns else ts_event
+    prices = df["price"].to_numpy()
+    sizes = df["size"].to_numpy()
+    symbols = df["symbol"].to_numpy() if "symbol" in df.columns else np.array(["ES"] * len(df))
+
+    if "aggressor" in df.columns:
+        aggressors = pd.to_numeric(df["aggressor"], errors="coerce").fillna(0).astype(int).to_numpy()
+    else:
+        aggressors = np.zeros(len(df), dtype=int)
+
+    exchange_vals = (
+        pd.to_numeric(df["exchange"], errors="coerce").to_numpy()
+        if "exchange" in df.columns
+        else None
+    )
+    seq_vals = df["seq"].to_numpy() if "seq" in df.columns else None
+
+    agg_map = {1: Aggressor.BUY, -1: Aggressor.SELL, 0: Aggressor.MID}
+
+    trades: List[FuturesTrade] = []
+    for i in range(len(df)):
+        exchange = None
+        if exchange_vals is not None:
+            val = exchange_vals[i]
+            exchange = None if pd.isna(val) else int(val)
+
+        seq = None
+        if seq_vals is not None:
+            val = seq_vals[i]
+            seq = None if pd.isna(val) else int(val)
+
+        trades.append(FuturesTrade(
+            ts_event_ns=int(ts_event[i]),
+            ts_recv_ns=int(ts_recv[i]),
+            source=EventSource.DIRECT_FEED,
+            symbol=str(symbols[i]),
+            price=float(prices[i]),
+            size=int(sizes[i]),
+            aggressor=agg_map.get(int(aggressors[i]), Aggressor.MID),
+            exchange=exchange,
+            conditions=None,
+            seq=seq
+        ))
+
+    return trades
+
+
+def mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
+    """Convert Bronze MBP-10 DataFrame to MBP10 objects."""
+    if mbp_df.empty:
+        return []
+
+    df = mbp_df
+    if not df["ts_event_ns"].is_monotonic_increasing:
+        df = df.sort_values("ts_event_ns")
+
+    mbp_list: List[MBP10] = []
+    for row in df.itertuples(index=False):
+        levels = [
+            BidAskLevel(
+                bid_px=getattr(row, f"bid_px_{i}"),
+                bid_sz=getattr(row, f"bid_sz_{i}"),
+                ask_px=getattr(row, f"ask_px_{i}"),
+                ask_sz=getattr(row, f"ask_sz_{i}")
+            )
+            for i in range(1, 11)
+        ]
+        symbol = getattr(row, "symbol", "ES")
+        is_snapshot = bool(getattr(row, "is_snapshot", False))
+        seq = getattr(row, "seq", None)
+        seq_val = None if pd.isna(seq) else int(seq)
+
+        mbp_list.append(MBP10(
+            ts_event_ns=int(row.ts_event_ns),
+            ts_recv_ns=int(getattr(row, "ts_recv_ns", row.ts_event_ns)),
+            source=EventSource.DIRECT_FEED,
+            symbol=str(symbol),
+            levels=levels,
+            is_snapshot=is_snapshot,
+            seq=seq_val
+        ))
+
+    return mbp_list
 
 
 class LoadBronzeStage(BaseStage):
