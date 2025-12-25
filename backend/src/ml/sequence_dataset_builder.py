@@ -25,6 +25,7 @@ import pandas as pd
 
 from src.common.config import CONFIG
 from src.ingestor.dbn_ingestor import DBNIngestor
+from src.ml.data_filters import filter_rth_signals
 from src.pipeline.vectorized_pipeline import build_ohlcv_vectorized
 
 
@@ -85,8 +86,9 @@ def _load_signals(signals_path: Path, dates: List[str]) -> pd.DataFrame:
     if dates:
         df = df[df["date"].isin(dates)]
 
+    df = filter_rth_signals(df)
     if df.empty:
-        raise ValueError("No signals found for requested dates")
+        raise ValueError("No RTH signals found for requested dates")
 
     return df
 

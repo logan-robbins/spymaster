@@ -1,111 +1,120 @@
 # Lake Module
 
-**Role**: Bronze/Silver/Gold data persistence  
-**Audience**: Backend developers working on data storage  
-**Interface**: [INTERFACES.md](INTERFACES.md)
+**Role**: Bronze/Silver/Gold data persistence components  
+**Audience**: Backend developers implementing data storage  
+**Architecture**: See [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 
 ---
 
 ## Purpose
 
-Implements institutional-grade lakehouse architecture with Bronze (raw) → Silver (clean) → Gold (derived) tiers. Consumes from NATS, writes to Parquet (local or S3/MinIO).
+Implements the storage components for the Medallion Architecture (Bronze → Silver → Gold).
 
-**Design principles**:
-- **Event-time first**: Every record carries `ts_event_ns` and `ts_recv_ns`
-- **Idempotency**: At-least-once inputs → exactly-once storage via deterministic dedup
-- **Append-only**: Bronze is immutable (archive, never delete)
-- **Reproducible**: Same Bronze input → identical Silver output
-
----
-
-## Lakehouse Tiers
-
-### Bronze (Raw, Immutable)
-Purpose: Near-raw normalized events, full replay capability  
-Format: Parquet (ZSTD level 3)  
-Partitioning: `{asset_class}/{schema}/symbol={X}/date=YYYY-MM-DD/hour=HH/`  
-Durability: NATS JetStream (Phase 2)
-
-### Silver (Clean, Deduped)
-Purpose: Canonical typed tables, exactly-once semantics  
-Format: Parquet (ZSTD level 3)  
-Partitioning: Same as Bronze  
-Transforms: Dedup by MD5 event_id, sort by `ts_event_ns`
-
-### Gold (Derived Analytics)
-Purpose: Computed features, ML-ready datasets  
-Format: Parquet (ZSTD level 3)  
-Partitioning: `levels/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/`  
-Schema: Flattened metrics (see `levels.signals.v1`)
+**This module provides**:
+- Streaming writers (Bronze, Gold) for NATS → Parquet
+- Batch builders (Silver) for feature versioning
+- Curator (Gold) for production promotion
 
 ---
 
 ## Components
 
 ### Lake Service (`main.py`)
-Orchestrator that initializes Bronze and Gold writers. Manages graceful shutdown with buffer flushing.
+
+Orchestrator for streaming Bronze and Gold writers. Manages graceful shutdown with buffer flushing.
+
+**Responsibilities**:
+- Initialize BronzeWriter (NATS → Bronze Parquet)
+- Initialize GoldWriter (NATS levels.signals → Gold streaming Parquet)
+- Handle shutdown signals
+
+**Entry Point**: `uv run python -m src.lake.main`
 
 ### BronzeWriter (`bronze_writer.py`)
+
 Consumes `market.*` from NATS, writes append-only Parquet to Bronze tier.
 
 **Micro-batching**: Buffer 1000 events or 5 seconds → flush to Parquet  
-**Subscriptions**: All market data subjects (stocks, options, futures)
+**Subscriptions**: `market.stocks.trades`, `market.options.trades`, `market.futures.trades`, `market.futures.mbp10`
+
+**Key Characteristics**:
+- At-least-once semantics (duplicates possible)
+- Append-only (never overwrites)
+- All trading hours preserved
 
 ### GoldWriter (`gold_writer.py`)
-Consumes `levels.signals` from NATS, writes derived analytics to Gold tier.
+
+Consumes `levels.signals` from NATS, writes real-time signals to Gold streaming tier.
 
 **Flattening**: Nested physics dicts → flat columns for Parquet efficiency  
-**Micro-batching**: Buffer 500 records or 10 seconds
+**Micro-batching**: Buffer 500 records or 10 seconds  
+**Output**: `gold/streaming/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/*.parquet`
 
 ### SilverFeatureBuilder (`silver_feature_builder.py`)
-**New**: Versioned feature engineering for ML experiments.
 
-**Purpose**: Create reproducible feature sets from Bronze  
-**Versioning**: Semantic versioning with manifests  
-**Schema**: Defined in `src/common/schemas/feature_manifest.py`
+**Purpose**: Transform Bronze data into versioned Silver feature sets for ML experimentation.
+
+**Key Methods**:
+```python
+# Build new feature version
+builder = SilverFeatureBuilder()
+stats = builder.build_feature_set(
+    manifest=manifest,  # Defines features + parameters
+    dates=['2025-12-16', '2025-12-17'],
+    force=False
+)
+
+# List available versions
+versions = builder.list_versions()
+
+# Load features for training
+df = builder.load_features('v2.0_full_ensemble')
+
+# Register experiment results
+builder.register_experiment(
+    version='v2.0_full_ensemble',
+    exp_id='exp002',
+    metrics={'auc': 0.72, 'precision': 0.68},
+    notes='Added TA features'
+)
+```
+
+**Implementation**:
+- Uses `VectorizedPipeline` internally for feature computation
+- Applies RTH filtering (09:30-16:00 ET)
+- Writes to `silver/features/{version}/date=YYYY-MM-DD/*.parquet`
+- Creates `manifest.yaml` and `validation.json` per version
 
 ### GoldCurator (`gold_curator.py`)
-**New**: Promote best Silver experiments to Gold production.
 
-**Purpose**: Curate production ML datasets  
-**Input**: Silver feature versions  
-**Output**: Gold training datasets
+**Purpose**: Promote best Silver experiments to Gold production.
 
-### SilverCompactor (`silver_compactor.py`)
-**Legacy**: Offline batch job for deduplication (cleanup only).
+**Key Methods**:
+```python
+curator = GoldCurator()
 
-**Deduplication**: MD5 hash of key columns → keep first by `ts_recv_ns`  
-**DuckDB-powered**: Efficient SQL queries over Parquet  
-**Note**: Superseded by SilverFeatureBuilder for ML workflows
+# Promote Silver → Gold
+result = curator.promote_to_training(
+    silver_version='v2.0_full_ensemble',
+    dataset_name='signals_production',
+    notes='New production model',
+    force=True
+)
+
+# Validate Gold dataset
+validation = curator.validate_dataset('signals_production')
+
+# List Gold datasets
+datasets = curator.list_datasets()
+```
+
+**Implementation**:
+- Reads all Silver parquet files for given version
+- Concatenates and validates
+- Writes to `gold/training/{dataset_name}.parquet`
+- Creates metadata JSON
 
 ---
-
-## Data Flow
-
-### Streaming Pipeline (Real-time)
-```
-NATS (market.*) → BronzeWriter → Bronze Parquet
-
-NATS (levels.signals) → GoldWriter → Gold Streaming Parquet
-```
-
-### Batch Training Pipeline (Offline)
-```
-Bronze Parquet → VectorizedPipeline → (in-memory features)
-                                              ↓
-                                    SilverFeatureBuilder → Silver Features (versioned)
-                                              ↓
-                                        GoldCurator → Gold Training Parquet
-```
-
-### Legacy Silver Compaction (Cleanup Only)
-```
-Bronze Parquet → SilverCompactor → Silver Datasets (deduped/sorted)
-```
-
-**Note**: Silver layer now serves two purposes:
-1. `silver/features/*` - Versioned feature engineering experiments (primary use)
-2. `silver/datasets/*` - Legacy cleaned datasets (dedup/sort only)
 
 ---
 
@@ -122,40 +131,44 @@ USE_S3=false
 DATA_ROOT=s3://spymaster-lake
 USE_S3=true
 S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=...
+S3_SECRET_KEY=...
 ```
 
 ---
 
-## Running
+## Running Components
 
-### Lake Service
+### Stream Bronze + Gold (Real-time)
+
 ```bash
+cd backend
 uv run python -m src.lake.main
 ```
 
-### Silver Compaction (offline)
-```bash
-cd backend
-uv run python -c "
-from src.lake.silver_compactor import SilverCompactor
-compactor = SilverCompactor()
-compactor.compact_all_schemas('2025-12-16')
-"
-```
+### Build Silver Features (Batch)
+
+See workflow in [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md#feature-engineering-workflow)
 
 ---
 
 ## File Naming
 
-**Bronze/Silver**:
+**Bronze/Gold Streaming**:
 ```
-stocks/trades/symbol=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
-futures/mbp10/symbol=ES/date=2025-12-16/hour=14/part-143012_345678.parquet
+futures/trades/symbol=ES/date=2025-12-16/hour=14/part-143012_345678.parquet
+options/trades/underlying=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
 ```
 
-**Gold**:
+**Silver**:
 ```
-levels/signals/underlying=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
+features/v2.0_full_ensemble/date=2025-12-16/signals.parquet
+```
+
+**Gold Training**:
+```
+training/signals_production.parquet
+training/signals_production_metadata.json
 ```
 
 **Hive-style partitioning**: Enables predicate pushdown in query engines (DuckDB, Spark, Pandas).
@@ -166,11 +179,11 @@ levels/signals/underlying=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
 
 **Micro-batching**:
 - Bronze: 1000 events or 5s
-- Gold: 500 records or 10s
+- Gold streaming: 500 records or 10s
 
-**Silver compaction**:
-- ~50-100MB/s (M4 Mac)
-- Parallelizable by date/schema
+**Silver feature builder**:
+- Single date: ~2-5 seconds (VectorizedPipeline)
+- 10 dates: ~30-60 seconds (M4 Mac)
 
 **Storage throughput**:
 - Local NVMe: ~200-500MB/s
@@ -179,76 +192,18 @@ levels/signals/underlying=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
 
 ---
 
-## Schema Mappings
-
-**Bronze → Silver**:
-- Dedup by event_id
-- Sort by `ts_event_ns`
-- No enrichment in v1 (future: join greeks with option trades)
-
-**Bronze/NATS → Gold**:
-- Flatten nested `barrier`, `tape`, `fuel`, `runway` dicts
-- Example: `barrier.state` → `barrier_state`
-
-**See**: [INTERFACES.md](INTERFACES.md) for complete schemas.
-
----
-
 ## Testing
 
 ```bash
 cd backend
-uv run pytest tests/test_silver_compactor.py -v
 uv run pytest tests/test_lake_service.py -v
 ```
 
 ---
 
-## Common Issues
-
-**Bronze ERROR: Cannot infer schema**: Check event field names match schemas  
-**Silver compaction failed**: Some fields may be missing/optional → adjust dedup columns  
-**Gold buffer not flushing**: Verify Core Service is publishing to `levels.signals`  
-**S3 writes failing 403**: Check `S3_ACCESS_KEY`, `S3_SECRET_KEY`, bucket permissions
-
----
-
-## Critical Invariants
-
-1. **Bronze is append-only**: Never mutate or delete
-2. **Silver is derived**: Always regeneratable from Bronze
-3. **Event-time ordering**: All files sorted by `ts_event_ns`
-4. **Idempotency**: Same Bronze → same Silver (deterministic dedup)
-5. **Partition boundaries**: Date/hour aligned to UTC
-6. **Compression**: ZSTD level 3 for all tiers
-7. **File sizing**: Target 256MB–1GB per Parquet file
-
----
-
-## Phase Migration
-
-**Phase 1 → Phase 2**:
-- WAL removed (NATS JetStream provides durability)
-- Added S3/MinIO support
-- Microservice deployment via Docker Compose
-
-**Phase 2 → Phase 3** (future):
-- Apache Iceberg metadata layer
-- ACID guarantees for Silver/Gold tables
-- Multi-node object store
-
----
-
 ## References
 
+- **Architecture & Workflow**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 - **Interface contract**: [INTERFACES.md](INTERFACES.md)
 - **Storage schemas**: [../common/schemas/](../common/schemas/)
 - **Configuration**: [../common/config.py](../common/config.py)
-- **PLAN.md**: §2 (Bronze/Silver/Gold definitions)
-
----
-
-**Phase**: Phase 2 (NATS + S3/MinIO)  
-**Agent assignment**: Phase 2 Agent B  
-**Dependencies**: `common` (schemas, config, NATS bus)  
-**Consumers**: ML module (reads Silver/Gold), Replay engine

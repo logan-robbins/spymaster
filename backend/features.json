@@ -1,7 +1,7 @@
 {
   "version": "1.5.0",
-  "description": "SPY 0DTE Level Signal Features for ML Training - Phase 3 Vectorized Pipeline",
-  "output_path": "data/lake/gold/research/signals_vectorized.parquet",
+  "description": "SPY 0DTE Level Signal Features for ML Training - Medallion Architecture",
+  "output_path": "data/lake/gold/training/signals_production.parquet",
   "label_column": "outcome",
   "label_values": ["BREAK", "BOUNCE"],
   "pipeline": "src.pipeline.vectorized_pipeline",

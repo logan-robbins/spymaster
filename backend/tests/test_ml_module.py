@@ -45,7 +45,7 @@ def synthetic_signals_df() -> pd.DataFrame:
     """
     Generate synthetic signals DataFrame matching features.json schema.
     
-    This mimics the exact structure of data/lake/gold/research/signals_vectorized.parquet
+    This mimics the exact structure of data/lake/gold/training/signals_production.parquet
     """
     n_samples = 500
     np.random.seed(42)

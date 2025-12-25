@@ -12,6 +12,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from src.ml.data_filters import filter_rth_signals
 from src.ml.feature_sets import select_features
 from src.ml.retrieval_engine import RetrievalIndex
 from src.ml.tracking import (
@@ -67,6 +68,10 @@ def main() -> None:
     df = pd.read_parquet(signals_path)
     if df.empty:
         raise ValueError("Signals dataset is empty.")
+
+    df = filter_rth_signals(df)
+    if df.empty:
+        raise ValueError("No signals left after RTH filter.")
 
     df = df[df["outcome"].isin(["BREAK", "BOUNCE", "CHOP"])].copy()
     if df.empty:
