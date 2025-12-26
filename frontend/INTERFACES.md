@@ -136,6 +136,33 @@ interface LevelSignal {
   approach_bars: number;
   approach_distance: number;
   prior_touches: number;
+  
+  // Confluence features
+  confluence_count: number;
+  confluence_pressure: number;
+  confluence_alignment: number;  // -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+  confluence_level: number;  // 0-10 hierarchical scale
+  confluence_level_name: string;  // ULTRA_PREMIUM, PREMIUM, STRONG, MODERATE, CONSOLIDATION
+  
+  // ML predictions (merged from viewport)
+  ml_predictions?: {
+    p_tradeable_2: number;
+    p_break: number;
+    p_bounce: number;
+    strength_signed: number;
+    strength_abs: number;
+    utility_score: number;
+    stage: string;  // "stage_a" | "stage_b"
+    time_to_threshold: {
+      t1: Record<string, number>;
+      t2: Record<string, number>;
+    };
+    retrieval: {
+      p_break: number;
+      similarity: number;
+      entropy: number;
+    };
+  };
 }
 ```
 
