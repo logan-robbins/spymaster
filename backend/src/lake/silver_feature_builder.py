@@ -8,6 +8,8 @@ feature engineering (multiple Silver versions).
 
 import os
 import hashlib
+import logging
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -24,6 +26,8 @@ from src.common.schemas.feature_manifest import (
     ValidationMetrics,
 )
 from src.lake.bronze_writer import BronzeReader
+
+logger = logging.getLogger(__name__)
 
 
 class SilverFeatureBuilder:
@@ -80,38 +84,45 @@ class SilverFeatureBuilder:
     ) -> Dict[str, Any]:
         """
         Build a feature set for the given manifest and dates.
-        
+
         Args:
             manifest: Feature manifest defining the transformation
             dates: List of dates to process (YYYY-MM-DD)
             force: If True, overwrite existing output
-        
+
         Returns:
             Dictionary with build statistics
         """
         version = manifest.version
         output_dir = self.features_root / version
-        
+
+        logger.info(f"Building feature set: {version}")
+        logger.info(f"  Dates to process: {len(dates)}")
+        logger.info(f"  Output directory: {output_dir}")
+
         # Check if already exists
         if output_dir.exists() and not force:
+            logger.warning(f"  Version {version} already exists. Use force=True to overwrite.")
             return {
                 'status': 'skipped',
                 'reason': f'Version {version} already exists. Use force=True to overwrite.',
                 'output_dir': str(output_dir)
             }
-        
+
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Save manifest
         manifest.to_file(output_dir / "manifest.yaml")
-        
+        logger.debug(f"  Saved manifest to {output_dir / 'manifest.yaml'}")
+
         # Get versioned pipeline for this manifest
         from src.pipeline.pipelines import get_pipeline_for_version
 
         # Create pipeline matching manifest version
         pipeline = get_pipeline_for_version(version)
-        
+        logger.info(f"  Using pipeline: {pipeline.name} ({pipeline.version})")
+
         # Process each date
         all_signals = []
         stats = {
@@ -119,21 +130,26 @@ class SilverFeatureBuilder:
             'signals_total': 0,
             'errors': []
         }
-        
-        for date in dates:
+
+        build_start = time.time()
+
+        for i, date in enumerate(dates, 1):
+            date_start = time.time()
             try:
-                print(f"  Processing {date} for {version}...")
-                
+                logger.info(f"\n{'='*60}")
+                logger.info(f"[{i}/{len(dates)}] Processing {date} for {version}")
+                logger.info(f"{'='*60}")
+
                 # Run pipeline to get features
                 signals_df = pipeline.run(date=date)
-                
+
                 if signals_df.empty:
-                    print(f"    No signals for {date}")
+                    logger.warning(f"  No signals for {date}")
                     continue
-                
+
                 # Filter to requested feature columns
                 feature_cols = self._get_feature_columns(manifest)
-                
+
                 # Keep identity columns + requested features + labels
                 identity_cols = ['event_id', 'ts_ns', 'date', 'symbol']
                 label_cols = [
@@ -141,16 +157,16 @@ class SilverFeatureBuilder:
                     't1_60', 't1_120', 't2_60', 't2_120',
                     't1_break_60', 't1_bounce_60', 't2_break_60', 't2_bounce_60'
                 ]
-                
+
                 keep_cols = identity_cols + feature_cols + label_cols
                 available_cols = [c for c in keep_cols if c in signals_df.columns]
-                
+
                 filtered_df = signals_df[available_cols].copy()
-                
+
                 # Write to parquet (partitioned by date)
                 date_output = output_dir / f"date={date}"
                 date_output.mkdir(parents=True, exist_ok=True)
-                
+
                 output_file = date_output / f"features_{date}.parquet"
                 filtered_df.to_parquet(
                     output_file,
@@ -158,29 +174,48 @@ class SilverFeatureBuilder:
                     compression='zstd',
                     index=False
                 )
-                
+
                 all_signals.append(filtered_df)
                 stats['dates_processed'] += 1
                 stats['signals_total'] += len(filtered_df)
-                
-                print(f"    Wrote {len(filtered_df)} signals to {output_file}")
-                
+
+                date_elapsed = time.time() - date_start
+                logger.info(f"  ✅ {date}: {len(filtered_df):,} signals in {date_elapsed:.1f}s")
+
             except Exception as e:
                 error_msg = f"Error processing {date}: {str(e)}"
-                print(f"    {error_msg}")
+                logger.error(f"  ❌ {error_msg}")
                 stats['errors'].append(error_msg)
         
+        # Build summary
+        build_elapsed = time.time() - build_start
+
+        logger.info(f"\n{'='*60}")
+        logger.info(f"BUILD SUMMARY: {version}")
+        logger.info(f"{'='*60}")
+        logger.info(f"  Dates processed: {stats['dates_processed']}/{len(dates)}")
+        logger.info(f"  Total signals: {stats['signals_total']:,}")
+        logger.info(f"  Total time: {build_elapsed:.1f}s")
+        if stats['dates_processed'] > 0:
+            logger.info(f"  Avg per date: {build_elapsed/stats['dates_processed']:.1f}s")
+
+        if stats['errors']:
+            logger.warning(f"  Errors: {len(stats['errors'])}")
+            for err in stats['errors']:
+                logger.warning(f"    - {err}")
+
         # Combine all signals for validation
         if all_signals:
+            logger.info(f"\nValidating combined dataset...")
             combined_df = pd.concat(all_signals, ignore_index=True)
-            
+
             # Compute validation metrics
             null_rates = {
                 col: float(combined_df[col].isna().mean())
                 for col in combined_df.columns
                 if col not in identity_cols
             }
-            
+
             validation = ValidationMetrics(
                 date_range={'start': dates[0], 'end': dates[-1]},
                 signal_count=len(combined_df),
@@ -188,12 +223,13 @@ class SilverFeatureBuilder:
                 null_rates=null_rates,
                 schema_hash=self._compute_schema_hash(combined_df)
             )
-            
+
             # Update manifest with validation
             manifest.validation = validation
             manifest.to_file(output_dir / "manifest.yaml")
-            
+
             # Save validation summary
+            high_null_features = [col for col, rate in null_rates.items() if rate > 0.1]
             validation_summary = {
                 'date_range': validation.date_range,
                 'signal_count': validation.signal_count,
@@ -201,20 +237,28 @@ class SilverFeatureBuilder:
                 'null_rates_summary': {
                     'mean': sum(null_rates.values()) / len(null_rates) if null_rates else 0,
                     'max': max(null_rates.values()) if null_rates else 0,
-                    'high_null_features': [
-                        col for col, rate in null_rates.items() if rate > 0.1
-                    ]
+                    'high_null_features': high_null_features
                 }
             }
-            
+
             import json
             with open(output_dir / "validation.json", 'w') as f:
                 json.dump(validation_summary, f, indent=2)
-        
+
+            logger.info(f"  Total signals: {validation.signal_count:,}")
+            logger.info(f"  Features: {validation.feature_count}")
+            logger.info(f"  Date range: {validation.date_range['start']} to {validation.date_range['end']}")
+            if high_null_features:
+                logger.warning(f"  High null rate features: {high_null_features}")
+            logger.info(f"  Validation saved to: {output_dir / 'validation.json'}")
+
         stats['status'] = 'success'
         stats['output_dir'] = str(output_dir)
         stats['version'] = version
-        
+        stats['build_time_seconds'] = build_elapsed
+
+        logger.info(f"\n✅ Feature set {version} built successfully!")
+
         return stats
     
     def _get_feature_columns(self, manifest: FeatureManifest) -> List[str]:
@@ -362,50 +406,58 @@ class SilverFeatureBuilder:
 def create_baseline_features(data_root: Optional[str] = None):
     """
     Create baseline feature sets (mechanics_only and full_ensemble).
-    
+
     This is a helper function to bootstrap the Silver layer.
     """
     from src.common.schemas.feature_manifest import (
         create_mechanics_only_manifest,
         create_full_ensemble_manifest
     )
-    
+
+    logger.info("="*70)
+    logger.info("CREATING BASELINE SILVER FEATURES")
+    logger.info("="*70)
+
     builder = SilverFeatureBuilder(data_root=data_root)
-    
+
     # Get available dates from Bronze
     bronze_reader = BronzeReader(data_root=data_root or CONFIG.DATA_ROOT)
     available_dates = bronze_reader.get_available_dates('futures/trades', 'symbol=ES')
-    
+
     if not available_dates:
-        print("No Bronze data found. Please run backfill first.")
+        logger.error("No Bronze data found. Please run backfill first.")
         return
-    
-    print(f"Found {len(available_dates)} dates in Bronze: {available_dates[:5]}...")
-    
+
+    logger.info(f"Found {len(available_dates)} dates in Bronze")
+    logger.info(f"  First: {available_dates[0]}")
+    logger.info(f"  Last: {available_dates[-1]}")
+
     # Create mechanics-only baseline
-    print("\nCreating v1.0_mechanics_only...")
+    logger.info("\n" + "="*70)
+    logger.info("BUILDING: v1.0_mechanics_only")
+    logger.info("="*70)
     manifest_v1 = create_mechanics_only_manifest()
     stats_v1 = builder.build_feature_set(
         manifest=manifest_v1,
         dates=available_dates,
         force=False
     )
-    print(f"  Status: {stats_v1['status']}")
-    print(f"  Signals: {stats_v1.get('signals_total', 0)}")
-    
+
     # Create full ensemble
-    print("\nCreating v2.0_full_ensemble...")
+    logger.info("\n" + "="*70)
+    logger.info("BUILDING: v2.0_full_ensemble")
+    logger.info("="*70)
     manifest_v2 = create_full_ensemble_manifest()
     stats_v2 = builder.build_feature_set(
         manifest=manifest_v2,
         dates=available_dates,
         force=False
     )
-    print(f"  Status: {stats_v2['status']}")
-    print(f"  Signals: {stats_v2.get('signals_total', 0)}")
-    
-    print("\nBaseline feature sets created successfully!")
-    print(f"  Available versions: {builder.list_versions()}")
+
+    logger.info("\n" + "="*70)
+    logger.info("BASELINE FEATURE SETS COMPLETE")
+    logger.info("="*70)
+    logger.info(f"  Available versions: {builder.list_versions()}")
 
 
 if __name__ == "__main__":

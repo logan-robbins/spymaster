@@ -62,6 +62,18 @@ export interface SpySnapshot {
     ask: number | null;
 }
 
+export interface MLPredictions {
+    p_tradeable_2: number;
+    p_break: number;
+    p_bounce: number;
+    strength_signed: number;
+    strength_abs: number;
+    utility_score: number;
+    stage: string;
+    time_to_threshold: Record<string, any>;
+    retrieval: Record<string, any>;
+}
+
 export interface LevelSignal {
     id: string;
     level_price: number;
@@ -90,6 +102,16 @@ export interface LevelSignal {
     signal: 'BREAK' | 'BOUNCE' | 'CHOP';
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     note?: string;
+    
+    // Confluence features (Phase 3)
+    confluence_count: number;
+    confluence_pressure: number;
+    confluence_alignment: number;  // -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+    confluence_level: number;  // 0-10 hierarchical scale
+    confluence_level_name: string;  // ULTRA_PREMIUM, PREMIUM, STRONG, MODERATE, CONSOLIDATION
+    
+    // ML predictions (merged from viewport)
+    ml_predictions?: MLPredictions;
 }
 
 export interface LevelsPayload {

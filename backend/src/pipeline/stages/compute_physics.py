@@ -1,4 +1,5 @@
 """Compute physics metrics stage."""
+import logging
 from typing import Any, Dict, List
 import pandas as pd
 import numpy as np
@@ -10,6 +11,8 @@ from src.core.fuel_engine import FuelEngine
 from src.core.market_state import MarketState
 from src.common.event_types import FuturesTrade, MBP10
 from src.common.config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def compute_physics_batch(
@@ -214,6 +217,10 @@ class ComputePhysicsStage(BaseStage):
         trades = ctx.data['trades']
         mbp10_snapshots = ctx.data['mbp10_snapshots']
 
+        n_touches = len(touches_df)
+        logger.info(f"  Computing physics for {n_touches:,} touches...")
+        logger.debug(f"    Using {len(trades):,} trades, {len(mbp10_snapshots):,} MBP-10 snapshots")
+
         signals_df = compute_physics_batch(
             touches_df=touches_df,
             market_state=market_state,
@@ -224,5 +231,15 @@ class ComputePhysicsStage(BaseStage):
             trades=trades,
             mbp10_snapshots=mbp10_snapshots
         )
+
+        # Log barrier state distribution
+        if 'barrier_state' in signals_df.columns:
+            barrier_dist = signals_df['barrier_state'].value_counts().to_dict()
+            logger.info(f"    Barrier states: {barrier_dist}")
+
+        # Log fuel effect distribution
+        if 'fuel_effect' in signals_df.columns:
+            fuel_dist = signals_df['fuel_effect'].value_counts().to_dict()
+            logger.info(f"    Fuel effects: {fuel_dist}")
 
         return {'signals_df': signals_df}
