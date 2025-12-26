@@ -110,14 +110,32 @@ Each level is transformed by `_normalize_level_signal`:
     "confidence": str,                  # HIGH, MEDIUM, LOW
     "note": Optional[str],
 
-    # Confluence Level Features (TODO: Phase 3.1)
-    # See frontend/README.md for full integration plan
-    "confluence_level": int,            # 0-10 (0=undefined, 1=ultra premium, 10=consolidation)
-    "confluence_level_name": str,       # ULTRA_PREMIUM, PREMIUM, STRONG, etc.
-    "breakout_state": int,              # 0=INSIDE, 1=PARTIAL, 2=ABOVE_ALL, 3=BELOW_ALL
-    "breakout_state_name": str,         # INSIDE, PARTIAL, ABOVE_ALL, BELOW_ALL
-    "gex_alignment": int,               # -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
-    "rel_vol_ratio": Optional[float]    # Current hour cumvol / 7-day avg (e.g., 1.25)
+    # Confluence Features
+    "confluence_count": int,            # Number of nearby key levels
+    "confluence_pressure": float,       # Weighted pressure (0-1)
+    "confluence_alignment": int,        # -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+    "confluence_level": int,            # 0-10 hierarchical scale
+    "confluence_level_name": str,       # ULTRA_PREMIUM, PREMIUM, STRONG, MODERATE, CONSOLIDATION
+    
+    # ML Predictions (merged from viewport)
+    "ml_predictions": {
+        "p_tradeable_2": float,         # P(tradeable)
+        "p_break": float,               # P(break | tradeable)
+        "p_bounce": float,              # P(bounce | tradeable)
+        "strength_signed": float,       # Predicted signed strength
+        "strength_abs": float,          # Predicted absolute strength
+        "utility_score": float,         # Overall utility score
+        "stage": str,                   # "stage_a" or "stage_b"
+        "time_to_threshold": {          # Time-to-threshold predictions
+            "t1": {"60": float, "120": float},
+            "t2": {"60": float, "120": float}
+        },
+        "retrieval": {                  # kNN retrieval predictions
+            "p_break": float,
+            "similarity": float,
+            "entropy": float
+        }
+    }
 }
 ```
 
@@ -210,11 +228,12 @@ Merges `_latest_flow`, `_latest_levels`, `_latest_viewport` into single dict.
 #### `_normalize_levels_payload(payload)` (internal)
 Normalizes raw Core payload to frontend contract:
 - Extracts timestamp, spy snapshot
+- Extracts viewport predictions and builds lookup by level_id
 - Handles nested levels structures
-- Calls `_normalize_level_signal` for each level
+- Calls `_normalize_level_signal` for each level with matched viewport predictions
 
-#### `_normalize_level_signal(level, is_first_15m, bars_since_open)` (internal)
-Transforms individual level to normalized schema with signal/direction mapping.
+#### `_normalize_level_signal(level, is_first_15m, bars_since_open, viewport_pred)` (internal)
+Transforms individual level to normalized schema with signal/direction mapping. Merges ML predictions from viewport if available.
 
 #### `_compute_session_context(ts_ms)` (internal)
 Computes session timing context (is_first_15m, bars_since_open).
@@ -382,6 +401,8 @@ await self.bus.subscribe(
 5. **Automatic cleanup**: Failed connections removed automatically
 6. **NATS durability**: Durable consumers survive Gateway restarts
 7. **Signal mapping**: REJECT→BOUNCE, CONTESTED/NEUTRAL→CHOP
+8. **ML prediction merging**: Viewport predictions matched by level_id and merged into normalized levels
+9. **Confluence preservation**: All confluence features preserved from Core output
 
 ---
 

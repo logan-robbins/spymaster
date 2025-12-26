@@ -104,9 +104,40 @@ Implements break/bounce physics classification using ES futures liquidity data a
         "distance": 3.0,
         "quality": "CLEAR"
       },
+      "confluence_count": 3,
+      "confluence_pressure": 0.65,
+      "confluence_alignment": 1,
+      "confluence_level": 3,
+      "confluence_level_name": "PREMIUM",
       "note": "Vacuum + dealers chase; sweep confirms"
     }
-  ]
+  ],
+  "viewport": {
+    "ts": 1715629300123,
+    "targets": [
+      {
+        "level_id": "STRIKE_687",
+        "level_price": 687.0,
+        "direction": "DOWN",
+        "distance": 0.42,
+        "p_tradeable_2": 0.78,
+        "p_break": 0.72,
+        "p_bounce": 0.28,
+        "strength_signed": 2.35,
+        "utility_score": 0.82,
+        "stage": "stage_b",
+        "time_to_threshold": {
+          "t1": {"60": 0.65, "120": 0.82},
+          "t2": {"60": 0.42, "120": 0.58}
+        },
+        "retrieval": {
+          "p_break": 0.68,
+          "similarity": 0.85,
+          "entropy": 0.62
+        }
+      }
+    ]
+  }
 }
 ```
 
@@ -335,7 +366,9 @@ def compute_level_signals() -> Dict[str, Any]
    - Compute CompositeScore
    - Apply smoothing
    - Compute Runway
-5. Build payload dict
+   - Compute ConfluenceMetrics
+5. Optional: Score viewport ML predictions (if VIEWPORT_SCORING_ENABLED)
+6. Build payload dict with levels + viewport
 
 ---
 
@@ -395,6 +428,12 @@ output_spy = market_state.price_converter.es_to_spy(result_es)
 - `w_L = 0.45` (liquidity)
 - `w_H = 0.35` (hedge)
 - `w_T = 0.20` (tape)
+
+**Confluence**:
+- `CONFLUENCE_BAND = 0.20` (price band for confluence detection)
+
+**ML Scoring**:
+- `VIEWPORT_SCORING_ENABLED` (enable ML predictions per level)
 
 **Sweep Detection**:
 - `SWEEP_MIN_NOTIONAL` (minimum notional for sweep)

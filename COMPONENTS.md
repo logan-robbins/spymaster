@@ -98,9 +98,11 @@
 - Compute barrier physics (VACUUM, WALL, ABSORPTION, CONSUMED)
 - Compute tape physics (imbalance, velocity, sweep detection)
 - Compute fuel physics (dealer gamma, AMPLIFY vs DAMPEN)
+- Compute confluence metrics (nearby levels, pressure, alignment)
 - Composite scoring (break/bounce probability 0-100)
 - Smoothing (EWMA for stable output)
-- Publish level signals to NATS
+- Optional ML viewport scoring (tradeability, direction, strength predictions)
+- Publish level signals + viewport to NATS
 
 **Inputs**:
 - NATS subjects: `market.*` (all market data from Ingestor)
@@ -114,6 +116,8 @@
 - `TapeEngine`: ES trade flow analysis
 - `FuelEngine`: SPY option gamma analysis
 - `ScoreEngine`: Composite break score (weighted sum)
+- `ConfluenceComputer`: Multi-level confluence detection and alignment
+- `ViewportScoringService`: Optional ML predictions per level
 - `LevelSignalService`: Orchestrator that publishes signals
 
 **Entry Point**: Integrated into microservices architecture (runs as separate process)
@@ -164,7 +168,9 @@
 **Interface**: [backend/src/gateway/INTERFACES.md](backend/src/gateway/INTERFACES.md)
 
 **Key Responsibilities**:
-- Subscribe to NATS `levels.signals`
+- Subscribe to NATS `levels.signals` and `market.flow`
+- Normalize payload to frontend contract (direction/signal mapping)
+- Merge ML viewport predictions into per-level schema
 - Cache latest payload
 - Broadcast to WebSocket clients
 - Health check endpoint
@@ -177,7 +183,8 @@
 - HTTP: `GET /health` (health check)
 
 **Key Characteristics**:
-- Pure relay (zero compute logic)
+- Relay with normalization (transforms Core schema to frontend contract)
+- Merges ML predictions from viewport into per-level enrichment
 - Immediate state delivery (cached payload sent on connect)
 - Automatic client cleanup (failed connections removed)
 - Durable NATS consumer (survives restarts)
