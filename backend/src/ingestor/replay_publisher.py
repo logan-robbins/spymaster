@@ -30,6 +30,10 @@ ET = ZoneInfo("America/New_York")
 PREMARKET_START_HOUR = 4
 PREMARKET_START_MINUTE = 0
 
+# Regular Trading Hours (RTH) start at 9:30 AM ET
+RTH_START_HOUR = 9
+RTH_START_MINUTE = 30
+
 
 def get_premarket_start_ns(date_str: str) -> int:
     """
@@ -47,6 +51,27 @@ def get_premarket_start_ns(date_str: str) -> int:
 
     # Create datetime at 4:00 AM ET
     dt_et = datetime(year, month, day, PREMARKET_START_HOUR, PREMARKET_START_MINUTE, 0, tzinfo=ET)
+
+    # Convert to Unix timestamp (seconds) then to nanoseconds
+    return int(dt_et.timestamp() * 1_000_000_000)
+
+
+def get_rth_start_ns(date_str: str) -> int:
+    """
+    Get the start timestamp (nanoseconds) for RTH on a given date.
+
+    RTH (Regular Trading Hours) starts at 9:30 AM ET.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format
+
+    Returns:
+        Unix nanoseconds for 9:30 AM ET on that date
+    """
+    year, month, day = map(int, date_str.split('-'))
+
+    # Create datetime at 9:30 AM ET
+    dt_et = datetime(year, month, day, RTH_START_HOUR, RTH_START_MINUTE, 0, tzinfo=ET)
 
     # Convert to Unix timestamp (seconds) then to nanoseconds
     return int(dt_et.timestamp() * 1_000_000_000)
@@ -238,7 +263,7 @@ class ReplayPublisher:
         include_options: bool = True
     ):
         """
-        Replay multiple dates continuously, each starting from pre-market (4:00 AM ET).
+        Replay multiple dates continuously, each starting from RTH (9:30 AM ET).
 
         Args:
             dates: List of dates to replay, or None for all available
@@ -253,8 +278,8 @@ class ReplayPublisher:
         print(f"   Range: {dates[0]} to {dates[-1]}")
 
         for date in dates:
-            # Each date starts from pre-market (4:00 AM ET)
-            start_ns = get_premarket_start_ns(date)
+            # Each date starts from RTH (9:30 AM ET)
+            start_ns = get_rth_start_ns(date)
             await self.replay_date(date, start_ns, end_ns, include_options=include_options)
             print(f"  ✅ Completed {date}\n")
 
@@ -511,10 +536,10 @@ async def main():
                 print(f"❌ Date {replay_date} not found in available data")
                 sys.exit(1)
 
-            # Start from pre-market (4:00 AM ET)
-            start_ns = get_premarket_start_ns(replay_date)
+            # Start from RTH (9:30 AM ET)
+            start_ns = get_rth_start_ns(replay_date)
             start_dt = datetime.fromtimestamp(start_ns / 1e9, tz=ET)
-            print(f"   Start time: {start_dt.strftime('%H:%M:%S %Z')} (pre-market)")
+            print(f"   Start time: {start_dt.strftime('%H:%M:%S %Z')} (RTH open)")
 
             await publisher.replay_date(replay_date, start_ns=start_ns, include_options=include_options)
         else:

@@ -69,10 +69,11 @@ services:
       - ./backend/.env
     environment:
       NATS_URL: nats://nats:4222
-      REPLAY_DATE: ${REPLAY_DATE:-2025-12-16}
+      REPLAY_DATE: ${REPLAY_DATE:-2025-12-10}
       REPLAY_SPEED: ${REPLAY_SPEED:-1.0}
     volumes:
       - ./dbn-data:/dbn-data:ro
+      - ./backend/data:/app/data:ro
     command: ["uv", "run", "python", "-m", "src.ingestor.replay_publisher"]
     depends_on:
       nats:
@@ -110,6 +111,8 @@ services:
       S3_BUCKET: spymaster-lake
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
+    volumes:
+      - ./backend/data:/app/data
     command: ["uv", "run", "python", "-m", "src.lake.main"]
     depends_on:
       nats:

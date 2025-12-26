@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from src.gateway.socket_broadcaster import SocketBroadcaster
+from src.gateway.candle_service import CandleService
 from src.common.bus import NATSBus
 from src.common.config import CONFIG
 
@@ -28,6 +29,7 @@ load_dotenv()
 
 # Global instances
 broadcaster: SocketBroadcaster = None
+candle_service: CandleService = None
 
 
 @asynccontextmanager
@@ -41,6 +43,9 @@ async def lifespan(app: FastAPI):
     # Initialize broadcaster with NATS
     broadcaster = SocketBroadcaster()
     await broadcaster.start()
+    
+    # Initialize Candle Service
+    candle_service = CandleService()
     
     print("✅ Gateway Service ready")
     
@@ -97,6 +102,29 @@ async def health_check():
         "nats_url": CONFIG.NATS_URL,
         "connections": len(broadcaster.active_connections) if broadcaster else 0
     }
+
+
+@app.get("/api/history/candles")
+async def get_candles(
+    symbol: str = Query("SPY", description="Ticker symbol"),
+    interval: int = Query(2, description="Interval in minutes"),
+    days: int = Query(1, description="Days of history to fetch")
+):
+    """
+    Fetch historical candles for chart initialization.
+    """
+    if not candle_service:
+        raise HTTPException(status_code=503, detail="Candle service not initialized")
+        
+    try:
+        return await candle_service.get_candles(symbol, interval, days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        print(f"Candle fetch error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 if __name__ == "__main__":
