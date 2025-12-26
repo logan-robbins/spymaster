@@ -145,11 +145,30 @@ class SocketBroadcaster:
         if not isinstance(raw_levels, list):
             raw_levels = []
 
+        # Extract viewport predictions (if present)
+        viewport = payload.get("viewport")
+        viewport_targets = viewport.get("targets", []) if viewport else []
+        
+        # Build lookup for viewport predictions by level_id
+        viewport_by_id: Dict[str, Dict[str, Any]] = {}
+        for target in viewport_targets:
+            if isinstance(target, dict):
+                level_id = target.get("level_id")
+                if level_id:
+                    viewport_by_id[level_id] = target
+
         normalized_levels: List[Dict[str, Any]] = []
         for level in raw_levels:
             if not isinstance(level, dict):
                 continue
-            normalized_levels.append(self._normalize_level_signal(level, is_first_15m, bars_since_open))
+            
+            # Get level ID for viewport lookup
+            level_id = level.get("id", "")
+            viewport_pred = viewport_by_id.get(level_id)
+            
+            normalized_levels.append(
+                self._normalize_level_signal(level, is_first_15m, bars_since_open, viewport_pred)
+            )
 
         return {
             "ts": ts_ms,
@@ -161,7 +180,8 @@ class SocketBroadcaster:
         self,
         level: Dict[str, Any],
         is_first_15m: bool,
-        bars_since_open: int
+        bars_since_open: int,
+        viewport_pred: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         barrier = level.get("barrier") or {}
         tape = level.get("tape") or {}
@@ -193,7 +213,12 @@ class SocketBroadcaster:
             # Match historical pipeline heuristic: depth_in_zone normalized by a baseline.
             wall_ratio = (float(depth_in_zone) / 5000.0) if isinstance(depth_in_zone, (int, float)) and depth_in_zone else 0.0
 
-        return {
+        # Confluence features
+        confluence_level = level.get("confluence_level", 0)
+        confluence_level_name = level.get("confluence_level_name", "UNDEFINED")
+        
+        # Base normalized level
+        normalized = {
             "id": level.get("id", ""),
             "level_price": level.get("price", 0.0),
             "level_kind_name": level.get("kind", "UNKNOWN"),
@@ -220,8 +245,29 @@ class SocketBroadcaster:
             "break_score_smooth": break_score_smooth,
             "signal": signal or "CHOP",
             "confidence": level.get("confidence", "LOW"),
-            "note": level.get("note")
+            "note": level.get("note"),
+            "confluence_count": level.get("confluence_count", 0),
+            "confluence_pressure": level.get("confluence_pressure", 0.0),
+            "confluence_alignment": level.get("confluence_alignment", 0),
+            "confluence_level": confluence_level,
+            "confluence_level_name": confluence_level_name
         }
+        
+        # Add ML predictions if available from viewport
+        if viewport_pred:
+            normalized["ml_predictions"] = {
+                "p_tradeable_2": viewport_pred.get("p_tradeable_2", 0.0),
+                "p_break": viewport_pred.get("p_break", 0.0),
+                "p_bounce": viewport_pred.get("p_bounce", 0.0),
+                "strength_signed": viewport_pred.get("strength_signed", 0.0),
+                "strength_abs": viewport_pred.get("strength_abs", 0.0),
+                "utility_score": viewport_pred.get("utility_score", 0.0),
+                "stage": viewport_pred.get("stage", "stage_a"),
+                "time_to_threshold": viewport_pred.get("time_to_threshold", {}),
+                "retrieval": viewport_pred.get("retrieval", {})
+            }
+        
+        return normalized
 
     def _compute_session_context(self, ts_ms: int) -> Tuple[bool, int]:
         dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone(

@@ -1,10 +1,13 @@
 """Label outcomes stage."""
+import logging
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def label_outcomes(
@@ -323,6 +326,22 @@ class LabelOutcomesStage(BaseStage):
         signals_df = ctx.data['signals_df']
         ohlcv_df = ctx.data['ohlcv_1min']
 
+        n_signals = len(signals_df)
+        logger.info(f"  Labeling outcomes for {n_signals:,} signals...")
+        logger.debug(f"    OHLCV bars: {len(ohlcv_df):,}")
+        logger.debug(f"    Lookforward: {CONFIG.LOOKFORWARD_MINUTES} min, Threshold: ${CONFIG.OUTCOME_THRESHOLD}")
+
         signals_df = label_outcomes(signals_df, ohlcv_df)
+
+        # Log outcome distribution
+        if 'outcome' in signals_df.columns:
+            outcome_dist = signals_df['outcome'].value_counts().to_dict()
+            logger.info(f"    Outcome distribution: {outcome_dist}")
+
+        # Log tradeable counts
+        if 'tradeable_2' in signals_df.columns:
+            tradeable_count = signals_df['tradeable_2'].sum()
+            tradeable_pct = 100 * tradeable_count / n_signals if n_signals > 0 else 0
+            logger.info(f"    Tradeable signals: {tradeable_count:,} ({tradeable_pct:.1f}%)")
 
         return {'signals_df': signals_df}

@@ -1,4 +1,5 @@
 """Detect level touches stage."""
+import logging
 from typing import Any, Dict, List, Tuple
 import pandas as pd
 import numpy as np
@@ -6,6 +7,8 @@ import numpy as np
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.pipeline.stages.generate_levels import LevelInfo
 from src.common.config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def detect_touches_numpy(
@@ -208,30 +211,46 @@ class DetectTouchesStage(BaseStage):
         static_level_info = ctx.data['static_level_info']
         dynamic_levels = ctx.data['dynamic_levels']
 
+        logger.info(f"  Detecting touches (tolerance={self.touch_tolerance})...")
+        logger.debug(f"    Static levels: {len(static_level_info.prices)}")
+        logger.debug(f"    Dynamic level types: {list(dynamic_levels.keys())}")
+
         # Detect static level touches
         touches_df = detect_touches(
             ohlcv_df, static_level_info,
             touch_tolerance=self.touch_tolerance
         )
+        static_count = len(touches_df)
+        logger.info(f"    Static level touches: {static_count:,}")
 
         # Detect dynamic level touches
         dynamic_touches = detect_dynamic_level_touches(
             ohlcv_df, dynamic_levels,
             touch_tolerance=self.touch_tolerance
         )
+        dynamic_count = len(dynamic_touches)
+        logger.info(f"    Dynamic level touches: {dynamic_count:,}")
 
         # Merge and deduplicate
         if not dynamic_touches.empty:
             touches_df = pd.concat([touches_df, dynamic_touches], ignore_index=True)
+            before_dedup = len(touches_df)
             touches_df = touches_df.drop_duplicates(
                 subset=['ts_ns', 'level_kind_name', 'level_price']
             )
+            logger.debug(f"    After dedup: {len(touches_df):,} (removed {before_dedup - len(touches_df):,} dups)")
 
         # Limit touches if needed
         if len(touches_df) > self.max_touches:
+            logger.warning(f"    Limiting touches from {len(touches_df):,} to {self.max_touches:,}")
             touches_df = touches_df.head(self.max_touches)
 
         if touches_df.empty:
             raise ValueError("No touches detected")
+
+        # Log level type distribution
+        if not touches_df.empty:
+            level_dist = touches_df['level_kind_name'].value_counts().head(5).to_dict()
+            logger.info(f"    Top level types: {level_dist}")
 
         return {'touches_df': touches_df}

@@ -8,9 +8,14 @@ Run this after backfilling Bronze data.
 Usage:
     cd backend
     uv run python scripts/bootstrap_medallion.py
+    uv run python scripts/bootstrap_medallion.py --verbose
+    uv run python scripts/bootstrap_medallion.py --debug
 """
 
+import argparse
+import logging
 import sys
+import time
 from pathlib import Path
 
 # Add backend to path
@@ -24,14 +29,66 @@ from src.common.schemas.feature_manifest import (
     create_full_ensemble_manifest
 )
 
+logger = logging.getLogger(__name__)
+
+
+def setup_logging(verbose: bool = False, debug: bool = False):
+    """Configure logging for the bootstrap script."""
+    if debug:
+        level = logging.DEBUG
+    elif verbose:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%H:%M:%S',
+        force=True
+    )
+
+    # Also set level for key modules
+    for module in ['src.pipeline', 'src.lake', 'src.core', '__main__']:
+        logging.getLogger(module).setLevel(level)
+
 
 def main():
     """Bootstrap the Medallion architecture."""
+    parser = argparse.ArgumentParser(
+        description="Bootstrap Medallion Architecture - Create Silver features and promote to Gold"
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose logging (INFO level)'
+    )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging (DEBUG level)'
+    )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Force rebuild of existing feature sets'
+    )
+    args = parser.parse_args()
+
+    # Setup logging
+    setup_logging(verbose=args.verbose, debug=args.debug)
+
+    start_time = time.time()
+
     print("=" * 70)
     print("MEDALLION ARCHITECTURE BOOTSTRAP")
     print("=" * 70)
+    if args.verbose:
+        print("  Mode: VERBOSE (--verbose)")
+    if args.debug:
+        print("  Mode: DEBUG (--debug)")
     print()
-    
+
     # Step 1: Create baseline feature sets
     print("Step 1: Creating baseline Silver feature sets...")
     print("-" * 70)
@@ -104,9 +161,11 @@ def main():
     print()
     
     # Summary
+    elapsed = time.time() - start_time
     print("=" * 70)
     print("BOOTSTRAP COMPLETE")
     print("=" * 70)
+    print(f"  Total time: {elapsed:.1f}s ({elapsed/60:.1f} minutes)")
     print()
     print("Next steps:")
     print("  1. Train ML models using Gold data:")
@@ -125,7 +184,7 @@ def main():
     print(f"  Silver: backend/data/lake/silver/features/")
     print(f"  Gold:   backend/data/lake/gold/training/")
     print()
-    
+
     return 0
 
 

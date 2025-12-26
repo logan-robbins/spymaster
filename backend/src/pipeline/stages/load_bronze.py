@@ -1,4 +1,5 @@
 """Load Bronze data stage - first stage in all pipelines."""
+import logging
 from typing import Any, Dict, List
 import pandas as pd
 import numpy as np
@@ -7,6 +8,8 @@ from src.pipeline.core.stage import BaseStage, StageContext
 from src.pipeline.utils.duckdb_reader import DuckDBReader
 from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
 from src.common.config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
@@ -125,13 +128,16 @@ class LoadBronzeStage(BaseStage):
 
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         reader = DuckDBReader()
+        logger.info(f"  Loading Bronze data for {ctx.date}...")
 
         # Load ES trades
+        logger.debug(f"    Reading ES futures trades...")
         trades_df = reader.read_futures_trades(symbol='ES', date=ctx.date)
         if trades_df.empty:
             raise ValueError(f"No ES trades found for {ctx.date}")
 
         trades = futures_trades_from_df(trades_df)
+        logger.info(f"    ES trades: {len(trades):,} records")
 
         # Compute session bounds for MBP-10 loading
         session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
@@ -145,6 +151,7 @@ class LoadBronzeStage(BaseStage):
         ts_end = session_end_ns + buffer_ns
 
         # Load MBP-10 downsampled
+        logger.debug(f"    Reading ES MBP-10 (downsampled)...")
         mbp_df = reader.read_futures_mbp10_downsampled(
             date=ctx.date,
             start_ns=ts_start,
@@ -154,9 +161,13 @@ class LoadBronzeStage(BaseStage):
             raise ValueError(f"No MBP-10 data after downsampling for {ctx.date}")
 
         mbp10_snapshots = mbp10_from_df(mbp_df)
+        logger.info(f"    MBP-10 snapshots: {len(mbp10_snapshots):,} records")
 
         # Load SPY options
+        logger.debug(f"    Reading SPY option trades...")
         option_trades_df = reader.read_option_trades(underlying='SPY', date=ctx.date)
+        opt_count = len(option_trades_df) if option_trades_df is not None else 0
+        logger.info(f"    SPY options: {opt_count:,} records")
 
         return {
             'trades': trades,

@@ -24,6 +24,7 @@ from .tape_engine import TapeEngine
 from .fuel_engine import FuelEngine
 from .score_engine import ScoreEngine, Signal, Confidence
 from .smoothing import SmootherSet
+from .confluence_computer import ConfluenceComputer, get_confluence_level_name
 from src.common.config import CONFIG
 
 
@@ -64,6 +65,13 @@ class LevelSignal:
     
     # Runway
     runway: Dict[str, Any]
+    
+    # Confluence metrics
+    confluence_count: int
+    confluence_pressure: float
+    confluence_alignment: int  # -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+    confluence_level: int  # 0-10 hierarchical scale
+    confluence_level_name: str  # Human-readable name
     
     # Optional human-readable note
     note: Optional[str] = None
@@ -117,6 +125,9 @@ class LevelSignalService:
         
         # Smoothers: one set per level (keyed by level.id)
         self.smoothers: Dict[str, SmootherSet] = {}
+        
+        # Confluence computer
+        self.confluence_computer = ConfluenceComputer()
 
         # Touch tracking for approach context (per level ID)
         self._touch_counts: Dict[str, int] = {}
@@ -310,6 +321,23 @@ class LevelSignalService:
             spot=spot
         )
         
+        # ========== Confluence Computation ==========
+        
+        # Compute confluence metrics
+        confluence_metrics = self.confluence_computer.compute(
+            target_level=level,
+            all_levels=all_levels,
+            market_state=self.market_state,
+            direction=direction_str
+        )
+        
+        # Compute hierarchical confluence level (0-10)
+        confluence_level = self.confluence_computer.compute_hierarchical_level(
+            metrics=confluence_metrics,
+            level_kind=level.kind
+        )
+        confluence_level_name = get_confluence_level_name(confluence_level)
+        
         # ========== Build signal output ==========
         
         # Generate human-readable note
@@ -377,6 +405,11 @@ class LevelSignalService:
                 } if runway.next_obstacle else None,
                 "quality": runway.quality.value
             },
+            confluence_count=confluence_metrics.confluence_count,
+            confluence_pressure=confluence_metrics.confluence_pressure,
+            confluence_alignment=confluence_metrics.confluence_alignment.value,
+            confluence_level=confluence_level,
+            confluence_level_name=confluence_level_name,
             note=note
         )
         
