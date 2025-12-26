@@ -2,10 +2,9 @@ import { Component, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DataStreamService } from '../data-stream.service';
 import { LevelDerivedService } from '../level-derived.service';
-import { PriceLadderComponent } from '../price-ladder/price-ladder.component';
-import { StrengthCockpitComponent } from '../strength-cockpit/strength-cockpit.component';
-import { AttributionBarComponent } from '../attribution-bar/attribution-bar.component';
-import { ConfluenceStackComponent } from '../confluence-stack/confluence-stack.component';
+import { SmartChartComponent } from '../smart-chart/smart-chart.component';
+import { ChartControlsComponent } from '../chart-controls/chart-controls.component';
+import { LevelDetailPanelComponent } from '../level-detail-panel/level-detail-panel.component';
 import { OptionsPanelComponent } from '../options-panel/options-panel.component';
 import { ViewportSelectorComponent } from '../viewport-selector/viewport-selector.component';
 
@@ -14,10 +13,9 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
   standalone: true,
   imports: [
     CommonModule,
-    PriceLadderComponent,
-    StrengthCockpitComponent,
-    AttributionBarComponent,
-    ConfluenceStackComponent,
+    SmartChartComponent,
+    ChartControlsComponent,
+    LevelDetailPanelComponent,
     OptionsPanelComponent,
     ViewportSelectorComponent
   ],
@@ -25,7 +23,7 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
     <div class="command-center">
       <header class="command-header">
         <div class="brand">
-          <div class="brand-title">SPYMASTER</div>
+          <div class="brand-title">SPYMASTER <span class="v2-badge">V2</span></div>
           <div class="brand-subtitle">0DTE BOUNCE/BREAK COMMAND</div>
         </div>
         <div class="status">
@@ -38,20 +36,29 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
         </div>
       </header>
 
-      <div class="command-grid">
-        <section class="panel ladder-panel">
-          <app-price-ladder [range]="2.5"></app-price-ladder>
+      <!-- V2 Layout: 2 Columns (2fr Chart, 1fr Details) -->
+      <div class="command-grid v2-layout">
+        <!-- Main Chart Section -->
+        <section class="panel chart-panel">
+          <div class="chart-wrapper">
+             <app-smart-chart></app-smart-chart>
+          </div>
+          <div class="controls-wrapper">
+             <app-chart-controls></app-chart-controls>
+          </div>
         </section>
 
-        <section class="panel cockpit-panel">
-          <app-viewport-selector></app-viewport-selector>
-          <app-strength-cockpit></app-strength-cockpit>
-          <app-attribution-bar></app-attribution-bar>
-          <app-confluence-stack></app-confluence-stack>
-        </section>
-
-        <section class="panel options-panel">
-          <app-options-panel></app-options-panel>
+        <!-- Right Detail Column -->
+        <section class="panel right-panel">
+          <!-- ML Viewport / Level Details -->
+          <div class="detail-section flex-1">
+             <app-level-detail-panel></app-level-detail-panel>
+          </div>
+          
+          <!-- Options Activity (Secondary) -->
+          <div class="options-section flex-1 mt-4">
+             <app-options-panel></app-options-panel>
+          </div>
         </section>
       </div>
     </div>
@@ -83,6 +90,18 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       font-size: 1.6rem;
       font-weight: 700;
       letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .v2-badge {
+       background: #ef4444;
+       color: white;
+       font-size: 0.7rem;
+       padding: 0.1rem 0.4rem;
+       border-radius: 4px;
+       vertical-align: middle;
     }
 
     .brand-subtitle {
@@ -133,9 +152,10 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       color: #38bdf8;
     }
 
-    .command-grid {
+    /* V2 Grid Layout */
+    .command-grid.v2-layout {
       display: grid;
-      grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr) minmax(300px, 1fr);
+      grid-template-columns: 2fr 1fr; /* 2:1 Ratio */
       gap: 1.5rem;
       align-items: stretch;
       flex: 1;
@@ -145,27 +165,49 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
     .panel {
       display: flex;
       flex-direction: column;
-      gap: 1rem;
       min-height: 0;
       overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.4);
+    }
+    
+    .chart-panel {
+       display: flex;
+       flex-direction: column;
+    }
+    
+    .chart-wrapper {
+       flex: 1;
+       min-height: 0;
+       position: relative;
+    }
+    
+    .controls-wrapper {
+       height: auto;
     }
 
-    .cockpit-panel {
-      overflow-y: auto;
-      padding-right: 0.25rem; /* small gutter so the scrollbar doesn't hug cards */
+    .right-panel {
+       display: flex;
+       flex-direction: column;
+       gap: 1rem;
+       background: transparent;
+       border: none;
+       padding: 0; 
+    }
+    
+    .detail-section, .options-section {
+       background: rgba(15, 23, 42, 0.8);
+       border: 1px solid rgba(148, 163, 184, 0.2);
+       border-radius: 16px;
+       overflow: hidden;
+       position: relative;
     }
 
-    .options-panel {
-      background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      border-radius: 16px;
-      padding: 1rem;
-      overflow: hidden;
-    }
-
-    @media (max-width: 1200px) {
-      .command-grid {
+    @media (max-width: 1024px) {
+      .command-grid.v2-layout {
         grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
       }
     }
   `]

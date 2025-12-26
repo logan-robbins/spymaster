@@ -57,8 +57,36 @@ export interface DerivedLevel {
     barsSinceOpen: number;
     isFirst15m: boolean;
   };
-  forces: ForceVector; // New Tug-of-War Vector
-  confluenceId?: string;
+  forces: ForceVector; // Tug-of-War Vector
+  
+  // Backend-computed confluence features (Phase 3)
+  confluence: {
+    count: number;           // Number of nearby key levels
+    pressure: number;        // Weighted pressure (0-1)
+    alignment: number;       // -1=OPPOSED, 0=NEUTRAL, 1=ALIGNED
+    level: number;           // 0-10 hierarchical quality scale
+    levelName: string;       // ULTRA_PREMIUM, PREMIUM, STRONG, etc.
+  };
+  
+  // ML predictions from viewport (if available)
+  ml?: {
+    available: boolean;
+    p_tradeable: number;        // P(tradeable)
+    p_break: number;            // P(break | tradeable)
+    p_bounce: number;           // P(bounce | tradeable)
+    strength_signed: number;    // Predicted signed strength
+    utility_score: number;      // Overall utility score
+    stage: string;              // "stage_a" or "stage_b"
+    time_to_threshold: {
+      t1_60: number;            // P(hit t1 within 60s)
+      t1_120: number;           // P(hit t1 within 120s)
+      t2_60: number;            // P(hit t2 within 60s)
+      t2_120: number;           // P(hit t2 within 120s)
+    };
+    retrieval_similarity: number; // kNN similarity score
+  };
+  
+  confluenceId?: string; // Legacy: for UI grouping
 }
 
 export interface ConfluenceGroup {
@@ -329,6 +357,33 @@ export class LevelDerivedService {
 
       const bias: SignalBias = breakValue > bounceValue ? 'BREAK' : bounceValue > breakValue ? 'BOUNCE' : 'NEUTRAL';
 
+      // Map backend confluence features
+      const backendConfluence = {
+        count: level.confluence_count ?? 0,
+        pressure: level.confluence_pressure ?? 0,
+        alignment: level.confluence_alignment ?? 0,
+        level: level.confluence_level ?? 0,
+        levelName: level.confluence_level_name ?? 'UNDEFINED'
+      };
+
+      // Map ML predictions if available
+      const mlPredictions = level.ml_predictions ? {
+        available: true,
+        p_tradeable: level.ml_predictions.p_tradeable_2 ?? 0,
+        p_break: level.ml_predictions.p_break ?? 0,
+        p_bounce: level.ml_predictions.p_bounce ?? 0,
+        strength_signed: level.ml_predictions.strength_signed ?? 0,
+        utility_score: level.ml_predictions.utility_score ?? 0,
+        stage: level.ml_predictions.stage ?? 'stage_a',
+        time_to_threshold: {
+          t1_60: level.ml_predictions.time_to_threshold?.['t1']?.['60'] ?? 0,
+          t1_120: level.ml_predictions.time_to_threshold?.['t1']?.['120'] ?? 0,
+          t2_60: level.ml_predictions.time_to_threshold?.['t2']?.['60'] ?? 0,
+          t2_120: level.ml_predictions.time_to_threshold?.['t2']?.['120'] ?? 0
+        },
+        retrieval_similarity: level.ml_predictions.retrieval?.['similarity'] ?? 0
+      } : undefined;
+
       return {
         id: level.id,
         price: level.level_price,
@@ -366,8 +421,10 @@ export class LevelDerivedService {
           barsSinceOpen: level.bars_since_open,
           isFirst15m: level.is_first_15m
         },
-        forces, // Replaces contributions
-        confluenceId: confluence?.id
+        forces,
+        confluence: backendConfluence,
+        ml: mlPredictions,
+        confluenceId: confluence?.id  // Keep legacy for UI grouping
       };
     }).sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance));
   });

@@ -364,7 +364,12 @@ export class DataStreamService {
                     break_score_raw: 35,
                     break_score_smooth: 32,
                     signal: 'BOUNCE',
-                    confidence: 'HIGH'
+                    confidence: 'HIGH',
+                    confluence_count: 2,
+                    confluence_pressure: 0.65,
+                    confluence_alignment: 1,
+                    confluence_level: 2,
+                    confluence_level_name: 'PREMIUM'
                 },
                 {
                     id: 'VWAP',
@@ -392,7 +397,12 @@ export class DataStreamService {
                     break_score_raw: 78,
                     break_score_smooth: 75,
                     signal: 'BREAK',
-                    confidence: 'MEDIUM'
+                    confidence: 'MEDIUM',
+                    confluence_count: 1,
+                    confluence_pressure: 0.35,
+                    confluence_alignment: -1,
+                    confluence_level: 5,
+                    confluence_level_name: 'EXTENDED'
                 },
                 {
                    id: 'CALL_WALL',
@@ -420,7 +430,12 @@ export class DataStreamService {
                    break_score_raw: 45,
                    break_score_smooth: 42,
                    signal: 'CHOP',
-                   confidence: 'LOW'
+                   confidence: 'LOW',
+                   confluence_count: 0,
+                   confluence_pressure: 0.0,
+                   confluence_alignment: 0,
+                   confluence_level: 10,
+                   confluence_level_name: 'CONSOLIDATION'
                }
             ];
 

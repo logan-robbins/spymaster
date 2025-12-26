@@ -114,6 +114,14 @@ interface GammaLadderMarker {
 
                   <!-- Physics Badges -->
                   <div class="physics-badges">
+                    <!-- Confluence Level Badge -->
+                    @if (level.confluence.level > 0 && level.confluence.level <= 5) {
+                      <div class="badge confluence-badge" 
+                           [attr.data-quality]="getConfluenceQuality(level.confluence.level)"
+                           [title]="level.confluence.levelName + ' (Level ' + level.confluence.level + '/10)'">
+                        C{{ level.confluence.level }}
+                      </div>
+                    }
                     @if (level.approach.priorTouches > 0) {
                       <div class="badge touch-badge" title="Prior touches">
                         T{{ level.approach.priorTouches }}
@@ -544,6 +552,28 @@ interface GammaLadderMarker {
       animation: pulse-red 1.5s infinite;
     }
 
+    .confluence-badge {
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .confluence-badge[data-quality="premium"] {
+      background: rgba(34, 197, 94, 0.25);
+      color: #22c55e;
+      border-color: rgba(34, 197, 94, 0.5);
+    }
+
+    .confluence-badge[data-quality="strong"] {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+      border-color: rgba(34, 197, 94, 0.4);
+    }
+
+    .confluence-badge[data-quality="moderate"] {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.4);
+    }
+
     .marker-direction {
       font-size: 0.65rem;
       text-transform: uppercase;
@@ -782,5 +812,11 @@ export class PriceLadderComponent {
 
   public isExpanded(id: string): boolean {
     return this.expandedId() === id;
+  }
+
+  public getConfluenceQuality(level: number): string {
+    if (level <= 3) return 'premium';
+    if (level <= 5) return 'strong';
+    return 'moderate';
   }
 }

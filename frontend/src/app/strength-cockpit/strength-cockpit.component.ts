@@ -115,6 +115,46 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
           </div>
         }
 
+        <!-- Confluence Quality Section -->
+        <div class="confluence-section">
+          <div class="section-label">🎯 Setup Quality</div>
+          <div class="confluence-grid">
+            <!-- Hierarchical Confluence Level (0-10) -->
+            <div class="confluence-item quality-badge">
+              <div class="confluence-label">Confluence Level</div>
+              <div class="confluence-value" [ngClass]="confluenceLevelClass()">
+                {{ level()!.confluence.levelName }}
+              </div>
+              <div class="confluence-score">{{ level()!.confluence.level }}/10</div>
+            </div>
+
+            <!-- Confluence Pressure -->
+            <div class="confluence-item">
+              <div class="confluence-label">Pressure</div>
+              <div class="confluence-value">{{ (level()!.confluence.pressure * 100) | number:'1.0-0' }}%</div>
+              <div class="confluence-bar">
+                <div class="bar-fill confluence" [style.width.%]="level()!.confluence.pressure * 100"></div>
+              </div>
+            </div>
+
+            <!-- Confluence Count -->
+            <div class="confluence-item">
+              <div class="confluence-label">Nearby Levels</div>
+              <div class="confluence-value">{{ level()!.confluence.count }}</div>
+              <div class="confluence-hint">{{ confluenceCountHint() }}</div>
+            </div>
+
+            <!-- Alignment with Market Structure -->
+            <div class="confluence-item">
+              <div class="confluence-label">Alignment</div>
+              <div class="confluence-value" [ngClass]="alignmentClass()">
+                {{ alignmentLabel() }}
+              </div>
+              <div class="confluence-hint">{{ alignmentHint() }}</div>
+            </div>
+          </div>
+        </div>
+
         <!-- Velocity & Gamma Section -->
         <div class="mechanics-section">
           <div class="section-label">🚀 Mechanics</div>
@@ -634,6 +674,88 @@ type TrafficState = 'go' | 'wait' | 'no-go' | 'offline';
       color: #cbd5f5;
       text-align: right;
     }
+
+    /* Confluence Section */
+    .confluence-section {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .confluence-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .confluence-item {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 0.7rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .confluence-item.quality-badge {
+      grid-column: span 2;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.6));
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .confluence-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .confluence-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .confluence-value.quality-ultra { color: #10b981; }
+    .confluence-value.quality-premium { color: #22c55e; }
+    .confluence-value.quality-strong { color: #4ade80; }
+    .confluence-value.quality-momentum { color: #fbbf24; }
+    .confluence-value.quality-extended { color: #f59e0b; }
+    .confluence-value.quality-weak { color: #f87171; }
+    .confluence-value.quality-consolidation { color: #94a3b8; }
+
+    .confluence-value.aligned { color: #22c55e; }
+    .confluence-value.opposed { color: #f87171; }
+    .confluence-value.neutral-align { color: #94a3b8; }
+
+    .confluence-score {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .confluence-bar {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.2);
+      overflow: hidden;
+    }
+
+    .bar-fill.confluence {
+      background: linear-gradient(90deg, rgba(34, 197, 94, 0.4), rgba(34, 197, 94, 0.95));
+    }
+
+    .confluence-hint {
+      font-size: 0.65rem;
+      color: #64748b;
+      font-style: italic;
+    }
   `]
 })
 export class StrengthCockpitComponent {
@@ -863,5 +985,54 @@ export class StrengthCockpitComponent {
     const enhanced = this.enhancedLevel();
     if (!enhanced?.ml.available) return '';
     return this.mlService.getConfidenceDescription(enhanced.ml.confidence_boost);
+  });
+
+  // Confluence Quality Computeds
+  public confluenceLevelClass = computed(() => {
+    const level = this.level();
+    if (!level) return '';
+    const conf = level.confluence.level;
+    if (conf <= 3) return 'quality-premium';    // ULTRA_PREMIUM, PREMIUM, STRONG
+    if (conf <= 5) return 'quality-momentum';   // MOMENTUM, EXTENDED
+    if (conf <= 7) return 'quality-extended';   // LATE_REVERSION, FADING
+    return 'quality-weak';                       // DEVELOPING, WEAK, CONSOLIDATION
+  });
+
+  public confluenceCountHint = computed(() => {
+    const level = this.level();
+    if (!level) return '';
+    const count = level.confluence.count;
+    if (count >= 4) return 'Very strong confluence';
+    if (count >= 3) return 'Strong confluence';
+    if (count >= 2) return 'Moderate confluence';
+    if (count === 1) return 'Single nearby level';
+    return 'Isolated level';
+  });
+
+  public alignmentLabel = computed(() => {
+    const level = this.level();
+    if (!level) return 'UNKNOWN';
+    const align = level.confluence.alignment;
+    if (align === 1) return 'ALIGNED';
+    if (align === -1) return 'OPPOSED';
+    return 'NEUTRAL';
+  });
+
+  public alignmentClass = computed(() => {
+    const level = this.level();
+    if (!level) return 'neutral-align';
+    const align = level.confluence.alignment;
+    if (align === 1) return 'aligned';
+    if (align === -1) return 'opposed';
+    return 'neutral-align';
+  });
+
+  public alignmentHint = computed(() => {
+    const level = this.level();
+    if (!level) return '';
+    const align = level.confluence.alignment;
+    if (align === 1) return 'Setup aligns with trend';
+    if (align === -1) return 'Counter-trend setup';
+    return 'No clear trend alignment';
   });
 }
