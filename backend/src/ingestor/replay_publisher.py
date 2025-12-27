@@ -172,7 +172,12 @@ class ReplayPublisher:
             if self.use_bronze_futures:
                 trade_iter = iter(self._iter_futures_trades_bronze(date, start_ns, end_ns))
             else:
-                trade_iter = iter(self.dbn_ingestor.read_trades(date, start_ns, end_ns))
+                trade_iter = iter(self.dbn_ingestor.read_trades(
+                    date,
+                    start_ns,
+                    end_ns,
+                    symbol_prefix=self.futures_symbol
+                ))
         else:
             trade_iter = iter(())
 
@@ -180,7 +185,12 @@ class ReplayPublisher:
             if self.use_bronze_futures:
                 mbp_iter = iter(self._iter_futures_mbp10_bronze(date, start_ns, end_ns))
             else:
-                mbp_iter = iter(self.dbn_ingestor.read_mbp10(date, start_ns, end_ns))
+                mbp_iter = iter(self.dbn_ingestor.read_mbp10(
+                    date,
+                    start_ns,
+                    end_ns,
+                    symbol_prefix=self.futures_symbol
+                ))
         else:
             mbp_iter = iter(())
         option_iter = self._iter_option_trades(date, start_ns, end_ns) if include_options else iter(())
@@ -536,10 +546,10 @@ async def main():
                 print(f"❌ Date {replay_date} not found in available data")
                 sys.exit(1)
 
-            # Start from RTH (9:30 AM ET)
-            start_ns = get_rth_start_ns(replay_date)
+            # Start from pre-market (04:00 AM ET) so PM_HIGH/PM_LOW and SMA warmup bars exist.
+            start_ns = get_premarket_start_ns(replay_date)
             start_dt = datetime.fromtimestamp(start_ns / 1e9, tz=ET)
-            print(f"   Start time: {start_dt.strftime('%H:%M:%S %Z')} (RTH open)")
+            print(f"   Start time: {start_dt.strftime('%H:%M:%S %Z')} (premarket open)")
 
             await publisher.replay_date(replay_date, start_ns=start_ns, include_options=include_options)
         else:

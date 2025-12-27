@@ -2,6 +2,7 @@ import { Component, Input, computed, inject, signal, effect } from '@angular/cor
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { LevelDerivedService, DerivedLevel } from '../level-derived.service';
 import { FlowAnalyticsService } from '../flow-analytics.service';
+import { ViewportSelectionService } from '../viewport-selection.service';
 
 interface LadderTick {
   price: number;
@@ -85,10 +86,12 @@ interface GammaLadderMarker {
                 'bias-' + level.bias,
                 'barrier-' + level.barrier.state,
                 'fuel-' + level.fuel.effect,
-                level.confluenceId ? 'is-confluence' : ''
+                level.confluenceId ? 'is-confluence' : '',
+                isSelectedForDetail(level.id) ? 'selected-detail' : ''
               ]"
               (mouseenter)="setExpanded(level.id)"
               (mouseleave)="clearExpanded()"
+              (click)="selectLevelForDetail(level.id)"
             >
               <!-- Barrier Physics Visualizer (Left Border) -->
               <div class="barrier-indicator"></div>
@@ -631,11 +634,17 @@ interface GammaLadderMarker {
       70% { box-shadow: 0 0 0 4px rgba(248, 113, 113, 0); }
       100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0); }
     }
+
+    .level-marker.selected-detail {
+      border-color: rgba(168, 85, 247, 0.7);
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+    }
   `]
 })
 export class PriceLadderComponent {
   private derived = inject(LevelDerivedService);
   private analytics = inject(FlowAnalyticsService);
+  private viewportService = inject(ViewportSelectionService);
   protected Math = Math;
 
   private rangeSignal = signal(3);
@@ -818,5 +827,19 @@ export class PriceLadderComponent {
     if (level <= 3) return 'premium';
     if (level <= 5) return 'strong';
     return 'moderate';
+  }
+
+  public selectLevelForDetail(levelId: string) {
+    // Check if this level has ML predictions
+    const level = this.derived.levels().find(l => l.id === levelId);
+    if (level?.ml) {
+      // If has ML, select it
+      this.viewportService.selectLevel(levelId, false);
+    }
+  }
+
+  public isSelectedForDetail(levelId: string): boolean {
+    const selected = this.viewportService.selectedTarget();
+    return selected ? selected.level_id === levelId : false;
   }
 }

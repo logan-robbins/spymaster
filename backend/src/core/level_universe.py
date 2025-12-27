@@ -112,11 +112,9 @@ class LevelUniverse:
             LevelKind.VWAP,
             LevelKind.SMA_200,
             LevelKind.SMA_400,
-            LevelKind.SESSION_HIGH,
-            LevelKind.SESSION_LOW,
             LevelKind.CALL_WALL,
             LevelKind.PUT_WALL,
-            LevelKind.GAMMA_FLIP
+            LevelKind.GAMMA_FLIP,
         }
         
         # ========== VWAP ==========
@@ -188,26 +186,8 @@ class LevelUniverse:
                 dynamic=True
             ))
         
-        # ========== Session High/Low ==========
-        session_high = market_state.get_session_high()
-        if session_high is not None:
-            levels.append(Level(
-                id="SESSION_HIGH",
-                price=session_high,
-                kind=LevelKind.SESSION_HIGH,
-                valid_from_ns=snapshot_ts_ns,
-                dynamic=True
-            ))
-        
-        session_low = market_state.get_session_low()
-        if session_low is not None:
-            levels.append(Level(
-                id="SESSION_LOW",
-                price=session_low,
-                kind=LevelKind.SESSION_LOW,
-                valid_from_ns=snapshot_ts_ns,
-                dynamic=True
-            ))
+        # NOTE: SESSION_HIGH/SESSION_LOW are intentionally NOT emitted as chart overlays.
+        # The frontend default "key overlays" are PM_HIGH/PM_LOW, OR_HIGH/OR_LOW, SMA_200/SMA_400.
         
         # ========== Round numbers ==========
         round_levels = self._generate_round_levels(spot, snapshot_ts_ns)

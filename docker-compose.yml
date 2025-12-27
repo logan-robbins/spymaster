@@ -91,7 +91,8 @@ services:
       - ./backend/.env
     environment:
       NATS_URL: nats://nats:4222
-      REPLAY_DATE: ${REPLAY_DATE:-}
+      # Keep Core's 0DTE filters aligned with replay date so flow/GEX + wall levels render.
+      REPLAY_DATE: ${REPLAY_DATE:-2025-12-10}
     command: ["uv", "run", "python", "-m", "src.core.main"]
     depends_on:
       nats:
