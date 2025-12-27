@@ -36,10 +36,10 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
         </div>
       </header>
 
-      <!-- V2 Layout: 2 Columns (2fr Chart, 1fr Details) -->
-      <div class="command-grid v2-layout">
-        <!-- Main Chart Section -->
-        <section class="panel chart-panel">
+      <!-- V3 Layout: 2 Columns (66% Chart+Controls, 33% Details+Options) -->
+      <div class="command-grid v3-layout">
+        <!-- Left Column (66%): Chart + Controls -->
+        <section class="panel left-panel">
           <div class="chart-wrapper">
              <app-smart-chart></app-smart-chart>
           </div>
@@ -48,15 +48,15 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
           </div>
         </section>
 
-        <!-- Right Detail Column -->
+        <!-- Right Column (33%): Level Details + Options -->
         <section class="panel right-panel">
-          <!-- ML Viewport / Level Details -->
-          <div class="detail-section flex-1">
+          <!-- Level Details (when level clicked) -->
+          <div class="detail-section">
              <app-level-detail-panel></app-level-detail-panel>
           </div>
           
-          <!-- Options Activity (Secondary) -->
-          <div class="options-section flex-1 mt-4">
+          <!-- Options Activity -->
+          <div class="options-section">
              <app-options-panel></app-options-panel>
           </div>
         </section>
@@ -152,11 +152,11 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       color: #38bdf8;
     }
 
-    /* V2 Grid Layout */
-    .command-grid.v2-layout {
+    /* V3 Grid Layout: 2 columns (66% / 33%) */
+    .command-grid.v3-layout {
       display: grid;
-      grid-template-columns: 2fr 1fr; /* 2:1 Ratio */
-      gap: 1.5rem;
+      grid-template-columns: 2fr 1fr; /* 66% Chart+Controls, 33% Details+Options */
+      gap: 1rem;
       align-items: stretch;
       flex: 1;
       min-height: 0;
@@ -167,47 +167,55 @@ import { ViewportSelectorComponent } from '../viewport-selector/viewport-selecto
       flex-direction: column;
       min-height: 0;
       overflow: hidden;
-      border: 1px solid rgba(148, 163, 184, 0.1);
-      border-radius: 12px;
-      background: rgba(15, 23, 42, 0.4);
     }
     
-    .chart-panel {
-       display: flex;
-       flex-direction: column;
+    .left-panel {
+      display: flex;
+      flex-direction: column;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 12px;
     }
     
     .chart-wrapper {
-       flex: 1;
-       min-height: 0;
-       position: relative;
+      flex: 1;
+      min-height: 0;
+      position: relative;
     }
     
     .controls-wrapper {
-       height: auto;
+      height: auto;
+      border-top: 1px solid rgba(148, 163, 184, 0.1);
     }
 
     .right-panel {
-       display: flex;
-       flex-direction: column;
-       gap: 1rem;
-       background: transparent;
-       border: none;
-       padding: 0; 
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      background: transparent;
+      border: none;
+      padding: 0;
     }
     
     .detail-section, .options-section {
-       background: rgba(15, 23, 42, 0.8);
-       border: 1px solid rgba(148, 163, 184, 0.2);
-       border-radius: 16px;
-       overflow: hidden;
-       position: relative;
+      flex: 1;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    @media (max-width: 1280px) {
+      .command-grid.v3-layout {
+        grid-template-columns: 1.5fr 1fr;
+      }
     }
 
     @media (max-width: 1024px) {
-      .command-grid.v2-layout {
+      .command-grid.v3-layout {
         grid-template-columns: 1fr;
-        grid-template-rows: 1fr 1fr;
+        grid-template-rows: auto 1fr;
       }
     }
   `]

@@ -153,8 +153,37 @@ class LevelSignalService:
         # Generate level universe
         levels = self.level_universe.get_levels(self.market_state)
         
-        # Filter to levels within monitoring band
-        active_levels = self._filter_active_levels(levels, spot)
+        # Always-include chart overlay levels (even if far from spot).
+        #
+        # Key defaults per UX:
+        # - PM_HIGH / PM_LOW
+        # - OR_HIGH / OR_LOW (15m opening range)
+        # - SMA_200 / SMA_400 (2m bars)
+        #
+        # Optional overlays:
+        # - VWAP
+        # - CALL_WALL / PUT_WALL / GAMMA_FLIP (flow-derived)
+        structural_kinds = {
+            LevelKind.PM_HIGH,
+            LevelKind.PM_LOW,
+            LevelKind.OR_HIGH,
+            LevelKind.OR_LOW,
+            LevelKind.SMA_200,
+            LevelKind.SMA_400,
+            LevelKind.VWAP,
+            LevelKind.CALL_WALL,
+            LevelKind.PUT_WALL,
+            LevelKind.GAMMA_FLIP,
+        }
+        
+        structural_levels = [l for l in levels if l.kind in structural_kinds]
+        proximity_levels = [l for l in levels if l.kind not in structural_kinds]
+        
+        # Filter proximity levels by monitor band
+        active_proximity = self._filter_active_levels(proximity_levels, spot)
+        
+        # Combine: all structural + filtered proximity
+        active_levels = structural_levels + active_proximity
 
         # Any level outside monitor band is definitely outside touch band too.
         # Reset "in-touch" state so future touches are counted correctly.

@@ -15,7 +15,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -35,7 +35,7 @@ candle_service: CandleService = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    global broadcaster
+    global broadcaster, candle_service
     
     print("🚀 Starting Gateway Service...")
     print(f"   NATS: {CONFIG.NATS_URL}")

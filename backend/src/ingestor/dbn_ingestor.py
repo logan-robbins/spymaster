@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional, Dict, Any, Tuple
+import re
 import json
 
 import databento as db
@@ -134,19 +135,44 @@ class DBNIngestor:
                 mapping = {}
                 for symbol, entries in data.get('result', {}).items():
                     for entry in entries:
-                        iid = entry.get('i')
-                        if iid is not None:
-                            mapping[iid] = symbol
+                        # Databento symbology uses "s" as the instrument id (string).
+                        iid = entry.get('i', entry.get('s'))
+                        if iid is None:
+                            continue
+                        try:
+                            mapping[int(iid)] = symbol
+                        except Exception:
+                            continue
                 self._symbology_cache[schema_dir] = mapping
                 return mapping
 
         return {}
 
+    @staticmethod
+    def _is_outright_symbol(symbol: str, prefix: str) -> bool:
+        """
+        Return True if symbol is an outright contract for the given prefix.
+
+        Example:
+          prefix="ES" accepts: ESZ5, ESH6, ESU6
+          rejects spreads like: ESZ6-ESH7
+        """
+        if not symbol or not symbol.startswith(prefix):
+            return False
+        if "-" in symbol:
+            return False
+        # Typical CME futures contract code is: PREFIX + MonthLetter + YearDigit
+        # Keep this strict to avoid pulling in spread/strategy instruments that
+        # can have very different price scales (e.g. ~58.2).
+        pattern = re.compile(rf"^{re.escape(prefix)}[A-Z]\d$")
+        return bool(pattern.match(symbol))
+
     def read_trades(
         self,
         date: Optional[str] = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        symbol_prefix: Optional[str] = None
     ) -> Iterator[FuturesTrade]:
         """
         Read trades from DBN files.
@@ -186,6 +212,10 @@ class DBNIngestor:
                     # Get symbol from instrument ID
                     symbol = symbology.get(record.instrument_id, f'ES_{record.instrument_id}')
 
+                    # Filter to the intended futures contract (avoid spreads / misc instruments)
+                    if symbol_prefix and not self._is_outright_symbol(symbol, symbol_prefix):
+                        continue
+
                     yield FuturesTrade(
                         ts_event_ns=ts_event_ns,
                         ts_recv_ns=record.ts_recv if hasattr(record, 'ts_recv') else ts_event_ns,
@@ -206,7 +236,8 @@ class DBNIngestor:
         self,
         date: Optional[str] = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        symbol_prefix: Optional[str] = None
     ) -> Iterator[MBP10]:
         """
         Read MBP-10 data from DBN files.
@@ -246,6 +277,10 @@ class DBNIngestor:
 
                     # Get symbol from instrument ID
                     symbol = symbology.get(record.instrument_id, f'ES_{record.instrument_id}')
+
+                    # Filter to the intended futures contract (avoid spreads / misc instruments)
+                    if symbol_prefix and not self._is_outright_symbol(symbol, symbol_prefix):
+                        continue
 
                     # Convert levels
                     levels = []
