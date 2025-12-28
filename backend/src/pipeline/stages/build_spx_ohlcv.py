@@ -1,0 +1,246 @@
+"""
+Build SPX OHLCV series from ES futures.
+
+Per Final Call v1 spec Section 2: ES futures ARE the spot proxy for SPX.
+No conversion needed - ES and SPX are both quoted in S&P 500 index points.
+
+This replaces the old approach of using ES/10 for SPY.
+"""
+
+from typing import Any, Dict, List, Optional
+import pandas as pd
+import numpy as np
+
+from src.pipeline.core.stage import BaseStage, StageContext
+from src.common.event_types import FuturesTrade
+from src.common.config import CONFIG
+from src.common.utils.session_time import filter_rth_only, filter_premarket_only
+
+
+def build_spx_ohlcv_from_es(
+    trades: List[FuturesTrade],
+    date: str,
+    freq: str = '1min',
+    rth_only: bool = False
+) -> pd.DataFrame:
+    """
+    Build SPX OHLCV from ES futures trades.
+    
+    KEY: ES and SPX use same units (index points). No conversion needed!
+    
+    Args:
+        trades: List of ES FuturesTrade objects
+        date: Date string for RTH filtering
+        freq: Bar frequency ('1min', '2min')
+        rth_only: If True, only include RTH bars (09:30-13:30 ET for v1)
+    
+    Returns:
+        DataFrame with OHLCV columns in SPX index points
+    """
+    if not trades:
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'ts_ns'])
+    
+    # Extract arrays
+    n = len(trades)
+    ts_ns = np.empty(n, dtype=np.int64)
+    prices = np.empty(n, dtype=np.float64)
+    sizes = np.empty(n, dtype=np.int64)
+    
+    for i, trade in enumerate(trades):
+        ts_ns[i] = trade.ts_event_ns
+        prices[i] = trade.price
+        sizes[i] = trade.size
+    
+    # Filter outliers (ES typically 3000-10000 range in late 2024/early 2025)
+    valid_mask = (prices > 3000) & (prices < 10000)
+    ts_ns = ts_ns[valid_mask]
+    prices = prices[valid_mask]
+    sizes = sizes[valid_mask]
+    
+    if len(ts_ns) == 0:
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'ts_ns'])
+    
+    # Create DataFrame
+    df = pd.DataFrame({
+        'timestamp': pd.to_datetime(ts_ns, unit='ns', utc=True),
+        'price': prices,
+        'size': sizes,
+        'ts_ns': ts_ns
+    })
+    
+    # Apply RTH filter BEFORE resampling (critical for v1)
+    if rth_only:
+        df = filter_rth_only(df, date, ts_col='ts_ns')
+    
+    if df.empty:
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'ts_ns'])
+    
+    # Resample to OHLCV
+    df_indexed = df.set_index('timestamp')
+    ohlcv = df_indexed['price'].resample(freq).agg(['first', 'max', 'min', 'last'])
+    ohlcv.columns = ['open', 'high', 'low', 'close']
+    ohlcv['volume'] = df_indexed['size'].resample(freq).sum()
+    
+    # Drop NaN bars
+    ohlcv = ohlcv.dropna(subset=['open']).reset_index()
+    
+    # Add ts_ns for merging
+    ohlcv['ts_ns'] = ohlcv['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+    
+    # NO CONVERSION - ES prices are already in SPX index points!
+    # Old code: ohlcv[['open', 'high', 'low', 'close']] /= 10.0 (WRONG for SPX)
+    
+    return ohlcv
+
+
+def compute_rth_atr(ohlcv_df: pd.DataFrame, window_minutes: int = None) -> pd.Series:
+    """
+    Compute ATR from RTH-only OHLCV data.
+    
+    Per Final Call spec: ATR must be RTH-only (no premarket/overnight leakage).
+    
+    Args:
+        ohlcv_df: OHLCV DataFrame (already filtered to RTH)
+        window_minutes: ATR window (defaults to CONFIG.ATR_WINDOW_MINUTES)
+    
+    Returns:
+        ATR series indexed by bar
+    """
+    if window_minutes is None:
+        window_minutes = CONFIG.ATR_WINDOW_MINUTES
+    
+    if ohlcv_df.empty:
+        return pd.Series(dtype=np.float64)
+    
+    df = ohlcv_df.sort_values('timestamp').copy()
+    high = df['high'].astype(np.float64).to_numpy()
+    low = df['low'].astype(np.float64).to_numpy()
+    close = df['close'].astype(np.float64).to_numpy()
+    prev_close = np.roll(close, 1)
+    prev_close[0] = close[0]
+    
+    tr = np.maximum(
+        high - low,
+        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close))
+    )
+    atr = pd.Series(tr).rolling(window=window_minutes, min_periods=1).mean().to_numpy()
+    
+    return pd.Series(atr, index=df.index)
+
+
+def compute_rth_volatility(ohlcv_df: pd.DataFrame, window_minutes: int = 20) -> pd.Series:
+    """
+    Compute realized volatility from RTH-only returns.
+    
+    Per Final Call spec: Vol baselines must be RTH-only.
+    
+    Args:
+        ohlcv_df: OHLCV DataFrame (RTH-filtered)
+        window_minutes: Rolling window
+    
+    Returns:
+        Volatility series
+    """
+    if ohlcv_df.empty:
+        return pd.Series(dtype=np.float64)
+    
+    df = ohlcv_df.sort_values('timestamp').copy()
+    returns = df['close'].diff().fillna(0.0)
+    vol = returns.rolling(window=window_minutes, min_periods=1).std().fillna(0.0)
+    
+    return vol
+
+
+class BuildOHLCVStage(BaseStage):
+    """
+    Build SPX OHLCV bars from ES futures.
+    
+    Per Final Call spec: ES futures ARE the SPX spot proxy (same index points).
+    
+    Args:
+        freq: Bar frequency ('1min', '2min')
+        output_key: Key for context.data
+        include_warmup: Whether to include warmup bars (for SMA)
+        rth_only: If True, filter to RTH before resampling (for ATR/vol)
+    
+    Outputs:
+        {output_key}: OHLCV DataFrame
+        atr: ATR series (only for 1min bars)
+        volatility: Volatility series (only for 1min bars)
+    """
+    
+    def __init__(
+        self,
+        freq: str = '1min',
+        output_key: str = None,
+        include_warmup: bool = False,
+        rth_only: bool = False
+    ):
+        self.freq = freq
+        self.output_key = output_key or f'ohlcv_{freq}'
+        self.include_warmup = include_warmup
+        self.rth_only = rth_only
+    
+    @property
+    def name(self) -> str:
+        return f"build_ohlcv_{self.freq}"
+    
+    @property
+    def required_inputs(self) -> List[str]:
+        return ['trades']
+    
+    def execute(self, ctx: StageContext) -> Dict[str, Any]:
+        from src.pipeline.stages.load_bronze import futures_trades_from_df
+        from src.pipeline.utils.duckdb_reader import DuckDBReader
+        
+        trades = ctx.data['trades']
+        
+        # Build OHLCV
+        ohlcv_df = build_spx_ohlcv_from_es(
+            trades=trades,
+            date=ctx.date,
+            freq=self.freq,
+            rth_only=self.rth_only
+        )
+        
+        result = {self.output_key: ohlcv_df}
+        
+        # Compute ATR and volatility for 1min bars
+        if self.freq == '1min' and not ohlcv_df.empty:
+            result['atr'] = compute_rth_atr(ohlcv_df)
+            result['volatility'] = compute_rth_volatility(ohlcv_df)
+        
+        # Add warmup for 2min SMA calculation
+        if self.include_warmup and self.freq == '2min':
+            reader = DuckDBReader()
+            warmup_dates = reader.get_warmup_dates(ctx.date, CONFIG.SMA_WARMUP_DAYS)
+            
+            if warmup_dates:
+                warmup_frames = []
+                for warmup_date in warmup_dates:
+                    trades_df = reader.read_futures_trades(
+                        symbol='ES',
+                        date=warmup_date,
+                        front_month_only=True
+                    )
+                    warmup_trades = futures_trades_from_df(trades_df)
+                    if not warmup_trades:
+                        continue
+                    warmup_ohlcv = build_spx_ohlcv_from_es(
+                        warmup_trades,
+                        warmup_date,
+                        freq=self.freq,
+                        rth_only=False  # Include all hours for SMA warmup
+                    )
+                    if not warmup_ohlcv.empty:
+                        warmup_frames.append(warmup_ohlcv)
+                
+                if warmup_frames:
+                    warmup_df = pd.concat(warmup_frames, ignore_index=True)
+                    ohlcv_df = pd.concat([warmup_df, ohlcv_df], ignore_index=True)
+                    ohlcv_df = ohlcv_df.sort_values('timestamp')
+                    result[self.output_key] = ohlcv_df
+                    result['warmup_dates'] = warmup_dates
+        
+        return result
+

@@ -42,16 +42,18 @@ class Config:
     DEALER_FLOW_ACCEL_SHORT_MINUTES: int = 1
     DEALER_FLOW_ACCEL_LONG_MINUTES: int = 3
     
-    # ========== Monitoring bands (SPY dollars) ==========
+    # ========== Monitoring bands (ES index points) ==========
     # Critical zone where bounce/break decision happens
-    MONITOR_BAND: float = 0.25  # compute full signals if |spot - L| <= $0.25
-    TOUCH_BAND: float = 0.10    # tight band for "touching level"
-    CONFLUENCE_BAND: float = 0.20  # band for nearby key level confluence
+    # ES at ~5740 points (not SPY dollars!)
+    # Scaled from SPY: $0.25 / $687 ≈ 0.036% → ES 5740 × 0.00036 ≈ 2.07 points
+    MONITOR_BAND: float = 2.0   # compute full signals if |spot - L| <= 2.0 ES points
+    TOUCH_BAND: float = 1.0     # tight band for "touching level"
+    CONFLUENCE_BAND: float = 2.0  # band for nearby key level confluence
     
     # Barrier engine: zone around strike-aligned level
-    # SPY strikes at $1 intervals → ES at $10 intervals (40 ticks between strikes)
-    # ±8 ticks = ±$2 ES = ±$0.20 SPY - captures order book as price approaches strike
-    BARRIER_ZONE_ES_TICKS: int = 8  # ±8 ES ticks (±$2.00 ES = ±$0.20 SPY)
+    # ES options strikes: 0.25 point tick size, typically $5-$25 intervals (20-100 ticks)
+    # ±8 ticks = ±$2.00 ES - captures order book as price approaches strike
+    BARRIER_ZONE_ES_TICKS: int = 8  # ±8 ES ticks (±$2.00 ES)
     
     # ========== Barrier thresholds (ES contracts) ==========
     R_vac: float = 0.3   # Replenishment ratio threshold for VACUUM
@@ -69,8 +71,10 @@ class Config:
     SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
     
     # ========== Fuel thresholds ==========
-    FUEL_STRIKE_RANGE: float = 2.0  # consider strikes within ±N dollars of level
-    DEALER_FLOW_STRIKE_RANGE: float = 2.0  # strike range for dealer flow velocity
+    # ES options strikes: $5-$25 spacing (wider than SPY $1)
+    # Use ±25 points to capture 1-3 strikes on each side
+    FUEL_STRIKE_RANGE: float = 25.0  # consider strikes within ±25 points of level
+    DEALER_FLOW_STRIKE_RANGE: float = 25.0  # strike range for dealer flow velocity
 
     # ========== Mean reversion (SMA) settings ==========
     SMA_SLOPE_WINDOW_MINUTES: int = 20
@@ -89,9 +93,15 @@ class Config:
     REJECT_SCORE_THRESHOLD: float = 20.0
     TRIGGER_HOLD_TIME: float = 3.0  # seconds score must be sustained
 
-    # ========== v1 Scope: SPY-only, first 4 hours ==========
+    # ========== v1 Scope: ES futures + ES options, first 4 hours ==========
     # Per Final Call v1 spec: focus on first 4 hours (09:30-13:30 ET)
     # Premarket (04:00-09:30 ET) used ONLY for PM levels + SMA warmup
+    # 
+    # FINAL ARCHITECTURE: ES Options + ES Futures (PERFECT ALIGNMENT)
+    # - ES options: Cash-settled, European-style, on E-mini S&P 500
+    # - ES futures: SAME underlying instrument!
+    # - Same venue (CME), same participants, same tick size
+    # - Zero conversion needed - ES = ES!
     RTH_START_HOUR: int = 9
     RTH_START_MINUTE: int = 30
     RTH_END_HOUR: int = 13  # v1: 13:30 (first 4 hours only)
@@ -101,9 +111,11 @@ class Config:
     
     # ========== Outcome labeling ==========
     # Threshold for BREAK/BOUNCE classification - must move 2 strikes for meaningful options trade
-    OUTCOME_THRESHOLD: float = 2.0  # $2.00 SPY = 2 strikes minimum for BREAK/BOUNCE
-    STRENGTH_THRESHOLD_1: float = 1.0  # $1.00 move
-    STRENGTH_THRESHOLD_2: float = 2.0  # $2.00 move
+    # ES options strikes: Typically $5-$25 spacing (CME uses wider spacing than SPY)
+    # Use 10 points as threshold (~2 strikes at $5 spacing for nearby-ATM)
+    OUTCOME_THRESHOLD: float = 10.0  # 10 ES points ≈ 2 strikes minimum for BREAK/BOUNCE
+    STRENGTH_THRESHOLD_1: float = 5.0   # 5 point move (1 strike, typical spacing)
+    STRENGTH_THRESHOLD_2: float = 10.0  # 10 point move (2 strikes)
     LOOKFORWARD_MINUTES: int = 8    # Forward window for outcome determination (8 min to cover all confirmations)
     LOOKBACK_MINUTES: int = 10      # Backward window for approach context
     
@@ -132,10 +144,12 @@ class Config:
     # ========== Snap tick cadence ==========
     SNAP_INTERVAL_MS: int = 250  # publish level signals every 250ms
     
-    # ========== Level universe settings (SPY ~600 price) ==========
-    ROUND_LEVELS_SPACING: float = 1.0  # generate round levels every $1
-    STRIKE_RANGE: float = 5.0          # monitor strikes within ±$5 of spot
-    VWAP_ENABLED: bool = True
+    # ========== Level universe settings (ES ~5700-5800 index) ==========
+    # ES levels are in index points (same as ES futures/options)
+    # v1: We don't generate ROUND levels (removed from level universe)
+    ROUND_LEVELS_SPACING: float = 10.0  # not used in v1 (for reference: ES rounds at 10 pt intervals)
+    STRIKE_RANGE: float = 50.0          # monitor strikes within ±50 points of spot
+    VWAP_ENABLED: bool = False  # v1: VWAP removed from level universe
 
     # ========== Viewport / Focus settings ==========
     VIEWPORT_SCAN_RADIUS: float = 1.0
@@ -156,7 +170,7 @@ class Config:
     # ========== Confluence feature settings ==========
     VOLUME_LOOKBACK_DAYS: int = 7          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_DOLLARS: float = 1.0     # $1 (1 strike) for GEX wall proximity
+    WALL_PROXIMITY_DOLLARS: float = 10.0    # 10 points (1-2 ES option strikes) for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 

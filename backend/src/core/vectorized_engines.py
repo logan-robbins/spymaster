@@ -71,13 +71,13 @@ class VectorizedMarketData:
     put_gamma: Dict[float, float]
 
     # Price converter
-    spy_to_es_ratio: float = 10.0
+    spx_to_es_ratio: float = 10.0
 
-    def spy_to_es(self, spy_price: float) -> float:
-        return spy_price * self.spy_to_es_ratio
+    def spx_to_es(self, spy_price: float) -> float:
+        return spy_price * self.spx_to_es_ratio
 
-    def es_to_spy(self, es_price: float) -> float:
-        return es_price / self.spy_to_es_ratio
+    def es_to_spx(self, es_price: float) -> float:
+        return es_price / self.spx_to_es_ratio
 
 
 def build_vectorized_market_data(
@@ -299,8 +299,8 @@ def compute_tape_metrics_batch(
         Dict with arrays: imbalance, buy_vol, sell_vol, velocity
     """
     # Convert to ES prices
-    level_prices_es = level_prices * market_data.spy_to_es_ratio
-    band_es = band_dollars * market_data.spy_to_es_ratio
+    level_prices_es = level_prices * market_data.spx_to_es_ratio
+    band_es = band_dollars * market_data.spx_to_es_ratio
     window_ns = int(window_seconds * 1e9)
 
     if NUMBA_AVAILABLE:
@@ -432,7 +432,7 @@ def compute_barrier_metrics_batch(
     window_ns = int(window_seconds * 1e9)
 
     # Convert SPY levels to ES (SPY $684 → ES $6840)
-    level_prices_es = level_prices * market_data.spy_to_es_ratio
+    level_prices_es = level_prices * market_data.spx_to_es_ratio
     zone_es = zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
 
     for i in range(n):

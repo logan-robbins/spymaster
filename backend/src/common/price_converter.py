@@ -1,13 +1,21 @@
 """
-Price conversion between ES futures and SPY ETF.
+Price conversion for ES futures system.
 
-ES ≈ SPY × 10 (approximate, varies slightly due to dividends/basis).
-Use dynamic ratio when both prices are available, fallback to static.
+v1 Final Call: ES futures + ES options (PERFECT alignment!)
+- ES futures: Quoted in S&P 500 index points (e.g., 5740.00)
+- ES options: SAME underlying, SAME units, SAME venue (CME)
+- NO conversion needed!
 
-This module enables:
-- Levels defined in SPY terms (strikes, rounds) for trading SPY options
-- Barrier physics queries in ES terms (MBP-10 depth)
-- Output displayed in SPY terms for the trader
+This module provides:
+- Pass-through methods for API consistency
+- Optional basis tracking (for diagnostics)
+- Legacy compatibility with existing code
+
+Key evolution:
+- v0 (SPY): ES/10 ≈ SPY (ES 6870 → SPY 687) - REQUIRED CONVERSION
+- v1 (ES):  ES = ES (ES 5740 → ES 5740) - NO CONVERSION!
+
+This is simpler, cleaner, and more accurate than SPY or SPX approaches.
 """
 
 from typing import Optional
@@ -15,118 +23,111 @@ from typing import Optional
 
 class PriceConverter:
     """
-    Converts prices between ES futures and SPY ETF.
+    Price converter for ES futures system (v1: ES futures + ES options).
 
-    The ratio ES/SPY is approximately 10, but varies slightly due to:
-    - Dividend expectations
-    - Interest rate differential (cost of carry)
-    - Fair value basis
+    ES options and ES futures use identical pricing - both in S&P 500 index points.
+    This class provides pass-through methods for API consistency with existing code.
 
     Usage:
         converter = PriceConverter()
-        converter.update_es_price(6870.0)  # From ES trade
-        spy_price = converter.es_to_spy(6870.0)  # Returns ~687.0
-        es_level = converter.spy_to_es(687.0)    # Returns ~6870.0
+        converter.update_es_price(5740.0)  # From ES futures trade
+        # For ES options:
+        spot = 5740.0  # Direct use, no conversion!
+        es_level = converter.es_to_spx(5740.0)  # Returns 5740.0 (pass-through)
     """
 
-    DEFAULT_RATIO = 10.0  # ES/SPY baseline
+    DEFAULT_RATIO = 1.0  # No conversion needed (ES = ES)
 
     def __init__(self):
-        self._dynamic_ratio: Optional[float] = None
         self._last_es_price: Optional[float] = None
-        self._last_spy_price: Optional[float] = None
+        # Note: No basis tracking needed for ES options (same underlying!)
 
     def update_es_price(self, es_price: float):
         """
         Update with latest ES price.
 
         Args:
-            es_price: ES futures price (e.g., 6870.0)
+            es_price: ES futures price in index points (e.g., 5740.0)
         """
         self._last_es_price = es_price
-        self._update_ratio()
 
-    def update_spy_price(self, spy_price: float):
+    def update_spx_price(self, spx_price: float):
         """
-        Update with latest SPY price.
+        Legacy compatibility method (no-op for ES options).
+        
+        For ES options, this is not needed since ES futures = ES options underlying.
+        Kept for API compatibility with existing code.
 
         Args:
-            spy_price: SPY ETF price (e.g., 687.0)
+            spx_price: Price value (ignored for ES system)
         """
-        self._last_spy_price = spy_price
-        self._update_ratio()
-
-    def _update_ratio(self):
-        """Recalculate dynamic ratio if both prices are available."""
-        if self._last_es_price and self._last_spy_price:
-            self._dynamic_ratio = self._last_es_price / self._last_spy_price
+        pass  # No-op for ES options
 
     @property
-    def ratio(self) -> float:
+    def basis(self) -> float:
         """
-        Get current ES/SPY ratio.
+        Get basis spread (always 0 for ES options).
+        
+        ES options and ES futures are the same underlying - no basis spread!
+        Kept for API compatibility.
+        """
+        return 0.0
 
-        Returns dynamic ratio if available, otherwise DEFAULT_RATIO.
+    def es_to_spx(self, es_price: float) -> float:
         """
-        return self._dynamic_ratio or self.DEFAULT_RATIO
-
-    def es_to_spy(self, es_price: float) -> float:
-        """
-        Convert ES price to SPY equivalent.
+        Pass-through for ES system (ES options = ES futures).
 
         Args:
-            es_price: ES futures price (e.g., 6870.0)
+            es_price: ES price in index points (e.g., 5740.0)
 
         Returns:
-            SPY-equivalent price (e.g., 687.0)
+            Same price (no conversion needed!)
         """
-        return es_price / self.ratio
+        return es_price
 
-    def spy_to_es(self, spy_price: float) -> float:
+    def spx_to_es(self, spx_price: float) -> float:
         """
-        Convert SPY price to ES equivalent.
+        Pass-through for ES system (ES options = ES futures).
 
         Args:
-            spy_price: SPY price (e.g., 687.0)
+            spx_price: ES price in index points (e.g., 5740.0)
 
         Returns:
-            ES-equivalent price (e.g., 6870.0)
+            Same price (no conversion needed!)
         """
-        return spy_price * self.ratio
+        return spx_price
 
-    def es_ticks_to_spy_dollars(self, es_ticks: int, es_tick_size: float = 0.25) -> float:
+    def es_ticks_to_spx_points(self, es_ticks: int, es_tick_size: float = 0.25) -> float:
         """
-        Convert ES tick count to SPY dollar amount.
+        Convert ES tick count to SPX point amount.
 
         Args:
             es_ticks: Number of ES ticks
-            es_tick_size: ES tick size (default $0.25)
+            es_tick_size: ES tick size (default $0.25 per point)
 
         Returns:
-            Equivalent SPY dollar amount
+            Equivalent SPX point amount
         """
-        es_dollars = es_ticks * es_tick_size
-        return es_dollars / self.ratio
+        return es_ticks * es_tick_size
 
-    def spy_dollars_to_es_ticks(self, spy_dollars: float, es_tick_size: float = 0.25) -> float:
+    def spx_points_to_es_ticks(self, spx_points: float, es_tick_size: float = 0.25) -> float:
         """
-        Convert SPY dollar amount to ES tick count.
+        Convert SPX point amount to ES tick count.
 
         Args:
-            spy_dollars: SPY dollar amount
-            es_tick_size: ES tick size (default $0.25)
+            spx_points: SPX point amount
+            es_tick_size: ES tick size (default $0.25 per point)
 
         Returns:
             Equivalent ES tick count (may be fractional)
         """
-        es_dollars = spy_dollars * self.ratio
-        return es_dollars / es_tick_size
+        return spx_points / es_tick_size
 
     def get_state(self) -> dict:
         """Get converter state for debugging/logging."""
         return {
-            "ratio": self.ratio,
-            "dynamic_ratio": self._dynamic_ratio,
+            "basis": self.basis,
+            "dynamic_basis": self._dynamic_basis,
             "last_es_price": self._last_es_price,
-            "last_spy_price": self._last_spy_price
+            "last_spx_price": self._last_spx_price
         }
