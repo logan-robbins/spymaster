@@ -89,6 +89,16 @@ class Config:
     REJECT_SCORE_THRESHOLD: float = 20.0
     TRIGGER_HOLD_TIME: float = 3.0  # seconds score must be sustained
 
+    # ========== v1 Scope: SPY-only, first 4 hours ==========
+    # Per Final Call v1 spec: focus on first 4 hours (09:30-13:30 ET)
+    # Premarket (04:00-09:30 ET) used ONLY for PM levels + SMA warmup
+    RTH_START_HOUR: int = 9
+    RTH_START_MINUTE: int = 30
+    RTH_END_HOUR: int = 13  # v1: 13:30 (first 4 hours only)
+    RTH_END_MINUTE: int = 30
+    PREMARKET_START_HOUR: int = 4
+    PREMARKET_START_MINUTE: int = 0
+    
     # ========== Outcome labeling ==========
     # Threshold for BREAK/BOUNCE classification - must move 2 strikes for meaningful options trade
     OUTCOME_THRESHOLD: float = 2.0  # $2.00 SPY = 2 strikes minimum for BREAK/BOUNCE
