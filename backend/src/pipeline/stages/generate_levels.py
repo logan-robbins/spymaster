@@ -25,19 +25,19 @@ def generate_level_universe(
     ohlcv_2min: Optional[pd.DataFrame] = None
 ) -> LevelInfo:
     """
-    Generate complete level universe.
-
-    Levels generated (structural only for SPY):
+    Generate v1 level universe (RESTRICTED SET for SPY-only launch).
+    
+    Per Final Call v1 spec, ONLY these levels are generated:
     - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
-    - OR_HIGH/OR_LOW: Opening range (first 15min) high/low
-    - SESSION_HIGH/SESSION_LOW: Running session extremes
+    - OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET) high/low
     - SMA_200/SMA_400: Moving averages on 2-min bars
-    - VWAP: Session VWAP
-    - CALL_WALL/PUT_WALL: Max gamma concentration
-
-    NOTE: ROUND (8) and STRIKE (9) levels removed for SPY due to
-    duplicative $1 strike spacing. Re-enable for other instruments.
-
+    
+    REMOVED for v1 (over-engineered):
+    - SESSION_HIGH/SESSION_LOW: Too noisy, constantly changing
+    - VWAP: Lagging, less physics-based
+    - CALL_WALL/PUT_WALL: Treat as features, not levels
+    - ROUND/STRIKE: Disabled for SPY ($1 strikes are redundant)
+    
     Returns:
         LevelInfo with arrays for processing
     """
@@ -80,12 +80,8 @@ def generate_level_universe(
         kinds.extend([2, 3])  # OR_HIGH=2, OR_LOW=3
         kind_names.extend(['OR_HIGH', 'OR_LOW'])
 
-    # 3. SESSION HIGH/LOW (running)
-    session_high = df['high'].max()
-    session_low = df['low'].min()
-    levels.extend([session_high, session_low])
-    kinds.extend([4, 5])  # SESSION_HIGH=4, SESSION_LOW=5
-    kind_names.extend(['SESSION_HIGH', 'SESSION_LOW'])
+    # 3. SESSION HIGH/LOW (running) - REMOVED FOR V1
+    # Too noisy, constantly changing - not useful for retrieval-based attribution
 
     # 4. SMA-200 / SMA-400 on 2-min bars
     if ohlcv_2min is None:
@@ -113,41 +109,15 @@ def generate_level_universe(
             kinds.append(12)  # SMA_400=12
             kind_names.append('SMA_400')
 
-    # 5. VWAP
-    session_mask = df['time_et'] >= dt_time(9, 30)
-    if session_mask.any():
-        session_df = df[session_mask]
-        typical_price = (session_df['high'] + session_df['low'] + session_df['close']) / 3
-        vwap = (typical_price * session_df['volume']).sum() / session_df['volume'].sum()
-        if pd.notna(vwap):
-            levels.append(vwap)
-            kinds.append(7)  # VWAP=7
-            kind_names.append('VWAP')
-
+    # 5. VWAP - REMOVED FOR V1
+    # Lagging indicator, less useful for physics-based attribution
+    
     # NOTE: ROUND (8) and STRIKE (9) levels removed for SPY - duplicative with $1 strike spacing.
 
     # 6. CALL_WALL / PUT_WALL (max gamma concentration)
-    if option_flows:
-        call_gamma = {}
-        put_gamma = {}
-        for (strike, right, exp_date), flow in option_flows.items():
-            if exp_date == date:
-                if right == 'C':
-                    call_gamma[strike] = call_gamma.get(strike, 0) + abs(flow.net_gamma_flow)
-                else:
-                    put_gamma[strike] = put_gamma.get(strike, 0) + abs(flow.net_gamma_flow)
-
-        if call_gamma:
-            call_wall = max(call_gamma, key=call_gamma.get)
-            levels.append(call_wall)
-            kinds.append(10)  # CALL_WALL=10
-            kind_names.append('CALL_WALL')
-
-        if put_gamma:
-            put_wall = max(put_gamma, key=put_gamma.get)
-            levels.append(put_wall)
-            kinds.append(11)  # PUT_WALL=11
-            kind_names.append('PUT_WALL')
+    # 6. CALL WALL / PUT WALL - REMOVED FOR V1
+    # Per Final Call spec: treat GEX as FEATURES (fuel field), not levels themselves
+    # GEX will be computed per-event as strike-banded features around the tested level
 
     # Remove duplicates while preserving order
     unique_levels = []

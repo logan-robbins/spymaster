@@ -7,11 +7,14 @@ from src.common.config import CONFIG
 
 
 class FilterRTHStage(BaseStage):
-    """Filter signals to regular trading hours with full forward window.
-
-    Ensures all signals have complete forward window for labeling
-    by restricting to 09:30-16:00 ET with buffer for confirmation.
-
+    """
+    Filter signals to v1 scope: first 4 hours only (09:30-13:30 ET).
+    
+    Per Final Call v1 spec:
+    - Only create events during 09:30-13:30 ET (first 4 hours)
+    - Use Policy B: keep anchors up to 13:30, allow forward window spillover
+    - Ensures all signals have complete forward window for labeling
+    
     Outputs:
         signals: Final filtered DataFrame (key used by Pipeline.run)
     """
@@ -27,9 +30,15 @@ class FilterRTHStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df'].copy()
 
-        # Compute session bounds
-        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
-        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=16)
+        # Compute session bounds (v1: first 4 hours only)
+        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
+            hours=CONFIG.RTH_START_HOUR,
+            minutes=CONFIG.RTH_START_MINUTE
+        )
+        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
+            hours=CONFIG.RTH_END_HOUR,
+            minutes=CONFIG.RTH_END_MINUTE
+        )
         session_start_ns = session_start.tz_convert("UTC").value
         session_end_ns = session_end.tz_convert("UTC").value
 
@@ -38,14 +47,16 @@ class FilterRTHStage(BaseStage):
             CONFIG.CONFIRMATION_WINDOWS_MULTI or [CONFIG.CONFIRMATION_WINDOW_SECONDS]
         )
         max_window_ns = int((max_confirm + CONFIG.LOOKFORWARD_MINUTES * 60) * 1e9)
-        latest_end_ns = signals_df["ts_ns"].astype("int64") + max_window_ns
-
-        # Apply RTH filter
+        
+        # Policy B: Keep anchors up to 13:30, allow forward spillover for labeling
+        # This prevents label bias while respecting the first-4-hours constraint
         rth_mask = (
             (signals_df["ts_ns"] >= session_start_ns) &
-            (signals_df["ts_ns"] <= session_end_ns) &
-            (latest_end_ns <= session_end_ns)
+            (signals_df["ts_ns"] <= session_end_ns)
         )
+        
+        # Note: We do NOT require (latest_end_ns <= session_end_ns) per Policy B
+        # This allows labels to use data after 13:30 for events that occur at/before 13:30
 
         signals_df = signals_df.loc[rth_mask].copy()
 

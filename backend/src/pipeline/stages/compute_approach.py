@@ -54,16 +54,35 @@ def compute_approach_context(
     approach_distance = np.zeros(n, dtype=np.float64)
     prior_touches = np.zeros(n, dtype=np.int32)
     bars_since_open = np.zeros(n, dtype=np.int32)
+    minutes_since_open = np.zeros(n, dtype=np.float32)
 
     signal_ts = signals_df['ts_ns'].values
     level_prices = signals_df['level_price'].values
     directions = signals_df['direction'].values
 
-    # Pre-compute first bar timestamp for bars_since_open
-    first_bar_ts = ohlcv_ts[0] if len(ohlcv_ts) > 0 else 0
-    bar_duration_ns = int(60 * 1e9)  # 1-minute bars
-
+    # Import session timing utilities
+    from src.common.utils.session_time import (
+        compute_minutes_since_open,
+        compute_bars_since_open,
+        get_session_start_ns
+    )
+    
+    # Get date from context (passed via signals_df metadata or ctx)
+    # Infer date from first signal timestamp if not in context
+    if hasattr(signals_df, 'date'):
+        date = signals_df.date
+    else:
+        # Infer from first timestamp
+        first_ts_dt = pd.Timestamp(signal_ts[0], unit='ns', tz='UTC')
+        date = first_ts_dt.tz_convert('America/New_York').strftime('%Y-%m-%d')
+    
+    # Compute correct session timing (relative to 09:30 ET, NOT first bar)
+    minutes_since_open = compute_minutes_since_open(signal_ts, date)
+    bars_since_open = compute_bars_since_open(signal_ts, date, bar_duration_minutes=1)
+    
     # Track touches per level for prior_touches calculation
+    # IMPORTANT: Only count RTH touches, not overnight/premarket
+    session_start_ns = get_session_start_ns(date)
     level_touch_counts = {}
 
     for i in range(n):
@@ -75,10 +94,6 @@ def compute_approach_context(
         # Find bars in lookback window using binary search
         start_idx = np.searchsorted(ohlcv_ts, start_ts, side='right')
         end_idx = np.searchsorted(ohlcv_ts, ts, side='right')
-
-        # Bars since open
-        if first_bar_ts > 0:
-            bars_since_open[i] = max(0, (ts - first_bar_ts) // bar_duration_ns)
 
         # Prior touches at this level
         level_key = round(level, 2)
@@ -132,6 +147,8 @@ def compute_approach_context(
     result['approach_bars'] = approach_bars
     result['approach_distance'] = approach_distance
     result['prior_touches'] = prior_touches
+    result['minutes_since_open'] = minutes_since_open
+    result['bars_since_open'] = bars_since_open
     result['bars_since_open'] = bars_since_open
 
     return result

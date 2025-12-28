@@ -117,17 +117,8 @@ class LevelUniverse:
             LevelKind.GAMMA_FLIP,
         }
         
-        # ========== VWAP ==========
-        if CONFIG.VWAP_ENABLED:
-            vwap = market_state.get_vwap()
-            if vwap is not None:
-                levels.append(Level(
-                    id="VWAP",
-                    price=vwap,
-                    kind=LevelKind.VWAP,
-                    valid_from_ns=snapshot_ts_ns,
-                    dynamic=True
-                ))
+        # ========== VWAP - REMOVED FOR V1 ==========
+        # Per Final Call spec: VWAP removed for v1 (lagging, less physics-based)
 
         # ========== Structural levels (Context) ==========
         pm_high = market_state.get_premarket_high()
@@ -315,76 +306,10 @@ class LevelUniverse:
         """
         levels = []
         
-        # Get option flows across all active strikes
-        # We'll look at a wider range for wall identification
-        wall_range = CONFIG.STRIKE_RANGE * 2  # look ±10 instead of ±5
-        option_flows = market_state.get_option_flows_near_level(
-            level_price=spot,
-            strike_range=wall_range
-        )
-        
-        if not option_flows:
-            return levels
-        
-        # Aggregate gamma flow by strike and right
-        call_gamma_by_strike = {}
-        put_gamma_by_strike = {}
-        
-        for flow in option_flows:
-            strike = flow.strike
-            if flow.right == 'C':
-                if strike not in call_gamma_by_strike:
-                    call_gamma_by_strike[strike] = 0.0
-                call_gamma_by_strike[strike] += flow.net_gamma_flow
-            elif flow.right == 'P':
-                if strike not in put_gamma_by_strike:
-                    put_gamma_by_strike[strike] = 0.0
-                put_gamma_by_strike[strike] += flow.net_gamma_flow
-        
-        # Find call wall: strike with highest (most negative) dealer gamma from calls
-        # Per §5.3: dealers are SHORT gamma when customers buy, so net_gamma_flow is negative
-        # Call wall = strike where dealers have most negative gamma (highest customer demand)
-        if call_gamma_by_strike:
-            call_wall_strike = min(call_gamma_by_strike.items(), key=lambda x: x[1])[0]
-            call_wall_gamma = call_gamma_by_strike[call_wall_strike]
-            
-            # Only create wall if gamma is meaningfully negative (threshold TBD)
-            if call_wall_gamma < -1000:  # arbitrary threshold for now
-                self._cached_call_wall = call_wall_strike
-                levels.append(Level(
-                    id=f"CALL_WALL",
-                    price=call_wall_strike,
-                    kind=LevelKind.CALL_WALL,
-                    metadata={
-                        "net_dealer_gamma": call_wall_gamma,
-                        "strike": call_wall_strike
-                    },
-                    valid_from_ns=ts_ns,
-                    dynamic=True
-                ))
-        
-        # Find put wall: strike with highest (most negative) dealer gamma from puts
-        if put_gamma_by_strike:
-            put_wall_strike = min(put_gamma_by_strike.items(), key=lambda x: x[1])[0]
-            put_wall_gamma = put_gamma_by_strike[put_wall_strike]
-            
-            if put_wall_gamma < -1000:
-                self._cached_put_wall = put_wall_strike
-                levels.append(Level(
-                    id=f"PUT_WALL",
-                    price=put_wall_strike,
-                    kind=LevelKind.PUT_WALL,
-                    metadata={
-                        "net_dealer_gamma": put_wall_gamma,
-                        "strike": put_wall_strike
-                    },
-                    valid_from_ns=ts_ns,
-                    dynamic=True
-                ))
-        
-        # Optional: Gamma flip level (HVL approximation)
-        # This is where cumulative dealer gamma changes sign
-        # For v1, we'll skip this and let Agent E implement if needed
+        # REMOVED FOR V1: Wall generation disabled
+        # Per Final Call spec: GEX treated as FEATURES not LEVELS
+        # Walls will be computed as strike-banded features around tested levels
+        # (not as standalone levels in the universe)
         
         return levels
     

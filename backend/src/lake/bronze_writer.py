@@ -583,32 +583,98 @@ class BronzeReader:
         symbol: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        front_month_only: bool = True,
+        specific_contract: Optional[str] = None
     ) -> pd.DataFrame:
-        """Read futures trades from Bronze."""
-        return self._read_schema(
+        """
+        Read futures trades from Bronze.
+        
+        Args:
+            symbol: Symbol prefix (e.g., 'ES')
+            date: Date string (YYYY-MM-DD)
+            start_ns: Start timestamp (nanoseconds)
+            end_ns: End timestamp (nanoseconds)
+            front_month_only: If True, automatically select front-month contract (default)
+            specific_contract: If provided, filter to exact contract (e.g., 'ESZ5')
+        
+        Returns:
+            DataFrame with trades, filtered to single contract if requested
+        """
+        df = self._read_schema(
             'futures/trades',
             f'symbol={symbol}',
             date,
             start_ns,
             end_ns
         )
+        
+        # Apply contract filtering
+        if not df.empty and (front_month_only or specific_contract):
+            if specific_contract:
+                # Explicit contract specified
+                df = df[df['symbol'] == specific_contract].copy()
+            elif front_month_only and date:
+                # Auto-select front month
+                from src.common.utils.contract_selector import ContractSelector
+                selector = ContractSelector(self.bronze_root)
+                try:
+                    selection = selector.select_front_month(date)
+                    df = df[df['symbol'] == selection.front_month_symbol].copy()
+                except Exception as e:
+                    print(f"WARNING: Front-month selection failed for {date}: {e}")
+                    # Fall back to returning all contracts
+        
+        return df
 
     def read_futures_mbp10(
         self,
         symbol: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        front_month_only: bool = True,
+        specific_contract: Optional[str] = None
     ) -> pd.DataFrame:
-        """Read futures MBP-10 from Bronze."""
-        return self._read_schema(
+        """
+        Read futures MBP-10 from Bronze.
+        
+        Args:
+            symbol: Symbol prefix (e.g., 'ES')
+            date: Date string (YYYY-MM-DD)
+            start_ns: Start timestamp (nanoseconds)
+            end_ns: End timestamp (nanoseconds)
+            front_month_only: If True, automatically select front-month contract (default)
+            specific_contract: If provided, filter to exact contract (e.g., 'ESZ5')
+        
+        Returns:
+            DataFrame with MBP-10 snapshots, filtered to single contract if requested
+        """
+        df = self._read_schema(
             'futures/mbp10',
             f'symbol={symbol}',
             date,
             start_ns,
             end_ns
         )
+        
+        # Apply contract filtering
+        if not df.empty and (front_month_only or specific_contract):
+            if specific_contract:
+                # Explicit contract specified
+                df = df[df['symbol'] == specific_contract].copy()
+            elif front_month_only and date:
+                # Auto-select front month (use same selection as trades)
+                from src.common.utils.contract_selector import ContractSelector
+                selector = ContractSelector(self.bronze_root)
+                try:
+                    selection = selector.select_front_month(date)
+                    df = df[df['symbol'] == selection.front_month_symbol].copy()
+                except Exception as e:
+                    print(f"WARNING: Front-month selection failed for {date}: {e}")
+                    # Fall back to returning all contracts
+        
+        return df
 
     def read_greeks_snapshots(
         self,

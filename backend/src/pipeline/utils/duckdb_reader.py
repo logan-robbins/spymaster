@@ -41,11 +41,27 @@ class DuckDBReader:
         symbol: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        front_month_only: bool = True,
+        specific_contract: Optional[str] = None
     ) -> pd.DataFrame:
-        """Read futures trades from Bronze."""
+        """
+        Read futures trades from Bronze.
+        
+        Args:
+            symbol: Symbol prefix (e.g., 'ES')
+            date: Date string (YYYY-MM-DD)
+            start_ns: Start timestamp (nanoseconds)
+            end_ns: End timestamp (nanoseconds)
+            front_month_only: If True, filter to front-month contract (default)
+            specific_contract: If provided, filter to specific contract (e.g., 'ESZ5')
+        
+        Returns:
+            DataFrame with trades
+        """
         return self._bronze_reader.read_futures_trades(
-            symbol=symbol, date=date, start_ns=start_ns, end_ns=end_ns
+            symbol=symbol, date=date, start_ns=start_ns, end_ns=end_ns,
+            front_month_only=front_month_only, specific_contract=specific_contract
         )
 
     def read_futures_mbp10(
@@ -53,11 +69,27 @@ class DuckDBReader:
         symbol: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
+        end_ns: Optional[int] = None,
+        front_month_only: bool = True,
+        specific_contract: Optional[str] = None
     ) -> pd.DataFrame:
-        """Read futures MBP-10 from Bronze."""
+        """
+        Read futures MBP-10 from Bronze.
+        
+        Args:
+            symbol: Symbol prefix (e.g., 'ES')
+            date: Date string (YYYY-MM-DD)
+            start_ns: Start timestamp (nanoseconds)
+            end_ns: End timestamp (nanoseconds)
+            front_month_only: If True, filter to front-month contract (default)
+            specific_contract: If provided, filter to specific contract (e.g., 'ESZ5')
+        
+        Returns:
+            DataFrame with MBP-10 snapshots
+        """
         return self._bronze_reader.read_futures_mbp10(
-            symbol=symbol, date=date, start_ns=start_ns, end_ns=end_ns
+            symbol=symbol, date=date, start_ns=start_ns, end_ns=end_ns,
+            front_month_only=front_month_only, specific_contract=specific_contract
         )
 
     def read_futures_mbp10_downsampled(
