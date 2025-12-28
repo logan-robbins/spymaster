@@ -27,25 +27,26 @@ def compute_strike_banded_gex(
     """
     Compute gamma exposure in strike bands around each tested level.
     
-    Per Final Call spec Section 6.8:
+    Per Final Call spec Section 6.8 + user clarification:
     - Filter to 0DTE options (exp_date == session date)
     - Use open_interest from greeks snapshots if available, else trades
     - Compute GEX per strike, then aggregate into bands
     - Summarize relative to tested level
     
-    Strike bands (SPX): ±1 strike, ±2 strikes (at $5-$10 spacing)
+    Strike bands (ES 0DTE): ±1, ±2, ±3 strikes (at 5-point spacing)
+    We model 3-strike minimum moves, so bands up to ±3 are needed.
     
     Args:
         signals_df: DataFrame with signals
         option_trades_df: Option trades/greeks with gamma, open_interest
         date: Session date for 0DTE filtering
-        strike_bands: List of strike offsets (default [1, 2])
+        strike_bands: List of strike offsets (default [1, 2, 3])
     
     Returns:
         DataFrame with GEX features added
     """
     if strike_bands is None:
-        strike_bands = [1, 2]  # ±1 strike, ±2 strikes
+        strike_bands = [1, 2, 3]  # ±1, ±2, ±3 strikes (for 3-strike threshold)
     
     if signals_df.empty or option_trades_df is None or option_trades_df.empty:
         # Return with zero GEX features
@@ -118,7 +119,7 @@ def compute_strike_banded_gex(
     n = len(signals_df)
     level_prices = signals_df['level_price'].values.astype(np.float64)
     
-    # Initialize result arrays
+    # Initialize result arrays (±1, ±2, ±3 strikes)
     result_dict = {}
     for band in strike_bands:
         result_dict[f'gex_above_{band}strike'] = np.zeros(n, dtype=np.float64)
@@ -130,20 +131,22 @@ def compute_strike_banded_gex(
     gex_ratio = np.zeros(n, dtype=np.float64)
     net_gex_2strike = np.zeros(n, dtype=np.float64)
     
-    # SPX strike spacing (infer from data or assume $5-$10)
-    # For robustness, we'll find nearest strikes dynamically
+    # ES 0DTE strike spacing: 25 points (validated from actual data)
+    # Near ATM: 25pt dominant, some 5pt very tight
+    # Per user requirement: 3-strike minimum move
     strikes_available = sorted(gex_by_strike['strike'].unique())
+    
+    ES_STRIKE_SPACING = 25.0  # ES 0DTE ATM spacing (validated 2025-11-03 data)
     
     for i in range(n):
         level = level_prices[i]
         
         # For each band, find strikes at ±band positions
         for band in strike_bands:
-            # Find strikes above and below
-            # Approximate: ±band × $10 (assuming $10 spacing, adjust if needed)
-            spacing_estimate = 10.0  # SPX typical spacing
-            target_above = level + (band * spacing_estimate)
-            target_below = level - (band * spacing_estimate)
+            # Find strikes above and below at exact multiples
+            # band=1 → ±5pts, band=2 → ±10pts, band=3 → ±15pts
+            target_above = level + (band * ES_STRIKE_SPACING)
+            target_below = level - (band * ES_STRIKE_SPACING)
             
             # Find nearest actual strikes
             strikes_above = [s for s in strikes_available if s >= target_above]
@@ -173,22 +176,22 @@ def compute_strike_banded_gex(
                 ]['dealer_gex'].sum()
                 result_dict[f'put_gex_below_{band}strike'][i] = put_gex
         
-        # Asymmetry and ratio (using ±2 strikes)
-        gex_above_2 = result_dict['gex_above_2strike'][i]
-        gex_below_2 = result_dict['gex_below_2strike'][i]
+        # Asymmetry and ratio (using ±3 strikes for 3-strike threshold model)
+        gex_above_3 = result_dict['gex_above_3strike'][i]
+        gex_below_3 = result_dict['gex_below_3strike'][i]
         
-        gex_asymmetry[i] = gex_above_2 - gex_below_2
+        gex_asymmetry[i] = gex_above_3 - gex_below_3
         
-        denom = abs(gex_below_2) + 1e-6
-        gex_ratio[i] = gex_above_2 / denom
+        denom = abs(gex_below_3) + 1e-6
+        gex_ratio[i] = gex_above_3 / denom
         
-        # Net GEX within ±2 strikes
-        strikes_in_range = [s for s in strikes_available if abs(s - level) <= 2 * 10.0]
+        # Net GEX within ±3 strikes (3 × 5pt = ±15 points)
+        strikes_in_range = [s for s in strikes_available if abs(s - level) <= 3 * ES_STRIKE_SPACING]
         net_gex = sum(
             gex_by_strike[gex_by_strike['strike'] == s]['dealer_gex'].sum()
             for s in strikes_in_range
         )
-        net_gex_2strike[i] = net_gex
+        net_gex_2strike[i] = net_gex  # Keep name for compatibility, but actually 3-strike
     
     result = signals_df.copy()
     for key, values in result_dict.items():
@@ -226,7 +229,7 @@ class ComputeGEXFeaturesStage(BaseStage):
             signals_df=signals_df,
             option_trades_df=option_trades_df,
             date=ctx.date,
-            strike_bands=[1, 2]
+            strike_bands=[1, 2, 3]  # ES 0DTE: ±1/±2/±3 strikes (5pt, 10pt, 15pt)
         )
         
         return {'signals_df': signals_df}

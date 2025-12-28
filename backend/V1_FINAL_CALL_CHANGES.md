@@ -17,7 +17,7 @@
 | **Options** | SPY 0DTE (American) | ES 0DTE (European, EW weeklies) |
 | **Spot Proxy** | ES/10 ≈ SPY | ES futures = ES options underlying! |
 | **Need equity trades?** | YES (SPY stock) | NO (same instrument) |
-| **Strike spacing** | $1 | 0.25 ES ticks (same as futures) |
+| **Strike spacing** | $1 | 5 ES points (0DTE standard) |
 | **Settlement** | Physical (100 shares) | Cash (futures-style) |
 | **Conversion** | ES/10 = SPY | NONE - ES = ES (perfect alignment!) |
 | **Venue** | Multiple (OPRA) | CME only (same as ES futures) |
@@ -198,16 +198,18 @@ basis = converter.basis  # 2.0 points (ES premium over SPX)
 
 **Implementation**: Already correct in `label_outcomes.py`
 
-**Verification**:
-- Break barrier: `level + dir_sign × 10.0` (2 SPX strikes)
-- Bounce barrier: `level - dir_sign × 10.0`
+**Verification** (ES 0DTE = 5pt strike spacing):
+- Break barrier: `level + dir_sign × 15.0` (3 strikes × 5pt = 15 points)
+- Bounce barrier: `level - dir_sign × 15.0` (3 strikes × 5pt = 15 points)
 - Vertical barrier: 8 minutes
 - First hit wins (competing risks)
 - Policy B: Anchors ≤13:30, forward window can spillover
 
-**SPX Thresholds**:
+**Why 3 strikes?** Minimum meaningful move for ES 0DTE options attribution.
+
+**ES Options Thresholds** (0DTE = 5pt strike spacing):
 - Threshold 1: 5.0 points (1 strike)
-- Threshold 2: 10.0 points (2 strikes)
+- Threshold 2: 15.0 points (3 strikes) ← **v1 minimum for attribution**
 
 ---
 
@@ -318,9 +320,10 @@ uv run python scripts/test_spx_transformation.py --date 2025-12-16
 ```
 
 **Expected output**:
-- ✅ SPX options data found
+- ✅ ES options data found (underlying=ES)
 - ✅ ES front-month filtering works
-- ✅ Price range 5700-5800 (NOT 570-580)
+- ✅ Price range 5700-5800 (ES index points, NOT SPY dollars)
+- ✅ Strike spacing = 5 points (0DTE)
 - ✅ Pipeline runs without errors
 
 ### 2. Full Validation (Comprehensive)
@@ -392,31 +395,41 @@ print(signals_df[['event_id', 'level_kind_name', 'direction', 'outcome']].head()
 
 ## Configuration Changes
 
-### Old (SPY) vs New (SPX)
+### Old (SPY) vs New (ES Options)
 
-| Parameter | Old (SPY) | New (SPX) | Reason |
-|-----------|-----------|-----------|--------|
-| `MONITOR_BAND` | $0.25 | 2.0 pts | Proportional scaling |
-| `OUTCOME_THRESHOLD` | $2.00 | 10.0 pts | ~2 strikes |
-| `FUEL_STRIKE_RANGE` | $2.00 | 10.0 pts | SPX strike spacing |
-| `STRIKE_RANGE` | $5.00 | 50.0 pts | Wider range |
+| Parameter | Old (SPY) | New (ES 0DTE) | Reason |
+|-----------|-----------|---------------|--------|
+| `ES_0DTE_STRIKE_SPACING` | N/A | **5.0 pts** | ES 0DTE standard |
+| `MONITOR_BAND` | $0.25 | **2.5 pts** | ~0.5 strike width |
+| `OUTCOME_THRESHOLD` | $2.00 (2×$1) | **15.0 pts** (3×5pt) | **3 strikes minimum** |
+| `STRENGTH_THRESHOLD_1` | $1.00 | **5.0 pts** | 1 strike |
+| `STRENGTH_THRESHOLD_2` | $2.00 | **15.0 pts** | 3 strikes |
+| `FUEL_STRIKE_RANGE` | $2.00 | **15.0 pts** | ±3 strikes |
+| `STRIKE_RANGE` | $5.00 | **50.0 pts** | ±10 strikes |
 | `VWAP_ENABLED` | `True` | `False` | Removed for v1 |
-| `RTH_END_HOUR` | 16 | 13 | First 4 hours only |
+| `RTH_END_HOUR` | 16 | **13** | First 4 hours only |
+
+**Key**: ES 0DTE = 5-point strike spacing → 3 strikes = 15 points minimum for meaningful move
 
 ---
 
 ## Next Steps
 
-### 1. Download SPX Options Data
+### 1. Download ES Options Data
 
 ```bash
 cd backend
 
 # Ensure DATABENTO_API_KEY is set in .env
-uv run python scripts/download_spx_options.py --start 2025-11-02 --end 2025-12-28
+uv run python scripts/download_es_options.py --start 2025-11-02 --end 2025-12-28
+
+# Dataset: GLBX.MDP3 (CME Globex)
+# Symbol: ES.OPT (E-mini S&P 500 options)
+# Strike spacing: 5 points (0DTE)
+# Modeling: 3-strike minimum move (15 points)
 ```
 
-**Expected**: ~60-80 trading days, ~100-500MB compressed per day
+**Expected**: ~60-80 trading days, ES 0DTE options trades + NBBO
 
 ### 2. Run Smoke Test
 
@@ -467,10 +480,11 @@ uv run python -m src.ml.boosted_tree_train \
 ### ⚠️ Incompatibilities
 
 1. **Price Scale**: All levels now 5000-6000 range (not 500-600)
-2. **Underlying**: SPX (not SPY) - different option symbols
-3. **Strike Spacing**: $5-$10 (not $1)
-4. **Level Types**: 4 types only (not 11)
-5. **Time Window**: 09:30-13:30 (not 09:30-16:00)
+2. **Underlying**: ES futures (not SPY ETF) - different options
+3. **Strike Spacing**: 5 points (not $1) - ES 0DTE standard
+4. **Outcome Threshold**: 15 points = 3 strikes (not $2 = 2 strikes)
+5. **Level Types**: 4 types only (not 11)
+6. **Time Window**: 09:30-13:30 (not 09:30-16:00)
 
 ### ✅ Backward Compatible
 

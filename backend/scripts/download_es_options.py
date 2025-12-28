@@ -107,10 +107,19 @@ class ESOptionsDownloader:
         """Download specific schema and write to Bronze."""
         print(f"\n  Downloading {schema}...")
 
+        # For large schemas (mbp-1), download in hourly chunks to avoid >5GB streaming requests
+        # CME Globex hours: 17:00 CT previous day to 16:00 CT (Sunday-Friday)
+        # In UTC: ~23:00 to ~21:00 next day
+        use_chunked = schema == 'mbp-1'
+
+        if use_chunked:
+            return self._download_schema_chunked(date_str, schema, output_dir)
+        else:
+            return self._download_schema_single(date_str, schema, output_dir)
+
+    def _download_schema_single(self, date_str: str, schema: str, output_dir: Path) -> int:
+        """Download schema in single request (for smaller datasets like trades)."""
         try:
-            # Download from Databento
-            # Note: Using 'parent' stype_in requires format 'SPX.OPT' (not just 'SPX')
-            # End date must be exclusive (next day) for Databento API
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             end_date_str = (date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
 
@@ -120,88 +129,170 @@ class ESOptionsDownloader:
                 symbols=[self.SYMBOL],
                 start=date_str,
                 end=end_date_str,
-                stype_in='parent'  # Get all expirations for SPX.OPT parent
+                stype_in='parent'
             )
-            
-            # Convert to DataFrame
-            df = data.to_df()
-            
+
+            # Note: to_df() uses ts_recv as the index, so reset_index() to make it a column
+            df = data.to_df().reset_index()
+
             if df.empty:
                 print(f"    No {schema} data found")
                 return 0
-            
+
             print(f"    Retrieved {len(df):,} {schema} records")
-            
-            # Transform to Bronze schema
-            if schema == 'trades':
-                df_bronze = self._transform_trades(df, date_str)
-            else:  # mbp-1
-                df_bronze = self._transform_nbbo(df, date_str)
-            
-            # Write to Parquet partitioned by hour
-            df_bronze['hour'] = pd.to_datetime(df_bronze['ts_event_ns'], unit='ns', utc=True).dt.hour
-            
-            for hour, hour_df in df_bronze.groupby('hour'):
-                hour_dir = output_dir / f'hour={hour:02d}'
-                hour_dir.mkdir(parents=True, exist_ok=True)
-                
-                output_path = hour_dir / f'{schema}_{date_str}_h{hour:02d}.parquet'
-                hour_df_out = hour_df.drop(columns=['hour'])
-                
-                table = pa.Table.from_pandas(hour_df_out, preserve_index=False)
-                pq.write_table(table, output_path, compression='zstd')
-                
-                print(f"      Wrote {len(hour_df_out):,} records to hour={hour:02d}/")
-            
-            print(f"    Total: {len(df_bronze):,} {schema} records")
-            return len(df_bronze)
-            
+            return self._transform_and_write(df, date_str, schema, output_dir)
+
         except Exception as e:
             print(f"    Error downloading {schema}: {e}")
             return 0
+
+    def _download_schema_chunked(self, date_str: str, schema: str, output_dir: Path) -> int:
+        """Download schema in hourly chunks to avoid >5GB streaming limit."""
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+
+        # Download in 4-hour chunks (6 chunks per day)
+        # This keeps each request well under the 5GB limit
+        chunks = [
+            (0, 4), (4, 8), (8, 12), (12, 16), (16, 20), (20, 24)
+        ]
+
+        all_dfs = []
+
+        for start_hour, end_hour in chunks:
+            chunk_start = date_obj + timedelta(hours=start_hour)
+            chunk_end = date_obj + timedelta(hours=end_hour)
+
+            try:
+                print(f"    Chunk {start_hour:02d}:00-{end_hour:02d}:00 UTC...", end=" ", flush=True)
+
+                data = self.client.timeseries.get_range(
+                    dataset=self.DATASET,
+                    schema=schema,
+                    symbols=[self.SYMBOL],
+                    start=chunk_start.strftime('%Y-%m-%dT%H:%M:%S'),
+                    end=chunk_end.strftime('%Y-%m-%dT%H:%M:%S'),
+                    stype_in='parent'
+                )
+
+                df = data.to_df().reset_index()
+
+                if df.empty:
+                    print("no data")
+                    continue
+
+                print(f"{len(df):,} records")
+                all_dfs.append(df)
+
+            except Exception as e:
+                print(f"error: {e}")
+                continue
+
+        if not all_dfs:
+            print(f"    No {schema} data found")
+            return 0
+
+        # Combine all chunks
+        df = pd.concat(all_dfs, ignore_index=True)
+        print(f"    Total retrieved: {len(df):,} {schema} records")
+
+        return self._transform_and_write(df, date_str, schema, output_dir)
+
+    def _transform_and_write(self, df: pd.DataFrame, date_str: str, schema: str, output_dir: Path) -> int:
+        """Transform DataFrame and write to partitioned Parquet."""
+        # Transform to Bronze schema
+        if schema == 'trades':
+            df_bronze = self._transform_trades(df, date_str)
+        else:  # mbp-1
+            df_bronze = self._transform_nbbo(df, date_str)
+
+        # Write to Parquet partitioned by hour
+        df_bronze['hour'] = pd.to_datetime(df_bronze['ts_event_ns'], unit='ns', utc=True).dt.hour
+
+        for hour, hour_df in df_bronze.groupby('hour'):
+            hour_dir = output_dir / f'hour={hour:02d}'
+            hour_dir.mkdir(parents=True, exist_ok=True)
+
+            output_path = hour_dir / f'{schema}_{date_str}_h{hour:02d}.parquet'
+            hour_df_out = hour_df.drop(columns=['hour'])
+
+            table = pa.Table.from_pandas(hour_df_out, preserve_index=False)
+            pq.write_table(table, output_path, compression='zstd')
+
+            print(f"      Wrote {len(hour_df_out):,} records to hour={hour:02d}/")
+
+        print(f"    Total: {len(df_bronze):,} {schema} records")
+        return len(df_bronze)
     
     def _transform_trades(self, df: pd.DataFrame, date_str: str) -> pd.DataFrame:
         """Transform Databento trades to Bronze schema."""
         # Databento columns: ts_event, ts_recv, symbol, price, size, side, ...
         
         # Parse ES option symbol
-        # ES options from CME: Format varies, examples:
-        # - EW1H25 C5750 (weekly, month H = March, year 25, Call 5750)
-        # - LO prefix for weekly options on ES
-        # Databento may provide in different formats
+        # Actual format from Databento CME: "ESZ5 P6800" or "ESZ5 C7275"
+        # Format: {FUTURES_CONTRACT} {C|P}{STRIKE}
         
         df['option_symbol'] = df['symbol'].astype(str)
         
-        # For ES options, symbol metadata should be in the record
-        # If not available, we'll parse from symbol string
+        # Filter out non-ES option symbols (spreads, etc.)
+        # Valid ES options: Start with ES followed by month code and year
+        es_mask = df['option_symbol'].str.match(r'^ES[FGHJKMNQUVXZ]\d\s+[CP]\d+$')
+        df = df[es_mask].copy()
         
-        # Try to extract from symbol or use provided columns
-        if 'expiration' in df.columns:
-            df['exp_date'] = pd.to_datetime(df['expiration']).dt.strftime('%Y-%m-%d')
-        elif 'expiry' in df.columns:
-            df['exp_date'] = pd.to_datetime(df['expiry']).dt.strftime('%Y-%m-%d')
-        else:
-            # Parse from symbol - this may need adjustment based on actual data format
-            # For now, default to session date (0DTE assumption)
-            df['exp_date'] = date_str
+        if df.empty:
+            # Return empty DataFrame with correct schema
+            return pd.DataFrame(columns=[
+                'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
+                'exp_date', 'strike', 'right', 'price', 'size', 'opt_bid', 'opt_ask',
+                'seq', 'aggressor'
+            ])
         
-        # Right (call/put)
-        if 'option_type' in df.columns:
-            df['right'] = df['option_type'].map({'C': 'C', 'P': 'P', 'CALL': 'C', 'PUT': 'P'})
-        elif 'right' in df.columns:
-            df['right'] = df['right']
-        else:
-            # Try to parse from symbol - may contain C/P indicator
-            df['right'] = df['option_symbol'].str.extract(r'([CP])', expand=False).fillna('C')
+        # Parse components from "ESZ5 P6800" format
+        # Split on space: ["ESZ5", "P6800"]
+        split_parts = df['option_symbol'].str.split(' ', expand=True)
+        df['futures_contract'] = split_parts[0]  # ESZ5
+        df['right_strike'] = split_parts[1]      # P6800
         
-        # Strike price
-        if 'strike_price' in df.columns:
-            df['strike'] = df['strike_price'].astype(float)
-        elif 'strike' not in df.columns:
-            # Extract from symbol - this format is dataset-specific
-            # ES options strikes are in index points (e.g., 5750.0)
-            # May need to parse based on actual Databento format
-            df['strike'] = 0.0  # Placeholder - will need actual data to determine format
+        # CRITICAL: Filter to front-month futures contract ONLY
+        # ES options on ESZ5, ESH6, etc. are different instruments
+        # We want options on the SAME contract as our ES futures data
+        from src.common.utils.es_contract_calendar import get_front_month_contract_code
+        
+        # Determine front-month contract code from date (e.g., ESZ5 for Dec 2025)
+        front_month_contract = get_front_month_contract_code(date_str)
+        
+        print(f"    Front-month contract: {front_month_contract}")
+        print(f"    Before filter: {len(df):,} records across all contracts")
+        
+        # Show distribution before filtering
+        contract_counts = df['futures_contract'].value_counts()
+        print(f"    Contract distribution:")
+        for contract, count in contract_counts.items():
+            marker = "✓" if contract == front_month_contract else "✗"
+            print(f"      {marker} {contract}: {count:,}")
+        
+        # Filter to options on front-month contract only
+        df = df[df['futures_contract'] == front_month_contract].copy()
+        
+        if df.empty:
+            print(f"    WARNING: No options on {front_month_contract} found")
+            return pd.DataFrame(columns=[
+                'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
+                'exp_date', 'strike', 'right', 'price', 'size', 'opt_bid', 'opt_ask',
+                'seq', 'aggressor'
+            ])
+        
+        print(f"    After front-month filter: {len(df):,} records on {front_month_contract}")
+        
+        # Extract right (C/P)
+        df['right'] = df['right_strike'].str[0]  # First char: C or P
+        
+        # Extract strike (rest of string after C/P)
+        df['strike'] = df['right_strike'].str[1:].astype(float)
+        
+        # Expiration date: For 0DTE, assume session date
+        # For longer-dated, would need to parse from futures contract month code
+        # Since we're focusing on 0DTE, use session date
+        df['exp_date'] = date_str
         
         # Map Databento aggressor to our enum
         # Databento side: 'A' = ask (sell aggressor), 'B' = bid (buy aggressor), 'N' = none
@@ -229,28 +320,42 @@ class ESOptionsDownloader:
         """Transform Databento MBP-1 (NBBO) to Bronze schema."""
         # Databento MBP-1 columns: ts_event, ts_recv, symbol, bid_px_00, ask_px_00, bid_sz_00, ask_sz_00, ...
         
-        # Parse ES option symbol (same logic as trades)
+        # Parse ES option symbol (same format as trades: "ESZ5 P6800")
         df['option_symbol'] = df['symbol'].astype(str)
         
-        # Extract metadata (same as trades)
-        if 'expiration' in df.columns:
-            df['exp_date'] = pd.to_datetime(df['expiration']).dt.strftime('%Y-%m-%d')
-        elif 'expiry' in df.columns:
-            df['exp_date'] = pd.to_datetime(df['expiry']).dt.strftime('%Y-%m-%d')
-        else:
-            df['exp_date'] = date_str
+        # Filter to valid ES options only
+        es_mask = df['option_symbol'].str.match(r'^ES[FGHJKMNQUVXZ]\d\s+[CP]\d+$')
+        df = df[es_mask].copy()
         
-        if 'option_type' in df.columns:
-            df['right'] = df['option_type'].map({'C': 'C', 'P': 'P', 'CALL': 'C', 'PUT': 'P'})
-        elif 'right' in df.columns:
-            df['right'] = df['right']
-        else:
-            df['right'] = df['option_symbol'].str.extract(r'([CP])', expand=False).fillna('C')
+        if df.empty:
+            return pd.DataFrame(columns=[
+                'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
+                'exp_date', 'strike', 'right', 'bid_px', 'ask_px', 'bid_sz', 'ask_sz', 'seq'
+            ])
         
-        if 'strike_price' in df.columns:
-            df['strike'] = df['strike_price'].astype(float)
-        else:
-            df['strike'] = 0.0  # Placeholder
+        # Parse symbol: "ESZ5 P6800"
+        split_parts = df['option_symbol'].str.split(' ', expand=True)
+        df['futures_contract'] = split_parts[0]
+        df['right_strike'] = split_parts[1]
+        
+        # CRITICAL: Filter to front-month futures contract ONLY
+        from src.common.utils.es_contract_calendar import get_front_month_contract_code
+        
+        front_month_contract = get_front_month_contract_code(date_str)
+        
+        # Filter to options on front-month contract
+        df = df[df['futures_contract'] == front_month_contract].copy()
+        
+        if df.empty:
+            print(f"    WARNING: No NBBO on {front_month_contract}")
+            return pd.DataFrame(columns=[
+                'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
+                'exp_date', 'strike', 'right', 'bid_px', 'ask_px', 'bid_sz', 'ask_sz', 'seq'
+            ])
+        
+        df['right'] = df['right_strike'].str[0]
+        df['strike'] = df['right_strike'].str[1:].astype(float)
+        df['exp_date'] = date_str  # 0DTE assumption
         
         return pd.DataFrame({
             'ts_event_ns': df['ts_event'].astype('int64'),

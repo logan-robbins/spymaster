@@ -1,0 +1,123 @@
+================================================================================
+v1 FINAL CALL: ES Futures + ES 0DTE Options Attribution System
+================================================================================
+
+ARCHITECTURE: ES Futures + ES Options (PERFECT ALIGNMENT)
+- Same underlying (E-mini S&P 500)
+- Same venue (CME Globex)
+- Same dataset (GLBX.MDP3)
+- Zero conversion needed!
+
+ES 0DTE OPTIONS:
+- Strike spacing: 5 points
+- Minimum move: 3 strikes = 15 points
+- Break/Bounce threshold: ±15 points
+
+================================================================================
+STEP 1: Download ES Options Data
+================================================================================
+
+cd /Users/loganrobbins/research/qmachina/spymaster/backend
+
+# Set API key (if not already in .env)
+echo "DATABENTO_API_KEY=your_key_here" >> .env
+
+# Download ES options (trades + NBBO)
+uv run python scripts/download_es_options.py --start 2025-11-02 --end 2025-12-28
+
+# This downloads to:
+#   data/lake/bronze/options/trades/underlying=ES/date=YYYY-MM-DD/
+#   data/lake/bronze/options/nbbo/underlying=ES/date=YYYY-MM-DD/
+
+================================================================================
+STEP 2: Test the Pipeline
+================================================================================
+
+# Quick smoke test
+uv run python scripts/test_spx_transformation.py --date 2025-12-16
+
+# Full validation (all QA gates)
+uv run python scripts/validate_v1_pipeline.py --date 2025-12-16
+
+================================================================================
+STEP 3: Run v1 Pipeline
+================================================================================
+
+uv run python -c "
+from src.pipeline import get_pipeline_for_version
+
+pipeline = get_pipeline_for_version('v1.0_spx')
+signals_df = pipeline.run('2025-12-16')
+
+print(f'Generated {len(signals_df)} events')
+print(signals_df[['event_id', 'level_kind_name', 'direction', 'outcome']].head(10))
+"
+
+================================================================================
+KEY CONFIGURATION (ES 0DTE)
+================================================================================
+
+ES_0DTE_STRIKE_SPACING = 5.0 points
+OUTCOME_THRESHOLD = 15.0 points (3 strikes)
+MONITOR_BAND = 2.5 points (~0.5 strike)
+FUEL_STRIKE_RANGE = ±15 points (±3 strikes)
+
+Level Universe (v1):
+  - PM_HIGH / PM_LOW
+  - OR_HIGH / OR_LOW
+  - SMA_200 / SMA_400
+  (4 types only - VWAP, SESSION, WALLS removed)
+
+Time Window (v1):
+  - RTH: 09:30-13:30 ET (first 4 hours)
+  - Premarket: 04:00-09:30 ET (PM levels + SMA warmup only)
+
+================================================================================
+QA GATES (All Must Pass)
+================================================================================
+
+1. Front-month purity: ES contract dominance ≥60%
+2. Session-time: minutes_since_open == 0 at 09:30 ET
+3. No premarket leakage: ATR from RTH-only OHLCV
+4. Causality: Features use lookbacks, labels use forward
+5. Non-zero coverage: Physics features are non-trivial
+
+================================================================================
+PIPELINE STAGES (15 Total)
+================================================================================
+
+1.  LoadBronze (front-month ES filtering)
+2.  BuildOHLCV (1min RTH-only for ATR/vol)
+3.  BuildOHLCV (2min with warmup for SMA)
+4.  InitMarketState (ES futures + ES options)
+5.  GenerateLevels (PM/OR/SMA only)
+6.  DetectInteractionZones (deterministic event IDs)
+7.  ComputePhysics (barrier/tape/fuel)
+8.  ComputeKinematics (velocity/accel/jerk)
+9.  ComputeLevelDistances (signed + ATR-normalized)
+10. ComputeOFI (integrated order flow)
+11. ComputeGEX (±1/±2/±3 strike bands)
+12. ComputeForceMass (F=ma validation)
+13. ComputeApproach (session timing)
+14. LabelOutcomes (triple-barrier, 3-strike threshold)
+15. FilterRTH (09:30-13:30 ET, Policy B)
+
+================================================================================
+NEXT: Build Silver Features
+================================================================================
+
+After ES options download completes:
+
+uv run python -c "
+from src.lake.silver_feature_builder import SilverFeatureBuilder
+
+builder = SilverFeatureBuilder()
+stats = builder.build_feature_set(
+    version='v1.0_spx_final_call',
+    dates=['2025-12-16', '2025-12-17', '2025-12-18'],
+    force=True
+)
+print(f'Silver build complete: {stats}')
+"
+
+================================================================================

@@ -44,11 +44,12 @@ class Config:
     
     # ========== Monitoring bands (ES index points) ==========
     # Critical zone where bounce/break decision happens
-    # ES at ~5740 points (not SPY dollars!)
-    # Scaled from SPY: $0.25 / $687 ≈ 0.036% → ES 5740 × 0.00036 ≈ 2.07 points
-    MONITOR_BAND: float = 2.0   # compute full signals if |spot - L| <= 2.0 ES points
-    TOUCH_BAND: float = 1.0     # tight band for "touching level"
-    CONFLUENCE_BAND: float = 2.0  # band for nearby key level confluence
+    # ES at ~6900 points (Nov 2025 data)
+    # ES 0DTE strike spacing: 25 points (dominant), 5 points (very tight ATM)
+    # Monitor band should be tight enough to detect interaction but not too wide
+    MONITOR_BAND: float = 10.0  # compute full signals if |spot - L| <= 10 ES points (~0.4 strike)
+    TOUCH_BAND: float = 5.0     # tight band for "touching level" (~0.2 strike)
+    CONFLUENCE_BAND: float = 25.0  # band for nearby key level confluence (1 strike)
     
     # Barrier engine: zone around strike-aligned level
     # ES options strikes: 0.25 point tick size, typically $5-$25 intervals (20-100 ticks)
@@ -71,10 +72,10 @@ class Config:
     SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
     
     # ========== Fuel thresholds ==========
-    # ES options strikes: $5-$25 spacing (wider than SPY $1)
-    # Use ±25 points to capture 1-3 strikes on each side
-    FUEL_STRIKE_RANGE: float = 25.0  # consider strikes within ±25 points of level
-    DEALER_FLOW_STRIKE_RANGE: float = 25.0  # strike range for dealer flow velocity
+    # ES 0DTE options: 25-point strike spacing (ATM dominant)
+    # Use ±75 points to capture 3 strikes on each side (±3 strikes × 25 pts)
+    FUEL_STRIKE_RANGE: float = 75.0  # consider strikes within ±75 points of level (±3 strikes)
+    DEALER_FLOW_STRIKE_RANGE: float = 75.0  # strike range for dealer flow velocity
 
     # ========== Mean reversion (SMA) settings ==========
     SMA_SLOPE_WINDOW_MINUTES: int = 20
@@ -110,14 +111,17 @@ class Config:
     PREMARKET_START_MINUTE: int = 0
     
     # ========== Outcome labeling ==========
-    # Threshold for BREAK/BOUNCE classification - must move 2 strikes for meaningful options trade
-    # ES options strikes: Typically $5-$25 spacing (CME uses wider spacing than SPY)
-    # Use 10 points as threshold (~2 strikes at $5 spacing for nearby-ATM)
-    OUTCOME_THRESHOLD: float = 10.0  # 10 ES points ≈ 2 strikes minimum for BREAK/BOUNCE
-    STRENGTH_THRESHOLD_1: float = 5.0   # 5 point move (1 strike, typical spacing)
-    STRENGTH_THRESHOLD_2: float = 10.0  # 10 point move (2 strikes)
-    LOOKFORWARD_MINUTES: int = 8    # Forward window for outcome determination (8 min to cover all confirmations)
-    LOOKBACK_MINUTES: int = 10      # Backward window for approach context
+    # ES 0DTE options: ACTUAL spacing from 2025-11-03 data analysis
+    # ATM region: 25-point dominant spacing (some 5pt very close to money)
+    # Per user requirement: minimum 3 strike move for meaningful attribution
+    # 3 strikes × 25 points = 75 points threshold
+    ES_0DTE_STRIKE_SPACING: float = 25.0    # ES 0DTE ATM spacing (dominant, validated)
+    ES_0DTE_STRIKE_SPACING_TIGHT: float = 5.0  # Very close ATM (rare)
+    OUTCOME_THRESHOLD: float = 75.0         # 75 ES points = 3 strikes @ 25pt spacing
+    STRENGTH_THRESHOLD_1: float = 25.0      # 25 point move (1 strike)
+    STRENGTH_THRESHOLD_2: float = 75.0      # 75 point move (3 strikes)
+    LOOKFORWARD_MINUTES: int = 8            # Forward window for outcome determination (8 min to cover all confirmations)
+    LOOKBACK_MINUTES: int = 10              # Backward window for approach context
     
     # Multi-timeframe confirmation windows
     # Generates outcomes at 2min, 4min, 8min to train models on different horizons
@@ -170,7 +174,7 @@ class Config:
     # ========== Confluence feature settings ==========
     VOLUME_LOOKBACK_DAYS: int = 7          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_DOLLARS: float = 10.0    # 10 points (1-2 ES option strikes) for GEX wall proximity
+    WALL_PROXIMITY_DOLLARS: float = 75.0    # 75 points (3 ES option strikes @ 25pt spacing) for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 
