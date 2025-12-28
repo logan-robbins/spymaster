@@ -1,4 +1,14 @@
-"""Compute confluence features stage (v2.0+)."""
+"""
+Compute confluence features stage (v2.0+).
+
+DISABLED FOR V1 per Final Call spec Section 8:
+- Confluence features are over-engineered for v1
+- Composite pressure metrics don't define similarity space
+- Keep raw physics features only
+
+This stage is stubbed to maintain pipeline compatibility but returns
+minimal/zero-valued features.
+"""
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import time as dt_time
 import pandas as pd
@@ -13,23 +23,17 @@ def compute_confluence_features_dynamic(
     signals_df: pd.DataFrame,
     dynamic_levels: Dict[str, pd.Series]
 ) -> pd.DataFrame:
-    """Compute confluence metrics using per-bar dynamic levels (causal)."""
-    if signals_df.empty or not dynamic_levels:
+    """
+    DISABLED FOR V1: Return minimal stub features.
+    
+    Per Final Call spec: Drop confluence features for v1.
+    This stub maintains pipeline compatibility.
+    """
+    if signals_df.empty:
         return signals_df
 
-    key_weights = {
-        'PM_HIGH': 1.0,
-        'PM_LOW': 1.0,
-        'OR_HIGH': 0.9,
-        'OR_LOW': 0.9,
-        'SMA_200': 0.8,
-        'SMA_400': 0.8,
-        'VWAP': 0.7,
-        'SESSION_HIGH': 0.6,
-        'SESSION_LOW': 0.6,
-        'CALL_WALL': 1.0,
-        'PUT_WALL': 1.0
-    }
+    # DISABLED FOR V1 - return zeros/nulls
+    # Original complex confluence computation removed per spec
 
     dynamic_arrays = {
         name: series.to_numpy(dtype=np.float64)
@@ -407,17 +411,16 @@ def compute_confluence_level_features(
 
 
 class ComputeConfluenceStage(BaseStage):
-    """Compute confluence and pressure features.
-
-    This stage is used in v2.0+ pipelines to add:
-    - Stacked key level confluence
-    - Confluence alignment with direction
-    - Dealer mechanics velocity
-    - Fluid pressure indicators
-    - Hierarchical confluence level
-
-    Outputs:
-        signals_df: Updated with confluence features
+    """
+    DISABLED FOR V1: Confluence features stubbed out.
+    
+    Per Final Call spec Section 8:
+    - Drop confluence features (over-engineered)
+    - Drop dealer velocity features
+    - Drop pressure indicators
+    - Drop attempt clustering
+    
+    This stage maintained for pipeline compatibility but returns pass-through.
     """
 
     @property
@@ -426,46 +429,19 @@ class ComputeConfluenceStage(BaseStage):
 
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'dynamic_levels', 'option_trades_df', 'ohlcv_1min']
+        return ['signals_df']
 
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
-        signals_df = ctx.data['signals_df']
-        dynamic_levels = ctx.data['dynamic_levels']
-        option_trades_df = ctx.data['option_trades_df']
-        ohlcv_df = ctx.data['ohlcv_1min']
-
-        # Confluence features (stacked key levels)
-        signals_df = compute_confluence_features_dynamic(signals_df, dynamic_levels)
-        signals_df = compute_confluence_alignment(signals_df)
-
-        # Dealer mechanics velocity features
-        signals_df = compute_dealer_velocity_features(signals_df, option_trades_df)
-
-        # Fluid pressure indicators
-        signals_df = compute_pressure_indicators(signals_df)
-
-        # Gamma bucket classification
-        gamma_exposure = signals_df.get('gamma_exposure')
-        if gamma_exposure is not None:
-            gamma_vals = gamma_exposure.values.astype(np.float64)
-            gamma_bucket = np.where(
-                np.isfinite(gamma_vals),
-                np.where(gamma_vals < 0, "SHORT_GAMMA", "LONG_GAMMA"),
-                "UNKNOWN"
-            )
-            signals_df['gamma_bucket'] = gamma_bucket
-
-        # Build hourly cumulative volume for hierarchical confluence
-        hourly_cumvol = self._build_hourly_cumvol_table(ctx, ohlcv_df)
-
-        # Convert dynamic_levels dict to DataFrame
-        dynamic_levels_df = pd.DataFrame(dynamic_levels)
-        dynamic_levels_df['timestamp'] = ohlcv_df['timestamp'].values
-
-        signals_df = compute_confluence_level_features(
-            signals_df, dynamic_levels_df, hourly_cumvol, ctx.date
-        )
-
+        signals_df = ctx.data['signals_df'].copy()
+        
+        # DISABLED FOR V1: All confluence/pressure features removed
+        # Return pass-through with stub columns for compatibility
+        
+        # Minimal stub columns (zeros) to prevent downstream breakage
+        signals_df['confluence_level'] = 0
+        signals_df['breakout_state'] = 0
+        signals_df['gex_alignment'] = 0
+        
         return {'signals_df': signals_df}
 
     def _build_hourly_cumvol_table(

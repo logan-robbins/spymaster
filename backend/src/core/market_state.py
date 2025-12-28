@@ -236,8 +236,8 @@ class MarketState:
         # Update price converter with ES price
         self.price_converter.update_es_price(trade.price)
 
-        spy_price = self.price_converter.es_to_spy(trade.price)
-        self._update_context_from_trade(trade.ts_event_ns, spy_price)
+        spx_price = self.price_converter.es_to_spx(trade.price)
+        self._update_context_from_trade(trade.ts_event_ns, spx_price)
 
         # Update session high/low
         if self._session_high is None or trade.price > self._session_high:
@@ -255,7 +255,7 @@ class MarketState:
             self._vwap = (self._vwap * self._vwap_volume + notional) / total_volume
             self._vwap_volume = total_volume
 
-    def _update_context_from_trade(self, ts_event_ns: int, spy_price: float) -> None:
+    def _update_context_from_trade(self, ts_event_ns: int, spx_price: float) -> None:
         """
         Update day-scoped context metrics from the ES trade stream.
 
@@ -294,32 +294,32 @@ class MarketState:
         opening_range_end = 9 * 60 + 45
 
         if premarket_start <= minutes_since_midnight < market_open:
-            if self._premarket_high is None or spy_price > self._premarket_high:
-                self._premarket_high = spy_price
-            if self._premarket_low is None or spy_price < self._premarket_low:
-                self._premarket_low = spy_price
+            if self._premarket_high is None or spx_price > self._premarket_high:
+                self._premarket_high = spx_price
+            if self._premarket_low is None or spx_price < self._premarket_low:
+                self._premarket_low = spx_price
 
         if market_open <= minutes_since_midnight < opening_range_end:
-            if self._opening_range_high is None or spy_price > self._opening_range_high:
-                self._opening_range_high = spy_price
-            if self._opening_range_low is None or spy_price < self._opening_range_low:
-                self._opening_range_low = spy_price
+            if self._opening_range_high is None or spx_price > self._opening_range_high:
+                self._opening_range_high = spx_price
+            if self._opening_range_low is None or spx_price < self._opening_range_low:
+                self._opening_range_low = spx_price
 
         # --- 1-minute bars (approach context + ATR) ---
         one_min_ns = 60 * 1_000_000_000
         minute_start_ns = (ts_event_ns // one_min_ns) * one_min_ns
         if self._current_minute_start_ns is None:
             self._current_minute_start_ns = minute_start_ns
-            self._current_minute_open_spy = spy_price
-            self._current_minute_high_spy = spy_price
-            self._current_minute_low_spy = spy_price
-            self._current_minute_close_spy = spy_price
+            self._current_minute_open_spy = spx_price
+            self._current_minute_high_spy = spx_price
+            self._current_minute_low_spy = spx_price
+            self._current_minute_close_spy = spx_price
         elif minute_start_ns == self._current_minute_start_ns:
-            self._current_minute_close_spy = spy_price
-            if self._current_minute_high_spy is None or spy_price > self._current_minute_high_spy:
-                self._current_minute_high_spy = spy_price
-            if self._current_minute_low_spy is None or spy_price < self._current_minute_low_spy:
-                self._current_minute_low_spy = spy_price
+            self._current_minute_close_spy = spx_price
+            if self._current_minute_high_spy is None or spx_price > self._current_minute_high_spy:
+                self._current_minute_high_spy = spx_price
+            if self._current_minute_low_spy is None or spx_price < self._current_minute_low_spy:
+                self._current_minute_low_spy = spx_price
         else:
             # Finalize prior minute close
             if (
@@ -337,19 +337,19 @@ class MarketState:
                     close=self._current_minute_close_spy
                 ))
             self._current_minute_start_ns = minute_start_ns
-            self._current_minute_open_spy = spy_price
-            self._current_minute_high_spy = spy_price
-            self._current_minute_low_spy = spy_price
-            self._current_minute_close_spy = spy_price
+            self._current_minute_open_spy = spx_price
+            self._current_minute_high_spy = spx_price
+            self._current_minute_low_spy = spx_price
+            self._current_minute_close_spy = spx_price
 
         # --- 2-minute closes (SMA levels) ---
         two_min_ns = 120 * 1_000_000_000
         two_min_start_ns = (ts_event_ns // two_min_ns) * two_min_ns
         if self._current_2m_start_ns is None:
             self._current_2m_start_ns = two_min_start_ns
-            self._current_2m_close_spy = spy_price
+            self._current_2m_close_spy = spx_price
         elif two_min_start_ns == self._current_2m_start_ns:
-            self._current_2m_close_spy = spy_price
+            self._current_2m_close_spy = spx_price
         else:
             # Finalize prior 2-minute close and update SMAs
             if self._current_2m_close_spy is not None:
@@ -360,7 +360,7 @@ class MarketState:
                 if len(closes) >= 400:
                     self._sma_400 = sum(closes[-400:]) / 400.0
             self._current_2m_start_ns = two_min_start_ns
-            self._current_2m_close_spy = spy_price
+            self._current_2m_close_spy = spx_price
 
     def get_recent_minute_closes(self, lookback_minutes: int) -> List[float]:
         """
@@ -704,22 +704,22 @@ class MarketState:
 
         return results
 
-    # ========== Spot and derived values (SPY-equivalent) ==========
+    # ========== Spot and derived values (SPX-equivalent) ==========
 
     def get_spot(self) -> Optional[float]:
         """
-        Get current SPY-equivalent spot price (converted from ES trade).
+        Get current SPX-equivalent spot price (converted from ES trade).
 
         Returns:
-            SPY-equivalent spot price (e.g., 687.0), or None if no ES data
+            SPX-equivalent spot price (e.g., 687.0), or None if no ES data
         """
         if self.last_es_trade:
-            return self.price_converter.es_to_spy(self.last_es_trade.price)
+            return self.price_converter.es_to_spx(self.last_es_trade.price)
         return None
 
     def get_bid_ask(self) -> Optional[Tuple[float, float]]:
         """
-        Get current SPY-equivalent bid/ask (converted from ES MBP-10).
+        Get current SPX-equivalent bid/ask (converted from ES MBP-10).
 
         Returns:
             (bid, ask) tuple in SPY terms, or None if no MBP-10 data
@@ -727,27 +727,27 @@ class MarketState:
         if self.es_mbp10_snapshot and self.es_mbp10_snapshot.levels:
             best = self.es_mbp10_snapshot.levels[0]
             return (
-                self.price_converter.es_to_spy(best.bid_px),
-                self.price_converter.es_to_spy(best.ask_px)
+                self.price_converter.es_to_spx(best.bid_px),
+                self.price_converter.es_to_spx(best.ask_px)
             )
         return None
 
     def get_vwap(self) -> Optional[float]:
-        """Get session VWAP (SPY-equivalent)."""
+        """Get session VWAP (SPX-equivalent)."""
         if self._vwap:
-            return self.price_converter.es_to_spy(self._vwap)
+            return self.price_converter.es_to_spx(self._vwap)
         return None
 
     def get_session_high(self) -> Optional[float]:
-        """Get session high (SPY-equivalent)."""
+        """Get session high (SPX-equivalent)."""
         if self._session_high:
-            return self.price_converter.es_to_spy(self._session_high)
+            return self.price_converter.es_to_spx(self._session_high)
         return None
 
     def get_session_low(self) -> Optional[float]:
-        """Get session low (SPY-equivalent)."""
+        """Get session low (SPX-equivalent)."""
         if self._session_low:
-            return self.price_converter.es_to_spy(self._session_low)
+            return self.price_converter.es_to_spx(self._session_low)
         return None
 
     # ========== Raw ES accessors (for engines that need ES prices) ==========

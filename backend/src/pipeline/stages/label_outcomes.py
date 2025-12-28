@@ -19,24 +19,30 @@ def label_outcomes(
     use_multi_timeframe: bool = True
 ) -> pd.DataFrame:
     """
-    Label outcomes using vectorized operations with multi-timeframe support.
-
-    Outcomes are anchored at confirmation time t1 and measured relative to the
-    tested level price (level frame). Break vs bounce is determined by the
-    first threshold hit (competing risks), with directional time-to-threshold
-    columns preserved.
-
-    Uses numpy searchsorted for O(log n) future price lookups.
-    Threshold is $2.00 (2 strikes) for meaningful options trades.
-
+    Label outcomes using TRIPLE-BARRIER method (competing risks).
+    
+    Per Final Call v1 spec Section 7:
+    - Break barrier: level + dir_sign × (+threshold_2)
+    - Bounce barrier: level + dir_sign × (-threshold_2)
+    - Vertical barrier: lookforward_minutes (if neither break/bounce)
+    
+    First barrier hit determines label:
+    - Hit break first → BREAK
+    - Hit bounce first → BOUNCE
+    - Hit neither → CHOP (vertical barrier)
+    
+    Policy B: Anchors up to 13:30 ET, forward window can spillover for labels.
+    
+    Threshold for SPX: 10 points ≈ 2 strikes (vs SPY $2 = 2 strikes).
+    
     Multi-timeframe mode generates outcomes at 2min, 4min, 8min confirmations
     to enable training models for different trading horizons.
 
     Args:
         signals_df: DataFrame with signals
-        ohlcv_df: OHLCV DataFrame
+        ohlcv_df: OHLCV DataFrame (SPX index points from ES futures)
         lookforward_minutes: Forward window for labeling (defaults to CONFIG.LOOKFORWARD_MINUTES)
-        outcome_threshold: Price move threshold for BREAK/BOUNCE (defaults to CONFIG.OUTCOME_THRESHOLD)
+        outcome_threshold: Price move threshold for BREAK/BOUNCE (defaults to CONFIG.OUTCOME_THRESHOLD = 10.0 for SPX)
         use_multi_timeframe: If True, label at 2min/4min/8min; if False, use single confirmation
 
     Returns:

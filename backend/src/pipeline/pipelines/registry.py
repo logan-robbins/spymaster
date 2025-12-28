@@ -18,9 +18,11 @@ def _register_pipelines():
     # Import here to avoid circular imports
     from src.pipeline.pipelines.v1_0_mechanics_only import build_v1_0_pipeline
     from src.pipeline.pipelines.v2_0_full_ensemble import build_v2_0_pipeline
+    from src.pipeline.pipelines.v1_0_spx_final_call import build_v1_0_spx_final_call_pipeline
 
     _PIPELINES = {
         'v1.0': build_v1_0_pipeline,
+        'v1.0_spx': build_v1_0_spx_final_call_pipeline,  # Final Call v1 spec
         'v2.0': build_v2_0_pipeline,
     }
 

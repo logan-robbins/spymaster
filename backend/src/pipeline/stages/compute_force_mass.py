@@ -1,0 +1,129 @@
+"""
+Compute F=ma consistency checks (physics validation features).
+
+Per Final Call v1 spec Section 6.7: Cross-validate force and mass proxies
+with observed acceleration.
+
+F = ma analogy:
+- Mass: Liquidity depth (barrier resistance)
+- Force: Order flow imbalance + tape pressure
+- Acceleration: Price movement (kinematics)
+
+Residual = actual_accel - predicted_accel reveals:
+- Positive residual: "Hidden momentum" (price moved more than liquidity suggests)
+- Negative residual: "Absorption" (liquidity absorbed the pressure)
+"""
+
+from typing import Any, Dict, List
+import pandas as pd
+import numpy as np
+
+from src.pipeline.core.stage import BaseStage, StageContext
+
+
+def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute F=ma consistency features.
+    
+    Required inputs (from prior stages):
+    - acceleration: From kinematics stage
+    - integrated_ofi: From OFI stage (force proxy)
+    - barrier_delta_liq: From physics stage (mass proxy, defending liquidity)
+    - tape_imbalance: From physics stage (additional force)
+    
+    Outputs:
+    - predicted_accel: Force / Mass (scaled)
+    - accel_residual: actual_accel - predicted_accel
+    - force_mass_ratio: Diagnostic ratio
+    
+    Args:
+        signals_df: DataFrame with physics features
+    
+    Returns:
+        DataFrame with F=ma features added
+    """
+    if signals_df.empty:
+        result = signals_df.copy()
+        result['predicted_accel'] = 0.0
+        result['accel_residual'] = 0.0
+        result['force_mass_ratio'] = 0.0
+        return result
+    
+    # Check for required columns
+    required = ['acceleration']
+    optional_force = ['integrated_ofi', 'tape_imbalance']
+    optional_mass = ['barrier_delta_liq']
+    
+    has_accel = all(col in signals_df.columns for col in required)
+    if not has_accel:
+        result = signals_df.copy()
+        result['predicted_accel'] = 0.0
+        result['accel_residual'] = 0.0
+        result['force_mass_ratio'] = 0.0
+        return result
+    
+    # Build force proxy (combination of OFI + tape)
+    force = np.zeros(len(signals_df), dtype=np.float64)
+    
+    if 'integrated_ofi' in signals_df.columns:
+        force += signals_df['integrated_ofi'].fillna(0).values
+    
+    if 'tape_imbalance' in signals_df.columns:
+        # Scale tape imbalance to compatible units
+        force += signals_df['tape_imbalance'].fillna(0).values * 10.0
+    
+    # Build mass proxy (liquidity depth)
+    mass = np.ones(len(signals_df), dtype=np.float64)  # Default mass = 1
+    
+    if 'barrier_delta_liq' in signals_df.columns:
+        # Absolute value of delta_liq represents liquidity magnitude
+        mass = np.abs(signals_df['barrier_delta_liq'].fillna(100).values)
+        mass = np.maximum(mass, 1.0)  # Avoid division by zero
+    
+    # Compute predicted acceleration
+    # predicted_accel = Force / Mass (with scaling to match units)
+    scale_factor = 0.01  # Tune this to match acceleration units
+    predicted_accel = (force / mass) * scale_factor
+    
+    # Actual acceleration
+    actual_accel = signals_df['acceleration'].fillna(0).values
+    
+    # Residual (unexplained acceleration)
+    accel_residual = actual_accel - predicted_accel
+    
+    # Force/Mass ratio (diagnostic)
+    force_mass_ratio = force / mass
+    
+    result = signals_df.copy()
+    result['predicted_accel'] = predicted_accel
+    result['accel_residual'] = accel_residual
+    result['force_mass_ratio'] = force_mass_ratio
+    
+    return result
+
+
+class ComputeForceMassStage(BaseStage):
+    """
+    Compute F=ma physics validation features.
+    
+    Per Final Call v1 spec Section 6.7: Cross-validate force/mass with observed kinematics.
+    
+    Outputs:
+        signals_df: Updated with F=ma features
+    """
+    
+    @property
+    def name(self) -> str:
+        return "compute_force_mass"
+    
+    @property
+    def required_inputs(self) -> List[str]:
+        return ['signals_df']
+    
+    def execute(self, ctx: StageContext) -> Dict[str, Any]:
+        signals_df = ctx.data['signals_df']
+        
+        signals_df = compute_force_mass_features(signals_df)
+        
+        return {'signals_df': signals_df}
+

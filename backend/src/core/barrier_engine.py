@@ -128,7 +128,7 @@ class BarrierEngine:
 
         # Convert SPY level to ES equivalent for depth queries
         # SPY strikes at $1 intervals → ES at $10 intervals
-        es_level_price = market_state.price_converter.spy_to_es(level_price)
+        es_level_price = market_state.price_converter.spx_to_es(level_price)
 
         # Zone is ±N ES ticks around the level (tight around strike)
         zone_es = self.zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
@@ -159,7 +159,7 @@ class BarrierEngine:
 
         # Convert defending quote price to SPY for output
         defending_quote = {
-            "price": market_state.price_converter.es_to_spy(defending_quote_es["price"]) if defending_quote_es["price"] else 0.0,
+            "price": market_state.price_converter.es_to_spx(defending_quote_es["price"]) if defending_quote_es["price"] else 0.0,
             "size": defending_quote_es["size"]
         }
 

@@ -10,7 +10,7 @@ from src.common.config import CONFIG
 
 def build_ohlcv(
     trades: List[FuturesTrade],
-    convert_to_spy: bool = True,
+    convert_to_spx: bool = True,
     freq: str = '1min'
 ) -> pd.DataFrame:
     """
@@ -18,11 +18,12 @@ def build_ohlcv(
 
     Args:
         trades: List of FuturesTrade objects
-        convert_to_spy: Divide prices by 10 for SPY equivalent
+        convert_to_spx: If True, keep ES prices as-is (ES ≈ SPX, same index points)
+                        If False, keep raw ES prices
         freq: Bar frequency ('1min', '2min', '5min')
 
     Returns:
-        DataFrame with OHLCV columns
+        DataFrame with OHLCV columns (in SPX index points if convert_to_spx=True)
     """
     if not trades:
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -66,9 +67,13 @@ def build_ohlcv(
     ohlcv = ohlcv.dropna(subset=['open'])
     ohlcv = ohlcv.reset_index()
 
-    # Convert ES to SPY (vectorized)
-    if convert_to_spy:
-        ohlcv[['open', 'high', 'low', 'close']] /= 10.0
+    # ES to SPX conversion (ES and SPX are in same units - index points!)
+    # No division needed - ES 5740.0 ≈ SPX 5740.0
+    # This is a key advantage of SPX over SPY
+    if convert_to_spx:
+        # Keep as-is (ES prices are already in SPX-equivalent index points)
+        # Small basis spread (1-5 points) handled by PriceConverter if needed
+        pass
 
     return ohlcv
 
@@ -132,8 +137,8 @@ class BuildOHLCVStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         trades = ctx.data['trades']
 
-        # Build OHLCV bars
-        ohlcv_df = build_ohlcv(trades, convert_to_spy=True, freq=self.freq)
+        # Build OHLCV bars (ES → SPX, same index points)
+        ohlcv_df = build_ohlcv(trades, convert_to_spx=True, freq=self.freq)
 
         result = {self.output_key: ohlcv_df}
 
@@ -176,7 +181,7 @@ class BuildOHLCVStage(BaseStage):
             trades = futures_trades_from_df(trades_df)
             if not trades:
                 continue
-            ohlcv = build_ohlcv(trades, convert_to_spy=True, freq=self.freq)
+            ohlcv = build_ohlcv(trades, convert_to_spx=True, freq=self.freq)
             if not ohlcv.empty:
                 frames.append(ohlcv)
 
