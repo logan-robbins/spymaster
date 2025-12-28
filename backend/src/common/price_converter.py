@@ -72,6 +72,15 @@ class PriceConverter:
         Kept for API compatibility.
         """
         return 0.0
+    
+    @property
+    def ratio(self) -> float:
+        """
+        Get price ratio (always 1.0 for ES system).
+        
+        Legacy compatibility property. ES futures and ES options use same pricing.
+        """
+        return 1.0
 
     def es_to_spx(self, es_price: float) -> float:
         """
@@ -99,29 +108,38 @@ class PriceConverter:
 
     def es_ticks_to_spx_points(self, es_ticks: int, es_tick_size: float = 0.25) -> float:
         """
-        Convert ES tick count to SPX point amount.
+        Convert ES tick count to point amount (pass-through for ES system).
 
         Args:
             es_ticks: Number of ES ticks
             es_tick_size: ES tick size (default $0.25 per point)
 
         Returns:
-            Equivalent SPX point amount
+            Point amount
         """
         return es_ticks * es_tick_size
 
     def spx_points_to_es_ticks(self, spx_points: float, es_tick_size: float = 0.25) -> float:
         """
-        Convert SPX point amount to ES tick count.
+        Convert point amount to ES tick count (pass-through for ES system).
 
         Args:
-            spx_points: SPX point amount
+            spx_points: Point amount
             es_tick_size: ES tick size (default $0.25 per point)
 
         Returns:
-            Equivalent ES tick count (may be fractional)
+            ES tick count (may be fractional)
         """
         return spx_points / es_tick_size
+    
+    # Legacy compatibility aliases (some code may still use these)
+    def es_to_spy(self, es_price: float) -> float:
+        """Legacy alias for es_to_spx (backward compatibility)."""
+        return self.es_to_spx(es_price)
+    
+    def spy_to_es(self, spy_price: float) -> float:
+        """Legacy alias for spx_to_es (backward compatibility)."""
+        return self.spx_to_es(spy_price)
 
     def get_state(self) -> dict:
         """Get converter state for debugging/logging."""
