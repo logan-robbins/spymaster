@@ -1,13 +1,13 @@
-"""Pipeline registry - get pipelines by version string.
+"""Pipeline registry.
 
-Maps Silver version strings to pipeline builders.
+Maps pipeline names to pipeline builders.
 """
 from typing import Callable, Dict, List
 
 from src.pipeline.core.pipeline import Pipeline
 
 
-# Registry of version prefix -> pipeline builder
+# Registry of pipeline name -> pipeline builder
 _PIPELINES: Dict[str, Callable[[], Pipeline]] = {}
 
 
@@ -16,47 +16,40 @@ def _register_pipelines():
     global _PIPELINES
 
     # Import here to avoid circular imports
-    from src.pipeline.pipelines.v1_0_mechanics_only import build_v1_0_pipeline
-    from src.pipeline.pipelines.v2_0_full_ensemble import build_v2_0_pipeline
-    from src.pipeline.pipelines.v1_0_spx_final_call import build_v1_0_spx_final_call_pipeline
+    from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 
     _PIPELINES = {
-        'v1.0': build_v1_0_pipeline,
-        'v1.0_spx': build_v1_0_spx_final_call_pipeline,  # Final Call v1 spec
-        'v2.0': build_v2_0_pipeline,
+        'es_pipeline': build_es_pipeline,
     }
 
 
-def get_pipeline_for_version(version: str) -> Pipeline:
-    """Get pipeline for a Silver version.
+def get_pipeline(name: str = 'es_pipeline') -> Pipeline:
+    """Get pipeline by name.
 
     Args:
-        version: Version string like "v1.0_mechanics_only" or "v2.0"
+        name: Pipeline name (default: 'es_pipeline')
 
     Returns:
         Configured Pipeline instance
 
     Raises:
-        ValueError: If no pipeline exists for the version
+        ValueError: If pipeline doesn't exist
     """
     if not _PIPELINES:
         _register_pipelines()
 
-    # Extract version prefix (v1.0_mechanics_only -> v1.0)
-    version_prefix = version.split('_')[0]
-
-    if version_prefix not in _PIPELINES:
+    if name not in _PIPELINES:
         available = list(_PIPELINES.keys())
         raise ValueError(
-            f"No pipeline for version: {version}. "
+            f"No pipeline named: {name}. "
             f"Available: {available}"
         )
 
-    return _PIPELINES[version_prefix]()
+    return _PIPELINES[name]()
 
 
-def list_available_versions() -> List[str]:
-    """List all available pipeline versions."""
+def list_available_pipelines() -> List[str]:
+    """List all available pipeline names."""
     if not _PIPELINES:
         _register_pipelines()
     return list(_PIPELINES.keys())

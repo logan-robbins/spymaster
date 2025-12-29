@@ -43,12 +43,16 @@ class Config:
     DEALER_FLOW_ACCEL_LONG_MINUTES: int = 3
     
     # ========== Monitoring bands (ES index points) ==========
-    # Critical zone where bounce/break decision happens
-    # ES at ~6900 points (Nov 2025 data)
-    # ES 0DTE strike spacing: 25 points (dominant), 5 points (very tight ATM)
-    # Monitor band should be tight enough to detect interaction but not too wide
-    MONITOR_BAND: float = 10.0  # compute full signals if |spot - L| <= 10 ES points (~0.4 strike)
-    TOUCH_BAND: float = 5.0     # tight band for "touching level" (~0.2 strike)
+    # ES 0DTE strike spacing: 25 points (validated from real data)
+    # ES tick: 0.25 points (100 ticks per strike)
+    # 
+    # KEY: Interaction zone is DIFFERENT from outcome threshold!
+    # - Interaction zone: WHERE we detect events (tight around level)
+    # - Outcome threshold: HOW FAR price moves for BREAK/BOUNCE (3 strikes)
+    # 
+    # Per user specification: ±5 points for interaction zone
+    MONITOR_BAND: float = 5.0   # interaction zone: ±5 ES points (±20 ticks, ~0.2 strike)
+    TOUCH_BAND: float = 2.0     # touch zone: ±2 ES points (±8 ticks, very precise)
     CONFLUENCE_BAND: float = 25.0  # band for nearby key level confluence (1 strike)
     
     # Barrier engine: zone around strike-aligned level
@@ -96,18 +100,27 @@ class Config:
 
     # ========== v1 Scope: ES futures + ES options, first 4 hours ==========
     # Per Final Call v1 spec: focus on first 4 hours (09:30-13:30 ET)
-    # Premarket (04:00-09:30 ET) used ONLY for PM levels + SMA warmup
     # 
     # FINAL ARCHITECTURE: ES Options + ES Futures (PERFECT ALIGNMENT)
     # - ES options: Cash-settled, European-style, on E-mini S&P 500
     # - ES futures: SAME underlying instrument!
     # - Same venue (CME), same participants, same tick size
     # - Zero conversion needed - ES = ES!
+    
+    # RTH (Regular Trading Hours) - Equity market hours
     RTH_START_HOUR: int = 9
     RTH_START_MINUTE: int = 30
     RTH_END_HOUR: int = 13  # v1: 13:30 (first 4 hours only)
     RTH_END_MINUTE: int = 30
-    PREMARKET_START_HOUR: int = 4
+    
+    # PREMARKET (ES Futures) - CRITICAL: Read ES_PREMARKET_DEFINITION.md
+    # ES trades 24/7, but we define "premarket" as 4:00 AM - 9:30 AM ET
+    # - Aligns with equity premarket (SPY: 4:00 AM - 9:30 AM)
+    # - Captures morning session sentiment before equity open
+    # - Excludes overnight ES action (6:00 PM prev day - 4:00 AM)
+    # - PM_HIGH/PM_LOW from THIS window become structural levels for RTH
+    # - SMA warmup includes premarket bars, but "since_open" starts at 9:30!
+    PREMARKET_START_HOUR: int = 4  # 4:00 AM ET (can experiment with 0, 2, 6, 7, 18 in v1.1)
     PREMARKET_START_MINUTE: int = 0
     
     # ========== Outcome labeling ==========

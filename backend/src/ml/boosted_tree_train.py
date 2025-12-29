@@ -286,8 +286,8 @@ def main() -> None:
                 print(f"    {tf} - Tradeable: {tradeable_fit['metrics']['roc_auc']:.3f} AUC")
                 print(f"    {tf} - Direction: {direction_fit['metrics']['roc_auc']:.3f} AUC")
 
-            # Backward compatibility: Also train legacy models using 4min as primary
-            print("\n  Training legacy single-timeframe models (4min)...")
+            # Train single-timeframe models (4min primary)
+            print("\n  Training single-timeframe models (4min)...")
             tradeable_df = train_df.copy()
             tradeable_val = val_df.copy()
             tradeable_df["tradeable_2"] = tradeable_df["tradeable_2_4min"].fillna(0).astype(int)
@@ -324,14 +324,14 @@ def main() -> None:
                 results["metrics"][f"strength_{tf}"] = strength_fit["metrics"]
                 print(f"    {tf} - Strength MAE: {strength_fit['metrics']['mae']:.3f}")
 
-            # Legacy strength model (4min)
+            # Strength model (4min)
             strength_fit = train_regressor(train_df, val_df, feature_set, "strength_signed_4min")
             model_path = output_dir / f"strength_{args.stage}_{ablation}.joblib"
             joblib.dump(strength_fit["model"], model_path)
             artifact_paths.append(model_path)
             results["metrics"]["strength_signed"] = strength_fit["metrics"]
 
-            # Time-to-threshold reach probabilities (legacy either-direction, primary timeframe)
+            # Time-to-threshold reach probabilities (primary timeframe)
             for threshold_col_base, label_prefix in [("time_to_threshold_1", "t1"), ("time_to_threshold_2", "t2")]:
                 if threshold_col_base not in train_df.columns:
                     continue

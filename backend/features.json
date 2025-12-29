@@ -1,18 +1,21 @@
 {
-  "version": "1.5.0",
-  "description": "SPY 0DTE Level Signal Features for ML Training - Medallion Architecture",
-  "output_path": "data/lake/gold/training/signals_production.parquet",
+  "version": "2.0.0",
+  "description": "ES 0DTE Multi-Window Physics Features for Neuro-Hybrid Attribution",
+  "output_path": "data/lake/gold/training/signals_v2_multiwindow.parquet",
   "label_column": "outcome",
-  "label_values": ["BREAK", "BOUNCE"],
-  "pipeline": "src.pipeline.pipelines.v2_0_full_ensemble",
+  "label_values": ["BREAK", "BOUNCE", "CHOP"],
+  "pipeline": "src.pipeline.pipelines.es_pipeline",
+  "inference_cadence": "2-minute candle close (continuous, not just touches)",
+  "architecture": "ES futures + ES 0DTE options (perfect alignment)",
   "features": {
     "identity": {
       "description": "Signal identification fields",
       "columns": {
         "event_id": {
           "dtype": "string",
-          "description": "Unique signal identifier (UUID)",
-          "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          "description": "Deterministic event identifier (hash of date, level_kind, level_price, ts_ns, direction). Reproducible for retrieval.",
+          "format": "{date}_{level_kind_name}_{level_price}_{ts_ns}_{direction}",
+          "example": "20251203_PM_HIGH_6900.0_1733243400000000000_UP"
         },
         "ts_ns": {
           "dtype": "int64",
@@ -31,8 +34,8 @@
         },
         "symbol": {
           "dtype": "string",
-          "description": "Underlying symbol (always SPY)",
-          "example": "SPY"
+          "description": "Underlying symbol (always ES for v1)",
+          "example": "ES"
         }
       }
     },
@@ -41,40 +44,34 @@
       "columns": {
         "spot": {
           "dtype": "float64",
-          "description": "Current SPY spot price at signal time",
-          "example": 684.50
+          "description": "Current ES futures price at signal time (index points)",
+          "example": 6920.0
         },
         "level_price": {
           "dtype": "float64",
-          "description": "Price of the level being tested (strike at $1 intervals)",
-          "example": 685.00
+          "description": "Price of the level being tested (ES index points)",
+          "example": 6900.0
         },
         "level_kind": {
           "dtype": "int8",
           "description": "Integer code for level type",
           "mapping": {
-            "0": "PM_HIGH",
-            "1": "PM_LOW",
-            "2": "OR_HIGH",
-            "3": "OR_LOW",
-            "4": "SESSION_HIGH",
-            "5": "SESSION_LOW",
-            "6": "SMA_200",
-            "7": "VWAP",
-            "8": "ROUND (disabled for SPY)",
-            "9": "STRIKE (disabled for SPY)",
-            "10": "CALL_WALL",
-            "11": "PUT_WALL",
-            "12": "SMA_400"
+            "0": "PM_HIGH - Pre-market high (04:00-09:30 ET from ES futures)",
+            "1": "PM_LOW - Pre-market low (04:00-09:30 ET from ES futures)",
+            "2": "OR_HIGH - Opening range high (09:30-09:45 ET from ES futures)",
+            "3": "OR_LOW - Opening range low (09:30-09:45 ET from ES futures)",
+            "6": "SMA_200 - 200-period moving average on 2-min ES bars",
+            "12": "SMA_400 - 400-period moving average on 2-min ES bars"
           },
-          "note": "ROUND (8) and STRIKE (9) levels disabled for SPY due to duplicative $1 strike spacing",
-          "example": 10
+          "note": "6 level kinds total: 4 structural (PM/OR high/low) + 2 moving averages (SMA_200/400)",
+          "example": 0
         },
         "level_kind_name": {
           "dtype": "string",
           "description": "Human-readable level type name",
-          "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SESSION_HIGH", "SESSION_LOW", "SMA_200", "VWAP", "ROUND", "STRIKE", "CALL_WALL", "PUT_WALL", "SMA_400"],
-          "example": "ROUND"
+          "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SMA_200", "SMA_400"],
+          "note": "6 level kinds total in v1",
+          "example": "PM_HIGH"
         },
         "direction": {
           "dtype": "string",
@@ -89,43 +86,43 @@
         },
         "distance": {
           "dtype": "float64",
-          "description": "Distance from spot to level in dollars (filtered to <= $0.50)",
-          "example": 0.20
+          "description": "Distance from spot to level in ES index points (filtered to <= 10.0 pts)",
+          "example": 4.5
         },
         "distance_signed": {
           "dtype": "float64",
-          "description": "Signed distance from spot to level (level_price - spot)",
-          "example": -0.20
+          "description": "Signed distance from spot to level (level_price - spot) in ES points",
+          "example": -4.5
         },
         "atr": {
           "dtype": "float64",
-          "description": "ATR (1-min bars) at touch timestamp for normalization",
-          "example": 0.42
+          "description": "ATR (1-min bars) at signal time for normalization (ES points)",
+          "example": 12.5
         },
         "distance_atr": {
           "dtype": "float64",
           "description": "ATR-normalized distance from spot to level",
-          "example": 0.48
+          "example": 0.36
         },
         "distance_pct": {
           "dtype": "float64",
           "description": "Spot-normalized distance from spot to level",
-          "example": 0.00029
+          "example": 0.00065
         },
         "distance_signed_atr": {
           "dtype": "float64",
           "description": "ATR-normalized signed distance from spot to level",
-          "example": -0.48
+          "example": -0.36
         },
         "distance_signed_pct": {
           "dtype": "float64",
           "description": "Spot-normalized signed distance from spot to level",
-          "example": -0.00029
+          "example": -0.00065
         },
         "level_price_pct": {
           "dtype": "float64",
           "description": "Level price expressed as percent difference from spot",
-          "example": -0.00029
+          "example": -0.00065
         }
       }
     },
@@ -259,96 +256,12 @@
         }
       }
     },
-    "confluence": {
-      "description": "Confluence metrics across nearby key levels",
-      "columns": {
-        "confluence_count": {
-          "dtype": "int32",
-          "description": "Number of key levels within confluence band",
-          "example": 2
-        },
-        "confluence_weighted_score": {
-          "dtype": "float64",
-          "description": "Weighted confluence score with distance decay",
-          "example": 1.65
-        },
-        "confluence_min_distance": {
-          "dtype": "float64",
-          "description": "Minimum distance to a secondary key level",
-          "example": 0.06
-        },
-        "confluence_min_distance_atr": {
-          "dtype": "float64",
-          "description": "ATR-normalized minimum distance to a secondary key level",
-          "example": 0.15
-        },
-        "confluence_min_distance_pct": {
-          "dtype": "float64",
-          "description": "Spot-normalized minimum distance to a secondary key level",
-          "example": 0.0002
-        },
-        "confluence_pressure": {
-          "dtype": "float64",
-          "description": "Normalized confluence strength indicator",
-          "example": 0.42
-        },
-        "confluence_alignment": {
-          "dtype": "int8",
-          "description": "Alignment of stacked levels with approach direction (-1, 0, +1)",
-          "example": 1
-        },
-        "confluence_level": {
-          "dtype": "int8",
-          "description": "Hierarchical confluence quality score based on 5 dimensions",
-          "values": {
-            "0": "UNDEFINED - Missing PM/OR/SMA/volume data",
-            "1": "ULTRA_PREMIUM - Full breakout + SMA close + first hour + GEX aligned + high volume",
-            "2": "PREMIUM - Full breakout + SMA close + first hour + GEX aligned",
-            "3": "STRONG - Full breakout + SMA close + first hour",
-            "4": "MOMENTUM - Full breakout + SMA far + first hour + GEX aligned + high volume",
-            "5": "EXTENDED - Full breakout + SMA far + first hour",
-            "6": "LATE_REVERSION - Full breakout + SMA close + rest of day + high volume",
-            "7": "FADING - Full breakout + rest of day",
-            "8": "DEVELOPING - Partial breakout + SMA close + GEX aligned + high volume",
-            "9": "WEAK - Partial breakout",
-            "10": "CONSOLIDATION - Inside both PM and OR ranges"
-          },
-          "example": 2
-        },
-        "breakout_state": {
-          "dtype": "int8",
-          "description": "Directional breakout classification relative to PM/OR ranges",
-          "values": {
-            "0": "INSIDE - Within both PM and OR ranges",
-            "1": "PARTIAL - Broken one range but not both",
-            "2": "ABOVE_ALL - Above both PM_HIGH and OR_HIGH",
-            "3": "BELOW_ALL - Below both PM_LOW and OR_LOW"
-          },
-          "example": 2
-        },
-        "gex_alignment": {
-          "dtype": "int8",
-          "description": "GEX alignment with directional move",
-          "values": {
-            "-1": "OPPOSED - Approaching wall with DAMPEN effect",
-            "0": "NEUTRAL - No significant gamma signal",
-            "1": "ALIGNED - Broken wall with AMPLIFY effect"
-          },
-          "example": 1
-        },
-        "rel_vol_ratio": {
-          "dtype": "float64",
-          "description": "Cumulative volume at event hour / 7-day average cumulative volume at same hour",
-          "example": 1.25
-        }
-      }
-    },
     "barrier_physics": {
       "description": "Order book liquidity dynamics (ES futures MBP-10)",
       "source": "vectorized_engines.compute_barrier_metrics_batch",
       "methodology": {
-        "es_spy_conversion": "ES price = SPY price * 10 (SPY $685 = ES $6850)",
-        "zone_definition": "+-8 ES ticks around SPY strike ($1 = $10 ES = 40 ticks). Zone = +-$2 ES = +-$0.20 SPY",
+        "price_units": "ES index points (futures and options use same scale - no conversion)",
+        "zone_definition": "±8 ES ticks (±2.0 ES points) for barrier depth analysis around level",
         "forward_window": "240 seconds (4 minutes) from touch timestamp for confirmation window"
       },
       "columns": {
@@ -407,7 +320,7 @@
       "description": "Trade flow momentum (ES futures time & sales)",
       "source": "vectorized_engines.compute_tape_metrics_batch",
       "methodology": {
-        "price_band": "$0.50 SPY around level ($5 ES)",
+        "price_band": "5.0 ES points around level (tape flow analysis zone)",
         "forward_window": "60 seconds from touch timestamp"
       },
       "columns": {
@@ -439,7 +352,7 @@
       }
     },
     "fuel_physics": {
-      "description": "Dealer gamma hedging dynamics (SPY 0DTE options)",
+      "description": "Dealer gamma hedging dynamics (ES 0DTE options - same underlying as ES futures)",
       "source": "vectorized_engines.compute_fuel_metrics_batch",
       "methodology": {
         "greeks": "Black-Scholes model with real-time IV estimation (vectorized numpy)",
@@ -471,88 +384,295 @@
         }
       }
     },
-    "dealer_velocity": {
-      "description": "Dealer mechanics velocity features from option trade flow",
+    "multiwindow_ofi": {
+      "description": "Multi-window order flow imbalance features",
+      "source": "compute_multiwindow_ofi",
+      "methodology": {
+        "windows": "30s, 60s, 120s, 300s (multi-scale pressure encoding)",
+        "purpose": "Capture order flow pressure dynamics across timescales"
+      },
       "columns": {
-        "gamma_flow_velocity": {
+        "integrated_ofi_30s": {
           "dtype": "float64",
-          "description": "Net dealer gamma flow per minute in recent window near level",
-          "example": -8200.0
+          "description": "Integrated OFI over last 30 seconds. Immediate pressure.",
+          "example": 850.0
         },
-        "gamma_flow_impulse": {
+        "integrated_ofi_60s": {
           "dtype": "float64",
-          "description": "Short-term gamma flow deviation vs baseline rate",
-          "example": 0.45
+          "description": "Integrated OFI over last 60 seconds. Short-term flow.",
+          "example": 1200.0
         },
-        "gamma_flow_accel_1m": {
+        "integrated_ofi_120s": {
           "dtype": "float64",
-          "description": "Change in 1-minute dealer gamma flow velocity",
-          "example": 1400.0
+          "description": "Integrated OFI over last 120 seconds. Medium-term cumulative pressure.",
+          "example": 2100.0
         },
-        "gamma_flow_accel_3m": {
+        "integrated_ofi_300s": {
           "dtype": "float64",
-          "description": "Change in 3-minute dealer gamma flow velocity",
-          "example": 600.0
+          "description": "Integrated OFI over last 300 seconds. Long-term order flow trend.",
+          "example": 4500.0
         },
-        "dealer_pressure": {
+        "ofi_trend_60s": {
           "dtype": "float64",
-          "description": "Normalized dealer mechanics pressure indicator",
-          "example": 0.62
+          "description": "OFI slope over 60s window (pressure accelerating or fading).",
+          "example": 15.0
         },
-        "dealer_pressure_accel": {
+        "ofi_trend_120s": {
           "dtype": "float64",
-          "description": "Normalized dealer pressure acceleration (1-minute window)",
-          "example": 0.12
+          "description": "OFI slope over 120s window.",
+          "example": 8.5
+        },
+        "ofi_trend_300s": {
+          "dtype": "float64",
+          "description": "OFI slope over 300s window.",
+          "example": 3.2
+        },
+        "ofi_variance_120s": {
+          "dtype": "float64",
+          "description": "OFI volatility over 120s (flow stability).",
+          "example": 120.0
+        },
+        "ofi_peak_120s": {
+          "dtype": "float64",
+          "description": "Maximum OFI spike in 120s window.",
+          "example": 1800.0
         }
       }
     },
-    "pressure_indicators": {
-      "description": "Continuous pressure indicators used by sequence models",
+    "barrier_evolution": {
+      "description": "Barrier depth evolution features (liquidity dynamics)",
+      "source": "compute_barrier_evolution",
+      "methodology": {
+        "windows": "1min, 3min, 5min (depth changes over time)",
+        "purpose": "Detect thinning barrier (bullish BREAK) vs thickening barrier (bullish BOUNCE)"
+      },
       "columns": {
-        "liquidity_pressure": {
+        "barrier_depth_current": {
           "dtype": "float64",
-          "description": "Normalized liquidity pressure indicator",
+          "description": "Current depth at level (ES contracts).",
+          "example": 2500.0
+        },
+        "barrier_depth_change_1min": {
+          "dtype": "float64",
+          "description": "Depth change over last 1 minute (negative = thinning).",
+          "example": -350.0
+        },
+        "barrier_depth_change_3min": {
+          "dtype": "float64",
+          "description": "Depth change over last 3 minutes.",
+          "example": -800.0
+        },
+        "barrier_depth_change_5min": {
+          "dtype": "float64",
+          "description": "Depth change over last 5 minutes.",
+          "example": -1200.0
+        },
+        "barrier_slope_3min": {
+          "dtype": "float64",
+          "description": "Depth trend over 3min (contracts/min).",
+          "example": -120.0
+        },
+        "barrier_volatility_5min": {
+          "dtype": "float64",
+          "description": "Depth volatility over 5min (stability measure).",
+          "example": 450.0
+        },
+        "barrier_absorption_rate": {
+          "dtype": "float64",
+          "description": "Fill rate vs replenishment rate (absorbing vs building).",
+          "example": 0.65
+        }
+      }
+    },
+    "gex_features": {
+      "description": "Strike-banded gamma exposure features",
+      "source": "compute_gex_features",
+      "methodology": {
+        "strike_bands": "±1, ±2, ±3 strikes (25pt spacing = 25, 50, 75 pts)",
+        "purpose": "Dealer hedging pressure by proximity to level"
+      },
+      "columns": {
+        "gex_above_1strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure above level within 1 strike (25pts).",
+          "example": 15000.0
+        },
+        "gex_above_2strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure above level within 2 strikes (50pts).",
+          "example": 35000.0
+        },
+        "gex_above_3strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure above level within 3 strikes (75pts).",
+          "example": 58000.0
+        },
+        "gex_below_1strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure below level within 1 strike.",
+          "example": 12000.0
+        },
+        "gex_below_2strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure below level within 2 strikes.",
+          "example": 28000.0
+        },
+        "gex_below_3strike": {
+          "dtype": "float64",
+          "description": "Gamma exposure below level within 3 strikes.",
+          "example": 45000.0
+        },
+        "gex_asymmetry": {
+          "dtype": "float64",
+          "description": "Net gamma pressure (above - below at 3 strikes).",
+          "example": 13000.0
+        },
+        "gex_ratio_3strike": {
+          "dtype": "float64",
+          "description": "Relative gamma concentration (above / below at 3 strikes).",
+          "example": 1.29
+        },
+        "net_gex_3strike": {
+          "dtype": "float64",
+          "description": "Net dealer exposure within ±75pts of level.",
+          "example": 103000.0
+        }
+      }
+    },
+    "force_mass": {
+      "description": "F=ma physics validation features",
+      "source": "compute_force_mass",
+      "methodology": {
+        "analogy": "F=ma where F=OFI (force), m=barrier_depth (mass), a=acceleration",
+        "purpose": "Cross-validate force/mass proxies with observed acceleration"
+      },
+      "columns": {
+        "predicted_accel": {
+          "dtype": "float64",
+          "description": "Predicted acceleration from F/m (OFI / barrier_depth).",
           "example": 0.35
         },
-        "tape_pressure": {
+        "actual_accel": {
           "dtype": "float64",
-          "description": "Normalized tape momentum indicator",
-          "example": 0.28
+          "description": "Observed acceleration from kinematics.",
+          "example": 0.52
         },
-        "gamma_pressure": {
+        "fma_residual": {
           "dtype": "float64",
-          "description": "Normalized gamma pressure indicator",
-          "example": 0.41
+          "description": "Actual - predicted (hidden momentum or absorption).",
+          "example": 0.17
         },
-        "gamma_pressure_accel": {
+        "fma_ratio": {
           "dtype": "float64",
-          "description": "Normalized gamma pressure acceleration indicator",
-          "example": 0.18
+          "description": "Actual / predicted (>1 = price moved more than liquidity suggests).",
+          "example": 1.49
+        }
+      }
+    },
+    "level_distances_extended": {
+      "description": "Extended structural level distances (includes OR levels)",
+      "source": "compute_level_distances",
+      "columns": {
+        "dist_to_or_high": {
+          "dtype": "float64",
+          "description": "Signed distance from target level to opening range high.",
+          "example": 8.5
         },
-        "reversion_pressure": {
+        "dist_to_or_low": {
           "dtype": "float64",
-          "description": "Normalized mean reversion pressure indicator",
-          "example": -0.22
+          "description": "Signed distance from target level to opening range low.",
+          "example": -12.3
         },
-        "net_break_pressure": {
+        "dist_to_or_high_atr": {
           "dtype": "float64",
-          "description": "Composite break/bounce pressure indicator",
-          "example": 0.30
+          "description": "ATR-normalized distance to OR high.",
+          "example": 0.68
+        },
+        "dist_to_or_low_atr": {
+          "dtype": "float64",
+          "description": "ATR-normalized distance to OR low.",
+          "example": -0.98
         }
       }
     },
     "approach_context": {
-      "description": "Backward-looking context features capturing how price approached the level",
-      "source": "compute_approach_context_vectorized",
+      "description": "MULTI-WINDOW backward-looking features capturing setup at multiple timescales",
+      "source": "compute_multiwindow_kinematics + compute_approach_context",
       "methodology": {
-        "lookback_window": "10 minutes before touch timestamp",
-        "purpose": "Critical ML features - a fast aggressive approach behaves differently than a slow grind"
+        "windows": "1min, 3min, 5min, 10min, 20min (multi-scale setup encoding)",
+        "inference_cadence": "Every 2-minute candle close (continuous, not just touches)",
+        "purpose": "Encode HOW price approached level across timescales for kNN retrieval"
       },
       "columns": {
+        "velocity_1min": {
+          "dtype": "float64",
+          "description": "Level-frame velocity over last 1 minute (ES pts/min). Immediate entry dynamics.",
+          "example": 4.2
+        },
+        "velocity_3min": {
+          "dtype": "float64",
+          "description": "Level-frame velocity over last 3 minutes. Short-term momentum.",
+          "example": 3.1
+        },
+        "velocity_5min": {
+          "dtype": "float64",
+          "description": "Level-frame velocity over last 5 minutes. Medium-term approach.",
+          "example": 2.5
+        },
+        "velocity_10min": {
+          "dtype": "float64",
+          "description": "Level-frame velocity over last 10 minutes. Long-term trend.",
+          "example": 1.8
+        },
+        "velocity_20min": {
+          "dtype": "float64",
+          "description": "Level-frame velocity over last 20 minutes. Pre-approach context.",
+          "example": 1.2
+        },
+        "acceleration_1min": {
+          "dtype": "float64",
+          "description": "Level-frame acceleration over last 1 minute (pts/min²). Rate of velocity change.",
+          "example": 0.8
+        },
+        "acceleration_3min": {
+          "dtype": "float64",
+          "description": "Level-frame acceleration over last 3 minutes.",
+          "example": 0.5
+        },
+        "acceleration_5min": {
+          "dtype": "float64",
+          "description": "Level-frame acceleration over last 5 minutes.",
+          "example": 0.3
+        },
+        "acceleration_10min": {
+          "dtype": "float64",
+          "description": "Level-frame acceleration over last 10 minutes.",
+          "example": 0.2
+        },
+        "jerk_1min": {
+          "dtype": "float64",
+          "description": "Level-frame jerk over last 1 minute (pts/min³). Rate of acceleration change.",
+          "example": 0.15
+        },
+        "jerk_3min": {
+          "dtype": "float64",
+          "description": "Level-frame jerk over last 3 minutes.",
+          "example": 0.08
+        },
+        "jerk_5min": {
+          "dtype": "float64",
+          "description": "Level-frame jerk over last 5 minutes.",
+          "example": 0.05
+        },
+        "jerk_10min": {
+          "dtype": "float64",
+          "description": "Level-frame jerk over last 10 minutes.",
+          "example": 0.02
+        },
         "approach_velocity": {
           "dtype": "float64",
-          "description": "Price change per minute over lookback window ($/min). Positive = moving toward level.",
-          "example": 0.15
+          "description": "Price change per minute over 10min window (ES pts/min). Superseded by multi-window velocity features.",
+          "example": 3.5
         },
         "approach_bars": {
           "dtype": "int32",
@@ -561,7 +681,7 @@
         },
         "approach_distance": {
           "dtype": "float64",
-          "description": "Total price distance traveled toward level in lookback window",
+          "description": "Total price distance traveled toward level in 10min window",
           "example": 1.50
         },
         "approach_distance_atr": {
@@ -617,30 +737,30 @@
       }
     },
     "outcome": {
-      "description": "Ground truth label for supervised learning",
+      "description": "Ground truth label for supervised learning (triple-barrier labeling)",
       "methodology": {
-        "threshold": "$2.00 (2 strikes) - meaningful move for options trading",
-        "time_to_thresholds": "$1.00 and $2.00 for time-to-threshold metrics",
-        "lookforward": "8 minutes anchored at confirmation time t1 (covers full outcome determination window)",
-        "note": "Must move 2 strikes to be actionable for SPY options",
-        "missing_data_policy": "If the lookforward window is incomplete, outcome is UNDEFINED and forward metrics are NaN"
+        "threshold": "75.0 ES points (3 strikes @ 25pt spacing) - actionable for ES 0DTE options",
+        "time_to_thresholds": "25.0 pts (1 strike) and 75.0 pts (3 strikes) for time-to-threshold metrics",
+        "lookforward": "8 minutes anchored at confirmation time t1",
+        "barrier_model": "Competing risks: first barrier hit wins (break vs bounce vs vertical)",
+        "missing_data_policy": "If lookforward window is incomplete, outcome is UNDEFINED"
       },
       "columns": {
         "outcome": {
           "dtype": "string",
-          "description": "What happened after the level touch",
+          "description": "Outcome determined by triple-barrier labeling",
           "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
           "labeling": {
-            "BREAK": "First $2.00 move in approach direction relative to level price L after t1",
-            "BOUNCE": "First $2.00 move opposite the approach direction relative to level price L after t1",
-            "CHOP": "No $2.00 move in either direction relative to level price L after t1",
+            "BREAK": "Price moved +75.0 ES points (3 strikes) in approach direction from level L",
+            "BOUNCE": "Price moved -75.0 ES points (3 strikes) opposite approach direction from level L",
+            "CHOP": "Neither barrier hit within 8-minute forward window (vertical barrier)",
             "UNDEFINED": "Insufficient forward window to label outcome"
           },
           "example": "BOUNCE"
         },
         "future_price_5min": {
           "dtype": "float64",
-          "description": "SPY price at end of forward window after confirmation time (t1)",
+          "description": "ES futures price (index points) at end of forward window after confirmation time (t1)",
           "example": 681.425
         },
         "anchor_spot": {
@@ -650,12 +770,12 @@
         },
         "tradeable_1": {
           "dtype": "int8",
-          "description": "Reached $1.00 in either direction within forward window",
+          "description": "Reached 25 ES points (1 strike) in either direction within forward window",
           "example": 1
         },
         "tradeable_2": {
           "dtype": "int8",
-          "description": "Reached $2.00 in either direction within forward window",
+          "description": "Reached 75 ES points (3 strikes) in either direction within forward window",
           "example": 0
         },
         "excursion_max": {
@@ -680,32 +800,32 @@
         },
         "time_to_threshold_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in either direction relative to level price L",
+          "description": "Seconds to first 25 ES point (1 strike) move in either direction from level L",
           "example": 90.0
         },
         "time_to_threshold_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in either direction relative to level price L",
+          "description": "Seconds to first 75 ES point (3 strike) move in either direction from level L",
           "example": 210.0
         },
         "time_to_break_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in break direction relative to level price L",
+          "description": "Seconds to first 25 ES point move in break direction from level L",
           "example": 60.0
         },
         "time_to_bounce_1": {
           "dtype": "float64",
-          "description": "Seconds to first $1 move in bounce direction relative to level price L",
+          "description": "Seconds to first 25 ES point move in bounce direction from level L",
           "example": 120.0
         },
         "time_to_break_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in break direction relative to level price L",
+          "description": "Seconds to first 75 ES point move in break direction from level L",
           "example": 150.0
         },
         "time_to_bounce_2": {
           "dtype": "float64",
-          "description": "Seconds to first $2 move in bounce direction relative to level price L",
+          "description": "Seconds to first 75 ES point move in bounce direction from level L",
           "example": 210.0
         },
         "outcome_2min": {
@@ -738,30 +858,30 @@
         "strength_abs_2min": {"dtype": "float64", "description": "Absolute strength at 2min", "example": 1.25},
         "strength_abs_4min": {"dtype": "float64", "description": "Absolute strength at 4min", "example": 2.50},
         "strength_abs_8min": {"dtype": "float64", "description": "Absolute strength at 8min", "example": 3.75},
-        "tradeable_1_2min": {"dtype": "int8", "description": "$1 reached at 2min", "example": 1},
-        "tradeable_1_4min": {"dtype": "int8", "description": "$1 reached at 4min", "example": 1},
-        "tradeable_1_8min": {"dtype": "int8", "description": "$1 reached at 8min", "example": 1},
-        "tradeable_2_2min": {"dtype": "int8", "description": "$2 reached at 2min", "example": 0},
-        "tradeable_2_4min": {"dtype": "int8", "description": "$2 reached at 4min", "example": 1},
-        "tradeable_2_8min": {"dtype": "int8", "description": "$2 reached at 8min", "example": 1},
-        "time_to_threshold_1_2min": {"dtype": "float64", "description": "Time to $1 from 2min confirmation", "example": 45.0},
-        "time_to_threshold_1_4min": {"dtype": "float64", "description": "Time to $1 from 4min confirmation", "example": 90.0},
-        "time_to_threshold_1_8min": {"dtype": "float64", "description": "Time to $1 from 8min confirmation", "example": 120.0},
-        "time_to_threshold_2_2min": {"dtype": "float64", "description": "Time to $2 from 2min confirmation", "example": null},
-        "time_to_threshold_2_4min": {"dtype": "float64", "description": "Time to $2 from 4min confirmation", "example": 180.0},
-        "time_to_threshold_2_8min": {"dtype": "float64", "description": "Time to $2 from 8min confirmation", "example": 210.0},
-        "time_to_break_1_2min": {"dtype": "float64", "description": "Time to $1 break from 2min confirmation", "example": 40.0},
-        "time_to_break_1_4min": {"dtype": "float64", "description": "Time to $1 break from 4min confirmation", "example": 80.0},
-        "time_to_break_1_8min": {"dtype": "float64", "description": "Time to $1 break from 8min confirmation", "example": 110.0},
-        "time_to_bounce_1_2min": {"dtype": "float64", "description": "Time to $1 bounce from 2min confirmation", "example": 50.0},
-        "time_to_bounce_1_4min": {"dtype": "float64", "description": "Time to $1 bounce from 4min confirmation", "example": 100.0},
-        "time_to_bounce_1_8min": {"dtype": "float64", "description": "Time to $1 bounce from 8min confirmation", "example": 130.0},
-        "time_to_break_2_2min": {"dtype": "float64", "description": "Time to $2 break from 2min confirmation", "example": null},
-        "time_to_break_2_4min": {"dtype": "float64", "description": "Time to $2 break from 4min confirmation", "example": 160.0},
-        "time_to_break_2_8min": {"dtype": "float64", "description": "Time to $2 break from 8min confirmation", "example": 200.0},
-        "time_to_bounce_2_2min": {"dtype": "float64", "description": "Time to $2 bounce from 2min confirmation", "example": null},
-        "time_to_bounce_2_4min": {"dtype": "float64", "description": "Time to $2 bounce from 4min confirmation", "example": 190.0},
-        "time_to_bounce_2_8min": {"dtype": "float64", "description": "Time to $2 bounce from 8min confirmation", "example": 230.0},
+        "tradeable_1_2min": {"dtype": "int8", "description": "25pt (1 strike) reached at 2min confirmation", "example": 1},
+        "tradeable_1_4min": {"dtype": "int8", "description": "25pt (1 strike) reached at 4min confirmation", "example": 1},
+        "tradeable_1_8min": {"dtype": "int8", "description": "25pt (1 strike) reached at 8min confirmation", "example": 1},
+        "tradeable_2_2min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 2min confirmation", "example": 0},
+        "tradeable_2_4min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 4min confirmation", "example": 1},
+        "tradeable_2_8min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 8min confirmation", "example": 1},
+        "time_to_threshold_1_2min": {"dtype": "float64", "description": "Seconds to 25pt move from 2min confirmation", "example": 45.0},
+        "time_to_threshold_1_4min": {"dtype": "float64", "description": "Seconds to 25pt move from 4min confirmation", "example": 90.0},
+        "time_to_threshold_1_8min": {"dtype": "float64", "description": "Seconds to 25pt move from 8min confirmation", "example": 120.0},
+        "time_to_threshold_2_2min": {"dtype": "float64", "description": "Seconds to 75pt move from 2min confirmation", "example": null},
+        "time_to_threshold_2_4min": {"dtype": "float64", "description": "Seconds to 75pt move from 4min confirmation", "example": 180.0},
+        "time_to_threshold_2_8min": {"dtype": "float64", "description": "Seconds to 75pt move from 8min confirmation", "example": 210.0},
+        "time_to_break_1_2min": {"dtype": "float64", "description": "Seconds to 25pt break from 2min confirmation", "example": 40.0},
+        "time_to_break_1_4min": {"dtype": "float64", "description": "Seconds to 25pt break from 4min confirmation", "example": 80.0},
+        "time_to_break_1_8min": {"dtype": "float64", "description": "Seconds to 25pt break from 8min confirmation", "example": 110.0},
+        "time_to_bounce_1_2min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 2min confirmation", "example": 50.0},
+        "time_to_bounce_1_4min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 4min confirmation", "example": 100.0},
+        "time_to_bounce_1_8min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 8min confirmation", "example": 130.0},
+        "time_to_break_2_2min": {"dtype": "float64", "description": "Seconds to 75pt break from 2min confirmation", "example": null},
+        "time_to_break_2_4min": {"dtype": "float64", "description": "Seconds to 75pt break from 4min confirmation", "example": 160.0},
+        "time_to_break_2_8min": {"dtype": "float64", "description": "Seconds to 75pt break from 8min confirmation", "example": 200.0},
+        "time_to_bounce_2_2min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 2min confirmation", "example": null},
+        "time_to_bounce_2_4min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 4min confirmation", "example": 190.0},
+        "time_to_bounce_2_8min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 8min confirmation", "example": 230.0},
         "confirm_ts_ns_2min": {"dtype": "float64", "description": "Confirmation timestamp at 2min", "example": 1765843320000000000},
         "confirm_ts_ns_4min": {"dtype": "float64", "description": "Confirmation timestamp at 4min", "example": 1765843440000000000},
         "confirm_ts_ns_8min": {"dtype": "float64", "description": "Confirmation timestamp at 8min", "example": 1765843680000000000},
@@ -775,16 +895,21 @@
     }
   },
   "statistics": {
-    "generated_at": "2025-12-23",
-    "total_signals": 3328,
-    "date_range": ["2025-12-16", "2025-12-19"],
-    "dates_processed": 4,
-    "quality_filter": "distance <= $0.25 (MONITOR_BAND) - critical decision zone",
-    "outcome_distribution": {
-      "BREAK": 0.505,
-      "BOUNCE": 0.444,
-      "CHOP": 0.049,
-      "UNDEFINED": 0.002
+    "generated_at": "2025-12-28 (updated for ES system)",
+    "expected_v1_stats": {
+      "inference_model": "Continuous (every 2-min candle)",
+      "candles_per_day": 120,
+      "rows_per_day": 360,
+      "filtered_events_per_day": "15-25 (when distance <= MONITOR_BAND)",
+      "note": "Sparse high-precision events preferred for kNN retrieval"
+    },
+    "date_range_example": ["2025-11-02", "2025-11-30"],
+    "quality_filter": "distance <= 5.0 ES points (MONITOR_BAND) - interaction zone",
+    "expected_outcome_distribution": {
+      "BREAK": 0.40,
+      "BOUNCE": 0.40,
+      "CHOP": 0.20,
+      "note": "75pt threshold (3 strikes) should yield ~40/40/20 split"
     },
     "barrier_state_distribution": {
       "NEUTRAL": 3180,
@@ -825,23 +950,26 @@
       "spot": {
         "non_null": 1.0,
         "non_zero": 1.0,
-        "mean": 683.02,
-        "min": 672.18,
-        "max": 690.30
+        "expected_mean": 6900.0,
+        "expected_min": 6850.0,
+        "expected_max": 6980.0,
+        "note": "ES index points (e.g., 6920.0)"
       },
       "distance": {
         "non_null": 1.0,
-        "non_zero": 0.951,
-        "mean": 0.116,
-        "min": 0.0,
-        "max": 0.25
+        "non_zero": 0.95,
+        "expected_mean": 3.5,
+        "expected_min": 0.0,
+        "expected_max": 10.0,
+        "note": "ES points (filtered to MONITOR_BAND=5.0, continuous inference may have wider range)"
       },
-      "approach_velocity": {
+      "velocity_3min": {
         "non_null": 1.0,
-        "non_zero": 0.979,
-        "mean": -0.029,
-        "min": -1.12,
-        "max": 0.71
+        "non_zero": 0.98,
+        "expected_mean": 1.5,
+        "expected_min": -15.0,
+        "expected_max": 15.0,
+        "note": "ES points/min (multi-window replaces single approach_velocity)"
       },
       "approach_bars": {
         "non_null": 1.0,
@@ -876,30 +1004,43 @@
   "data_sources": {
     "es_futures": {
       "provider": "Databento",
+      "dataset": "GLBX.MDP3 (CME Globex)",
       "format": "DBN (trades + MBP-10)",
-      "conversion": "ES price / 10 = SPY equivalent",
-      "fields": ["price", "size", "aggressor", "depth levels 1-10"]
+      "conversion": "NONE - ES futures in index points (e.g., 6920.0)",
+      "front_month_filtering": "Volume-dominant selection, 60% threshold (ContractSelector)",
+      "fields": ["ts_event_ns", "symbol", "price", "size", "aggressor", "levels_1-10 (MBP-10)"]
     },
-    "spy_options": {
-      "provider": "Polygon.io",
-      "format": "S3 flat files (CSV.gz)",
-      "endpoint": "https://files.polygon.io",
-      "bucket": "flatfiles",
-      "path": "us_options_opra/trades_v1/YYYY/MM/YYYY-MM-DD.csv.gz",
-      "fields": ["ticker", "price", "size", "sip_timestamp"]
+    "es_options": {
+      "provider": "Databento",
+      "dataset": "GLBX.MDP3 (CME Globex)",
+      "format": "Trades + NBBO (MBP-1)",
+      "symbol_format": "ESZ5 P6900 (contract + right + strike)",
+      "strike_spacing": "25 points (ATM dominant), 5 points (very tight ATM)",
+      "0dte_filtering": "exp_date == session_date",
+      "front_month_filtering": "Same contract as ES futures (e.g., ESZ5)",
+      "fields": ["ts_event_ns", "symbol", "price", "size", "bid_px", "ask_px", "bid_sz", "ask_sz"]
     }
   },
   "methodology": {
+    "inference_model": "CONTINUOUS (every 2-min candle) not event-based (at touches only)",
+    "inference_cadence": "Every 2-minute candle close during RTH (09:30-13:30 ET)",
+    "inference_logic": "For each 2-min bar, compute features for NEAREST level in each category (PM/OR/SMA)",
+    "distance_weighting": "Accuracy improves as distance-to-level decreases (closer = more confident)",
+    
+    "multi_window_lookback": "1min, 3min, 5min, 10min, 20min (encode setup shape across timescales)",
+    "why_multi_window": "kNN retrieval needs: 'fast accelerating approach' vs 'slow decelerating approach' - single window can't distinguish!",
+    
     "greeks_calculation": "Black-Scholes-Merton with vectorized NumPy",
     "aggressor_inference": "Tick Rule: compare trade price to previous trade",
-    "0dte_filter": "All option processing restricted to same-day expiration",
-    "es_spy_conversion": "ES_price = SPY_price * 10 (ES trades at 10x SPY notional)",
-    "barrier_zone": "+-8 ES ticks (+-$2 ES = +-$0.20 SPY) around strike-aligned levels",
-    "touch_detection": "OHLCV high/low crosses level price within TOUCH_BAND (CONFIG.TOUCH_BAND)",
-    "quality_filter": "Only signals where close price within $0.25 of level (critical zone)",
-    "outcome_threshold": "Move >=$2.00 (2 strikes) in forward window for BREAK/BOUNCE - meaningful for options",
-    "lookback_context": "10 minutes backward for approach velocity, bars, distance",
-    "time_windows": "Forward-looking from bar START (240s confirmation, 8min total forward window)",
-    "sma_warmup": "SMA-200/400 computed on 2-min bars with up to CONFIG.SMA_WARMUP_DAYS prior sessions prepended when available"
+    "0dte_filter": "All option processing restricted to ES 0DTE (same-day expiration)",
+    "es_conversion": "NONE - ES futures = ES options (perfect alignment, same underlying!)",
+    "barrier_zone": "±8 ES ticks (±2 ES pts = ±0.08 strikes @ 25pt spacing) around levels",
+    "interaction_zone": "±5 ES points (MONITOR_BAND) for event detection",
+    "touch_zone": "±2 ES points (TOUCH_BAND) for precise contact",
+    "outcome_threshold": "Move >=75 ES points (3 strikes @ 25pt spacing) for BREAK/BOUNCE",
+    "lookback_context": "Multi-window: 1,3,5,10,20 minutes for velocity/OFI/barrier evolution",
+    "lookforward_window": "8 minutes from confirmation time for outcome labeling",
+    "confirmation_delay": "4 minutes (240s) - Stage B confirmation before labeling",
+    "sma_warmup": "SMA-200/400 computed on 2-min bars with up to 3 prior sessions for warmup"
   }
 }

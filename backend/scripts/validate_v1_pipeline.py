@@ -21,7 +21,7 @@ import numpy as np
 
 from src.common.utils.bronze_qa import BronzeQA
 from src.common.utils.session_time import get_session_start_ns
-from src.pipeline.pipelines.v1_0_spx_final_call import build_v1_0_spx_final_call_pipeline
+from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 
 
 class V1PipelineValidator:
@@ -80,7 +80,7 @@ class V1PipelineValidator:
             session_start_ns = get_session_start_ns(date)
             
             # Run pipeline
-            pipeline = build_v1_0_spx_final_call_pipeline()
+            pipeline = build_es_pipeline()
             signals_df = pipeline.run(date)
             
             if not signals_df.empty and 'minutes_since_open' in signals_df.columns:
