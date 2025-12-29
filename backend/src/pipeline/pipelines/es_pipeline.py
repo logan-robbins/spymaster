@@ -36,25 +36,25 @@ def build_es_pipeline() -> Pipeline:
     """
     Build ES futures + ES options multi-window physics pipeline.
     
-    Stage sequence:
-    1. LoadBronze (ES futures + options, front-month filtered)
-    2. BuildOHLCV (1min for ATR/volatility)
-    3. BuildOHLCV (2min with warmup for SMA_200/400)
-    4. InitMarketState (ES market state)
-    5. GenerateLevels (6 level kinds: PM/OR high/low + SMA_200/400)
-    6. DetectInteractionZones (event-driven zone entry, deterministic IDs)
-    7. ComputePhysics (barrier, tape, fuel from engines)
-    8. ComputeMultiWindowKinematics (velocity/accel/jerk at 1,3,5,10,20min)
-    9. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
-    10. ComputeBarrierEvolution (depth changes at 1,3,5min)
-    11. ComputeLevelDistances (signed distances to all structural levels)
-    12. ComputeGEX (gamma within ±1/±2/±3 strikes; 5pt spacing for ES 0DTE ATM)
-    13. ComputeForceMass (F=ma validation features)
-    14. ComputeApproach (approach context + timing + normalization + clustering)
-    15. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
-    16. FilterRTH (09:30-12:30 ET)
-    17. MaterializeStateTable (30s cadence state for episode construction)
-    18. ConstructEpisodes (111-dim vectors for similarity retrieval)
+    Stage sequence (0-indexed):
+    0. LoadBronze (ES futures + options, front-month filtered)
+    1. BuildOHLCV (1min for ATR/volatility)
+    2. BuildOHLCV (2min with warmup for SMA_200/400)
+    3. InitMarketState (ES market state)
+    4. GenerateLevels (6 level kinds: PM/OR high/low + SMA_200/400)
+    5. DetectInteractionZones (event-driven zone entry, deterministic IDs)
+    6. ComputePhysics (barrier, tape, fuel from engines)
+    7. ComputeMultiWindowKinematics (velocity/accel/jerk at 1,3,5,10,20min)
+    8. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
+    9. ComputeBarrierEvolution (depth changes at 1,3,5min)
+    10. ComputeLevelDistances (signed distances to all structural levels)
+    11. ComputeGEX (gamma within ±1/±2/±3 strikes; 5pt spacing for ES 0DTE ATM)
+    12. ComputeForceMass (F=ma validation features)
+    13. ComputeApproach (approach context + timing + normalization + clustering)
+    14. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
+    15. FilterRTH (09:30-12:30 ET)
+    16. MaterializeStateTable (30s cadence state for episode construction)
+    17. ConstructEpisodes (111-dim vectors for similarity retrieval)
     
     Returns:
         Pipeline instance
@@ -79,7 +79,7 @@ def build_es_pipeline() -> Pipeline:
             ComputeApproachFeaturesStage(),
             LabelOutcomesStage(),
             FilterRTHStage(),
-            MaterializeStateTableStage(),  # Stage 16
-            ConstructEpisodesStage()       # Stage 18
+            MaterializeStateTableStage(),  # Stage 16 (index 16)
+            ConstructEpisodesStage()       # Stage 17 (index 17)
         ]
     )
