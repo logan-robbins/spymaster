@@ -1,23 +1,30 @@
-# Spymaster: ES Futures + ES Options Neuro-Hybrid Physics + Probabilistic Engine
+# Spymaster: Level Interaction Similarity Retrieval System
 
-**System**: Break/Bounce prediction at ES futures levels using physics-based features + kNN retrieval
+I am attempting to build a paltform specifically for market/dealer physics in the first 3 hours of trading (when volume is the highest). The goal is not to predict price (initially), but to retrieve similar "setups" and their labeled outcomes. I chose 6 specific levels: Pre-market high/low, 15 min opening range high/low, 200 SMA (2 min bars) and 400SMA (2 min bars). a "setup" should be a vectorized snapshot of N lookback timeseries bars, where each bar represents the market state at that time-- RELATIVE to the specific "level" in question. The SETUP.png is a perfect example of what we are trying to model at each bar as the day progresses. The grey dotted lines are the pre-market high/low. The horizontal red and green lines are the 15 min open range high/low. The yellow/purple dotted lines are the 200/400SMA. There is clear reaction to these levels almost every single day. Sometimes the price breaks the levels, some times it does not. Sometimes it chops. We are trying to model and attribute the movements to various market physics forces. Then, we go a step further and say: at the 16 minute bar close, retrieve top 50 similar vectors and filter. What were their outcomes? the price break through the level or reject from the level. The hypothesis is that by looking at the approach over time (in granular windows computed within the large lookback window of say, 20 minutes), we can identify features that support break/reject probabilities. As a trader who follows these strict TA levels in the first 3 hours, the goal is that my platform UI begins retrieving/smoothing probabilistic signals based on the historical simliarity of the setup as the price approaches one of the levels we monitor. This can help me answer the question: if the price approaches the 15min opening range high from below, with f features, historically it has broken through with 77% probability. 
 
-**Data**: ES futures + ES 0DTE options from Databento GLBX.MDP3  
-**Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)  
-**Strike Spacing**: CME listing schedule varies by moneyness/time-to-expiry (5/10/50/100-point intervals); GEX features aggregate gamma within ±1/±2/±3 strikes (typically 5pt spacing for ES 0DTE ATM)  
-**Outcome Threshold**: Volatility-scaled barrier
-**Inference**: Event-driven adaptive cadence (physics @ 250ms; ML updates by distance-to-level + triggers)  
-**Pipeline**: 16 stages (load → levels → physics → labels → filter)  
-**Features**: 182 columns (10 identity + 108 engineered features + 64 label columns; schema-enforced)  
-**Model**: XGBoost + kNN (neuro-hybrid)
 
-**Goal**: "Price approaching PM_HIGH, find 5 similar past setups → 4/5 BROKE → 80% confidence"
+
+**System**: Retrieves historically similar market setups when price approaches technical levels, presenting empirical outcome distributions.
+
+**Canonical Specification**: See **[IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)** for complete system architecture, data contracts, and implementation details.
+
+**Version**: 3.0.0 (December 2025)  
+**Status**: ✅ Implementation complete (10/10 sections)
+
+## Quick Facts
+
+- **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
+- **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)
+- **Outcomes**: BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold)
+- **Episode Vectors**: 111 dimensions (context + trajectory + micro-history + physics + trends)
+- **Retrieval**: FAISS similarity search (48 partitions)
+- **Pipeline**: 18 stages (bronze → silver → gold → indices)
 
 ---
 
-## Data Quick Start
+## Quick Start
 
-### 1. Prepare Bronze Layer Data
+### 1. Setup Environment
 
 ```bash
 cd backend
@@ -25,77 +32,137 @@ cd backend
 # Set Databento API key
 echo "DATABENTO_API_KEY=your_key_here" >> .env
 
-# Step 2a: Download ES options (trades + NBBO) - writes directly to Bronze
-uv run python scripts/download_es_options.py \
-  --start 2025-11-02 \
-  --end 2025-12-28
-
-# Step 2b: Backfill ES futures from DBN files to Bronze
-# (Assumes you have ES futures DBN files in dbn-data/trades/ and dbn-data/MBP-10/)
-uv run python scripts/backfill_bronze_futures.py --all
+# Install dependencies (uv manages all Python packages)
+uv sync
 ```
 
-### 2. Build Features & Train Model
+### 2. Download Data
 
 ```bash
 cd backend
 
-# Build features with fixed CONFIG (src/common/config.py)
+# Download ES options (trades + NBBO) → Bronze layer
+uv run python scripts/download_es_options.py \
+  --start 2024-11-01 \
+  --end 2024-12-31 \
+  --workers 8
+
+# Backfill ES futures from DBN files → Bronze layer
+# (Requires ES futures DBN files in dbn-data/)
+uv run python scripts/backfill_bronze_futures.py --all
+```
+
+### 3. Run Pipeline
+
+```bash
+cd backend
+
+# Run v3.0.0 pipeline (18 stages: bronze → features → episodes)
 uv run python -m src.lake.silver_feature_builder \
   --pipeline es_pipeline \
-  --start-date 2025-11-02 \
-  --end-date 2025-12-28
+  --start-date 2024-11-01 \
+  --end-date 2024-12-31
 
-# Train model (includes hyperopt for XGBoost params, feature selection, kNN blend)
-uv run python -m src.ml.boosted_tree_train \
-  --features gold/training/signals_production.parquet
+# Validate pipeline output
+uv run python scripts/validate_es_pipeline.py --date 2024-12-20
+```
 
+### 4. Build Retrieval System
+
+```bash
+cd backend
+
+# Stage 17: Compute normalization statistics (60-day lookback)
+uv run python -c "
+from pathlib import Path
+from src.ml.normalization import ComputeNormalizationStage
+
+stage = ComputeNormalizationStage(
+    state_table_dir=Path('data/silver/state/es_level_state'),
+    output_dir=Path('data/gold/normalization'),
+    lookback_days=60
+)
+result = stage.execute()
+print(f'Stats saved: {result[\"output_file\"]}')
+"
+
+# Stage 19: Build FAISS indices (48 partitions)
+uv run python -c "
+from pathlib import Path
+from src.ml.index_builder import BuildIndicesStage
+
+stage = BuildIndicesStage(
+    episodes_dir=Path('data/gold/episodes/es_level_episodes'),
+    output_dir=Path('data/gold/indices/es_level_indices')
+)
+result = stage.execute()
+print(f'Built {result[\"n_partitions_built\"]} indices')
+"
 ```
 
 ---
 
 ## Documentation
 
-**[COMPONENTS.md](COMPONENTS.md)**: Component architecture, engines, interface contracts  
-**[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline, hyperopt workflow, kNN system  
-**[backend/src/common/schemas/](backend/src/common/schemas/)**: Enforced PyArrow schemas (Bronze/Silver/Gold)  
-**[backend/src/common/config.py](backend/src/common/config.py)**: All tunable parameters (CONFIG singleton, auto-loaded from best-config JSON)  
+**📘 [IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)**: **CANONICAL SPECIFICATION** - Complete system architecture, data contracts, algorithms, and validation  
+**[COMPONENTS.md](COMPONENTS.md)**: Component architecture and interface contracts  
+**[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline and storage architecture  
+**[backend/SILVER_SCHEMA.md](backend/SILVER_SCHEMA.md)**: Silver layer schema (v3.0.0)  
+**[backend/src/common/schemas/](backend/src/common/schemas/)**: PyArrow schema definitions  
 
-**Module Docs**: See `backend/src/{module}/README.md` and `backend/src/{module}/INTERFACES.md` for implementation details
+**Module Docs**: See `backend/src/{module}/README.md` for implementation details
 
 ---
 
 ## Development
 
-### Running Individual Services
+### Running Services (Real-Time Mode)
 
 ```bash
 # Terminal 1: NATS infrastructure
 docker-compose up nats -d
 
-# Terminal 2: Ingestor (replay mode)
+# Terminal 2: Ingestor (replay mode for testing)
 cd backend
-export REPLAY_DATE=2025-12-16
+export REPLAY_DATE=2024-12-16
 uv run python -m src.ingestor.replay_publisher
 
-# Terminal 3: Core service
+# Terminal 3: Core service (with retrieval engine)
 uv run python -m src.core.main
 
-# Terminal 4: Gateway
+# Terminal 4: Gateway (WebSocket API)
 uv run python -m src.gateway.main
 
-# Terminal 5: Frontend
+# Terminal 5: Frontend (Angular UI)
 cd frontend
 npm run start
 ```
+
+### Validation
+
+```bash
+cd backend
+
+# Validate full pipeline for a date
+uv run python scripts/validate_es_pipeline.py --date 2024-12-20
+
+# Validate specific stages
+uv run python scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
+uv run python scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
+uv run python scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
+
+# Batch validation
+uv run python scripts/validate_es_pipeline.py --start 2024-12-01 --end 2024-12-31
+```
+
 ---
 
-## Key Concepts
+## Architecture Principles
 
-**Neuro-Hybrid**: Deterministic physics engines + kNN retrieval (not pure ML)  
-**LevelState Engine**: For each level (PM/OR/SMA), compute kinematics/flow/liquidity/dealer mechanics vector  
-**Multi-Window**: 1-20min lookback encodes "setup shape" for kNN matching  
-**Two-Stage Hyperopt**: Optimize data generation BEFORE model training  
-**Sparse > Dense**: 15 high-quality events/day better than 100 noisy events  
-**Front-Month Purity**: ES futures AND ES options on same contract (prevents ghost walls)  
-**Deterministic IDs**: Event IDs are reproducible (no UUIDs) for retrieval consistency
+**Level-Relative Features**: All distances ATR-normalized, level-centric coordinate system  
+**First-Crossing Semantics**: BREAK (1 ATR in direction), REJECT (1 ATR opposite), CHOP (neither)  
+**Multi-Scale Dynamics**: 1-20min kinematics + 30-300s order flow capture approach shape  
+**Similarity Retrieval**: 111-dim vectors → FAISS ANN search → outcome distributions  
+**48 Partitions**: (6 levels × 2 directions × 4 time buckets) for regime-comparable neighbors  
+**Online Safety**: All features use only past data, labels never in feature vectors  
+**Deterministic**: Event IDs reproducible, no UUIDs, enables consistent retrieval

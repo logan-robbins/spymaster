@@ -24,21 +24,23 @@ src/pipeline/
 │   ├── pipeline.py             # Pipeline orchestrator
 │   └── checkpoint.py           # Stage checkpoints (resume/inspect)
 ├── stages/
-│   ├── load_bronze.py                  # Stage 0: DuckDB data loading
-│   ├── build_spx_ohlcv.py              # Stage 1-2: OHLCV (1min/2min)
-│   ├── init_market_state.py            # Stage 3: MarketState + Greeks
-│   ├── generate_levels.py              # Stage 4: Level universe + dynamic series
-│   ├── detect_interaction_zones.py     # Stage 5: Zone entry events
-│   ├── compute_physics.py              # Stage 6: Barrier/Tape/Fuel physics
-│   ├── compute_multiwindow_kinematics.py # Stage 7: Multi-window kinematics
-│   ├── compute_multiwindow_ofi.py      # Stage 8: Multi-window OFI
-│   ├── compute_barrier_evolution.py    # Stage 9: Barrier evolution
-│   ├── compute_level_distances.py      # Stage 10: Level distances + stacking
-│   ├── compute_gex_features.py         # Stage 11: Strike-banded GEX
-│   ├── compute_force_mass.py           # Stage 12: F=ma validation features
-│   ├── compute_approach.py             # Stage 13: Approach context + normalization
-│   ├── label_outcomes.py               # Stage 14: Triple-barrier labels
-│   └── filter_rth.py                   # Stage 15: RTH filtering + schema validation
+│   ├── load_bronze.py                      # Stage 0: DuckDB data loading
+│   ├── build_spx_ohlcv.py                  # Stage 1-2: OHLCV (1min/2min)
+│   ├── init_market_state.py                # Stage 3: MarketState + Greeks
+│   ├── generate_levels.py                  # Stage 4: Level universe + dynamic series
+│   ├── detect_interaction_zones.py         # Stage 5: Zone entry events
+│   ├── compute_physics.py                  # Stage 6: Barrier/Tape/Fuel physics
+│   ├── compute_multiwindow_kinematics.py   # Stage 7: Multi-window kinematics
+│   ├── compute_multiwindow_ofi.py          # Stage 8: Multi-window OFI
+│   ├── compute_barrier_evolution.py        # Stage 9: Barrier evolution
+│   ├── compute_level_distances.py          # Stage 10: Level distances + stacking
+│   ├── compute_gex_features.py             # Stage 11: Strike-banded GEX
+│   ├── compute_force_mass.py               # Stage 12: F=ma validation features
+│   ├── compute_approach.py                 # Stage 13: Approach context + normalization
+│   ├── label_outcomes.py                   # Stage 14: First-crossing labels (v3.0.0)
+│   ├── filter_rth.py                       # Stage 15: RTH filtering + schema validation
+│   ├── materialize_state_table.py          # Stage 16: 30s state table (v3.0.0)
+│   └── construct_episodes.py               # Stage 17: Episode vectors (v3.0.0)
 ├── pipelines/
 │   ├── es_pipeline.py           # build_es_pipeline()
 │   └── registry.py              # get_pipeline()
@@ -76,24 +78,28 @@ signals_df = pipeline.run("2025-12-16")
 
 ---
 
-## ES Pipeline (16 stages)
+## ES Pipeline v3.0.0 (18 stages, 0-indexed: 0-17)
 
-1. LoadBronze  
-2. BuildOHLCV (1min)  
-3. BuildOHLCV (2min, warmup)  
-4. InitMarketState  
-5. GenerateLevels  
-6. DetectInteractionZones  
-7. ComputePhysics  
-8. ComputeMultiWindowKinematics  
-9. ComputeMultiWindowOFI  
-10. ComputeBarrierEvolution  
-11. ComputeLevelDistances  
-12. ComputeGEXFeatures  
-13. ComputeForceMass  
-14. ComputeApproachFeatures  
-15. LabelOutcomes  
-16. FilterRTH
+**Note**: Stage indices are 0-based in code. Documentation may use 1-based for readability.
+
+0. LoadBronze  
+1. BuildOHLCV (1min)  
+2. BuildOHLCV (2min, warmup)  
+3. InitMarketState  
+4. GenerateLevels  
+5. DetectInteractionZones  
+6. ComputePhysics  
+7. ComputeMultiWindowKinematics  
+8. ComputeMultiWindowOFI  
+9. ComputeBarrierEvolution  
+10. ComputeLevelDistances  
+11. ComputeGEXFeatures  
+12. ComputeForceMass  
+13. ComputeApproachFeatures  
+14. LabelOutcomes (v3.0.0: first-crossing, BREAK/REJECT/CHOP)  
+15. FilterRTH  
+16. MaterializeStateTable (v3.0.0: NEW - 30s state cadence)  
+17. ConstructEpisodes (v3.0.0: NEW - 111-dim episode vectors)
 
 ---
 

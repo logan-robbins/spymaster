@@ -1,5 +1,5 @@
 """
-Validate Stage 18: ConstructEpisodes
+Validate Stage 17: ConstructEpisodes (index 17, was called "Stage 18" in 1-based docs)
 
 Goals:
 1. Construct 111-dimensional episode vectors from events + state table
@@ -49,14 +49,14 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage18Validator:
-    """Validator for ConstructEpisodes stage."""
+class Stage17Validator:
+    """Validator for ConstructEpisodes stage (index 17)."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
             'stage': 'construct_episodes',
-            'stage_idx': 18,
+            'stage_idx': 17,  # 0-indexed
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -66,7 +66,7 @@ class Stage18Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 18: ConstructEpisodes for {date}")
+        self.logger.info(f"Validating Stage 17: ConstructEpisodes (index 17) for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -89,9 +89,9 @@ class Stage18Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 18 Validation: PASSED")
+            self.logger.info("✅ Stage 17 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 18 Validation: FAILED")
+            self.logger.error("❌ Stage 17 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -340,7 +340,7 @@ class Stage18Validator:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 18: ConstructEpisodes')
+    parser = argparse.ArgumentParser(description='Validate Stage 17: ConstructEpisodes (index 17)')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--log-file', type=str, default=None, help='Log file path')
@@ -352,35 +352,35 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_18_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_17_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 18 validation for {args.date}")
+    logger.info(f"Starting Stage 17 (ConstructEpisodes, index 17) validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 18
-        logger.info("Running through ConstructEpisodes stage...")
+        # Run pipeline through stage 17 (0-indexed)
+        logger.info("Running through ConstructEpisodes stage (index 17)...")
         pipeline = build_es_pipeline()
 
         pipeline.run(
             date=args.date,
             checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=18,
-            stop_at_stage=18
+            resume_from_stage=17,
+            stop_at_stage=17
         )
 
         # Load checkpoint
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=18)
+        ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=17)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")
             return 1
 
         # Validate
-        validator = Stage18Validator(logger)
+        validator = Stage17Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -388,7 +388,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_18_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_17_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)
@@ -407,4 +407,7 @@ def main():
 if __name__ == "__main__":
     import sys
     sys.exit(main())
+
+# Note: This file is validate_stage_18_construct_episodes.py but validates index 17
+# (kept filename for consistency with 1-based documentation naming)
 

@@ -64,20 +64,26 @@ The system is ready for backtesting and deployment.
 - Validates ATR-normalized excursion fields
 - Usage: `uv run python backend/scripts/validate_es_pipeline.py --date 2024-12-20`
 
-**Stage Validators Created/Updated**:
-- ✅ **Stage 14** (`validate_stage_14_label_outcomes.py`) - Updated for first-crossing semantics (BREAK/REJECT/CHOP)
-- ✅ **Stage 16** (`validate_stage_16_materialize_state_table.py`) - NEW: Validates 30s state table
-- ✅ **Stage 18** (`validate_stage_18_construct_episodes.py`) - NEW: Validates 111-dim episode vectors
+**Stage Validators Created/Updated** (filenames use 1-based, code uses 0-based indices):
+- ✅ **Stage 14** (`validate_stage_14_label_outcomes.py`, index=14) - Updated for first-crossing, REJECT, new excursion fields
+- ✅ **Stage 16** (`validate_stage_16_materialize_state_table.py`, index=16) - NEW: Validates 30s state table, OR inactive check
+- ✅ **Stage 17** (`validate_stage_18_construct_episodes.py`, index=17) - NEW: Validates 111-dim vectors, metadata schema
+  
+**⚠️ Stage Indexing Note**: Pipeline uses 0-based indices (0-17). Validators named with 1-based for readability but use correct 0-based indices internally.
+
+**Schema Updates**:
+- ✅ **Silver Schema** (`backend/SILVER_SCHEMA.md`) - Added v3.0.0 notes on REJECT and new fields
+- ✅ **README.md** - Updated to lean operational guide, points to IMPLEMENTATION_READY.md
 
 **How to Run Stage Validators**:
 ```bash
 # Stage 14 (Label Outcomes)
 uv run python backend/scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
 
-# Stage 16 (State Table)
+# Stage 16 (State Table, index=16)
 uv run python backend/scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
 
-# Stage 18 (Episode Vectors)
+# Stage 17 (Episode Vectors, index=17, filename says "18" for 1-based docs)
 uv run python backend/scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
 ```
 
@@ -2155,13 +2161,33 @@ FUNCTION detect_feature_drift(
 - Updated to use first-crossing outcome labels (BREAK/REJECT/CHOP)
 - Pipeline now generates episode corpus ready for index building
 
-**Full Pipeline** (18 stages):
-1-15: Existing stages (bronze → features → labels)
-16: State Table Materialization (30s samples)
-17: (Offline) Normalization Stats Computation
-18: Episode Vector Construction (111 dims)
-19: (Offline) Index Building (48 partitions)
-20: (Offline) Validation
+**Full Pipeline** (18 stages, 0-indexed):
+
+| Index | Stage Name | Status | Description |
+|-------|------------|--------|-------------|
+| 0 | LoadBronze | Existing | Load ES futures + options from Bronze |
+| 1 | BuildOHLCV (1min) | Existing | 1-minute OHLCV for ATR |
+| 2 | BuildOHLCV (2min) | Existing | 2-minute OHLCV for SMA |
+| 3 | InitMarketState | Existing | Market state + Greeks |
+| 4 | GenerateLevels | Existing | 6 level kinds |
+| 5 | DetectInteractionZones | Existing | Event detection |
+| 6 | ComputePhysics | Existing | Barrier/Tape/Fuel |
+| 7 | ComputeMultiWindowKinematics | Existing | Velocity/Accel/Jerk |
+| 8 | ComputeMultiWindowOFI | Existing | Multi-window OFI |
+| 9 | ComputeBarrierEvolution | Existing | Barrier depth changes |
+| 10 | ComputeLevelDistances | Existing | Distance to all levels |
+| 11 | ComputeGEXFeatures | Existing | Gamma exposure features |
+| 12 | ComputeForceMass | Existing | F=ma validation |
+| 13 | ComputeApproach | Existing | Approach dynamics |
+| 14 | LabelOutcomes | **Updated** | **First-crossing (BREAK/REJECT/CHOP)** |
+| 15 | FilterRTH | Existing | RTH 09:30-12:30 filter |
+| 16 | MaterializeStateTable | **NEW** | **30s cadence state** |
+| 17 | ConstructEpisodes | **NEW** | **111-dim episode vectors** |
+
+**Offline Stages** (not in main pipeline):
+- Stage 17 (offline): Normalization Stats Computation
+- Stage 19 (offline): Index Building (48 FAISS partitions)
+- Stage 20 (offline): Validation (weekly)
 
 ### 13.1 Data Flow Architecture
 
