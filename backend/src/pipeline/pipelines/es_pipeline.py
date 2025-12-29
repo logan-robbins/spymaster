@@ -1,12 +1,13 @@
 """
-ES Futures + ES Options Multi-Window Physics Pipeline.
+ES Futures + ES Options Multi-Window Physics Pipeline + Episode Retrieval.
 
 Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
 Inference: Event-driven (zone entry + adaptive cadence)
 Features: 182 columns (10 identity + 108 engineered features + 64 labels)
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
-Outcome: Triple-barrier with volatility-scaled barrier, 2/4/8min horizons
-RTH: 09:30-13:30 ET (first 4 hours)
+Outcome: First-crossing semantics (BREAK/REJECT/CHOP), 2/4/8min horizons
+Episode Vectors: 111-dimensional vectors for similarity retrieval
+RTH: 09:30-12:30 ET (first 3 hours)
 """
 
 from src.pipeline.core.pipeline import Pipeline
@@ -27,6 +28,8 @@ from src.pipeline.stages.compute_force_mass import ComputeForceMassStage
 from src.pipeline.stages.compute_approach import ComputeApproachFeaturesStage
 from src.pipeline.stages.label_outcomes import LabelOutcomesStage
 from src.pipeline.stages.filter_rth import FilterRTHStage
+from src.pipeline.stages.materialize_state_table import MaterializeStateTableStage
+from src.pipeline.stages.construct_episodes import ConstructEpisodesStage
 
 
 def build_es_pipeline() -> Pipeline:
@@ -48,15 +51,17 @@ def build_es_pipeline() -> Pipeline:
     12. ComputeGEX (gamma within ±1/±2/±3 strikes; 5pt spacing for ES 0DTE ATM)
     13. ComputeForceMass (F=ma validation features)
     14. ComputeApproach (approach context + timing + normalization + clustering)
-    15. LabelOutcomes (triple-barrier: vol-scaled barrier, multi-horizon)
-    16. FilterRTH (09:30-13:30 ET with forward spillover)
+    15. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
+    16. FilterRTH (09:30-12:30 ET)
+    17. MaterializeStateTable (30s cadence state for episode construction)
+    18. ConstructEpisodes (111-dim vectors for similarity retrieval)
     
     Returns:
         Pipeline instance
     """
     return Pipeline(
         name="es_pipeline",
-        version="2.0.0",
+        version="3.0.0",  # Updated for IMPLEMENTATION_READY.md
         stages=[
             LoadBronzeStage(),
             BuildOHLCVStage(freq='1min', output_key='ohlcv_1min', rth_only=False),
@@ -73,6 +78,8 @@ def build_es_pipeline() -> Pipeline:
             ComputeForceMassStage(),
             ComputeApproachFeaturesStage(),
             LabelOutcomesStage(),
-            FilterRTHStage()
+            FilterRTHStage(),
+            MaterializeStateTableStage(),  # Stage 16
+            ConstructEpisodesStage()       # Stage 18
         ]
     )
