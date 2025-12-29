@@ -6,7 +6,8 @@ Inference: Event-driven (zone entry + adaptive cadence)
 Features: 182 columns (10 identity + 108 engineered features + 64 labels)
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
 Outcome: First-crossing semantics (BREAK/REJECT/CHOP), 2/4/8min horizons
-Episode Vectors: 111-dimensional vectors for similarity retrieval
+Episode Vectors: 144-dimensional vectors with DCT trajectory basis for similarity retrieval
+Zone Threshold: 2.0 ATR (compromise between 3.0 original and 1.25 analyst)
 RTH: 09:30-12:30 ET (first 3 hours)
 """
 
@@ -54,7 +55,7 @@ def build_es_pipeline() -> Pipeline:
     14. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
     15. FilterRTH (09:30-12:30 ET)
     16. MaterializeStateTable (30s cadence state for episode construction)
-    17. ConstructEpisodes (111-dim vectors for similarity retrieval)
+    17. ConstructEpisodes (144-dim vectors with DCT trajectory basis)
     
     Returns:
         Pipeline instance

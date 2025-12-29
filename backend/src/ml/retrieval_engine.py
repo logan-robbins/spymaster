@@ -221,7 +221,7 @@ class LiveEpisodeBuilder:
         self,
         normalizer_stats: Dict[str, Any],
         state_cadence_seconds: int = 30,
-        zone_threshold_atr: float = 3.0,
+        zone_threshold_atr: float = 2.0,  # Updated: compromise between 3.0 (original) and 1.25 (analyst)
         min_approach_velocity: float = 0.5
     ):
         """

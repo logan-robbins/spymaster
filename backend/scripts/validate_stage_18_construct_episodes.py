@@ -1,26 +1,30 @@
 """
 Validate Stage 17: ConstructEpisodes (index 17, was called "Stage 18" in 1-based docs)
 
-Goals:
-1. Construct 111-dimensional episode vectors from events + state table
-2. Apply normalization using precomputed statistics
-3. Generate episode metadata with labels and emission weights
-4. Output: vectors.npy + metadata.parquet (date-partitioned)
+UPDATED Dec 2025: Now validates 144D vectors with DCT trajectory basis
 
-Vector Architecture (111 dims):
-- Section A: Context State (26 dims)
-- Section B: Multi-Scale Trajectory (37 dims)
-- Section C: Micro-History (35 dims, 7 features × 5 bars)
-- Section D: Derived Physics (9 dims)
-- Section E: Cluster Trends (4 dims)
+Goals:
+1. Construct 144-dimensional episode vectors from events + state table
+2. Extract 20-minute trajectory windows for DCT computation
+3. Apply normalization using precomputed statistics
+4. Generate episode metadata with labels and emission weights
+5. Output: vectors.npy + metadata.parquet (date-partitioned)
+
+Vector Architecture (144 dims):
+- Section A: Context + Regime (25 dims) - removed redundant encodings
+- Section B: Multi-Scale Dynamics (37 dims)
+- Section C: Micro-History (35 dims, 7 features × 5 bars, LOG-TRANSFORMED)
+- Section D: Derived Physics (11 dims) - added mass_proxy, force_proxy, flow_alignment
+- Section E: Online Trends (4 dims)
+- Section F: Trajectory Basis (32 dims) - 4 series × 8 DCT coefficients
 
 Validation Checks:
 - Required inputs present (signals_df, state_df, date)
-- episodes_vectors output exists with shape [N × 111]
+- episodes_vectors output exists with shape [N × 144]
 - episodes_metadata output exists with required columns
 - Row counts match (vectors and metadata)
 - Metadata has outcome labels (outcome_2min, outcome_4min, outcome_8min)
-- Metadata has emission_weight and time_bucket fields
+- Metadata has emission_weight and time_bucket fields (5 buckets now)
 - No NaN/inf in vectors (after normalization)
 """
 
@@ -175,15 +179,15 @@ class Stage17Validator:
 
         n_episodes, n_dims = vectors.shape
 
-        if n_dims != 111:
+        if n_dims != 144:
             checks['vector_dimension'] = False
             self.results['passed'] = False
-            error = f"episodes_vectors has {n_dims} dims (expected 111)"
+            error = f"episodes_vectors has {n_dims} dims (expected 144)"
             self.results['errors'].append(error)
             self.logger.error(f"  ❌ {error}")
         else:
             checks['vector_dimension'] = True
-            self.logger.info(f"  ✅ Vector dimension: 111")
+            self.logger.info(f"  ✅ Vector dimension: 144")
 
         self.logger.info(f"  Total episodes: {n_episodes:,}")
         self.logger.info(f"  Vector shape: {vectors.shape}")
@@ -293,12 +297,12 @@ class Stage17Validator:
                     self.results['warnings'].append(warning)
                     self.logger.warning(f"  ⚠️  {warning}")
 
-        # Check time buckets
+        # Check time buckets (updated to 5 buckets per Analyst Opinion)
         if 'time_bucket' in metadata.columns:
             bucket_dist = metadata['time_bucket'].value_counts().to_dict()
             self.logger.info(f"  Time bucket distribution: {bucket_dist}")
 
-            valid_buckets = {'T0_30', 'T30_60', 'T60_120', 'T120_180'}
+            valid_buckets = {'T0_15', 'T15_30', 'T30_60', 'T60_120', 'T120_180'}
             invalid = set(metadata['time_bucket'].unique()) - valid_buckets
             if invalid:
                 warning = f"Invalid time_bucket values: {invalid}"

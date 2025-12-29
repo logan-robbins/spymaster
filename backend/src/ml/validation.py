@@ -235,7 +235,7 @@ def sanity_check_similarity(
     - Compute separation ratio
     
     Args:
-        episode_vectors: Episode vectors [N × 111]
+        episode_vectors: Episode vectors [N × 144]
         metadata: Metadata with outcome_4min column
         n_samples: Number of samples to check
     
@@ -307,9 +307,9 @@ def detect_feature_drift(
     - Use Wasserstein distance and mean shift
     
     Args:
-        corpus_vectors: All episode vectors [N × 111]
+        corpus_vectors: All episode vectors [N × 144]
         corpus_dates: Dates for each episode [N]
-        feature_names: Feature names [111]
+        feature_names: Feature names [144]
         lookback_days: Days for historical baseline
         recent_days: Days for recent window
     

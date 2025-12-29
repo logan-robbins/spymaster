@@ -13,25 +13,27 @@ logger = logging.getLogger(__name__)
 
 class ConstructEpisodesStage(BaseStage):
     """
-    Construct 111-dimensional episode vectors from events and state table.
+    Construct 144-dimensional episode vectors with DCT trajectory basis.
     
-    Per IMPLEMENTATION_READY.md Section 6 (Stage 18):
-    - For each event (anchor), extract 5-bar history from state table
-    - Construct raw 111-dim vector (5 sections: context, trajectory, history, physics, trends)
+    Updated to Analyst Opinion specification (Dec 2025):
+    - For each event (anchor), extract 5-bar micro-history from state table
+    - Extract 40-bar (20-minute) trajectory window for DCT computation
+    - Construct raw 144-dim vector (6 sections with DCT trajectory basis)
     - Normalize using precomputed statistics
     - Compute labels (outcome_2min/4min/8min) and emission weights
     - Output: vectors (npy) and metadata (parquet) partitioned by date
     
-    Vector architecture:
-    - Section A: Context State (26 dims)
-    - Section B: Multi-Scale Trajectory (37 dims)
-    - Section C: Micro-History (35 dims, 7 features × 5 bars)
-    - Section D: Derived Physics (9 dims)
-    - Section E: Cluster Trends (4 dims)
+    Vector architecture (144D):
+    - Section A: Context + Regime (25 dims) - removed redundant encodings
+    - Section B: Multi-Scale Dynamics (37 dims)
+    - Section C: Micro-History (35 dims, 7 features × 5 bars, LOG-TRANSFORMED)
+    - Section D: Derived Physics (11 dims) - added mass_proxy, force_proxy, flow_alignment
+    - Section E: Online Trends (4 dims)
+    - Section F: Trajectory Basis (32 dims) - 4 series × 8 DCT coefficients
     
     Outputs:
-        episodes_vectors: numpy array [N × 111]
-        episodes_metadata: DataFrame with labels and metadata
+        episodes_vectors: numpy array [N × 144]
+        episodes_metadata: DataFrame with labels and metadata (5 time buckets)
     """
     
     def __init__(self, normalization_stats_path: str = None):

@@ -10,7 +10,7 @@ Gates:
 4. Causality: Retrieval features use lookbacks only (labels look forward)
 5. Non-zero coverage: Physics metrics are non-trivial (not all zeros)
 6. Outcome labels: REJECT (not BOUNCE) with first-crossing semantics
-7. Episode construction: 111-dim vectors generated if normalization stats available
+7. Episode construction: 144-dim vectors with DCT basis generated if normalization stats available
 """
 
 import argparse

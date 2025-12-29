@@ -10,41 +10,93 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# Feature classification per IMPLEMENTATION_READY.md Section 7.3
+# Feature classification per Analyst Opinion + 144D architecture
 PASSTHROUGH_FEATURES = {
-    'level_kind', 'direction', 'fuel_effect', 'barrier_state', 'sweep_detected'
+    'fuel_effect', 'fuel_effect_encoded', 'barrier_state', 'barrier_state_encoded', 
+    'sweep_detected', 'or_active'
 }
 
 ROBUST_FEATURES = {
+    # Tape/flow (heavy-tailed)
     'tape_velocity', 'tape_imbalance', 'tape_buy_vol', 'tape_sell_vol',
-    'barrier_delta_liq', 'barrier_delta_1min', 'barrier_delta_3min', 'barrier_delta_5min',
+    'tape_log_ratio', 'tape_log_total',
+    # OFI
     'ofi_30s', 'ofi_60s', 'ofi_120s', 'ofi_300s',
     'ofi_near_level_30s', 'ofi_near_level_60s', 'ofi_near_level_120s', 'ofi_near_level_300s',
-    'wall_ratio', 'accel_residual', 'force_mass_ratio',
+    'ofi_acceleration',
+    # Barrier/liquidity (heavy-tailed, log-transformed)
+    'barrier_delta_liq', 'barrier_delta_liq_log',
+    'barrier_delta_1min', 'barrier_delta_3min', 'barrier_delta_5min',
     'barrier_pct_change_1min', 'barrier_pct_change_3min', 'barrier_pct_change_5min',
-    'tape_log_ratio', 'tape_log_total',
+    'barrier_depth_current', 'barrier_replenishment_ratio',
+    'wall_ratio', 'wall_ratio_log',
+    # Physics proxies
+    'accel_residual', 'force_mass_ratio', 'mass_proxy', 'force_proxy', 'flow_alignment',
+    # GEX
     'gex_asymmetry', 'gex_ratio', 'net_gex_2strike', 'gamma_exposure',
     'gex_above_1strike', 'gex_below_1strike', 'call_gex_above_2strike', 'put_gex_below_2strike',
-    'barrier_depth_current', 'barrier_replenishment_ratio',
+    # Trends
     'barrier_replenishment_trend', 'barrier_delta_liq_trend', 'tape_velocity_trend', 'tape_imbalance_trend'
 }
 
 ZSCORE_FEATURES = {
+    # Kinematics (approximately symmetric)
     'velocity_1min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
     'acceleration_1min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
     'jerk_1min', 'jerk_3min', 'jerk_5min', 'jerk_10min', 'jerk_20min',
     'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
-    'distance_signed_atr', 'approach_velocity', 'approach_distance_atr',
-    'predicted_accel', 'atr',
+    # Distances (signed, symmetric)
+    'distance_signed_atr', 'd_atr',
     'dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr', 'dist_to_or_low_atr',
-    'dist_to_sma_200_atr', 'dist_to_sma_400_atr'
+    'dist_to_sma_200_atr', 'dist_to_sma_400_atr',
+    # Approach
+    'approach_velocity', 'approach_distance_atr',
+    # Other
+    'predicted_accel', 'atr',
+    # DCT coefficients (frequency domain, use z-score)
+    # These will be matched by pattern below
 }
 
 MINMAX_FEATURES = {
     'minutes_since_open', 'bars_since_open',
     'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
-    'prior_touches', 'attempt_index', 'approach_bars', 'attempt_cluster_id_mod'
+    'prior_touches', 'attempt_index', 'approach_bars', 
+    'attempt_cluster_id_mod', 'time_since_last_touch_sec'
 }
+
+
+def classify_feature_method(feature_name: str) -> str:
+    """
+    Classify feature into normalization method.
+    
+    Handles pattern matching for DCT coefficients and micro-history features.
+    """
+    if feature_name in PASSTHROUGH_FEATURES:
+        return 'passthrough'
+    elif feature_name in ROBUST_FEATURES:
+        return 'robust'
+    elif feature_name in ZSCORE_FEATURES:
+        return 'zscore'
+    elif feature_name in MINMAX_FEATURES:
+        return 'minmax'
+    # Pattern matching for generated feature names
+    elif feature_name.startswith('dct_'):
+        # DCT coefficients: use z-score (frequency domain)
+        return 'zscore'
+    elif '_t0' in feature_name or '_t1' in feature_name or '_t2' in feature_name or '_t3' in feature_name or '_t4' in feature_name:
+        # Micro-history features: classify by base feature
+        base_feature = feature_name.rsplit('_t', 1)[0]
+        if 'log' in base_feature or 'barrier' in base_feature or 'wall_ratio' in base_feature:
+            return 'robust'
+        elif 'd_atr' in base_feature or 'distance' in base_feature:
+            return 'zscore'
+        elif 'ofi' in base_feature or 'tape' in base_feature or 'gamma' in base_feature:
+            return 'robust'
+        else:
+            return 'robust'  # Default for micro-history
+    else:
+        # Default to robust for unknown features
+        return 'robust'
 
 
 def compute_normalization_stats(
@@ -90,12 +142,14 @@ def compute_normalization_stats(
             logger.warning(f"  Feature {feature} has no valid values, skipping")
             continue
         
-        # Determine normalization method
-        if feature in PASSTHROUGH_FEATURES:
+        # Determine normalization method using classifier
+        method = classify_feature_method(feature)
+        
+        if method == 'passthrough':
             stats['features'][feature] = {'method': 'passthrough'}
             continue
         
-        if feature in ROBUST_FEATURES:
+        if method == 'robust':
             # Robust normalization: (x - median) / IQR
             median = float(values.median())
             q75 = float(values.quantile(0.75))
@@ -110,7 +164,7 @@ def compute_normalization_stats(
                 'q75': q75
             }
         
-        elif feature in ZSCORE_FEATURES:
+        elif method == 'zscore':
             # Z-score normalization: (x - mean) / std
             mean = float(values.mean())
             std = float(values.std())
@@ -121,7 +175,7 @@ def compute_normalization_stats(
                 'scale': std if std > 1e-6 else 1.0
             }
         
-        elif feature in MINMAX_FEATURES:
+        elif method == 'minmax':
             # MinMax normalization: (x - min) / (max - min)
             min_val = float(values.min())
             max_val = float(values.max())
