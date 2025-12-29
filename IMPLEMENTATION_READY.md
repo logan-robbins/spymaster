@@ -1,89 +1,76 @@
 # IMPLEMENTATION_READY.md
 ## Level Interaction Similarity Retrieval System — Canonical Specification
 
-**Version**: 3.0  
-**Purpose**: Complete specification for AI coding agent implementation  
+**Version**: 3.1  
+**Purpose**: Complete specification for level-interaction similarity retrieval  
 **Scope**: First 3 hours of RTH (09:30-12:30 ET), ES Futures  
+**Architecture**: 144-dimensional episode vectors with DCT trajectory basis  
+**Last Updated**: December 29, 2025
 
 ---
 
-## 🎉 IMPLEMENTATION STATUS: COMPLETE ✅
+## System Overview
 
-**Implementation Date**: December 29, 2025  
-**Completion**: 10/10 sections implemented (100%)
+This specification defines a similarity retrieval system for level-interaction trading in ES futures during the first 3 hours of RTH. The system constructs 144-dimensional episode vectors that capture market state, approach dynamics, and 20-minute trajectory shape using frequency-domain encoding, then retrieves historically similar setups to present empirical outcome distributions.
 
-### Implementation Summary
+### Architecture Summary
 
-All core components have been implemented per specification:
+| Component | Specification |
+|-----------|---------------|
+| **Episode Vectors** | 144 dimensions (6 sections) |
+| **Vector Sections** | Context (25) + Dynamics (37) + Micro-History (35) + Physics (11) + Trends (4) + DCT Basis (32) |
+| **Trajectory Encoding** | DCT-II on 4 series × 8 coefficients = 32 dims |
+| **Log Transforms** | barrier_delta_liq_log, wall_ratio_log in micro-history |
+| **Zone Threshold** | 2.0 ATR for approach detection |
+| **Time Buckets** | 5 buckets (T0_15, T15_30, T30_60, T60_120, T120_180) |
+| **Total Partitions** | 60 indices (6 levels × 2 directions × 5 time buckets) |
+| **Similarity Metric** | Cosine similarity (L2-normalized vectors, inner product) |
+| **Index Type** | Auto-select: Flat / IVF / IVFPQ based on corpus size |
+| **Outcomes** | BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold) |
+| **Horizons** | 2min/4min/8min (primary: 4min) |
+| **Retrieval** | 500 candidates → dedup (max 2/day, 1/episode) → top 50 neighbors |
 
-✅ **Section 3**: Outcome label contract (first-crossing, BREAK/REJECT/CHOP)  
-✅ **Section 4**: State table materialization (30s cadence, Stage 16)  
-✅ **Section 7**: Normalization statistics (robust/zscore/minmax, Stage 17)  
-✅ **Section 6**: Episode vector construction (111 dims, Stage 18)  
-✅ **Section 8**: Index building (FAISS, 48 partitions, Stage 19)  
-✅ **Section 9**: Retrieval pipeline (IndexManager, LiveBuilder, QueryEngine)  
-✅ **Section 10**: Outcome aggregation (weighted distributions, CIs, excursions)  
-✅ **Section 11**: Attribution system (similarity, outcome, section, physics)  
-✅ **Section 12**: Validation framework (temporal CV, calibration, drift, sanity)  
-✅ **Section 13**: Pipeline integration (updated es_pipeline to v3.0.0)
+### Key Modules
 
-### Key Files Created
-
-**Core Modules**:
+**Core ML**:
+- `backend/src/ml/constants.py` - System constants and thresholds
 - `backend/src/ml/normalization.py` - Normalization statistics computation
-- `backend/src/ml/episode_vector.py` - 111-dimensional vector construction
-- `backend/src/ml/index_builder.py` - FAISS index building
+- `backend/src/ml/episode_vector.py` - 144-dimensional vector construction with DCT
+- `backend/src/ml/index_builder.py` - FAISS index building (60 partitions)
 - `backend/src/ml/retrieval_engine.py` - Real-time query engine
 - `backend/src/ml/outcome_aggregation.py` - Outcome distributions
 - `backend/src/ml/attribution.py` - Explainability system
 - `backend/src/ml/validation.py` - Quality monitoring
 
 **Pipeline Stages**:
-- `backend/src/pipeline/stages/label_outcomes.py` - Updated to first-crossing
-- `backend/src/pipeline/stages/materialize_state_table.py` - Stage 16
-- `backend/src/pipeline/stages/construct_episodes.py` - Stage 18
+- `backend/src/pipeline/stages/label_outcomes.py` - First-crossing semantics
+- `backend/src/pipeline/stages/materialize_state_table.py` - Stage 16 (30s state)
+- `backend/src/pipeline/stages/construct_episodes.py` - Stage 17 (144D vectors)
 
 **Pipeline Integration**:
-- `backend/src/pipeline/pipelines/es_pipeline.py` - Updated to v3.0.0
+- `backend/src/pipeline/pipelines/es_pipeline.py` - 18-stage pipeline
 
-### Next Steps (Operational)
-
-1. **Compute Normalization Stats**: Run Stage 17 on 60 days of state table data
-2. **Build Indices**: Run Stage 19 to build FAISS indices from episode corpus
-3. **Deploy Query Service**: Initialize RealTimeQueryService with normalization stats and IndexManager
-4. **Run Validation**: Execute ValidationRunner weekly to monitor quality
-5. **Monitor Drift**: Check feature drift detection output regularly
-
-The system is ready for backtesting and deployment.
-
-### Validation Scripts (Updated for v3.0.0)
+### Validation Scripts
 
 **Main Pipeline Validator**: `backend/scripts/validate_es_pipeline.py`
-- Updated to v3.0.0 with 6 QA gates
-- Now checks for REJECT (not BOUNCE) in outcomes
-- Validates ATR-normalized excursion fields
+- Validates full pipeline with 6 QA gates
+- Checks for REJECT outcomes, ATR-normalized excursions
 - Usage: `uv run python backend/scripts/validate_es_pipeline.py --date 2024-12-20`
 
-**Stage Validators Created/Updated** (filenames use 1-based, code uses 0-based indices):
-- ✅ **Stage 14** (`validate_stage_14_label_outcomes.py`, index=14) - Updated for first-crossing, REJECT, new excursion fields
-- ✅ **Stage 16** (`validate_stage_16_materialize_state_table.py`, index=16) - NEW: Validates 30s state table, OR inactive check
-- ✅ **Stage 17** (`validate_stage_18_construct_episodes.py`, index=17) - NEW: Validates 111-dim vectors, metadata schema
-  
-**⚠️ Stage Indexing Note**: Pipeline uses 0-based indices (0-17). Validators named with 1-based for readability but use correct 0-based indices internally.
+**Stage Validators** (filenames use 1-based, code uses 0-based indices):
+- **Stage 14** (`validate_stage_14_label_outcomes.py`) - First-crossing labels
+- **Stage 16** (`validate_stage_16_materialize_state_table.py`) - 30s state table
+- **Stage 17** (`validate_stage_18_construct_episodes.py`) - 144-dim vectors, 5 time buckets
 
-**Schema Updates**:
-- ✅ **Silver Schema** (`backend/SILVER_SCHEMA.md`) - Added v3.0.0 notes on REJECT and new fields
-- ✅ **README.md** - Updated to lean operational guide, points to IMPLEMENTATION_READY.md
-
-**How to Run Stage Validators**:
+**How to Run**:
 ```bash
 # Stage 14 (Label Outcomes)
 uv run python backend/scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
 
-# Stage 16 (State Table, index=16)
+# Stage 16 (State Table)
 uv run python backend/scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
 
-# Stage 17 (Episode Vectors, index=17, filename says "18" for 1-based docs)
+# Stage 17 (Episode Vectors, 144D)
 uv run python backend/scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
 ```
 
@@ -288,45 +275,26 @@ gold/indices/es_level_indices/
 
 ---
 
-## 3. Outcome Label Contract ✅ COMPLETE
+## 3. Outcome Label Contract
 
-**Implementation**: `backend/src/pipeline/stages/label_outcomes.py`  
-**Status**: Updated to use first-crossing semantics with REJECT terminology  
-**Changes**: 
-- Replaced BOUNCE with REJECT
-- Simplified to use 1.0 ATR threshold (fixed)
-- Removed dynamic barrier computation
-- Added excursion_favorable and excursion_adverse (ATR-normalized)
-- Multi-horizon labels: outcome_2min, outcome_4min, outcome_8min
+**Implementation**: `backend/src/pipeline/stages/label_outcomes.py`
+
+The outcome label is determined using first-crossing semantics with a fixed 1.0 ATR threshold. Labels are computed independently for three time horizons (2min, 4min, 8min).
 
 ### 3.1 Label Function
 
-The outcome label is determined by **first-crossing semantics** using existing schema fields.
+**Implementation**: `backend/src/pipeline/stages/label_outcomes.py`
 
-```
-FUNCTION compute_outcome_label(
-    direction: string,
-    time_to_break: float | null,    # time_to_break_1_{H} field
-    time_to_bounce: float | null,   # time_to_bounce_1_{H} field
-) -> string:
+The outcome label is determined by **first-crossing semantics** using existing schema fields `time_to_break_1_{H}` and `time_to_bounce_1_{H}`.
 
-    # Treat null as "never hit" (infinity)
-    t_break = time_to_break if time_to_break is not null else +∞
-    t_bounce = time_to_bounce if time_to_bounce is not null else +∞
-    
-    # Neither threshold crossed within horizon
-    IF t_break == +∞ AND t_bounce == +∞:
-        RETURN 'CHOP'
-    
-    # First crossing determines outcome
-    IF t_break < t_bounce:
-        RETURN 'BREAK'
-    ELSE IF t_bounce < t_break:
-        RETURN 'REJECT'
-    ELSE:
-        # Exact tie (same timestamp) - rare, treat as CHOP
-        RETURN 'CHOP'
-```
+**Logic**:
+- Treat null timestamps as "never hit"
+- If neither threshold crossed within horizon → CHOP
+- If break crossed first → BREAK
+- If bounce crossed first → REJECT
+- Tie (same timestamp) → CHOP
+
+**Threshold**: 1.0 ATR in both directions (fixed)
 
 ### 3.2 Label Semantics by Direction
 
@@ -337,33 +305,22 @@ FUNCTION compute_outcome_label(
 
 ### 3.3 Multi-Horizon Labels
 
-Compute labels independently for each horizon:
+Labels are computed independently for three time horizons: 2min (120s), 4min (240s), 8min (480s).
 
-```
-outcome_2min = compute_outcome_label(direction, time_to_break_1_2min, time_to_bounce_1_2min)
-outcome_4min = compute_outcome_label(direction, time_to_break_1_4min, time_to_bounce_1_4min)
-outcome_8min = compute_outcome_label(direction, time_to_break_1_8min, time_to_bounce_1_8min)
-```
+Primary horizon for retrieval: **4min**
 
 ### 3.4 Continuous Outcome Variables
 
-In addition to discrete labels, store continuous outcome measures:
+In addition to discrete labels, the system stores continuous outcome measures in episode metadata:
 
-```
-# Favorable excursion: movement in the "break" direction
-IF direction == 'UP':
-    excursion_favorable = excursion_max / atr
-    excursion_adverse = abs(excursion_min) / atr
-ELSE:  # DOWN
-    excursion_favorable = abs(excursion_min) / atr
-    excursion_adverse = excursion_max / atr
+- `excursion_favorable`: Movement in break direction (ATR-normalized)
+- `excursion_adverse`: Movement in reject direction (ATR-normalized)
+- `time_to_resolution`: Time to first threshold hit (seconds)
+- `strength_signed`, `strength_abs`: Outcome strength metrics
 
-# Time to resolution (first threshold hit)
-time_to_resolution = min(
-    time_to_break if time_to_break is not null else +∞,
-    time_to_bounce if time_to_bounce is not null else +∞
-)
-```
+**Direction mapping**:
+- UP: favorable = excursion_max, adverse = |excursion_min|
+- DOWN: favorable = |excursion_min|, adverse = excursion_max
 
 ### 3.5 Online Safety
 
@@ -380,16 +337,11 @@ time_to_resolution = min(
 
 ---
 
-## 4. Level-Relative State Table ✅ COMPLETE
+## 4. Level-Relative State Table
 
-**Implementation**: `backend/src/pipeline/stages/materialize_state_table.py`  
-**Status**: New Stage 16 created  
-**Features**:
-- Samples every 30 seconds from 09:30-12:30 ET (360 samples/level/day)
-- One row per (timestamp, level_kind) pair
-- Forward-fills features from event table (all online-safe)
-- Handles OR levels being inactive before 09:45
-- Computes dynamic SMA levels from 2min OHLCV
+**Implementation**: `backend/src/pipeline/stages/materialize_state_table.py` (Stage 16)
+
+The state table provides time-sampled market state at fixed 30-second cadence in the coordinate frame of each level. This enables window extraction for episode construction and visualization of approach dynamics.
 
 ### 4.1 Purpose
 
@@ -544,7 +496,7 @@ Cluster Trends:
 
 ### 5.1 Touch Anchor (Primary)
 
-A touch anchor is created when price first enters the interaction zone for a level.
+A touch anchor is created when price first enters the interaction zone for a level (within 2.0 ATR).
 
 **Source**: Existing event table rows (each `event_id` is a touch anchor)
 
@@ -557,150 +509,141 @@ A touch anchor is created when price first enters the interaction zone for a lev
 
 ### 5.2 Time Bucket Assignment
 
-Assign each anchor to a time bucket based on `minutes_since_open`:
+**Implementation**: `backend/src/ml/episode_vector.py` (assign_time_bucket)
 
-```
-FUNCTION assign_time_bucket(minutes_since_open: float) -> string:
-    IF minutes_since_open < 30:
-        RETURN 'T0_30'
-    ELSE IF minutes_since_open < 60:
-        RETURN 'T30_60'
-    ELSE IF minutes_since_open < 120:
-        RETURN 'T60_120'
-    ELSE:
-        RETURN 'T120_180'
-```
+Assign each anchor to a time bucket based on `minutes_since_open`. Five buckets provide finer temporal resolution, especially in the first 30 minutes when OR is being established:
+
+| Minutes | Bucket | Description |
+|---------|--------|-------------|
+| 0-15 | T0_15 | OR formation period |
+| 15-30 | T15_30 | Post-OR early |
+| 30-60 | T30_60 | Mid-session |
+| 60-120 | T60_120 | Late-session |
+| 120-180 | T120_180 | Final hour |
 
 ### 5.3 Emission Weight
 
-Each anchor receives a quality weight used in retrieval:
+**Implementation**: `backend/src/ml/episode_vector.py` (compute_emission_weight)
 
-```
-FUNCTION compute_emission_weight(
-    spot: float,
-    level_price: float,
-    atr: float,
-    approach_velocity: float,
-    ofi_60s: float
-) -> float:
+Each anchor receives a quality weight in [0, 1] based on:
 
-    distance_atr = abs(spot - level_price) / atr
-    
-    # Proximity weight: closer to level = higher weight
-    # 1.0 at level, 0.5 at 1 ATR, 0.1 at 3.5 ATR
-    proximity_w = exp(-distance_atr / 1.5)
-    
-    # Velocity weight: faster approach = more decisive setup
-    # Clip to [0.2, 1.0]
-    velocity_w = clip(abs(approach_velocity) / 2.0, 0.2, 1.0)
-    
-    # OFI alignment: flow in direction of approach = cleaner signal
-    ofi_sign = sign(ofi_60s)
-    approach_sign = sign(level_price - spot)  # positive if approaching from below
-    ofi_aligned = (ofi_sign == approach_sign) OR (ofi_sign == 0)
-    ofi_w = 1.0 if ofi_aligned else 0.6
-    
-    RETURN proximity_w * velocity_w * ofi_w
-```
+**Proximity weight**: Exponential decay from level, `exp(-distance_atr / 1.5)`
+- 1.0 at level, 0.5 at 1 ATR, 0.1 at 3.5 ATR
+
+**Velocity weight**: Faster approach = more decisive, clipped to [0.2, 1.0]
+- `clip(|approach_velocity| / 2.0, 0.2, 1.0)`
+
+**OFI alignment**: Flow direction matches approach direction
+- 1.0 if aligned or neutral, 0.6 if opposing
+
+**Combined**: `w_emission = proximity_w × velocity_w × ofi_w`
 
 ---
 
-## 6. Episode Vector Architecture ✅ COMPLETE
+## 6. Episode Vector Architecture
 
 **Implementation**: `backend/src/ml/episode_vector.py`, `backend/src/pipeline/stages/construct_episodes.py`  
-**Status**: Stage 18 created  
-**Features**:
-- Constructs 111-dimensional vectors from events + state table
-- 5 sections: Context (26), Trajectory (37), Micro-History (35), Physics (9), Trends (4)
-- Extracts 5-bar (2.5min) history windows at 30s cadence
-- Applies normalization using precomputed stats
-- Computes labels (outcome_2min/4min/8min) and emission weights
-- Outputs: vectors.npy + metadata.parquet (date-partitioned)
+
+The episode vector is a **144-dimensional float32 array** optimized for similarity search:
 
 ### 6.1 Design Principles
 
-The episode vector is a **1-dimensional array** optimized for similarity search:
-
 1. **Level-relative**: All price-based features expressed relative to tested level
 2. **ATR-normalized**: Scale-invariant across price regimes
-3. **Hybrid architecture**: Combines slow context, multi-scale trajectory, and fast micro-history
-4. **Optimal dimensionality**: 111 dimensions (within 100-200 optimal range for ANN search)
+3. **Trajectory encoding**: Full 20-minute approach shape captured via DCT coefficients
+4. **Hybrid architecture**: Combines slow context, multi-scale dynamics, fast micro-history, and frequency-domain trajectory
+5. **Log-transformed heavy-tailed features**: Barrier and wall features use log transforms for better normalization
+6. **Optimal dimensionality**: 144 dimensions (within 100-200 optimal range for ANN search)
 
-### 6.2 Vector Sections
+### 6.2 Construction Process
+
+For each anchor:
+- Extract 5-bar micro-history (last 2.5 minutes @ 30s cadence)
+- Extract 40-bar trajectory window (last 20 minutes @ 30s cadence)
+- Compute DCT coefficients for 4 key time series
+- Assemble 144-dimensional raw vector
+- Apply feature-specific normalization
+- Compute labels and emission weight
+
+### 6.3 Vector Sections
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         EPISODE VECTOR (111 DIMENSIONS)                         │
-│                                                                                 │
-│  ┌──────────────────┐ ┌──────────────────────┐ ┌─────────────────────────────┐ │
-│  │  SECTION A:      │ │  SECTION B:          │ │  SECTION C:                 │ │
-│  │  CONTEXT STATE   │ │  MULTI-SCALE         │ │  MICRO-HISTORY              │ │
-│  │  (T=0 snapshot)  │ │  TRAJECTORY          │ │  (T-4 to T=0, 5 bars)       │ │
-│  │                  │ │  (T=0, encodes       │ │                             │ │
-│  │  26 dims         │ │   temporal dynamics) │ │  35 dims                    │ │
-│  │                  │ │                      │ │  (7 features × 5 bars)      │ │
-│  │  • Level ID      │ │  37 dims             │ │                             │ │
-│  │  • Session pos   │ │                      │ │  • distance_signed_atr      │ │
-│  │  • GEX struct    │ │  • Velocity scales   │ │  • tape_imbalance           │ │
-│  │  • Stacking      │ │  • Accel scales      │ │  • tape_velocity            │ │
-│  │  • Ref distances │ │  • Jerk scales       │ │  • ofi_60s                  │ │
-│  │  • Touch memory  │ │  • Momentum trends   │ │  • barrier_delta_liq        │ │
-│  │                  │ │  • OFI scales        │ │  • wall_ratio               │ │
-│  │                  │ │  • Barrier evolution │ │  • gamma_exposure           │ │
-│  │                  │ │  • Approach dynamics │ │                             │ │
-│  └──────────────────┘ └──────────────────────┘ └─────────────────────────────┘ │
-│                                                                                 │
-│  ┌──────────────────┐ ┌──────────────────────┐                                 │
-│  │  SECTION D:      │ │  SECTION E:          │                                 │
-│  │  DERIVED PHYSICS │ │  CLUSTER TRENDS      │                                 │
-│  │                  │ │                      │                                 │
-│  │  9 dims          │ │  4 dims              │                                 │
-│  │                  │ │                      │                                 │
-│  │  • Force model   │ │  • Replenish trend   │                                 │
-│  │  • Barrier state │ │  • Delta liq trend   │                                 │
-│  │  • Current flow  │ │  • Tape trends       │                                 │
-│  └──────────────────┘ └──────────────────────┘                                 │
-│                                                                                 │
-│  TOTAL: 26 + 37 + 35 + 9 + 4 = 111 dimensions                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                         EPISODE VECTOR (144 DIMENSIONS)                          │
+│                                                                                  │
+│  ┌──────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────┐ │
+│  │  SECTION A:      │ │  SECTION B:          │ │  SECTION C:                  │ │
+│  │  CONTEXT +       │ │  MULTI-SCALE         │ │  MICRO-HISTORY               │ │
+│  │  REGIME          │ │  DYNAMICS            │ │  (T-4 to T=0, 5 bars)        │ │
+│  │  (T=0 snapshot)  │ │  (T=0, encodes       │ │                              │ │
+│  │                  │ │   temporal dynamics) │ │  35 dims                     │ │
+│  │  25 dims         │ │                      │ │  (7 features × 5 bars)       │ │
+│  │                  │ │  37 dims             │ │                              │ │
+│  │  • Session pos   │ │                      │ │  • d_atr                     │ │
+│  │  • OR active     │ │  • Velocity scales   │ │  • tape_imbalance            │ │
+│  │  • GEX struct    │ │  • Accel scales      │ │  • tape_velocity             │ │
+│  │  • Stacking      │ │  • Jerk scales       │ │  • ofi_60s                   │ │
+│  │  • Ref distances │ │  • Momentum trends   │ │  • barrier_delta_liq_log (†) │ │
+│  │  • Touch memory  │ │  • OFI scales        │ │  • wall_ratio_log (†)        │ │
+│  │                  │ │  • Barrier evolution │ │  • gamma_exposure            │ │
+│  │                  │ │  • Approach dynamics │ │                              │ │
+│  └──────────────────┘ └──────────────────────┘ └──────────────────────────────┘ │
+│                                                                                  │
+│  ┌──────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────┐ │
+│  │  SECTION D:      │ │  SECTION E:          │ │  SECTION F:                  │ │
+│  │  DERIVED PHYSICS │ │  ONLINE TRENDS       │ │  TRAJECTORY BASIS            │ │
+│  │                  │ │                      │ │                              │ │
+│  │  11 dims         │ │  4 dims              │ │  32 dims                     │ │
+│  │                  │ │                      │ │  (4 series × 8 DCT coeffs)   │ │
+│  │  • Force model   │ │  • Replenish trend   │ │                              │ │
+│  │  • Mass proxy    │ │  • Delta liq trend   │ │  • DCT(d_atr)                │ │
+│  │  • Force proxy   │ │  • Tape trends       │ │  • DCT(ofi_60s)              │ │
+│  │  • Flow align    │ │                      │ │  • DCT(barrier_log)          │ │
+│  │  • Barrier state │ │                      │ │  • DCT(tape_imbal)           │ │
+│  └──────────────────┘ └──────────────────────┘ └──────────────────────────────┘ │
+│                                                                                  │
+│  (†) LOG-TRANSFORMED: Heavy-tailed features use log transforms for stability    │
+│  TOTAL: 25 + 37 + 35 + 11 + 4 + 32 = 144 dimensions                             │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Section A: Context State (26 dimensions)
+### 6.4 Section A: Context + Regime (25 dimensions)
 
 Single snapshot at T=0. These features define the environment and change slowly.
 
+**Note**: `level_kind` and `direction` are **not** encoded in the vector since they are partition keys (each index is specific to a level_kind × direction combination).
+
 ```
-Index   Feature                      Encoding
-─────   ───────                      ────────
-0       level_kind                   Ordinal: PM_HIGH=0, PM_LOW=1, OR_HIGH=2, OR_LOW=3, SMA_200=4, SMA_400=5
-1       direction                    UP=1, DOWN=-1
-2       minutes_since_open           Raw (will be MinMax normalized)
-3       bars_since_open              Raw (will be MinMax normalized)
-4       atr                          Raw (will be robust normalized)
-5       gex_asymmetry                Raw
-6       gex_ratio                    Raw
-7       net_gex_2strike              Raw
-8       gamma_exposure               Raw
-9       gex_above_1strike            Raw
-10      gex_below_1strike            Raw
-11      call_gex_above_2strike       Raw
-12      put_gex_below_2strike        Raw
-13      fuel_effect                  AMPLIFY=1, NEUTRAL=0, DAMPEN=-1
-14      level_stacking_2pt           Raw
-15      level_stacking_5pt           Raw
-16      level_stacking_10pt          Raw
-17      dist_to_pm_high_atr          Raw
-18      dist_to_pm_low_atr           Raw
-19      dist_to_or_high_atr          Raw (0 if OR not yet established)
-20      dist_to_or_low_atr           Raw (0 if OR not yet established)
-21      dist_to_sma_200_atr          Raw
-22      dist_to_sma_400_atr          Raw
-23      prior_touches                Raw
-24      attempt_index                Raw
-25      attempt_cluster_id_mod       attempt_cluster_id % 1000 (bounded)
+Index   Feature                      Encoding / Notes
+─────   ───────                      ────────────────
+0       minutes_since_open           MinMax normalized [0, 180]
+1       bars_since_open              MinMax normalized [0, 90]
+2       atr                          Z-score normalized
+3       or_active                    0.0 if minutes_since_open < 15, else 1.0
+4       level_stacking_2pt           MinMax normalized [0, 6]
+5       level_stacking_5pt           MinMax normalized [0, 6]
+6       level_stacking_10pt          MinMax normalized [0, 6]
+7       dist_to_pm_high_atr          Z-score normalized
+8       dist_to_pm_low_atr           Z-score normalized
+9       dist_to_or_high_atr          Z-score normalized (0 if OR not active)
+10      dist_to_or_low_atr           Z-score normalized (0 if OR not active)
+11      dist_to_sma_200_atr          Z-score normalized
+12      dist_to_sma_400_atr          Z-score normalized
+13      prior_touches                MinMax normalized [0, 10]
+14      attempt_index                MinMax normalized [0, 10]
+15      time_since_last_touch_sec    MinMax normalized (seconds since last touch)
+16      gamma_exposure               Robust normalized
+17      fuel_effect                  Encoded: AMPLIFY=1, NEUTRAL=0, DAMPEN=-1
+18      gex_ratio                    Robust normalized
+19      gex_asymmetry                Robust normalized
+20      net_gex_2strike              Robust normalized
+21      gex_above_1strike            Robust normalized
+22      gex_below_1strike            Robust normalized
+23      call_gex_above_2strike       Robust normalized
+24      put_gex_below_2strike        Robust normalized
 ```
 
-### 6.4 Section B: Multi-Scale Trajectory (37 dimensions)
+### 6.5 Section B: Multi-Scale Dynamics (37 dimensions)
 
 Single snapshot at T=0. These features already encode temporal dynamics via multi-scale computation.
 
@@ -721,249 +664,126 @@ Index   Feature
 62      approach_distance_atr                         (1)
 ```
 
-### 6.5 Section C: Micro-History (35 dimensions)
+### 6.6 Section C: Micro-History (35 dimensions)
 
 5-bar history (T-4 to T=0) for 7 fast-changing features. These capture the immediate approach dynamics.
 
-```
-Index   Feature × Time
-─────   ──────────────
-63-67   distance_signed_atr[t-4], distance_signed_atr[t-3], ..., distance_signed_atr[t0]
-68-72   tape_imbalance[t-4..t0]
-73-77   tape_velocity[t-4..t0]
-78-82   ofi_60s[t-4..t0]
-83-87   barrier_delta_liq[t-4..t0]
-88-92   wall_ratio[t-4..t0]
-93-97   gamma_exposure[t-4..t0]
-```
-
-**Bar cadence for micro-history**: Use the state table cadence (30 seconds), so 5 bars = 2.5 minutes of micro-history.
-
-### 6.6 Section D: Derived Physics (9 dimensions)
+**Log Transforms**: Barrier and wall features use log transforms to handle heavy-tailed distributions.
 
 ```
-Index   Feature
-─────   ───────
-98      predicted_accel
-99      accel_residual
-100     force_mass_ratio
-101     barrier_state_encoded        STRONG_SUPPORT=2, WEAK_SUPPORT=1, NEUTRAL=0, WEAK_RESISTANCE=-1, STRONG_RESISTANCE=-2
-102     barrier_depth_current
-103     barrier_replenishment_ratio
+Index   Feature × Time                   Transform
+─────   ──────────────                   ─────────
+62-66   d_atr[t-4..t0]                  None (signed distance)
+67-71   tape_imbalance[t-4..t0]         None
+72-76   tape_velocity[t-4..t0]          None
+77-81   ofi_60s[t-4..t0]                None
+82-86   barrier_delta_liq_log[t-4..t0]  Signed log: log1p(|x|) * sign(x)
+87-91   wall_ratio_log[t-4..t0]         Log: log(max(x, 1e-6))
+92-96   gamma_exposure[t-4..t0]         None
+```
+
+**Bar cadence**: 30 seconds (state table cadence), so 5 bars = 2.5 minutes of micro-history.
+
+### 6.7 Section D: Derived Physics (11 dimensions)
+
+Physics-aligned state descriptors providing force/mass framing and flow alignment.
+
+```
+Index   Feature                      Computation
+─────   ───────                      ───────────
+97      predicted_accel              From F=ma model
+98      accel_residual               Actual - predicted
+99      force_mass_ratio             From F=ma model
+100     mass_proxy                   log1p(barrier_depth_current)
+101     force_proxy                  ofi_60s / (mass_proxy + ε)
+102     barrier_state_encoded        STRONG_SUPPORT=2, WEAK_SUPPORT=1, NEUTRAL=0, WEAK_RESISTANCE=-1, STRONG_RESISTANCE=-2
+103     barrier_replenishment_ratio  Barrier replenishment metric
 104     sweep_detected               0 or 1
-105     tape_log_ratio               log(tape_buy_vol / tape_sell_vol)
-106     tape_log_total               log(tape_buy_vol + tape_sell_vol)
+105     tape_log_ratio               log((tape_buy_vol+1) / (tape_sell_vol+1))
+106     tape_log_total               log(tape_buy_vol + tape_sell_vol + 1)
+107     flow_alignment               ofi_60s * (-sign(d_atr)); positive = flow aligned with approach
 ```
 
-### 6.7 Section E: Cluster Trends (4 dimensions)
+### 6.8 Section E: Online Trends (4 dimensions)
+
+Rolling trends computed incrementally (no lookahead).
 
 ```
 Index   Feature
 ─────   ───────
-107     barrier_replenishment_trend
-108     barrier_delta_liq_trend
-109     tape_velocity_trend
-110     tape_imbalance_trend
+108     barrier_replenishment_trend
+109     barrier_delta_liq_trend
+110     tape_velocity_trend
+111     tape_imbalance_trend
 ```
 
-### 6.8 Vector Section Indices
+### 6.9 Section F: Trajectory Basis (32 dimensions)
+
+DCT-II coefficients encoding the full 20-minute approach shape in frequency domain. Provides compact representation of trajectory dynamics.
+
+**Window**: 40 samples @ 30s cadence = 20 minutes  
+**Method**: DCT-II (Discrete Cosine Transform, Type 2)  
+**Coefficients**: First 8 per series (c0..c7)
 
 ```
-VECTOR_SECTIONS = {
-    'context_state':        (0, 26),
-    'multiscale_trajectory': (26, 63),
-    'micro_history':        (63, 98),
-    'derived_physics':      (98, 107),
-    'cluster_trends':       (107, 111),
-}
-
-VECTOR_DIMENSION = 111
+Index    Series                        Description
+──────   ─────                        ───────────
+112-119  DCT(d_atr)                   Distance trajectory (approach path geometry)
+120-127  DCT(ofi_60s)                 Order flow trajectory (buying/selling pressure)
+128-135  DCT(barrier_delta_liq_log)   Liquidity trajectory (barrier depth changes)
+136-143  DCT(tape_imbalance)          Aggression trajectory (tape buy/sell imbalance)
 ```
 
-### 6.9 Vector Construction Procedure
+**Purpose**: Explicitly encodes "approach shape over time" - gradual vs sudden approaches, oscillating vs monotonic paths, etc. This captures patterns that summary statistics (velocities/accelerations) may miss.
 
-```
-FUNCTION construct_episode_vector(
-    current_bar: dict,           # All features at T=0
-    history_buffer: list[dict],  # Last 5 bars (T-4 to T=0), from state table
-    level_price: float
-) -> array[111]:
+### 6.10 Vector Section Indices
 
-    vector = zeros(111)
-    idx = 0
-    
-    # ─── SECTION A: Context State (26 dims) ───
-    vector[idx] = encode_level_kind(current_bar['level_kind'])
-    idx += 1
-    vector[idx] = encode_direction(current_bar['direction'])
-    idx += 1
-    vector[idx] = current_bar['minutes_since_open']
-    idx += 1
-    vector[idx] = current_bar['bars_since_open']
-    idx += 1
-    vector[idx] = current_bar['atr']
-    idx += 1
-    
-    FOR f IN ['gex_asymmetry', 'gex_ratio', 'net_gex_2strike', 'gamma_exposure',
-              'gex_above_1strike', 'gex_below_1strike', 'call_gex_above_2strike',
-              'put_gex_below_2strike']:
-        vector[idx] = current_bar[f]
-        idx += 1
-    
-    vector[idx] = encode_fuel_effect(current_bar['fuel_effect'])
-    idx += 1
-    
-    FOR f IN ['level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt']:
-        vector[idx] = current_bar[f]
-        idx += 1
-    
-    FOR f IN ['dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr',
-              'dist_to_or_low_atr', 'dist_to_sma_200_atr', 'dist_to_sma_400_atr']:
-        vector[idx] = current_bar[f] if current_bar[f] is not null else 0.0
-        idx += 1
-    
-    vector[idx] = current_bar['prior_touches']
-    idx += 1
-    vector[idx] = current_bar['attempt_index']
-    idx += 1
-    vector[idx] = current_bar.get('attempt_cluster_id', 0) % 1000
-    idx += 1
-    
-    # ─── SECTION B: Multi-Scale Trajectory (37 dims) ───
-    FOR scale IN ['1min', '3min', '5min', '10min', '20min']:
-        vector[idx] = current_bar[f'velocity_{scale}']
-        idx += 1
-    
-    FOR scale IN ['1min', '3min', '5min', '10min', '20min']:
-        vector[idx] = current_bar[f'acceleration_{scale}']
-        idx += 1
-    
-    FOR scale IN ['1min', '3min', '5min', '10min', '20min']:
-        vector[idx] = current_bar[f'jerk_{scale}']
-        idx += 1
-    
-    FOR scale IN ['3min', '5min', '10min', '20min']:
-        vector[idx] = current_bar[f'momentum_trend_{scale}']
-        idx += 1
-    
-    FOR scale IN ['30s', '60s', '120s', '300s']:
-        vector[idx] = current_bar[f'ofi_{scale}']
-        idx += 1
-    
-    FOR scale IN ['30s', '60s', '120s', '300s']:
-        vector[idx] = current_bar[f'ofi_near_level_{scale}']
-        idx += 1
-    
-    vector[idx] = current_bar['ofi_acceleration']
-    idx += 1
-    
-    FOR scale IN ['1min', '3min', '5min']:
-        vector[idx] = current_bar[f'barrier_delta_{scale}']
-        idx += 1
-    
-    FOR scale IN ['1min', '3min', '5min']:
-        vector[idx] = current_bar[f'barrier_pct_change_{scale}']
-        idx += 1
-    
-    vector[idx] = current_bar['approach_velocity']
-    idx += 1
-    vector[idx] = current_bar['approach_bars']
-    idx += 1
-    vector[idx] = current_bar['approach_distance_atr']
-    idx += 1
-    
-    # ─── SECTION C: Micro-History (35 dims) ───
-    # Pad history if less than 5 bars
-    WHILE len(history_buffer) < 5:
-        history_buffer.insert(0, history_buffer[0] if len(history_buffer) > 0 else current_bar)
-    
-    history = history_buffer[-5:]  # Last 5 bars, oldest first
-    
-    MICRO_FEATURES = ['distance_signed_atr', 'tape_imbalance', 'tape_velocity',
-                      'ofi_60s', 'barrier_delta_liq', 'wall_ratio', 'gamma_exposure']
-    
-    FOR feature IN MICRO_FEATURES:
-        FOR bar IN history:
-            vector[idx] = bar[feature]
-            idx += 1
-    
-    # ─── SECTION D: Derived Physics (9 dims) ───
-    vector[idx] = current_bar['predicted_accel']
-    idx += 1
-    vector[idx] = current_bar['accel_residual']
-    idx += 1
-    vector[idx] = current_bar['force_mass_ratio']
-    idx += 1
-    vector[idx] = encode_barrier_state(current_bar['barrier_state'])
-    idx += 1
-    vector[idx] = current_bar['barrier_depth_current']
-    idx += 1
-    vector[idx] = current_bar['barrier_replenishment_ratio']
-    idx += 1
-    vector[idx] = 1.0 if current_bar['sweep_detected'] else 0.0
-    idx += 1
-    
-    tape_buy = current_bar['tape_buy_vol'] + 1
-    tape_sell = current_bar['tape_sell_vol'] + 1
-    vector[idx] = log(tape_buy / tape_sell)
-    idx += 1
-    vector[idx] = log(tape_buy + tape_sell)
-    idx += 1
-    
-    # ─── SECTION E: Cluster Trends (4 dims) ───
-    vector[idx] = current_bar['barrier_replenishment_trend']
-    idx += 1
-    vector[idx] = current_bar['barrier_delta_liq_trend']
-    idx += 1
-    vector[idx] = current_bar['tape_velocity_trend']
-    idx += 1
-    vector[idx] = current_bar['tape_imbalance_trend']
-    idx += 1
-    
-    ASSERT idx == 111
-    
-    RETURN vector
-```
+**Implementation**: See `backend/src/ml/constants.py` for `VECTOR_SECTIONS` and `VECTOR_DIMENSION`
 
-### 6.10 Encoding Functions
+| Section | Start Index | End Index | Dimensions |
+|---------|-------------|-----------|------------|
+| context_regime | 0 | 25 | 25 |
+| multiscale_dynamics | 25 | 62 | 37 |
+| micro_history | 62 | 97 | 35 |
+| derived_physics | 97 | 108 | 11 |
+| online_trends | 108 | 112 | 4 |
+| trajectory_basis | 112 | 144 | 32 |
+| **TOTAL** | | | **144** |
 
-```
-FUNCTION encode_level_kind(level_kind: string) -> float:
-    MAPPING = {
-        'PM_HIGH': 0.0, 'PM_LOW': 1.0,
-        'OR_HIGH': 2.0, 'OR_LOW': 3.0,
-        'SMA_200': 4.0, 'SMA_400': 5.0
-    }
-    RETURN MAPPING.get(level_kind, -1.0)
+### 6.11 Vector Construction Procedure
 
-FUNCTION encode_direction(direction: string) -> float:
-    RETURN 1.0 if direction == 'UP' else -1.0
 
-FUNCTION encode_fuel_effect(fuel_effect: string) -> float:
-    MAPPING = {'AMPLIFY': 1.0, 'NEUTRAL': 0.0, 'DAMPEN': -1.0}
-    RETURN MAPPING.get(fuel_effect, 0.0)
+### 6.11 Vector Construction Algorithm
 
-FUNCTION encode_barrier_state(barrier_state: string) -> float:
-    MAPPING = {
-        'STRONG_SUPPORT': 2.0, 'WEAK_SUPPORT': 1.0,
-        'NEUTRAL': 0.0,
-        'WEAK_RESISTANCE': -1.0, 'STRONG_RESISTANCE': -2.0
-    }
-    RETURN MAPPING.get(barrier_state, 0.0)
-```
+**Implementation**: `backend/src/ml/episode_vector.py` (construct_episode_vector)
+
+**Inputs**:
+- current_bar: Feature dictionary at T=0
+- history_buffer: Last 5 bars for micro-history (2.5 min)
+- trajectory_window: Last 40 bars for DCT (20 min)
+- level_price: Level being tested
+
+**Assembly Order**:
+1. Section A: 25 context features (time, stacking, distances, GEX, touch memory)
+2. Section B: 37 multi-scale features (kinematics, OFI, barrier evolution, approach)
+3. Section C: 35 micro-history features (7 features × 5 bars with log transforms)
+4. Section D: 11 physics features (force model, mass/force proxies, flow alignment)
+5. Section E: 4 trend features (barrier, tape)
+6. Section F: 32 DCT coefficients (4 time series × 8 coefficients each)
+
+**Key Transforms**:
+- Categorical encodings: fuel_effect (-1/0/+1), barrier_state (-2 to +2), or_active (0/1)
+- Log transforms: barrier_delta_liq_log, wall_ratio_log (signed and unsigned)
+- DCT: Type-II orthonormal on 40-sample windows (scipy.fft.dct)
+- Derived features: mass_proxy = log1p(barrier_depth), force_proxy = ofi/mass, flow_alignment = ofi × (-sign(d_atr))
 
 ---
 
-## 7. Normalization Specification ✅ COMPLETE
+## 7. Normalization Specification
 
-**Implementation**: `backend/src/ml/normalization.py`  
-**Status**: Stage 17 module created  
-**Features**:
-- Computes robust/zscore/minmax statistics from 60 days of state data
-- Classifies 111 features into appropriate normalization methods
-- Saves versioned JSON (stats_v{N}.json) with symlink to current
-- Provides normalize_value() and normalize_vector() functions
-- Clips robust/zscore at ±4σ, minmax at [0,1]
+**Implementation**: `backend/src/ml/normalization.py`
+
+Normalization ensures features are on comparable scales for similarity search. Statistics are computed from 60 days of historical state table data and applied to all 144 vector dimensions.
 
 ### 7.1 Normalization Strategy
 
@@ -978,164 +798,57 @@ Different features require different normalization methods based on their distri
 
 ### 7.2 Normalization Statistics Computation
 
-```
-FUNCTION compute_normalization_stats(
-    historical_data: DataFrame,  # 60+ days of state table data
-    feature_list: list[string]
-) -> dict:
+**Implementation**: `backend/src/ml/normalization.py` (compute_normalization_stats)
 
-    stats = {}
-    
-    FOR feature IN feature_list:
-        values = historical_data[feature].dropna()
-        
-        IF feature IN PASSTHROUGH_FEATURES:
-            stats[feature] = {'method': 'passthrough'}
-            CONTINUE
-        
-        IF feature IN ROBUST_FEATURES:
-            median = values.median()
-            q75 = values.quantile(0.75)
-            q25 = values.quantile(0.25)
-            iqr = q75 - q25
-            stats[feature] = {
-                'method': 'robust',
-                'center': median,
-                'scale': iqr if iqr > 1e-6 else 1.0
-            }
-        
-        ELSE IF feature IN ZSCORE_FEATURES:
-            stats[feature] = {
-                'method': 'zscore',
-                'center': values.mean(),
-                'scale': values.std() if values.std() > 1e-6 else 1.0
-            }
-        
-        ELSE IF feature IN MINMAX_FEATURES:
-            stats[feature] = {
-                'method': 'minmax',
-                'min': values.min(),
-                'max': values.max() if values.max() > values.min() else values.min() + 1.0
-            }
-        
-        ELSE:
-            # Default to robust
-            median = values.median()
-            iqr = values.quantile(0.75) - values.quantile(0.25)
-            stats[feature] = {
-                'method': 'robust',
-                'center': median,
-                'scale': iqr if iqr > 1e-6 else 1.0
-            }
-    
-    RETURN stats
-```
+**Process**:
+1. Load 60 days of state table data
+2. For each of 144 features:
+   - Determine normalization method via `classify_feature_method()`
+   - Compute statistics (median/IQR for robust, mean/std for zscore, min/max for minmax)
+   - Store in statistics dictionary
+3. Save to `gold/normalization/stats_v{version}.json`
 
-### 7.3 Feature Classification
+**Pattern Matching**:
+- Features ending in `_t0` through `_t4`: Micro-history, classify by base feature
+- Features starting with `dct_`: DCT coefficients, use zscore
+- Features containing `_log`: Log-transformed, use robust
+- Fallback: Check feature name against predefined sets
 
-```
-PASSTHROUGH_FEATURES = {
-    'level_kind', 'direction', 'fuel_effect', 'barrier_state', 'sweep_detected'
-}
+### 7.3 Normalization Application
 
-ROBUST_FEATURES = {
-    'tape_velocity', 'tape_imbalance', 'tape_buy_vol', 'tape_sell_vol',
-    'barrier_delta_liq', 'barrier_delta_1min', 'barrier_delta_3min', 'barrier_delta_5min',
-    'ofi_30s', 'ofi_60s', 'ofi_120s', 'ofi_300s',
-    'ofi_near_level_30s', 'ofi_near_level_60s', 'ofi_near_level_120s', 'ofi_near_level_300s',
-    'wall_ratio', 'accel_residual', 'force_mass_ratio',
-    'barrier_pct_change_1min', 'barrier_pct_change_3min', 'barrier_pct_change_5min',
-    'tape_log_ratio', 'tape_log_total',
-    'gex_asymmetry', 'gex_ratio', 'net_gex_2strike', 'gamma_exposure',
-    'gex_above_1strike', 'gex_below_1strike', 'call_gex_above_2strike', 'put_gex_below_2strike',
-    'barrier_depth_current', 'barrier_replenishment_ratio',
-    'barrier_replenishment_trend', 'barrier_delta_liq_trend', 'tape_velocity_trend', 'tape_imbalance_trend'
-}
+**Implementation**: `backend/src/ml/normalization.py` (normalize_value, normalize_vector)
 
-ZSCORE_FEATURES = {
-    'velocity_1min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
-    'acceleration_1min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
-    'jerk_1min', 'jerk_3min', 'jerk_5min', 'jerk_10min', 'jerk_20min',
-    'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
-    'distance_signed_atr', 'approach_velocity', 'approach_distance_atr',
-    'predicted_accel', 'atr',
-    'dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr', 'dist_to_or_low_atr',
-    'dist_to_sma_200_atr', 'dist_to_sma_400_atr'
-}
+For each feature value:
+- **Passthrough**: Return as-is (categoricals, binary flags)
+- **Robust**: `(x - median) / IQR`, clip to [-4, +4]
+- **Z-Score**: `(x - mean) / std`, clip to [-4, +4]  
+- **MinMax**: `(x - min) / (max - min)`, clip to [0, 1]
 
-MINMAX_FEATURES = {
-    'minutes_since_open', 'bars_since_open',
-    'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
-    'prior_touches', 'attempt_index', 'approach_bars', 'attempt_cluster_id_mod'
-}
-```
+### 7.4 Statistics Storage Format
 
-### 7.4 Apply Normalization
+**Location**: `gold/normalization/stats_v{version}.json`
 
-```
-FUNCTION normalize_value(value: float, feature: string, stats: dict) -> float:
-    stat = stats[feature]
-    
-    IF stat['method'] == 'passthrough':
-        RETURN value
-    
-    IF stat['method'] == 'robust':
-        normalized = (value - stat['center']) / stat['scale']
-        RETURN clip(normalized, -4.0, 4.0)
-    
-    IF stat['method'] == 'zscore':
-        normalized = (value - stat['center']) / stat['scale']
-        RETURN clip(normalized, -4.0, 4.0)
-    
-    IF stat['method'] == 'minmax':
-        normalized = (value - stat['min']) / (stat['max'] - stat['min'])
-        RETURN clip(normalized, 0.0, 1.0)
-```
-
-### 7.5 Normalization Statistics Storage
-
-```
-Location: gold/normalization/stats_v{version}.json
-
-Schema:
-{
-    "version": int,
-    "computed_date": "YYYY-MM-DD",
-    "lookback_days": 60,
-    "n_samples": int,
-    "features": {
-        "velocity_1min": {
-            "method": "zscore",
-            "center": float,
-            "scale": float
-        },
-        ...
-    }
-}
-```
+Contains version metadata, computation date, lookback period, sample count, and per-feature statistics dictionaries with method type and parameters (center/scale for robust/zscore, min/max for minmax).
 
 ---
 
-## 8. Index Architecture ✅ COMPLETE
+## 8. Index Architecture
 
-**Implementation**: `backend/src/ml/index_builder.py`  
-**Status**: Stage 19 created  
-**Features**:
-- Builds 48 partitions (6 levels × 2 directions × 4 time buckets)
-- Auto-selects index type: Flat (<10K), IVF (10-100K), IVFPQ (>100K)
-- L2-normalizes vectors for cosine similarity via inner product
-- Saves index.faiss, vectors.npy, metadata.parquet per partition
-- Skips partitions with < 100 vectors
-- Outputs config.json with build statistics
+**Implementation**: `backend/src/ml/index_builder.py`
+
+The retrieval system uses partitioned FAISS indices to ensure regime-comparable neighbors. Each partition contains episodes from a specific level type, approach direction, and session phase.
 
 ### 8.1 Partitioning Strategy
 
-Indices are partitioned by:
-1. **level_kind**: {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400}
-2. **direction**: {UP, DOWN}
-3. **time_bucket**: {T0_30, T30_60, T60_120, T120_180}
+Indices are partitioned by three dimensions:
 
-Total partitions: 6 × 2 × 4 = 48 indices
+1. **level_kind**: {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400} (6 values)
+2. **direction**: {UP, DOWN} (2 values)
+3. **time_bucket**: {T0_15, T15_30, T30_60, T60_120, T120_180} (5 values)
+
+**Total partitions**: 6 × 2 × 5 = **60 indices**
+
+**Rationale for 5 time buckets**: The first 30 minutes is split into two buckets (T0_15 and T15_30) to separate the OR formation period (0-15 min) from immediate post-OR behavior (15-30 min). This provides finer temporal resolution when market dynamics change rapidly.
 
 ### 8.2 Index Type Selection
 
@@ -1147,367 +860,153 @@ Total partitions: 6 × 2 × 4 = 48 indices
 
 ### 8.3 Index Construction
 
-```
-FUNCTION build_index(
-    vectors: array[N, 111],
-    index_type: string
-) -> FAISSIndex:
+**Implementation**: `backend/src/ml/index_builder.py` (build_index)
 
-    N, D = vectors.shape
-    
-    # L2-normalize for cosine similarity via inner product
-    vectors_normalized = vectors.copy()
-    faiss.normalize_L2(vectors_normalized)
-    
-    IF index_type == 'Flat':
-        index = faiss.IndexFlatIP(D)
-        index.add(vectors_normalized)
-    
-    ELSE IF index_type == 'IVF':
-        nlist = min(4096, max(16, N // 100))
-        quantizer = faiss.IndexFlatIP(D)
-        index = faiss.IndexIVFFlat(quantizer, D, nlist, faiss.METRIC_INNER_PRODUCT)
-        index.train(vectors_normalized)
-        index.add(vectors_normalized)
-        index.nprobe = min(64, nlist // 4)
-    
-    ELSE IF index_type == 'IVFPQ':
-        nlist = min(4096, max(16, N // 100))
-        m = 8  # subquantizers (D=111 is not divisible by 8, pad to 112 or use m=3)
-        quantizer = faiss.IndexFlatIP(D)
-        index = faiss.IndexIVFPQ(quantizer, D, nlist, m, 8)
-        index.train(vectors_normalized)
-        index.add(vectors_normalized)
-        index.nprobe = 64
-    
-    RETURN index
-```
+**Process**:
+1. L2-normalize vectors for cosine similarity via inner product
+2. Select index type based on corpus size (Flat/IVF/IVFPQ)
+3. Create FAISS index with appropriate parameters
+4. Train index (if needed for IVF/IVFPQ)
+5. Add vectors to index
+6. Set search parameters (nprobe for IVF variants)
 
-### 8.4 Index File Structure
+**Index Types**:
+- **Flat**: Exact search, no training, best for <10K
+- **IVF**: Inverted file with flat quantizer, `nlist = N/100`, `nprobe = 64`
+- **IVFPQ**: Inverted file with product quantization, `nlist = 4096`, `m = 12` (divides 144), `nprobe = 64`
 
-```
-FOR EACH level_kind IN LEVEL_KINDS:
-    FOR EACH direction IN ['UP', 'DOWN']:
-        FOR EACH time_bucket IN TIME_BUCKETS:
-            
-            partition_path = f"gold/indices/es_level_indices/{level_kind}/{direction}/{time_bucket}/"
-            
-            # Filter corpus to this partition
-            mask = (metadata['level_kind'] == level_kind) AND
-                   (metadata['direction'] == direction) AND
-                   (metadata['time_bucket'] == time_bucket)
-            
-            partition_vectors = corpus_vectors[mask]
-            partition_metadata = corpus_metadata[mask]
-            
-            IF len(partition_vectors) < MIN_PARTITION_SIZE:
-                SKIP  # Don't create index for tiny partitions
-            
-            # Build and save
-            index = build_index(partition_vectors, select_index_type(len(partition_vectors)))
-            
-            faiss.write_index(index, partition_path + "index.faiss")
-            save_npy(partition_vectors, partition_path + "vectors.npy")
-            save_parquet(partition_metadata, partition_path + "metadata.parquet")
-```
+**Similarity Metric**: Inner product on L2-normalized vectors (equivalent to cosine similarity)
+
+### 8.4 Index Building Process
+
+**Implementation**: `backend/src/ml/index_builder.py` (BuildIndicesStage)
+
+For each of 60 partitions (level_kind × direction × time_bucket):
+1. Filter corpus to partition using metadata masks
+2. Skip if partition has fewer than `MIN_PARTITION_SIZE` (100) vectors
+3. Select index type based on partition corpus size
+4. Build FAISS index with L2-normalized vectors
+5. Save three files per partition:
+   - `index.faiss` - FAISS index structure
+   - `vectors.npy` - Raw vectors for attribution
+   - `metadata.parquet` - Episode metadata with labels
+
+**Output**: 60 partition directories under `gold/indices/es_level_indices/{level}/{dir}/{bucket}/` plus `config.json` with build metadata.
 
 ### 8.5 Index Manager
 
-```
-CLASS IndexManager:
-    
-    FUNCTION __init__(self, index_dir: string):
-        self.index_dir = index_dir
-        self.indices = {}      # {partition_key: FAISSIndex}
-        self.metadata = {}     # {partition_key: DataFrame}
-        self.vectors = {}      # {partition_key: ndarray}
-    
-    FUNCTION load_partition(self, level_kind, direction, time_bucket):
-        key = f"{level_kind}/{direction}/{time_bucket}"
-        path = f"{self.index_dir}/{key}/"
-        
-        IF path exists:
-            self.indices[key] = faiss.read_index(path + "index.faiss")
-            self.metadata[key] = read_parquet(path + "metadata.parquet")
-            self.vectors[key] = load_npy(path + "vectors.npy")
-    
-    FUNCTION query(self, level_kind, direction, time_bucket, query_vector, k=50) -> dict:
-        key = f"{level_kind}/{direction}/{time_bucket}"
-        
-        IF key NOT IN self.indices:
-            self.load_partition(level_kind, direction, time_bucket)
-        
-        IF key NOT IN self.indices:
-            RETURN {'similarities': [], 'indices': [], 'metadata': empty_dataframe()}
-        
-        # Normalize query vector
-        query = query_vector.copy().reshape(1, -1).astype(float32)
-        faiss.normalize_L2(query)
-        
-        # Search
-        similarities, indices = self.indices[key].search(query, k)
-        similarities = similarities[0]
-        indices = indices[0]
-        
-        # Filter invalid
-        valid_mask = indices >= 0
-        similarities = similarities[valid_mask]
-        indices = indices[valid_mask]
-        
-        # Get metadata
-        retrieved_metadata = self.metadata[key].iloc[indices].copy()
-        retrieved_metadata['similarity'] = similarities
-        
-        # Get vectors for attribution
-        retrieved_vectors = self.vectors[key][indices] if key in self.vectors else None
-        
-        RETURN {
-            'similarities': similarities,
-            'indices': indices,
-            'metadata': retrieved_metadata,
-            'vectors': retrieved_vectors
-        }
-```
+**Implementation**: `backend/src/ml/retrieval_engine.py` (IndexManager class)
+
+Manages lazy loading and caching of FAISS indices across 60 partitions.
+
+**Key Methods**:
+- `load_partition(level_kind, direction, time_bucket)`: Loads FAISS index, vectors, and metadata for a partition
+- `query(level_kind, direction, time_bucket, query_vector, k)`: Executes similarity search
+
+**Query Process**:
+1. Lazy-load partition if not cached
+2. L2-normalize query vector
+3. Search FAISS index for k nearest neighbors
+4. Filter invalid indices (artifacts from approximate search)
+5. Retrieve metadata and optionally vectors for attribution
+6. Return similarities, indices, metadata, and vectors
 
 ---
 
-## 9. Retrieval Pipeline ✅ COMPLETE
+## 9. Retrieval Pipeline
 
-**Implementation**: `backend/src/ml/retrieval_engine.py`  
-**Status**: Complete with 4 main classes  
+**Implementation**: `backend/src/ml/retrieval_engine.py`
+
+The retrieval pipeline transforms real-time market state into query vectors, searches FAISS indices for similar historical episodes, and returns outcome distributions with attribution.
+
 **Components**:
 - **IndexManager**: Lazy-loads and caches FAISS indices per partition
-- **LiveEpisodeBuilder**: Builds query vectors from real-time state (5-bar buffers)
+- **LiveEpisodeBuilder**: Builds query vectors from real-time state with 5-bar and 40-bar buffers
 - **SimilarityQueryEngine**: Executes queries and returns results
 - **RealTimeQueryService**: Main service with caching (30s TTL) and quality filtering
 
 ### 9.1 Live Episode Builder
 
-```
-CLASS LiveEpisodeBuilder:
-    
-    FUNCTION __init__(self, normalizer_stats: dict, state_table_cadence_seconds=30):
-        self.normalizer_stats = normalizer_stats
-        self.cadence = state_table_cadence_seconds
-        self.buffers = {}  # {(level_kind, level_price): deque of bars}
-        self.buffer_size = 5
-    
-    FUNCTION on_state_update(self, state_row: dict) -> list[EpisodeQuery]:
+**Implementation**: `backend/src/ml/retrieval_engine.py` (LiveEpisodeBuilder class)
+
+Maintains 5-bar and 40-bar buffers per level and emits query vectors when approach conditions are met.
+
+**Initialization**:
+- Loads normalization statistics
+- Initializes empty buffers for each (level_kind, level_price) pair
+- Sets buffer sizes: 5 bars (micro-history), 40 bars (trajectory)
+
+**on_state_update(state_row)**: Called every 30 seconds with state table row
         """
-        Called every cadence interval with new state table row.
-        Returns list of episode queries ready for retrieval.
-        """
-        queries = []
-        
-        level_kind = state_row['level_kind']
-        level_price = state_row['level_price']
-        level_key = (level_kind, level_price)
-        
-        # Initialize buffer if needed
-        IF level_key NOT IN self.buffers:
-            self.buffers[level_key] = deque(maxlen=self.buffer_size)
-        
-        # Add to buffer
-        self.buffers[level_key].append(state_row)
-        
-        # Check if in approach zone
-        distance_atr = abs(state_row['distance_signed_atr'])
-        in_zone = distance_atr < ZONE_THRESHOLD_ATR  # 3.0
-        
-        # Check approach velocity
-        approach_velocity = abs(state_row.get('approach_velocity', 0))
-        has_velocity = approach_velocity > MIN_APPROACH_VELOCITY  # 0.5
-        
-        # Emit query if conditions met
-        IF len(self.buffers[level_key]) >= self.buffer_size AND in_zone AND has_velocity:
-            
-            # Build vector
-            vector = construct_episode_vector(
-                current_bar=state_row,
-                history_buffer=list(self.buffers[level_key]),
-                level_price=level_price
-            )
-            
-            # Normalize vector
-            normalized_vector = self.normalize_vector(vector)
-            
-            # Determine direction
-            direction = 'UP' if state_row['spot'] < level_price else 'DOWN'
-            
-            # Assign time bucket
-            time_bucket = assign_time_bucket(state_row['minutes_since_open'])
-            
-            # Compute emission weight
-            emission_weight = compute_emission_weight(
-                spot=state_row['spot'],
-                level_price=level_price,
-                atr=state_row['atr'],
-                approach_velocity=state_row['approach_velocity'],
-                ofi_60s=state_row['ofi_60s']
-            )
-            
-            queries.append(EpisodeQuery(
-                level_kind=level_kind,
-                level_price=level_price,
-                direction=direction,
-                time_bucket=time_bucket,
-                vector=normalized_vector,
-                emission_weight=emission_weight,
-                timestamp=state_row['timestamp'],
-                metadata={
-                    'spot': state_row['spot'],
-                    'atr': state_row['atr'],
-                    'minutes_since_open': state_row['minutes_since_open']
-                }
-            ))
-        
-        RETURN queries
-    
-    FUNCTION normalize_vector(self, raw_vector: array) -> array:
-        normalized = zeros(VECTOR_DIMENSION)
-        
-        FOR idx, feature_name IN enumerate(FEATURE_NAMES_ORDERED):
-            normalized[idx] = normalize_value(
-                raw_vector[idx], 
-                feature_name, 
-                self.normalizer_stats
-            )
-        
-        RETURN normalized
-```
+**Process**:
+1. Append state_row to appropriate buffer (5-bar and 40-bar)
+2. Check emission conditions:
+   - `|distance_atr| < Z_APPROACH_ATR` (2.0)
+   - `approach_bars >= MIN_APPROACH_BARS` (2)
+   - `approach_velocity >= MIN_APPROACH_V_ATR_PER_MIN` (0.10)
+3. If conditions met and buffers full:
+   - Construct 144D raw vector
+   - Normalize using precomputed statistics
+   - Determine direction (UP if spot < level, else DOWN)
+   - Assign time bucket based on minutes_since_open
+   - Compute emission_weight
+   - Return EpisodeQuery ready for retrieval
+
+**Emission Weight**: `w = proximity_w × velocity_w × ofi_alignment_w` (Section 5.3)
 
 ### 9.2 Query Engine
 
-```
-CLASS SimilarityQueryEngine:
-    
-    FUNCTION __init__(self, index_manager: IndexManager):
-        self.index_manager = index_manager
-        self.k_retrieve = 100  # Over-fetch for filtering
-        self.k_return = 50     # Final neighbors
-    
-    FUNCTION query(self, episode_query: EpisodeQuery, filters: dict = None) -> QueryResult:
-        
-        # Retrieve from appropriate partition
-        result = self.index_manager.query(
-            level_kind=episode_query.level_kind,
-            direction=episode_query.direction,
-            time_bucket=episode_query.time_bucket,
-            query_vector=episode_query.vector,
-            k=self.k_retrieve
-        )
-        
-        retrieved_metadata = result['metadata']
-        retrieved_vectors = result['vectors']
-        
-        IF len(retrieved_metadata) == 0:
-            RETURN self.empty_result(episode_query)
-        
-        # Apply filters
-        IF filters:
-            mask = ones(len(retrieved_metadata), dtype=bool)
-            FOR key, value IN filters.items():
-                IF key IN retrieved_metadata.columns:
-                    mask &= (retrieved_metadata[key] == value)
-            retrieved_metadata = retrieved_metadata[mask]
-            IF retrieved_vectors is not None:
-                retrieved_vectors = retrieved_vectors[mask]
-        
-        # Take top k_return
-        retrieved_metadata = retrieved_metadata.head(self.k_return)
-        IF retrieved_vectors is not None:
-            retrieved_vectors = retrieved_vectors[:self.k_return]
-        
-        IF len(retrieved_metadata) == 0:
-            RETURN self.empty_result(episode_query)
-        
-        # Compute outcome distributions
-        outcome_dist = compute_outcome_distribution(retrieved_metadata)
-        confidence_intervals = compute_bootstrap_ci(retrieved_metadata)
-        multi_horizon = compute_multi_horizon_distribution(retrieved_metadata)
-        
-        # Compute attribution
-        IF retrieved_vectors is not None:
-            attribution = compute_attribution(
-                query_vector=episode_query.vector,
-                retrieved_vectors=retrieved_vectors,
-                outcomes=retrieved_metadata['outcome_4min'].values
-            )
-        ELSE:
-            attribution = {}
-        
-        # Compute reliability metrics
-        reliability = compute_reliability(retrieved_metadata)
-        
-        RETURN QueryResult(
-            outcome_probabilities=outcome_dist,
-            confidence_intervals=confidence_intervals,
-            multi_horizon=multi_horizon,
-            attribution=attribution,
-            reliability=reliability,
-            neighbors=retrieved_metadata.to_dict('records'),
-            query_metadata={
-                'level_kind': episode_query.level_kind,
-                'direction': episode_query.direction,
-                'time_bucket': episode_query.time_bucket,
-                'timestamp': episode_query.timestamp,
-                'emission_weight': episode_query.emission_weight
-            }
-        )
-```
+**Implementation**: `backend/src/ml/retrieval_engine.py` (SimilarityQueryEngine class)
+
+**Configuration**:
+- `M_CANDIDATES = 500`: Over-fetch from FAISS
+- `K_NEIGHBORS = 50`: Final neighbors after deduplication
+- `MAX_PER_DAY = 2`: Maximum neighbors from same date
+- `MAX_PER_EPISODE = 1`: Maximum neighbors from same episode
+
+**query(episode_query, filters) → QueryResult**:
+
+**Process**:
+1. Retrieve M_CANDIDATES (500) from appropriate partition via IndexManager
+2. Apply deduplication constraints (max 2/day, 1/episode)
+3. Apply optional filters if provided
+4. Take top K_NEIGHBORS (50) by similarity
+5. Compute outcome distributions (Section 10)
+6. Compute attribution (Section 11)
+7. Compute reliability metrics
+8. Return QueryResult with probabilities, excursions, attribution, and neighbors
 
 ### 9.3 Real-Time Service
 
-```
-CLASS RealTimeQueryService:
-    
-    FUNCTION __init__(self, normalizer_stats, index_manager):
-        self.episode_builder = LiveEpisodeBuilder(normalizer_stats)
-        self.query_engine = SimilarityQueryEngine(index_manager)
-        self.result_cache = {}  # {level_key: (timestamp, result)}
-        self.cache_ttl_seconds = 30
-        self.min_similarity_threshold = 0.70
-        self.min_samples_threshold = 30
-    
-    FUNCTION process_state_update(self, state_row: dict) -> list[QueryResult]:
-        """
-        Main entry point: process new state, return any query results.
-        """
-        results = []
-        
-        # Build episode queries
-        queries = self.episode_builder.on_state_update(state_row)
-        
-        FOR query IN queries:
-            level_key = (query.level_kind, query.level_price)
-            
-            # Check cache
-            IF self.is_cached(level_key):
-                CONTINUE
-            
-            # Execute query
-            result = self.query_engine.query(query)
-            
-            # Filter low-quality results
-            IF self.is_quality_result(result):
-                results.append(result)
-                self.cache_result(level_key, result)
-        
-        RETURN results
-    
-    FUNCTION is_quality_result(self, result: QueryResult) -> bool:
-        RETURN (
-            result.reliability['avg_similarity'] >= self.min_similarity_threshold AND
-            result.reliability['n_retrieved'] >= self.min_samples_threshold
-        )
-```
+**Implementation**: `backend/src/ml/retrieval_engine.py` (RealTimeQueryService class)
+
+Main service coordinating live episode building, querying, and caching.
+
+**Components**:
+- LiveEpisodeBuilder: Maintains state buffers, emits queries
+- SimilarityQueryEngine: Executes retrieval
+- Result cache: 30-second TTL per level
+
+**process_state_update(state_row) → list[QueryResult]**:
+1. Pass state_row to LiveEpisodeBuilder
+2. Receive list of EpisodeQuery objects (if emission conditions met)
+3. For each query:
+   - Check cache (skip if fresh result exists)
+   - Execute query via SimilarityQueryEngine
+   - Apply quality filters (min similarity 0.70, min samples 30)
+   - Cache result if quality threshold met
+4. Return list of QueryResult objects
+
+**Quality Filtering**: Only return results where `avg_similarity >= 0.70` and `n_retrieved >= 30`
 
 ---
 
-## 10. Outcome Aggregation ✅ COMPLETE
+## 10. Outcome Aggregation
 
-**Implementation**: `backend/src/ml/outcome_aggregation.py`  
-**Status**: Complete with 6 functions + integrated into retrieval engine  
+**Implementation**: `backend/src/ml/outcome_aggregation.py`
+
+Outcome aggregation converts retrieved neighbors into probabilistic outcome distributions and reliability metrics.
+
 **Functions**:
 - `compute_outcome_distribution()`: Similarity-weighted probabilities
 - `compute_expected_excursions()`: Expected favorable/adverse excursions
@@ -1518,189 +1017,74 @@ CLASS RealTimeQueryService:
 
 ### 10.1 Similarity-Weighted Distribution
 
-```
-FUNCTION compute_outcome_distribution(retrieved_metadata: DataFrame) -> dict:
-    """
-    Compute outcome probabilities weighted by similarity.
-    """
-    IF len(retrieved_metadata) == 0:
-        RETURN {'BREAK': 0, 'REJECT': 0, 'CHOP': 0, 'n_samples': 0}
-    
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()  # Normalize to sum to 1
-    
-    probs = {}
-    FOR outcome IN ['BREAK', 'REJECT', 'CHOP']:
-        mask = retrieved_metadata['outcome_4min'] == outcome  # Primary horizon
-        probs[outcome] = weights[mask].sum()
-    
-    RETURN {
-        'probabilities': probs,
-        'n_samples': len(retrieved_metadata),
-        'avg_similarity': retrieved_metadata['similarity'].mean()
-    }
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_outcome_distribution)
+
+**Algorithm**:
+1. Normalize similarity scores to sum to 1 (similarity weights)
+2. For each outcome {BREAK, REJECT, CHOP}:
+   - Sum weights where `outcome_4min == outcome`
+3. Return probability distribution with sample count and average similarity
+
+**Result**: `{probabilities: {BREAK: p1, REJECT: p2, CHOP: p3}, n_samples: N, avg_similarity: s}`
 
 ### 10.2 Expected Excursions
 
-```
-FUNCTION compute_expected_excursions(retrieved_metadata: DataFrame) -> dict:
-    """
-    Compute expected favorable and adverse excursions.
-    """
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
-    
-    expected_favorable = (weights * retrieved_metadata['excursion_favorable']).sum()
-    expected_adverse = (weights * retrieved_metadata['excursion_adverse']).sum()
-    
-    RETURN {
-        'expected_excursion_favorable': expected_favorable,
-        'expected_excursion_adverse': expected_adverse,
-        'excursion_ratio': expected_favorable / (expected_adverse + 1e-6)
-    }
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_expected_excursions)
+
+Computes similarity-weighted expected values of favorable and adverse excursions (in ATR units).
+
+**Result**: `{expected_excursion_favorable, expected_excursion_adverse, excursion_ratio}`
 
 ### 10.3 Conditional Excursions
 
-```
-FUNCTION compute_conditional_excursions(retrieved_metadata: DataFrame) -> dict:
-    """
-    Compute expected excursions conditional on outcome.
-    """
-    weights = retrieved_metadata['similarity'].values
-    
-    conditional = {}
-    FOR outcome IN ['BREAK', 'REJECT']:
-        mask = retrieved_metadata['outcome_4min'] == outcome
-        IF mask.sum() > 0:
-            subset = retrieved_metadata[mask]
-            subset_weights = weights[mask]
-            subset_weights = subset_weights / subset_weights.sum()
-            
-            conditional[outcome] = {
-                'expected_favorable': (subset_weights * subset['excursion_favorable']).sum(),
-                'expected_adverse': (subset_weights * subset['excursion_adverse']).sum(),
-                'mean_strength': (subset_weights * subset['strength_abs']).sum(),
-                'n_samples': mask.sum()
-            }
-    
-    RETURN conditional
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_conditional_excursions)
+
+For each outcome (BREAK, REJECT), compute weighted excursion statistics within that outcome subset.
+
+**Result**: `{BREAK: {expected_favorable, expected_adverse, mean_strength, n_samples}, REJECT: {...}}`
 
 ### 10.4 Multi-Horizon Distribution
 
-```
-FUNCTION compute_multi_horizon_distribution(retrieved_metadata: DataFrame) -> dict:
-    """
-    Compute outcome distributions for all horizons.
-    """
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
-    
-    horizons = {
-        '2min': 'outcome_2min',
-        '4min': 'outcome_4min',
-        '8min': 'outcome_8min'
-    }
-    
-    results = {}
-    FOR horizon_name, col IN horizons.items():
-        IF col NOT IN retrieved_metadata.columns:
-            CONTINUE
-        
-        probs = {}
-        FOR outcome IN ['BREAK', 'REJECT', 'CHOP']:
-            mask = retrieved_metadata[col] == outcome
-            probs[outcome] = weights[mask].sum()
-        
-        results[horizon_name] = {
-            'probabilities': probs,
-            'n_valid': retrieved_metadata[col].notna().sum()
-        }
-    
-    RETURN results
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_multi_horizon_distribution)
+
+Computes outcome distributions independently for 2min, 4min, and 8min horizons using similarity-weighted aggregation.
+
+**Result**: `{2min: {probabilities: {...}, n_valid}, 4min: {...}, 8min: {...}}`
 
 ### 10.5 Bootstrap Confidence Intervals
 
-```
-FUNCTION compute_bootstrap_ci(
-    retrieved_metadata: DataFrame,
-    n_bootstrap: int = 1000,
-    alpha: float = 0.05
-) -> dict:
-    """
-    Compute bootstrap confidence intervals for outcome probabilities.
-    """
-    IF len(retrieved_metadata) < 5:
-        RETURN {outcome: {'mean': 0, 'ci_low': 0, 'ci_high': 1} 
-                FOR outcome IN ['BREAK', 'REJECT', 'CHOP']}
-    
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
-    outcomes = retrieved_metadata['outcome_4min'].values
-    
-    boot_probs = {'BREAK': [], 'REJECT': [], 'CHOP': []}
-    
-    FOR _ IN range(n_bootstrap):
-        # Weighted bootstrap sample
-        sample_idx = random.choice(
-            len(outcomes),
-            size=len(outcomes),
-            replace=True,
-            p=weights
-        )
-        sample_outcomes = outcomes[sample_idx]
-        
-        # Compute proportions
-        FOR outcome IN boot_probs:
-            prop = (sample_outcomes == outcome).mean()
-            boot_probs[outcome].append(prop)
-    
-    ci = {}
-    FOR outcome, probs IN boot_probs.items():
-        probs = array(probs)
-        ci[outcome] = {
-            'mean': probs.mean(),
-            'ci_low': percentile(probs, 100 * alpha / 2),
-            'ci_high': percentile(probs, 100 * (1 - alpha / 2)),
-            'std': probs.std()
-        }
-    
-    RETURN ci
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_bootstrap_ci)
+
+Uses weighted bootstrap resampling (n=1000) to estimate uncertainty in outcome probabilities.
+
+**Process**:
+1. Resample outcomes with replacement, weighted by similarity
+2. Compute proportions for each bootstrap sample
+3. Calculate 95% confidence intervals from bootstrap distribution
+
+**Result**: `{BREAK: {mean, ci_low, ci_high, std}, REJECT: {...}, CHOP: {...}}`
 
 ### 10.6 Reliability Metrics
 
-```
-FUNCTION compute_reliability(retrieved_metadata: DataFrame) -> dict:
-    """
-    Compute reliability metrics for the retrieval.
-    """
-    similarities = retrieved_metadata['similarity'].values
-    weights = similarities / similarities.sum()
-    
-    # Effective sample size
-    effective_n = (weights.sum() ** 2) / (weights ** 2).sum()
-    
-    RETURN {
-        'n_retrieved': len(retrieved_metadata),
-        'effective_n': effective_n,
-        'avg_similarity': similarities.mean(),
-        'min_similarity': similarities.min(),
-        'max_similarity': similarities.max(),
-        'similarity_std': similarities.std(),
-        'entropy': -sum(weights * log(weights + 1e-10))
-    }
-```
+**Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_reliability)
+
+Quantifies retrieval quality and sample diversity.
+
+**Metrics**:
+- `n_retrieved`: Number of neighbors
+- `effective_n`: Effective sample size accounting for weight concentration
+- `avg_similarity`, `min_similarity`, `max_similarity`: Similarity statistics
+- `similarity_std`: Spread of similarity scores
+- `entropy`: Shannon entropy of normalized weights (higher = more diverse)
 
 ---
 
-## 11. Attribution System ✅ COMPLETE
+## 11. Attribution System
 
-**Implementation**: `backend/src/ml/attribution.py`  
-**Status**: Complete with 4 attribution methods + integrated into retrieval engine  
+**Implementation**: `backend/src/ml/attribution.py`
+
+Attribution explains both why neighbors were selected and what drives different outcomes within the neighborhood.
+
 **Methods**:
 - **Similarity Attribution**: Which features drove neighbor selection (inner product contributions)
 - **Outcome Attribution**: Which features differentiate BREAK vs REJECT (weighted logistic regression)
@@ -1709,193 +1093,79 @@ FUNCTION compute_reliability(retrieved_metadata: DataFrame) -> dict:
 
 ### 11.1 Similarity Attribution
 
-```
-FUNCTION compute_similarity_attribution(
-    query_vector: array,
-    retrieved_vectors: array,
-    similarities: array,
-    feature_names: list[string]
-) -> dict:
-    """
-    Explain which features drove similarity for each neighbor.
-    Returns aggregate attribution across all neighbors.
-    """
-    n_neighbors = len(retrieved_vectors)
-    n_features = len(feature_names)
-    
-    # Per-feature contribution to similarity
-    # For L2-normalized vectors using inner product:
-    # similarity = sum(q_i * r_i)
-    # contribution of feature i = q_i * r_i
-    
-    query_norm = query_vector / (norm(query_vector) + 1e-10)
-    
-    feature_contributions = zeros(n_features)
-    
-    FOR i IN range(n_neighbors):
-        neighbor_norm = retrieved_vectors[i] / (norm(retrieved_vectors[i]) + 1e-10)
-        
-        # Element-wise contribution
-        contributions = query_norm * neighbor_norm
-        
-        # Weight by similarity
-        feature_contributions += similarities[i] * contributions
-    
-    # Normalize
-    feature_contributions = feature_contributions / similarities.sum()
-    
-    # Create sorted list
-    attribution_list = list(zip(feature_names, feature_contributions))
-    attribution_list.sort(key=lambda x: abs(x[1]), reverse=True)
-    
-    RETURN {
-        'top_matching_features': attribution_list[:10],
-        'all_attributions': dict(attribution_list)
-    }
-```
+**Implementation**: `backend/src/ml/attribution.py` (compute_similarity_attribution)
+
+Explains which features drove neighbor selection by decomposing inner product similarity.
+
+**Method**: For L2-normalized vectors, `similarity = Σ(q_i × r_i)`. Each feature's contribution is `q_i × r_i`.
+
+**Process**:
+1. Normalize query and retrieved vectors
+2. Compute element-wise products (per-feature contributions)
+3. Aggregate across neighbors weighted by similarity
+4. Sort by absolute contribution magnitude
+
+**Result**: `{top_matching_features: [(feature, contribution), ...], all_attributions: {...}}`
 
 ### 11.2 Outcome Attribution (Local Surrogate Model)
 
-```
-FUNCTION compute_outcome_attribution(
-    query_vector: array,
-    retrieved_vectors: array,
-    outcomes: array,
-    similarities: array,
-    feature_names: list[string]
-) -> dict:
-    """
-    Explain which features differentiate BREAK vs REJECT in the neighborhood.
-    Uses weighted logistic regression as local surrogate.
-    """
-    # Filter to BREAK and REJECT only
-    mask = (outcomes == 'BREAK') | (outcomes == 'REJECT')
-    IF mask.sum() < 10:
-        RETURN {'top_break_drivers': [], 'top_reject_drivers': []}
-    
-    X = retrieved_vectors[mask]
-    y = (outcomes[mask] == 'BREAK').astype(int)
-    weights = similarities[mask]
-    
-    # Fit weighted logistic regression
-    model = LogisticRegression(max_iter=1000, solver='lbfgs')
-    TRY:
-        model.fit(X, y, sample_weight=weights)
-    EXCEPT:
-        RETURN {'top_break_drivers': [], 'top_reject_drivers': []}
-    
-    # Extract coefficients
-    coefficients = model.coef_[0]
-    
-    # Pair with feature names
-    feature_importance = list(zip(feature_names, coefficients))
-    
-    # Positive coefficients favor BREAK
-    break_drivers = [(f, c) FOR f, c IN feature_importance IF c > 0]
-    break_drivers.sort(key=lambda x: x[1], reverse=True)
-    
-    # Negative coefficients favor REJECT
-    reject_drivers = [(f, abs(c)) FOR f, c IN feature_importance IF c < 0]
-    reject_drivers.sort(key=lambda x: x[1], reverse=True)
-    
-    RETURN {
-        'top_break_drivers': break_drivers[:10],
-        'top_reject_drivers': reject_drivers[:10],
-        'model_accuracy': model.score(X, y, sample_weight=weights),
-        'all_coefficients': dict(feature_importance)
-    }
-```
+**Implementation**: `backend/src/ml/attribution.py` (compute_outcome_attribution)
+
+Explains which features differentiate BREAK vs REJECT within the retrieved neighborhood using weighted logistic regression as a local surrogate model.
+
+**Process**:
+1. Filter neighbors to BREAK and REJECT only (drop CHOP)
+2. Fit weighted logistic regression (target: 1=BREAK, 0=REJECT, weights=similarities)
+3. Extract coefficients
+4. Positive coefficients → BREAK drivers
+5. Negative coefficients → REJECT drivers
+
+**Requirements**: Minimum 10 BREAK+REJECT neighbors
+
+**Result**: `{top_break_drivers: [(feature, coef), ...], top_reject_drivers: [...], model_accuracy, all_coefficients}`
 
 ### 11.3 Section-Level Attribution
 
-```
-FUNCTION compute_section_attribution(
-    query_vector: array,
-    retrieved_vectors: array,
-    outcomes: array
-) -> dict:
-    """
-    Identify which vector sections differentiate BREAK vs REJECT.
-    """
-    break_vectors = retrieved_vectors[outcomes == 'BREAK']
-    reject_vectors = retrieved_vectors[outcomes == 'REJECT']
-    
-    IF len(break_vectors) == 0 OR len(reject_vectors) == 0:
-        RETURN {}
-    
-    section_analysis = {}
-    
-    FOR section_name, (start, end) IN VECTOR_SECTIONS.items():
-        # Compute centroids
-        break_centroid = break_vectors[:, start:end].mean(axis=0)
-        reject_centroid = reject_vectors[:, start:end].mean(axis=0)
-        
-        # Distance from query to each centroid
-        query_section = query_vector[start:end]
-        dist_to_break = norm(query_section - break_centroid)
-        dist_to_reject = norm(query_section - reject_centroid)
-        
-        section_analysis[section_name] = {
-            'dist_to_break': dist_to_break,
-            'dist_to_reject': dist_to_reject,
-            'lean': 'BREAK' if dist_to_break < dist_to_reject else 'REJECT',
-            'confidence': abs(dist_to_reject - dist_to_break) / (dist_to_break + dist_to_reject + 1e-6)
-        }
-    
-    RETURN section_analysis
-```
+**Implementation**: `backend/src/ml/attribution.py` (compute_section_attribution)
+
+Identifies which of the 6 vector sections (context/dynamics/micro-history/physics/trends/trajectory) differentiate BREAK vs REJECT.
+
+**Method**:
+1. Compute centroids for BREAK and REJECT subsets within each section
+2. Measure query distance to each centroid
+3. Determine which outcome the query section leans toward
+4. Calculate confidence as relative distance difference
+
+**Result**: Per-section analysis with `{dist_to_break, dist_to_reject, lean, confidence}`
 
 ### 11.4 Physics-Bucket Attribution
 
-```
-PHYSICS_BUCKETS = {
-    'kinematics': [
-        'velocity_*', 'acceleration_*', 'jerk_*', 'momentum_trend_*',
-        'approach_velocity', 'approach_bars', 'approach_distance_atr',
-        'predicted_accel', 'accel_residual', 'force_mass_ratio'
-    ],
-    'order_flow': [
-        'ofi_*', 'tape_imbalance', 'tape_velocity', 'sweep_detected',
-        'tape_log_ratio', 'tape_log_total'
-    ],
-    'liquidity_barrier': [
-        'barrier_*', 'wall_ratio'
-    ],
-    'dealer_gamma': [
-        'gamma_exposure', 'fuel_effect', 'gex_*', 'net_gex_2strike'
-    ],
-    'context': [
-        'level_kind', 'direction', 'minutes_since_open', 'level_stacking_*',
-        'dist_to_*', 'prior_touches', 'attempt_index', 'atr'
-    ]
-}
+**Implementation**: `backend/src/ml/attribution.py` (compute_physics_attribution)
 
-FUNCTION compute_physics_attribution(all_coefficients: dict) -> dict:
-    """
-    Aggregate feature attributions into physics buckets.
-    """
-    bucket_scores = {bucket: 0.0 FOR bucket IN PHYSICS_BUCKETS}
-    
-    FOR feature, coef IN all_coefficients.items():
-        FOR bucket, patterns IN PHYSICS_BUCKETS.items():
-            IF feature_matches_any_pattern(feature, patterns):
-                bucket_scores[bucket] += abs(coef)
-                BREAK
-    
-    # Normalize to sum to 1
-    total = sum(bucket_scores.values())
-    IF total > 0:
-        bucket_scores = {k: v/total FOR k, v IN bucket_scores.items()}
-    
-    RETURN bucket_scores
-```
+Aggregates feature-level attributions into interpretable physics categories.
+
+**Physics Buckets**:
+- **Kinematics**: Velocities, accelerations, jerks, momentum trends, DCT(d_atr)
+- **Order Flow**: OFI series, tape metrics, DCT(ofi), DCT(tape)
+- **Liquidity/Barrier**: Barrier deltas, depth, wall ratio, DCT(barrier)
+- **Dealer Gamma**: GEX features, fuel_effect
+- **Context**: Time-of-day, stacking, distances to other levels, touch memory
+
+**Process**:
+1. Match each feature to its physics bucket via pattern matching
+2. Sum absolute coefficients within each bucket
+3. Normalize bucket scores to sum to 1
+
+**Result**: `{kinematics: score, order_flow: score, liquidity_barrier: score, dealer_gamma: score, context: score}`
 
 ---
 
-## 12. Validation Framework ✅ COMPLETE
+## 12. Validation Framework
 
-**Implementation**: `backend/src/ml/validation.py`  
-**Status**: Complete with 6 validation methods + ValidationRunner class  
+**Implementation**: `backend/src/ml/validation.py`
+
+The validation framework ensures retrieval quality through temporal cross-validation, calibration monitoring, and drift detection.
+
 **Methods**:
 - **Temporal CV**: Expanding window splits, no leakage
 - **Retrieval Metrics**: AUC, Brier score, log loss
@@ -1906,288 +1176,134 @@ FUNCTION compute_physics_attribution(all_coefficients: dict) -> dict:
 
 ### 12.1 Temporal Cross-Validation
 
-```
-FUNCTION temporal_cv_split(
-    dates: list[date],
-    n_splits: int = 5,
-    min_train_days: int = 60
-) -> list[tuple[list[date], list[date]]]:
-    """
-    Generate temporal train/test splits.
-    Training always precedes test to prevent leakage.
-    """
-    dates = sorted(dates)
-    n_dates = len(dates)
-    
-    test_size = (n_dates - min_train_days) // n_splits
-    
-    splits = []
-    FOR i IN range(n_splits):
-        train_end = min_train_days + i * test_size
-        test_start = train_end
-        test_end = test_start + test_size
-        
-        train_dates = dates[:train_end]
-        test_dates = dates[test_start:test_end]
-        
-        splits.append((train_dates, test_dates))
-    
-    RETURN splits
-```
+**Implementation**: `backend/src/ml/validation.py` (temporal_cv_split)
+
+Generates time-forward train/test splits to prevent leakage.
+
+**Strategy**: Expanding window
+- Minimum 60 days for training
+- Test periods always follow training periods
+- Typically 5 splits
+
+**Constraint**: Training data strictly precedes test data (no overlap)
 
 ### 12.2 Retrieval Quality Metrics
 
-```
-FUNCTION evaluate_retrieval_system(
-    query_engine: SimilarityQueryEngine,
-    test_episodes: array,
-    test_metadata: DataFrame
-) -> dict:
-    """
-    Comprehensive evaluation of retrieval system.
-    """
-    predictions = []
-    actuals = []
-    
-    FOR idx IN range(len(test_episodes)):
-        episode_vector = test_episodes[idx]
-        meta = test_metadata.iloc[idx]
-        
-        result = query_engine.query(EpisodeQuery(
-            level_kind=meta['level_kind'],
-            direction=meta['direction'],
-            time_bucket=meta['time_bucket'],
-            vector=episode_vector,
-            ...
-        ))
-        
-        IF result.reliability['n_retrieved'] < 10:
-            CONTINUE
-        
-        pred_break = result.outcome_probabilities['probabilities']['BREAK']
-        predictions.append(pred_break)
-        actuals.append(1 if meta['outcome_4min'] == 'BREAK' else 0)
-    
-    predictions = array(predictions)
-    actuals = array(actuals)
-    
-    metrics = {
-        'n_evaluated': len(predictions),
-        'base_rate_break': actuals.mean(),
-        'mean_prediction': predictions.mean(),
-        'auc': roc_auc_score(actuals, predictions) if len(unique(actuals)) > 1 else None,
-        'brier_score': brier_score_loss(actuals, predictions),
-        'log_loss': log_loss(actuals, clip(predictions, 0.01, 0.99))
-    }
-    
-    # Calibration curve
-    metrics['calibration'] = compute_calibration_curve(actuals, predictions, n_bins=10)
-    
-    # Lift analysis
-    metrics['lift'] = compute_lift_analysis(actuals, predictions)
-    
-    RETURN metrics
-```
+**Implementation**: `backend/src/ml/validation.py` (evaluate_retrieval_system)
+
+Comprehensive evaluation using temporal CV test set.
+
+**Process**:
+1. For each test episode, query retrieval system
+2. Filter to quality retrievals (n_retrieved >= 10)
+3. Extract predicted P(BREAK) and actual outcome
+4. Compute standard probabilistic forecasting metrics
+
+**Metrics**:
+- AUC: Area under ROC curve (BREAK vs REJECT+CHOP)
+- Brier score: Mean squared error of probabilities
+- Log loss: Negative log-likelihood
+- Calibration curve: Reliability diagram
+- Lift analysis: Break rate at various confidence thresholds
 
 ### 12.3 Calibration Curve
 
-```
-FUNCTION compute_calibration_curve(
-    actuals: array,
-    predictions: array,
-    n_bins: int = 10
-) -> dict:
-    """
-    Compute reliability diagram data.
-    """
-    bin_edges = linspace(0, 1, n_bins + 1)
-    
-    bin_means = []
-    bin_true_freqs = []
-    bin_counts = []
-    
-    FOR i IN range(n_bins):
-        mask = (predictions >= bin_edges[i]) & (predictions < bin_edges[i+1])
-        IF mask.sum() > 0:
-            bin_means.append(predictions[mask].mean())
-            bin_true_freqs.append(actuals[mask].mean())
-            bin_counts.append(mask.sum())
-    
-    # Calibration error
-    ece = sum(
-        (count / len(predictions)) * abs(mean - freq)
-        FOR mean, freq, count IN zip(bin_means, bin_true_freqs, bin_counts)
-    )
-    
-    RETURN {
-        'bin_means': bin_means,
-        'bin_true_freqs': bin_true_freqs,
-        'bin_counts': bin_counts,
-        'expected_calibration_error': ece
-    }
-```
+**Implementation**: `backend/src/ml/validation.py` (compute_calibration_curve)
+
+Reliability diagram showing predicted vs observed frequencies in probability bins.
+
+**Process**:
+1. Bin predictions into 10 deciles
+2. Compute mean predicted probability and observed frequency per bin
+3. Calculate Expected Calibration Error (ECE): weighted mean absolute deviation
+
+**Result**: `{bin_means, bin_true_freqs, bin_counts, expected_calibration_error}`
+
+**Interpretation**: Well-calibrated model has bin_means ≈ bin_true_freqs
 
 ### 12.4 Lift Analysis
 
-```
-FUNCTION compute_lift_analysis(
-    actuals: array,
-    predictions: array
-) -> dict:
-    """
-    Compute lift at various confidence thresholds.
-    """
-    base_rate = actuals.mean()
-    
-    thresholds = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
-    lift_results = []
-    
-    FOR threshold IN thresholds:
-        high_conf_mask = predictions >= threshold
-        IF high_conf_mask.sum() > 0:
-            high_conf_rate = actuals[high_conf_mask].mean()
-            lift = high_conf_rate / base_rate
-            lift_results.append({
-                'threshold': threshold,
-                'n_samples': high_conf_mask.sum(),
-                'break_rate': high_conf_rate,
-                'lift': lift
-            })
-    
-    RETURN {
-        'base_rate': base_rate,
-        'lift_by_threshold': lift_results
-    }
-```
+**Implementation**: `backend/src/ml/validation.py` (compute_lift_analysis)
+
+Measures how much better the system performs when filtering to high-confidence predictions.
+
+**Thresholds**: [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+
+For each threshold, compute:
+- Number of cases with P(BREAK) >= threshold
+- Break rate among those cases
+- Lift: `high_conf_rate / base_rate`
+
+**Result**: `{base_rate, lift_by_threshold: [{threshold, n_samples, break_rate, lift}, ...]}`
 
 ### 12.5 Similarity Sanity Check
 
-```
-FUNCTION sanity_check_similarity(
-    episode_vectors: array,
-    metadata: DataFrame,
-    n_samples: int = 500
-) -> dict:
-    """
-    Verify that similar episodes have similar outcomes.
-    Same-outcome neighbors should be closer than different-outcome neighbors.
-    """
-    sample_idx = random.choice(len(episode_vectors), min(n_samples, len(episode_vectors)), replace=False)
-    
-    same_outcome_distances = []
-    diff_outcome_distances = []
-    
-    # Normalize for cosine distance
-    vectors_norm = episode_vectors / (norm(episode_vectors, axis=1, keepdims=True) + 1e-6)
-    
-    FOR i IN sample_idx:
-        # Cosine distance to all others
-        similarities = dot(vectors_norm, vectors_norm[i])
-        distances = 1 - similarities
-        distances[i] = inf  # Exclude self
-        
-        # Find nearest neighbor
-        nearest = argmin(distances)
-        
-        IF metadata.iloc[i]['outcome_4min'] == metadata.iloc[nearest]['outcome_4min']:
-            same_outcome_distances.append(distances[nearest])
-        ELSE:
-            diff_outcome_distances.append(distances[nearest])
-    
-    same_mean = mean(same_outcome_distances) if same_outcome_distances else 0
-    diff_mean = mean(diff_outcome_distances) if diff_outcome_distances else 0
-    
-    RETURN {
-        'same_outcome_mean_dist': same_mean,
-        'diff_outcome_mean_dist': diff_mean,
-        'separation_ratio': diff_mean / (same_mean + 1e-6),
-        'interpretation': 'GOOD' if diff_mean > same_mean else 'POOR'
-    }
-```
+**Implementation**: `backend/src/ml/validation.py` (sanity_check_similarity)
+
+Verifies that the vector space has meaningful structure: episodes with the same outcome should be closer together than episodes with different outcomes.
+
+**Method**:
+1. Sample 500 random episodes
+2. For each, find its nearest neighbor (cosine distance)
+3. Track whether nearest neighbor has same or different outcome
+4. Compute mean distance for same-outcome vs different-outcome pairs
+
+**Expected**: `same_outcome_mean_dist < diff_outcome_mean_dist`
+
+**Result**: `{same_outcome_mean_dist, diff_outcome_mean_dist, separation_ratio, interpretation}`
 
 ### 12.6 Feature Drift Detection
 
-```
-FUNCTION detect_feature_drift(
-    corpus_vectors: array,
-    corpus_dates: array,
-    lookback_days: int = 60,
-    recent_days: int = 5
-) -> DataFrame:
-    """
-    Detect drift in feature distributions.
-    """
-    cutoff = today() - timedelta(days=recent_days)
-    historical_end = cutoff - timedelta(days=lookback_days)
-    
-    historical_mask = corpus_dates < historical_end
-    recent_mask = corpus_dates >= cutoff
-    
-    drift_metrics = []
-    
-    FOR feat_idx, feat_name IN enumerate(FEATURE_NAMES_ORDERED):
-        hist_vals = corpus_vectors[historical_mask, feat_idx]
-        recent_vals = corpus_vectors[recent_mask, feat_idx]
-        
-        IF len(hist_vals) == 0 OR len(recent_vals) == 0:
-            CONTINUE
-        
-        # Wasserstein distance
-        w_dist = wasserstein_distance(hist_vals, recent_vals)
-        
-        # Mean shift in std units
-        mean_shift = (recent_vals.mean() - hist_vals.mean()) / (hist_vals.std() + 1e-6)
-        
-        drift_metrics.append({
-            'feature': feat_name,
-            'wasserstein_distance': w_dist,
-            'mean_shift_std': mean_shift,
-            'hist_mean': hist_vals.mean(),
-            'recent_mean': recent_vals.mean()
-        })
-    
-    RETURN DataFrame(drift_metrics).sort_values('wasserstein_distance', ascending=False)
-```
+**Implementation**: `backend/src/ml/validation.py` (detect_feature_drift)
+
+Monitors feature distribution changes over time to detect regime shifts or data quality issues.
+
+**Method**:
+- Compare historical baseline (60 days ago) vs recent period (last 5 days)
+- Compute Wasserstein distance (distribution shift) per feature
+- Compute mean shift in standard deviation units per feature
+
+**Thresholds**:
+- Warning: Wasserstein distance > 0.5
+- Alert: Mean shift > 2.0 std
+
+**Result**: DataFrame sorted by drift magnitude with columns `{feature, wasserstein_distance, mean_shift_std, hist_mean, recent_mean}`
 
 ---
 
-## 13. Pipeline Integration ✅ COMPLETE
+## 13. Pipeline Integration
 
-**Implementation**: Updated `backend/src/pipeline/pipelines/es_pipeline.py`  
-**Status**: Pipeline updated to v3.0.0 with new stages  
-**Changes**:
-- Added Stage 16: MaterializeStateTableStage (30s cadence state)
-- Added Stage 18: ConstructEpisodesStage (111-dim episode vectors)
-- Updated to use first-crossing outcome labels (BREAK/REJECT/CHOP)
-- Pipeline now generates episode corpus ready for index building
+**Implementation**: `backend/src/pipeline/pipelines/es_pipeline.py` (v3.1)
 
-**Full Pipeline** (18 stages, 0-indexed):
+The ES pipeline consists of 18 stages that transform raw Databento data through bronze, silver, and gold layers, culminating in episode vectors ready for retrieval.
 
-| Index | Stage Name | Status | Description |
-|-------|------------|--------|-------------|
-| 0 | LoadBronze | Existing | Load ES futures + options from Bronze |
-| 1 | BuildOHLCV (1min) | Existing | 1-minute OHLCV for ATR |
-| 2 | BuildOHLCV (2min) | Existing | 2-minute OHLCV for SMA |
-| 3 | InitMarketState | Existing | Market state + Greeks |
-| 4 | GenerateLevels | Existing | 6 level kinds |
-| 5 | DetectInteractionZones | Existing | Event detection |
-| 6 | ComputePhysics | Existing | Barrier/Tape/Fuel |
-| 7 | ComputeMultiWindowKinematics | Existing | Velocity/Accel/Jerk |
-| 8 | ComputeMultiWindowOFI | Existing | Multi-window OFI |
-| 9 | ComputeBarrierEvolution | Existing | Barrier depth changes |
-| 10 | ComputeLevelDistances | Existing | Distance to all levels |
-| 11 | ComputeGEXFeatures | Existing | Gamma exposure features |
-| 12 | ComputeForceMass | Existing | F=ma validation |
-| 13 | ComputeApproach | Existing | Approach dynamics |
-| 14 | LabelOutcomes | **Updated** | **First-crossing (BREAK/REJECT/CHOP)** |
-| 15 | FilterRTH | Existing | RTH 09:30-12:30 filter |
-| 16 | MaterializeStateTable | **NEW** | **30s cadence state** |
-| 17 | ConstructEpisodes | **NEW** | **111-dim episode vectors** |
+**Pipeline Stages** (18 stages, 0-indexed):
 
-**Offline Stages** (not in main pipeline):
-- Stage 17 (offline): Normalization Stats Computation
-- Stage 19 (offline): Index Building (48 FAISS partitions)
-- Stage 20 (offline): Validation (weekly)
+| Index | Stage Name | Description |
+|-------|------------|-------------|
+| 0 | LoadBronze | Load ES futures + options from Bronze layer |
+| 1 | BuildOHLCV (1min) | 1-minute OHLCV for ATR computation |
+| 2 | BuildOHLCV (2min) | 2-minute OHLCV for SMA calculation |
+| 3 | InitMarketState | Market state + Greeks initialization |
+| 4 | GenerateLevels | 6 level kinds (PM/OR high/low, SMA_200/400) |
+| 5 | DetectInteractionZones | Event detection at zone entry |
+| 6 | ComputePhysics | Barrier/Tape/Fuel computation |
+| 7 | ComputeMultiWindowKinematics | Velocity/Accel/Jerk at 5 scales |
+| 8 | ComputeMultiWindowOFI | OFI at 4 windows (30/60/120/300s) |
+| 9 | ComputeBarrierEvolution | Barrier depth changes (1/3/5min) |
+| 10 | ComputeLevelDistances | Signed distance to all levels |
+| 11 | ComputeGEXFeatures | Gamma exposure features |
+| 12 | ComputeForceMass | F=ma validation features |
+| 13 | ComputeApproach | Approach dynamics and clustering |
+| 14 | LabelOutcomes | First-crossing labels (BREAK/REJECT/CHOP) |
+| 15 | FilterRTH | Filter to RTH 09:30-12:30 |
+| 16 | MaterializeStateTable | 30s cadence state table |
+| 17 | ConstructEpisodes | 144-dim episode vectors |
+
+**Offline Stages** (run separately):
+- Normalization Stats Computation (from 60 days of state data)
+- Index Building (60 FAISS partitions, daily or incremental)
+- Validation (weekly quality monitoring)
 
 ### 13.1 Data Flow Architecture
 
@@ -2258,7 +1374,7 @@ Constraints:
 - Handle OR levels being undefined before 09:45
 ```
 
-**Stage 17: Normalization Statistics**
+**Normalization Statistics Computation**
 
 ```
 Input:  silver/state/es_level_state/ (last 60 days)
@@ -2266,37 +1382,38 @@ Output: gold/normalization/stats_v{N}.json
 
 Logic:
 1. Load 60 days of state table
-2. For each feature, compute statistics per Section 7
+2. For each of 144 features, compute statistics per Section 7
 3. Save JSON with version number
-4. Archive previous version
 
 Schedule: Daily at 05:00 ET (before market open)
 ```
 
-**Stage 18: Episode Vector Construction**
+**Stage 17: Episode Vector Construction**
 
 ```
 Input:  silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet (event anchors)
         silver/state/es_level_state/date=YYYY-MM-DD/*.parquet (state for windows)
         gold/normalization/stats_v{N}.json
-Output: gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy
+Output: gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy [N × 144]
         gold/episodes/es_level_episodes/metadata/date=YYYY-MM-DD/metadata.parquet
 
 Logic:
 1. For each event (anchor) in event table:
    a. Get anchor timestamp t0
-   b. Extract 5-bar history from state table (t0-4*30s to t0)
-   c. Construct raw vector (Section 6.9)
-   d. Normalize vector (Section 7)
-   e. Compute labels (Section 3)
-   f. Compute emission_weight (Section 5.3)
-   g. Store vector and metadata
+   b. Extract 5-bar micro-history from state table (t0-4*30s to t0)
+   c. Extract 40-bar trajectory window (t0-39*30s to t0, 20 minutes)
+   d. Compute DCT coefficients for 4 time series
+   e. Construct raw 144-dim vector (Section 6.11)
+   f. Normalize vector (Section 7)
+   g. Compute labels (Section 3)
+   h. Compute emission_weight (Section 5.3)
+   i. Store vector and metadata
 2. Partition by date
 
 Schedule: Daily, after RTH close (16:15 ET)
 ```
 
-**Stage 19: Index Building**
+**Index Building (Offline)**
 
 ```
 Input:  gold/episodes/es_level_episodes/ (all dates)
@@ -2304,21 +1421,17 @@ Output: gold/indices/es_level_indices/{level}/{dir}/{bucket}/
 
 Logic:
 1. Load all episode vectors and metadata
-2. For each partition (level_kind, direction, time_bucket):
+2. For each of 60 partitions (level_kind, direction, time_bucket):
    a. Filter to partition
-   b. Select index type based on corpus size
-   c. Build FAISS index
-   d. Save index, vectors, metadata
+   b. Select index type based on corpus size (Flat/IVF/IVFPQ)
+   c. Build FAISS index with L2-normalized vectors
+   d. Save index.faiss, vectors.npy, metadata.parquet
 3. Update config.json with build timestamp
 
-Schedule: Daily at 17:00 ET
-
-Incremental Option:
-- Append new vectors to existing index
-- Full rebuild weekly (Sunday)
+Schedule: Daily at 17:00 ET (or incremental with weekly full rebuild)
 ```
 
-**Stage 20: Validation**
+**Validation (Offline)**
 
 ```
 Input:  gold/episodes/ (all)
@@ -2367,9 +1480,10 @@ data/
     │
     ├── indices/
     │   └── es_level_indices/
-    │       ├── PM_HIGH/UP/T0_30/
-    │       ├── PM_HIGH/UP/T30_60/
-    │       ├── ... (48 partitions total)
+│       ├── PM_HIGH/UP/T0_15/
+│       ├── PM_HIGH/UP/T15_30/
+│       ├── PM_HIGH/UP/T30_60/
+    │       ├── ... (60 partitions total)
     │       └── config.json
     │
     └── validation/
@@ -2382,88 +1496,106 @@ data/
 
 ## Appendix A: Complete Feature Specification
 
-### A.1 Section A: Context State (26 features)
+### A.1 Section A: Context + Regime (25 features)
 
 | Index | Feature | Source | Normalization |
 |-------|---------|--------|---------------|
-| 0 | level_kind_encoded | level_kind | Passthrough |
-| 1 | direction_encoded | direction | Passthrough |
-| 2 | minutes_since_open | minutes_since_open | MinMax [0, 180] |
-| 3 | bars_since_open | bars_since_open | MinMax [0, 90] |
-| 4 | atr | atr | Z-Score |
-| 5 | gex_asymmetry | gex_asymmetry | Robust |
-| 6 | gex_ratio | gex_ratio | Robust |
-| 7 | net_gex_2strike | net_gex_2strike | Robust |
-| 8 | gamma_exposure | gamma_exposure | Robust |
-| 9 | gex_above_1strike | gex_above_1strike | Robust |
-| 10 | gex_below_1strike | gex_below_1strike | Robust |
-| 11 | call_gex_above_2strike | call_gex_above_2strike | Robust |
-| 12 | put_gex_below_2strike | put_gex_below_2strike | Robust |
-| 13 | fuel_effect_encoded | fuel_effect | Passthrough |
-| 14 | level_stacking_2pt | level_stacking_2pt | MinMax [0, 6] |
-| 15 | level_stacking_5pt | level_stacking_5pt | MinMax [0, 6] |
-| 16 | level_stacking_10pt | level_stacking_10pt | MinMax [0, 6] |
-| 17 | dist_to_pm_high_atr | dist_to_pm_high_atr | Z-Score |
-| 18 | dist_to_pm_low_atr | dist_to_pm_low_atr | Z-Score |
-| 19 | dist_to_or_high_atr | dist_to_or_high_atr | Z-Score |
-| 20 | dist_to_or_low_atr | dist_to_or_low_atr | Z-Score |
-| 21 | dist_to_sma_200_atr | dist_to_sma_200_atr | Z-Score |
-| 22 | dist_to_sma_400_atr | dist_to_sma_400_atr | Z-Score |
-| 23 | prior_touches | prior_touches | MinMax [0, 10] |
-| 24 | attempt_index | attempt_index | MinMax [0, 10] |
-| 25 | attempt_cluster_id_mod | attempt_cluster_id % 1000 | MinMax [0, 1000] |
+| 0 | minutes_since_open | minutes_since_open | MinMax [0, 180] |
+| 1 | bars_since_open | bars_since_open | MinMax [0, 90] |
+| 2 | atr | atr | Z-Score |
+| 3 | or_active | computed | Passthrough (0/1) |
+| 4 | level_stacking_2pt | level_stacking_2pt | MinMax [0, 6] |
+| 5 | level_stacking_5pt | level_stacking_5pt | MinMax [0, 6] |
+| 6 | level_stacking_10pt | level_stacking_10pt | MinMax [0, 6] |
+| 7 | dist_to_pm_high_atr | dist_to_pm_high_atr | Z-Score |
+| 8 | dist_to_pm_low_atr | dist_to_pm_low_atr | Z-Score |
+| 9 | dist_to_or_high_atr | dist_to_or_high_atr | Z-Score |
+| 10 | dist_to_or_low_atr | dist_to_or_low_atr | Z-Score |
+| 11 | dist_to_sma_200_atr | dist_to_sma_200_atr | Z-Score |
+| 12 | dist_to_sma_400_atr | dist_to_sma_400_atr | Z-Score |
+| 13 | prior_touches | prior_touches | MinMax [0, 10] |
+| 14 | attempt_index | attempt_index | MinMax [0, 10] |
+| 15 | time_since_last_touch_sec | time_since_last_touch | MinMax |
+| 16 | gamma_exposure | gamma_exposure | Robust |
+| 17 | fuel_effect_encoded | fuel_effect | Passthrough |
+| 18 | gex_ratio | gex_ratio | Robust |
+| 19 | gex_asymmetry | gex_asymmetry | Robust |
+| 20 | net_gex_2strike | net_gex_2strike | Robust |
+| 21 | gex_above_1strike | gex_above_1strike | Robust |
+| 22 | gex_below_1strike | gex_below_1strike | Robust |
+| 23 | call_gex_above_2strike | call_gex_above_2strike | Robust |
+| 24 | put_gex_below_2strike | put_gex_below_2strike | Robust |
 
-### A.2 Section B: Multi-Scale Trajectory (37 features)
+**Note**: `level_kind` and `direction` are partition keys and are NOT included in the vector.
+
+### A.2 Section B: Multi-Scale Dynamics (37 features)
 
 | Index | Feature | Normalization |
 |-------|---------|---------------|
-| 26-30 | velocity_{1,3,5,10,20}min | Z-Score |
-| 31-35 | acceleration_{1,3,5,10,20}min | Z-Score |
-| 36-40 | jerk_{1,3,5,10,20}min | Z-Score |
-| 41-44 | momentum_trend_{3,5,10,20}min | Z-Score |
-| 45-48 | ofi_{30s,60s,120s,300s} | Robust |
-| 49-52 | ofi_near_level_{30s,60s,120s,300s} | Robust |
-| 53 | ofi_acceleration | Robust |
-| 54-56 | barrier_delta_{1,3,5}min | Robust |
-| 57-59 | barrier_pct_change_{1,3,5}min | Robust |
-| 60 | approach_velocity | Z-Score |
-| 61 | approach_bars | MinMax [0, 40] |
-| 62 | approach_distance_atr | Z-Score |
+| 25-29 | velocity_{1,3,5,10,20}min | Z-Score |
+| 30-34 | acceleration_{1,3,5,10,20}min | Z-Score |
+| 35-39 | jerk_{1,3,5,10,20}min | Z-Score |
+| 40-43 | momentum_trend_{3,5,10,20}min | Z-Score |
+| 44-47 | ofi_{30s,60s,120s,300s} | Robust |
+| 48-51 | ofi_near_level_{30s,60s,120s,300s} | Robust |
+| 52 | ofi_acceleration | Robust |
+| 53-55 | barrier_delta_{1,3,5}min | Robust |
+| 56-58 | barrier_pct_change_{1,3,5}min | Robust |
+| 59 | approach_velocity | Z-Score |
+| 60 | approach_bars | MinMax [0, 40] |
+| 61 | approach_distance_atr | Z-Score |
 
 ### A.3 Section C: Micro-History (35 features)
 
-| Index | Feature × Time | Normalization |
-|-------|----------------|---------------|
-| 63-67 | distance_signed_atr[t-4..t0] | Z-Score |
-| 68-72 | tape_imbalance[t-4..t0] | Robust |
-| 73-77 | tape_velocity[t-4..t0] | Robust |
-| 78-82 | ofi_60s[t-4..t0] | Robust |
-| 83-87 | barrier_delta_liq[t-4..t0] | Robust |
-| 88-92 | wall_ratio[t-4..t0] | Robust |
-| 93-97 | gamma_exposure[t-4..t0] | Robust |
+**Log Transforms**: Barrier and wall features use log transforms for stability.
 
-### A.4 Section D: Derived Physics (9 features)
+| Index | Feature × Time | Transform | Normalization |
+|-------|----------------|-----------|---------------|
+| 62-66 | d_atr[t-4..t0] | None | Z-Score |
+| 67-71 | tape_imbalance[t-4..t0] | None | Robust |
+| 72-76 | tape_velocity[t-4..t0] | None | Robust |
+| 77-81 | ofi_60s[t-4..t0] | None | Robust |
+| 82-86 | barrier_delta_liq_log[t-4..t0] | Signed log | Robust |
+| 87-91 | wall_ratio_log[t-4..t0] | Log | Robust |
+| 92-96 | gamma_exposure[t-4..t0] | None | Robust |
+
+### A.4 Section D: Derived Physics (11 features)
+
+| Index | Feature | Computation | Normalization |
+|-------|---------|-------------|---------------|
+| 97 | predicted_accel | F=ma model | Z-Score |
+| 98 | accel_residual | Actual - predicted | Robust |
+| 99 | force_mass_ratio | F=ma model | Robust |
+| 100 | mass_proxy | log1p(barrier_depth) | Robust |
+| 101 | force_proxy | ofi_60s / (mass_proxy + ε) | Robust |
+| 102 | barrier_state_encoded | Encoded [-2, +2] | Passthrough |
+| 103 | barrier_replenishment_ratio | Barrier metric | Robust |
+| 104 | sweep_detected | Binary 0/1 | Passthrough |
+| 105 | tape_log_ratio | log((buy+1)/(sell+1)) | Robust |
+| 106 | tape_log_total | log(buy+sell+1) | Robust |
+| 107 | flow_alignment | ofi_60s * (-sign(d_atr)) | Robust |
+
+### A.5 Section E: Online Trends (4 features)
 
 | Index | Feature | Normalization |
 |-------|---------|---------------|
-| 98 | predicted_accel | Z-Score |
-| 99 | accel_residual | Robust |
-| 100 | force_mass_ratio | Robust |
-| 101 | barrier_state_encoded | Passthrough |
-| 102 | barrier_depth_current | Robust |
-| 103 | barrier_replenishment_ratio | Robust |
-| 104 | sweep_detected | Passthrough |
-| 105 | tape_log_ratio | Robust |
-| 106 | tape_log_total | Robust |
+| 108 | barrier_replenishment_trend | Robust |
+| 109 | barrier_delta_liq_trend | Robust |
+| 110 | tape_velocity_trend | Robust |
+| 111 | tape_imbalance_trend | Robust |
 
-### A.5 Section E: Cluster Trends (4 features)
+### A.6 Section F: Trajectory Basis (32 features)
 
-| Index | Feature | Normalization |
-|-------|---------|---------------|
-| 107 | barrier_replenishment_trend | Robust |
-| 108 | barrier_delta_liq_trend | Robust |
-| 109 | tape_velocity_trend | Robust |
-| 110 | tape_imbalance_trend | Robust |
+DCT-II coefficients encoding 20-minute approach trajectory.
+
+| Index | Series | Window | Normalization |
+|-------|--------|--------|---------------|
+| 112-119 | DCT(d_atr) | 40 samples @ 30s | Z-Score |
+| 120-127 | DCT(ofi_60s) | 40 samples @ 30s | Z-Score |
+| 128-135 | DCT(barrier_delta_liq_log) | 40 samples @ 30s | Z-Score |
+| 136-143 | DCT(tape_imbalance) | 40 samples @ 30s | Z-Score |
+
+Each series produces 8 DCT coefficients (c0..c7) for a total of 32 dimensions.
 
 ---
 
@@ -2546,32 +1678,47 @@ QueryResult:
 
 ## Appendix C: Constants and Thresholds
 
+**File**: `backend/src/ml/constants.py`
+
 ### C.1 Zone and Trigger Parameters
 
-```
-ZONE_THRESHOLD_ATR = 3.0          # Episode triggers within this distance
-MIN_APPROACH_VELOCITY = 0.5       # Minimum velocity to trigger query (points/min)
-CONTACT_THRESHOLD_ATR = 0.2       # "At level" threshold
+```python
+Z_APPROACH_ATR = 2.0              # Episode triggers within this distance
+Z_CONTACT_ATR = 0.20              # "At level" threshold
+Z_EXIT_ATR = 2.5                  # Episode exit threshold
+MAX_EXIT_GAP_BARS = 2             # Allow brief excursions
+
+MIN_APPROACH_BARS = 2             # Minimum bars approaching level
+MIN_APPROACH_V_ATR_PER_MIN = 0.10 # Minimum velocity (ATR/min)
 ```
 
 ### C.2 Time Buckets
 
-```
+```python
 TIME_BUCKETS = {
-    'T0_30':   (0, 30),     # Minutes 0-30 since open
-    'T30_60':  (30, 60),    # Minutes 30-60
-    'T60_120': (60, 120),   # Minutes 60-120
-    'T120_180': (120, 180)  # Minutes 120-180
+    'T0_15':    (0, 15),      # OR formation period
+    'T15_30':   (15, 30),     # Post-OR early
+    'T30_60':   (30, 60),     # Minutes 30-60
+    'T60_120':  (60, 120),    # Minutes 60-120
+    'T120_180': (120, 180)    # Minutes 120-180
 }
 ```
 
 ### C.3 Retrieval Parameters
 
-```
-K_RETRIEVE = 100                  # Over-fetch from FAISS
-K_RETURN = 50                     # Final neighbors returned
+```python
+M_CANDIDATES = 500                # Over-fetch from FAISS
+K_NEIGHBORS = 50                  # Final neighbors after dedup
+MAX_PER_DAY = 2                   # Max neighbors from same date
+MAX_PER_EPISODE = 1               # Max neighbors from same episode_id
+
+SIM_POWER = 4.0                   # Power transform on similarity
+RECENCY_HALFLIFE_DAYS = 60        # Exponential decay halflife
+
 MIN_SIMILARITY_THRESHOLD = 0.70   # Minimum similarity for quality result
 MIN_SAMPLES_THRESHOLD = 30        # Minimum neighbors for reliable estimate
+N_EFF_MIN = 15                    # Minimum effective sample size
+
 CACHE_TTL_SECONDS = 30            # Query result cache TTL
 ```
 
@@ -2584,7 +1731,7 @@ CLIP_SIGMA = 4.0                  # Clip normalized values at ±4σ
 
 ### C.5 Validation Thresholds
 
-```
+```python
 MIN_PARTITION_SIZE = 100          # Don't create index for smaller partitions
 DRIFT_WARNING_WASSERSTEIN = 0.5   # Feature drift warning threshold
 DRIFT_ALERT_MEAN_SHIFT = 2.0      # Mean shift alert threshold (in std)
@@ -2593,8 +1740,16 @@ CALIBRATION_WARNING_ECE = 0.10    # Expected calibration error warning
 
 ### C.6 Level Kinds
 
-```
+```python
 LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+```
+
+### C.8 Vector Parameters
+
+```python
+VECTOR_DIMENSION = 144            # Episode vector dimensionality
+STATE_CADENCE_SEC = 30            # State table cadence
+LOOKBACK_WINDOW_MIN = 20          # For trajectory basis DCT
 ```
 
 ### C.7 Horizons
@@ -2612,23 +1767,20 @@ PRIMARY_HORIZON = '4min'
 
 ## End of Specification
 
-**Implementation Order:**
+**Key Design Decisions:**
 
-1. Outcome Label Contract (Section 3)
-2. State Table Materialization (Section 4)
-3. Episode Vector Construction (Section 6)
-4. Normalization (Section 7)
-5. Index Building (Section 8)
-6. Retrieval Pipeline (Section 9)
-7. Outcome Aggregation (Section 10)
-8. Attribution (Section 11)
-9. Validation (Section 12)
-10. Pipeline Integration (Section 13)
+1. **144 dimensions**: Optimal for ANN search while capturing full approach dynamics
+2. **DCT trajectory basis**: Frequency-domain encoding of 20-minute approach shape
+3. **Log transforms**: Stabilize heavy-tailed barrier/liquidity features
+4. **5 time buckets**: Finer resolution in first 30 min when OR is forming
+5. **60 partitions**: Ensures regime-comparable neighbors (same level, direction, session phase)
+6. **2.0 ATR zone**: Tighter threshold for higher-quality anchors
 
 **Critical Invariants:**
 
 - All features in vectors are online-safe (no future data)
 - All price-based features are ATR-normalized
-- All distance features use consistent sign convention
+- All distance features use consistent sign convention: `(spot - level) / ATR`
 - Temporal CV prevents any data leakage
 - Index partitioning ensures regime-comparable neighbors
+- DCT coefficients computed only from historical trajectory window
