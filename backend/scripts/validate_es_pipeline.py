@@ -1,5 +1,5 @@
 """
-Validate v1 Final Call pipeline implementation.
+Validate ES pipeline implementation.
 
 Per Final Call spec Section 10: QA Gates.
 
@@ -24,7 +24,7 @@ from src.common.utils.session_time import get_session_start_ns
 from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 
 
-class V1PipelineValidator:
+class ESPipelineValidator:
     """Validate v1 Final Call pipeline implementation."""
     
     def __init__(self, bronze_root: str):

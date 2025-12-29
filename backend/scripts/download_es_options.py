@@ -12,11 +12,13 @@ ES options advantages:
 
 Usage:
     uv run python scripts/download_es_options.py --start 2025-11-02 --end 2025-12-28
+    uv run python scripts/download_es_options.py --start 2025-11-02 --end 2025-12-28 --workers 8
     uv run python scripts/download_es_options.py --date 2025-12-16
 """
 
 import argparse
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -29,6 +31,8 @@ from dotenv import load_dotenv
 
 # Load environment
 _backend_dir = Path(__file__).parent.parent
+import sys
+sys.path.insert(0, str(_backend_dir))
 load_dotenv(_backend_dir / '.env')
 
 
@@ -373,32 +377,51 @@ class ESOptionsDownloader:
             'seq': df.get('sequence', 0).astype('int64')
         })
     
-    def download_range(self, start_date: str, end_date: str, force: bool = False) -> dict:
+    def download_range(
+        self, start_date: str, end_date: str, force: bool = False, max_workers: int = 4
+    ) -> list:
         """
-        Download SPX options for date range.
-        
+        Download ES options for date range in parallel.
+
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             force: Re-download if exists
-        
+            max_workers: Max parallel downloads (default 4)
+
         Returns:
-            Dict with summary stats
+            List of dicts with summary stats
         """
-        start = datetime.strptime(start_date, '%Y-%m-%d')
+        # Build list of dates
+        dates = []
+        current = datetime.strptime(start_date, '%Y-%m-%d')
         end = datetime.strptime(end_date, '%Y-%m-%d')
-        
-        results = []
-        current = start
-        
+
         while current <= end:
-            date_str = current.strftime('%Y-%m-%d')
-            result = self.download_date(date_str, force=force)
-            result['date'] = date_str
-            results.append(result)
+            dates.append(current.strftime('%Y-%m-%d'))
             current += timedelta(days=1)
-        
-        return results
+
+        print(f"\nDownloading {len(dates)} dates with {max_workers} parallel workers...\n")
+
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_date = {
+                executor.submit(self.download_date, date, force): date
+                for date in dates
+            }
+
+            for future in as_completed(future_to_date):
+                date = future_to_date[future]
+                try:
+                    result = future.result()
+                    result['date'] = date
+                    results.append(result)
+                except Exception as e:
+                    print(f"{date}: Error - {e}")
+                    results.append({'date': date, 'trades': 0, 'nbbo': 0, 'error': str(e)})
+
+        # Sort by date for consistent output
+        return sorted(results, key=lambda x: x['date'])
 
 
 def main():
@@ -409,6 +432,7 @@ def main():
     parser.add_argument('--start', type=str, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD)')
     parser.add_argument('--force', action='store_true', help='Re-download if exists')
+    parser.add_argument('--workers', type=int, default=4, help='Parallel workers (default: 4)')
     
     args = parser.parse_args()
     
@@ -427,7 +451,9 @@ def main():
         return 0
     
     if args.start and args.end:
-        results = downloader.download_range(args.start, args.end, force=args.force)
+        results = downloader.download_range(
+            args.start, args.end, force=args.force, max_workers=args.workers
+        )
         
         print("\n" + "=" * 60)
         print("DOWNLOAD SUMMARY")

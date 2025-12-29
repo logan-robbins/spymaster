@@ -1,8 +1,31 @@
 # System Components Map
 
-**Project**: Spymaster (SPY 0DTE Break/Bounce Physics Engine)  
+**Project**: Spymaster (ES Futures + ES 0DTE Options Break/Bounce Physics Engine)  
 **Audience**: Engineering Team & AI Coding Agents  
 **Purpose**: Component architecture with interface contracts for parallel development
+
+---
+
+## v1 Final Call Architecture (ES Futures + ES Options)
+
+**Perfect Alignment Strategy**:
+- **Spot + Liquidity**: ES futures (trades + MBP-10)
+- **Gamma Exposure**: ES 0DTE options (same underlying!)
+- **Venue**: CME Globex (GLBX.MDP3 dataset)
+- **Conversion**: NONE - ES = ES (zero basis spread)
+
+**Critical Advantages over SPY**:
+- No equity stock trades needed
+- Same underlying instrument (E-mini S&P 500)
+- Same venue, same participants
+- Zero latency mismatch
+- Zero conversion error
+
+**ES 0DTE Specs** (validated from real data):
+- Strike spacing: 25 points (ATM dominant)
+- Modeling threshold: 3 strikes = 75 points
+- Time window: 09:30-13:30 ET (first 4 hours)
+- Level types: 4 only (PM/OR/SMA200/SMA400)
 
 ---
 
@@ -10,14 +33,16 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         DATA SOURCES                                 │
-│  Polygon WebSocket (SPY)  │  Databento DBN (ES Futures)             │
-└────────────────┬──────────┴──────────────┬──────────────────────────┘
-                 │                         │
-                 ▼                         ▼
+│                         DATA SOURCES (v1)                            │
+│  Databento GLBX.MDP3 (ES Futures) │ Databento GLBX.MDP3 (ES Options)│
+│  Trades + MBP-10 (front-month)    │ Trades + NBBO (front-month)     │
+└────────────────┬──────────────────┴─────────────────────────────────┘
+                 │                         
+                 ▼                         
          ┌────────────────────────────────────────┐
          │         INGESTOR SERVICE               │
          │  Normalization & Event Publishing      │
+         │  (Front-month filtering enforced)      │
          └──────────────┬─────────────────────────┘
                         │ NATS JetStream (market.*)
                         │
@@ -67,18 +92,18 @@
 **Interface**: [backend/src/ingestor/INTERFACES.md](backend/src/ingestor/INTERFACES.md)
 
 **Key Responsibilities**:
-- Live feed ingestion (Polygon WebSocket for SPY stocks + options)
-- Historical replay (Databento DBN files for ES futures)
+- Historical replay (Databento DBN files for ES futures + ES options)
+- Front-month contract filtering (ES futures AND ES options)
 - Event normalization to canonical types
 - NATS publishing (market.* subjects)
-- Dynamic strike management (option subscriptions follow SPY price)
+- 0DTE filtering for ES options (exp_date == session date)
 
 **Inputs**:
-- Polygon WebSocket: SPY trades/quotes, SPY option trades
-- Databento DBN files: ES futures trades + MBP-10 depth
+- Databento GLBX.MDP3: ES futures trades + MBP-10 depth (front-month only)
+- Databento GLBX.MDP3: ES options trades + NBBO (front-month contract only, 0DTE)
 
 **Outputs**:
-- NATS subjects: `market.stocks.trades`, `market.stocks.quotes`, `market.options.trades`, `market.futures.trades`, `market.futures.mbp10`
+- NATS subjects: `market.futures.trades`, `market.futures.mbp10`, `market.options.trades`, `market.options.nbbo`
 
 **Entry Points**:
 - Live: `uv run python -m src.ingestor.main`
@@ -92,13 +117,14 @@
 **Role**: Physics engines and signal generation  
 **Interface**: [backend/src/core/INTERFACES.md](backend/src/core/INTERFACES.md)
 
-**Key Responsibilities**:
-- Maintain market state (ES MBP-10, trades, SPY option flow)
-- Generate level universe (VWAP, strikes, walls, session high/low)
-- Compute barrier physics (VACUUM, WALL, ABSORPTION, CONSUMED)
-- Compute tape physics (imbalance, velocity, sweep detection)
-- Compute fuel physics (dealer gamma, AMPLIFY vs DAMPEN)
-- Compute confluence metrics (nearby levels, pressure, alignment)
+**Key Responsibilities** (v1):
+- Maintain market state (ES MBP-10, trades, ES option flow)
+- Generate level universe (6 level kinds: PM/OR high/low + SMA_200/400)
+- Compute barrier physics (VACUUM, WALL, ABSORPTION from ES depth)
+- Compute tape physics (ES trade imbalance, velocity, sweep detection)
+- Compute fuel physics (ES option dealer gamma, AMPLIFY vs DAMPEN)
+- Compute kinematics (velocity, acceleration, jerk in level frame)
+- Compute OFI (integrated order flow imbalance from MBP-10)
 - Composite scoring (break/bounce probability 0-100)
 - Smoothing (EWMA for stable output)
 - Optional ML viewport scoring (tradeability, direction, strength predictions)
@@ -111,13 +137,12 @@
 - NATS subject: `levels.signals` (level signals payload, ~250ms cadence)
 
 **Key Engines**:
-- `MarketState`: Central state store with ring buffers
-- `BarrierEngine`: ES MBP-10 liquidity analysis
-- `TapeEngine`: ES trade flow analysis
-- `FuelEngine`: SPY option gamma analysis
-- `ScoreEngine`: Composite break score (weighted sum)
-- `ConfluenceComputer`: Multi-level confluence detection and alignment
-- `ViewportScoringService`: Optional ML predictions per level
+- `MarketState`: Central state store with ring buffers (ES futures + ES options)
+- `BarrierEngine`: ES MBP-10 liquidity analysis (VACUUM, WALL, ABSORPTION states)
+- `TapeEngine`: ES trade flow analysis (imbalance, velocity, sweeps)
+- `FuelEngine`: ES option gamma analysis (dealer hedging dynamics)
+- `KinematicsEngine`: Level-frame velocity, acceleration, jerk (multi-window)
+- `OFIEngine`: Integrated order flow imbalance (L2 pressure proxy)
 - `LevelSignalService`: Orchestrator that publishes signals
 
 **Entry Point**: Integrated into microservices architecture (runs as separate process)
@@ -133,9 +158,8 @@
 **Key Responsibilities**:
 - Bronze writer: NATS → append-only Parquet (raw, immutable)
 - Gold writer: NATS levels.signals → streaming signals Parquet
-- Silver feature builder: Versioned feature engineering (Bronze → Silver experiments)
-- Gold curator: Promote best experiments to production (Silver → Gold training)
-- Legacy silver compactor: Offline deduplication (Bronze → Silver datasets)
+- Silver feature builder: Feature engineering (Bronze → Silver using es_pipeline)
+- Gold curator: Promote Silver to Gold training dataset
 - Storage backend: Local filesystem or S3/MinIO
 
 **Inputs**:
@@ -144,16 +168,20 @@
 **Outputs**:
 - Parquet files:
   - Bronze: `bronze/{asset_class}/{schema}/{partition}/date=YYYY-MM-DD/hour=HH/*.parquet`
-  - Silver: `silver/{asset_class}/{schema}/{partition}/date=YYYY-MM-DD/hour=HH/*.parquet`
-  - Gold: `gold/levels/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/*.parquet`
+    - `futures/trades/symbol=ES/` (front-month only)
+    - `futures/mbp10/symbol=ES/` (front-month only)
+    - `options/trades/underlying=ES/` (front-month contract, 0DTE)
+    - `options/nbbo/underlying=ES/` (front-month contract, 0DTE)
+  - Silver: `silver/features/es_pipeline/` (ES system features)
+  - Gold: `gold/levels/signals/underlying=ES/date=YYYY-MM-DD/hour=HH/*.parquet`
 
 **Storage Tiers** (Medallion Architecture):
 - **Bronze**: Raw normalized events (at-least-once, append-only, immutable)
-- **Silver**: Versioned feature engineering experiments (reproducible, exactly-once)
-  - `silver/features/*` - Feature set versions with manifests
-  - `silver/datasets/*` - Legacy cleaned datasets (dedup only)
+  - ES futures + ES options (front-month filtered for both)
+- **Silver**: Feature engineering output (reproducible, exactly-once)
+  - `silver/features/es_pipeline/*` - ES system (16 stages, ~70 features, built with current CONFIG)
 - **Gold**: Production ML datasets and streaming signals
-  - `gold/training/*` - Curated from best Silver experiments
+  - `gold/training/*` - Promoted from Silver
   - `gold/streaming/*` - Real-time signals from Core Service
   - `gold/evaluation/*` - Backtest and validation results
 
@@ -207,13 +235,12 @@
 - Live viewport scoring (integrated into Core Service)
 
 **Inputs**:
-- Training data: Gold production dataset or Silver feature versions
+- Training data: `gold/training/signals_production.parquet`
 - Live features: Engineered features from Core Service
 
 **Outputs**:
-- Model bundles: `data/ml/experiments/*/model.joblib`
-- Retrieval index: `data/ml/production/retrieval_index.joblib`
-- PatchTST checkpoint: `patchtst_multitask.pt`
+- Model: `ml/production/xgb_prod.pkl`
+- kNN index: `ml/production/knn_index.faiss`
 - Metadata: Train/val splits, metrics, feature names
 
 **Key Scripts**:
@@ -255,14 +282,15 @@
 - `compute_confluence_level_features`: Hierarchical setup quality scoring
 - `generate_level_universe_vectorized`: Structural level detection
 
-**Level Universe** (SPY-specific):
-- PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
-- OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET)
-- SESSION_HIGH/SESSION_LOW: Running session extremes
-- SMA_200/SMA_400: Moving averages on 2-min bars
-- VWAP: Session volume-weighted average price
-- CALL_WALL/PUT_WALL: Max gamma concentration strikes
-- Note: ROUND/STRIKE levels disabled for SPY (duplicative with $1 strikes)
+**Level Universe** (v1 ES system):
+- **PM_HIGH**: Pre-market high (04:00-09:30 ET) from ES futures
+- **PM_LOW**: Pre-market low (04:00-09:30 ET) from ES futures
+- **OR_HIGH**: Opening range high (09:30-09:45 ET) from ES futures
+- **OR_LOW**: Opening range low (09:30-09:45 ET) from ES futures
+- **SMA_200**: 200-period moving average on 2-min ES bars
+- **SMA_400**: 400-period moving average on 2-min ES bars
+
+**Total**: 6 level kinds (4 structural extremes + 2 moving averages)
 
 **Entry Point**: `uv run python -m src.pipeline.batch_process --start-date 2025-11-01`
 
@@ -289,7 +317,7 @@
 ### 9. Frontend (Angular)
 
 **Location**: `frontend/`  
-**Role**: Real-time UI for SPY 0DTE break/bounce signals  
+**Role**: Real-time UI for ES 0DTE break/bounce signals (v1: ES futures + ES options)  
 **Interface**: [frontend/INTERFACES.md](frontend/INTERFACES.md)
 
 **Key Responsibilities**:
@@ -335,20 +363,19 @@
 - `ts_event_ns`: Event time (from exchange) in Unix nanoseconds UTC
 - `ts_recv_ns`: Receive time (by our system) in Unix nanoseconds UTC
 
-**Conversion Rules**:
-- Polygon: milliseconds → multiply by 1,000,000
-- Databento: already nanoseconds → use directly
+**Timestamp Conversion Rules**:
+- Databento: already in nanoseconds → use directly
+- All events: `ts_event_ns` (exchange time), `ts_recv_ns` (receive time)
 
 ---
 
 ### NATS Subject Hierarchy
 
-**Market Data** (Ingestor → Core/Lake):
-- `market.stocks.trades`: SPY equity trades
-- `market.stocks.quotes`: SPY equity quotes
-- `market.options.trades`: SPY option trades
-- `market.futures.trades`: ES futures trades
-- `market.futures.mbp10`: ES MBP-10 depth updates
+**Market Data** (Ingestor → Core/Lake) - v1:
+- `market.futures.trades`: ES futures trades (front-month only)
+- `market.futures.mbp10`: ES MBP-10 depth updates (front-month only)
+- `market.options.trades`: ES option trades (front-month contract, 0DTE)
+- `market.options.nbbo`: ES option NBBO (front-month contract, 0DTE)
 
 **Derived Signals** (Core → Lake/Gateway):
 - `levels.signals`: Level signals payload (break/bounce physics)
@@ -360,15 +387,15 @@
 
 ---
 
-### Price Conversion Protocol
+### Price Protocol (ES System)
 
-**Levels are SPY dollars, liquidity is ES**:
-1. User specifies level in SPY: `level_price = 687.0`
-2. Engine converts to ES for queries: `es_level = 687.0 * 10 = 6870.0`
-3. Query ES depth/trades at converted price
-4. Convert results back to SPY for output
+**ES futures = ES options = same price scale (PERFECT ALIGNMENT)**:
+1. Level specified in ES index points: `level_price = 5850.0`
+2. Query ES depth/trades at same price: `es_level = 5850.0` (no conversion!)
+3. Query ES option strikes near level: `strikes = [5825, 5850, 5875]` (25pt spacing)
+4. Output in ES index points: `level_price = 5850.0`
 
-**Ratio**: ES ≈ SPY × 10 (dynamic ratio supported via `PriceConverter`)
+**Ratio**: ES futures / ES options ≈ 1.0 (NO CONVERSION! Small basis spread tracked for diagnostics)
 
 ---
 
@@ -376,16 +403,20 @@
 
 **Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
 
-**Key Parameters**:
-- Physics windows: `W_b=240s` (barrier/confirmation), `W_t=60s` (tape), `W_g=60s` (fuel)
-- Monitoring bands: `MONITOR_BAND=0.25`, `TOUCH_BAND=0.10`
-- Thresholds: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`
-- Score weights: `w_L=0.45`, `w_H=0.35`, `w_T=0.20`
-- Smoothing: `tau_score=2.0s`, `tau_velocity=1.5s`
-- Snap interval: `SNAP_INTERVAL_MS=250`
-- Warmup: `SMA_WARMUP_DAYS=3`, `VOLUME_LOOKBACK_DAYS=7`
-- Confluence: `SMA_PROXIMITY_THRESHOLD=0.005`, `WALL_PROXIMITY_DOLLARS=1.0`
-- Relative volume: `REL_VOL_HIGH_THRESHOLD=1.3`, `REL_VOL_LOW_THRESHOLD=0.7`
+**v1 Key Parameters** (ES System - Validated from Real Data):
+- **Strike specs**: `ES_0DTE_STRIKE_SPACING=25.0` pts (dominant ATM), `5.0` pts (tight ATM rare)
+- **Outcome**: `OUTCOME_THRESHOLD=75.0` pts (3 strikes × 25pt), `LOOKFORWARD_MINUTES=8`
+- **Strength**: `STRENGTH_THRESHOLD_1=25.0` (1 strike), `STRENGTH_THRESHOLD_2=75.0` (3 strikes)
+- **Physics windows**: `W_b=240s` (barrier/confirmation), `W_t=60s` (tape), `W_g=60s` (fuel)
+- **Monitoring**: `MONITOR_BAND=5.0` pts (interaction zone), `TOUCH_BAND=2.0` pts (precise contact)
+- **Fuel range**: `FUEL_STRIKE_RANGE=75.0` pts (±3 strikes)
+- **Time window**: RTH 09:30-13:30 ET (first 4 hours only)
+- **Thresholds**: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`
+- **Score weights**: `w_L=0.45`, `w_H=0.35`, `w_T=0.20`
+- **Smoothing**: `tau_score=2.0s`, `tau_velocity=1.5s`
+- **Snap interval**: `SNAP_INTERVAL_MS=250`
+- **Warmup**: `SMA_WARMUP_DAYS=3`
+- **v1 disabled**: VWAP, confluence, session levels, walls
 
 **Access Pattern**:
 ```python
@@ -513,21 +544,26 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 ## Critical Invariants
 
 1. **Event-time ordering**: All data sorted by `ts_event_ns`, not `ts_recv_ns`
-2. **Price conversion**: Always use `PriceConverter`, never hardcode ES/SPY ratio
-3. **NATS durability**: 24-hour retention ensures replay capability
-4. **Schema versioning**: Never break backward compatibility without version bump
-5. **Deterministic replay**: Same inputs + config → same outputs
-6. **No hindsight**: Features computed from data before label anchor time (`t1`)
+2. **Front-month purity**: ES futures AND ES options filtered to same contract (e.g., ESZ5)
+3. **Price scale**: ES futures = ES options (same index points, no conversion)
+4. **NATS durability**: 24-hour retention ensures replay capability
+5. **Deterministic**: Same inputs + CONFIG → same outputs
+6. **Causal**: Features use only data before label time (no hindsight)
+7. **RTH window**: 09:30-13:30 ET (first 4 hours)
+8. **Deterministic IDs**: Event IDs are reproducible (no UUIDs)
+9. **Single Silver path**: `silver/features/es_pipeline/` (rebuild with --force when CONFIG changes)
 
 ---
 
 ## Performance Targets
 
-**Latency** (end-to-end):
-- Polygon event → NATS publish: <15ms
+**Latency** (end-to-end - v1 batch/replay mode):
+- Databento DBN replay → NATS publish: <10ms
 - NATS → Core processing → NATS publish: <50ms
 - NATS → Gateway → WebSocket: <5ms
-- **Total: <70ms** (exchange → frontend)
+- **Total: <65ms** (replay → frontend)
+
+**Note**: v1 uses historical replay for training, real-time streaming TBD for v2
 
 **Throughput**:
 - Ingestor: 10k+ events/sec
@@ -576,7 +612,6 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 
 ---
 
-**Version**: 1.1
-**Last Updated**: 2025-12-24
-**Status**: Active (Phase 3 architecture - confluence level feature)
-
+**Version**: 2.0  
+**Last Updated**: 2025-12-28  
+**Status**: Production (ES futures + ES 0DTE options neuro-hybrid system)

@@ -1,45 +1,20 @@
-# Spymaster: Real-Time Market Physics Engine
+# Spymaster: ES Futures + ES Options Neuro-Hybrid Attribution Engine
 
-Spymaster models how dealer hedging, order-book liquidity, and trade flow interact at SPY 0DTE option levels to estimate BREAK vs BOUNCE outcomes and strength.
+**System**: Break/Bounce prediction at ES futures levels using physics-based features + kNN retrieval
 
-**Scope**: SPY 0DTE options only. Every $1 level is actionable, with special focus on PM high/low, opening range, SMA-200/400, VWAP, session extremes, and option walls.
+**Architecture**: ES futures (spot + liquidity) + ES 0DTE options (gamma) - perfect alignment, zero conversion
 
-**Primary outputs**: BREAK/BOUNCE probabilities with signed strength targets, per-event context about confluence and dealer mechanics, and tradeability predictions.
-
----
-
-## System Architecture
-
-**Microservices Pipeline** (Phase 2):
-```
-Data Sources → Ingestor → NATS JetStream → Core/Lake/Gateway
-                                              ↓
-                                         Frontend (WebSocket)
-```
-
-**Key Components**:
-- **Ingestor**: Normalizes Polygon (SPY) and Databento (ES futures) feeds to NATS
-- **Core**: Physics engines (barrier, tape, fuel) + signal generation
-- **Lake**: Bronze/Silver/Gold data persistence (Parquet + S3/MinIO)
-- **Gateway**: WebSocket relay for frontend
-- **ML**: Boosted-tree models + kNN retrieval for tradeability/direction/strength
-- **Frontend**: Angular real-time UI with physics attribution
-
-**See**: [COMPONENTS.md](COMPONENTS.md) for complete architecture map with interface contracts.
+**Approach**: Two-stage optimization → (1) Find best zones/windows for feature extraction, (2) Train model on optimized dataset
 
 ---
 
 ## Quick Start
 
-### Running the Full Stack
+### 1. Start Services
 
 ```bash
-# Start backend services (Docker Compose)
+# Start backend infrastructure
 docker-compose up -d
-
-# Verify services
-docker ps
-curl http://localhost:8000/health
 
 # Start frontend
 cd frontend
@@ -47,15 +22,82 @@ npm run start
 # Navigate to http://localhost:4200
 ```
 
-### Running Individual Services (Local Dev)
+### 2. Download ES Options Data
 
 ```bash
-# Terminal 1: NATS (required infrastructure)
+cd backend
+
+# Set Databento API key
+echo "DATABENTO_API_KEY=your_key_here" >> .env
+
+# Download ES options (trades + NBBO)
+uv run python scripts/download_es_options.py \
+  --start 2025-11-02 \
+  --end 2025-12-28
+```
+
+### 3. Build Features & Train Model
+
+```bash
+cd backend
+
+# Build features with current CONFIG
+uv run python -m src.lake.silver_feature_builder \
+  --pipeline es_pipeline \
+  --start-date 2025-11-02 \
+  --end-date 2025-12-28
+
+# Train model (includes hyperopt for XGBoost params)
+uv run python -m src.ml.boosted_tree_train \
+  --features gold/training/signals_production.parquet
+
+# Optional: Optimize zones first (then update CONFIG and rebuild)
+uv run python scripts/run_zone_hyperopt.py \
+  --start-date 2025-11-02 \
+  --end-date 2025-11-30 \
+  --n-trials 200 \
+  --dry-run
+```
+
+---
+
+## System Specification
+
+**Data**: ES futures + ES 0DTE options from Databento GLBX.MDP3  
+**Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)  
+**Strike Spacing**: 25 ES points (ATM dominant)  
+**Outcome Threshold**: 75 ES points (3 strikes)  
+**Inference**: Continuous (every 2-min candle)  
+**Pipeline**: 16 stages (load → levels → physics → labels → filter)  
+**Features**: ~70 physics features (multi-window) + ~40 label columns  
+**Model**: XGBoost + kNN (neuro-hybrid)
+
+**Goal**: "Price approaching PM_HIGH, find 5 similar past setups → 4/5 BROKE → 80% confidence"
+
+---
+
+## Documentation
+
+**[COMPONENTS.md](COMPONENTS.md)**: Component architecture, engines, interface contracts  
+**[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline, hyperopt workflow, kNN system  
+**[backend/features.json](backend/features.json)**: Feature column specs (v2.0.0)  
+**[backend/src/common/config.py](backend/src/common/config.py)**: All tunable parameters (CONFIG singleton)  
+**[backend/HYPEROPT_PLAN.md](backend/HYPEROPT_PLAN.md)**: Two-stage optimization strategy
+
+**Module Docs**: See `backend/src/{module}/README.md` and `backend/src/{module}/INTERFACES.md` for implementation details
+
+---
+
+## Development
+
+### Running Individual Services
+
+```bash
+# Terminal 1: NATS infrastructure
 docker-compose up nats -d
 
 # Terminal 2: Ingestor (replay mode)
 cd backend
-export REPLAY_SPEED=1.0
 export REPLAY_DATE=2025-12-16
 uv run python -m src.ingestor.replay_publisher
 
@@ -66,154 +108,40 @@ uv run python -m src.core.main
 uv run python -m src.gateway.main
 
 # Terminal 5: Frontend
-cd ../frontend
+cd frontend
 npm run start
 ```
 
----
-
-## Key Capabilities
-
-**Physics Engines**:
-- Barrier: ES MBP-10 depth analysis (VACUUM, WALL, ABSORPTION states)
-- Tape: ES trade flow (imbalance, velocity, sweep detection)
-- Fuel: SPY option flow (dealer gamma exposure, AMPLIFY vs DAMPEN)
-
-**Signal Generation**:
-- Break score (0-100) from weighted physics: 45% liquidity, 35% hedge, 20% tape
-- Smoothing via EWMA for stable output (~250ms cadence)
-- Confluence detection across stacked levels
-- Runway analysis (distance to next obstacle)
-
-**ML Pipeline**:
-- Multi-head boosted trees: tradeability, direction, strength, time-to-threshold (overall + break/bounce)
-- kNN retrieval for similar historical patterns
-- Walk-forward validation (no look-ahead bias)
-- Live viewport scoring (optional, gated by `VIEWPORT_SCORING_ENABLED`)
-
-**Data Persistence** (Medallion Architecture):
-- Bronze: Raw normalized events (append-only, immutable source of truth)
-- Silver: Versioned feature engineering experiments (reproducible, A/B testable)
-- Gold: Production ML datasets (curated from best experiments) + streaming signals
-
----
-
-## Documentation Map
-
-### System Overview
-- **[COMPONENTS.md](COMPONENTS.md)**: Architecture map with all component interfaces
-- **[frontend/README.md](frontend/README.md)**: Frontend implementation status and UI specifications
-- **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Medallion architecture & feature engineering workflow
-- **[backend/features.json](backend/features.json)**: Authoritative feature schema (legacy)
-
-### Module Interfaces (Technical Contracts)
-- **[backend/src/common/INTERFACES.md](backend/src/common/INTERFACES.md)**: Event types, schemas, config
-- **[backend/src/ingestor/INTERFACES.md](backend/src/ingestor/INTERFACES.md)**: Data ingestion contracts
-- **[backend/src/core/INTERFACES.md](backend/src/core/INTERFACES.md)**: Physics engines + signal output
-- **[backend/src/lake/INTERFACES.md](backend/src/lake/INTERFACES.md)**: Storage schemas (Bronze/Silver/Gold)
-- **[backend/src/gateway/INTERFACES.md](backend/src/gateway/INTERFACES.md)**: WebSocket relay
-- **[backend/src/ml/INTERFACES.md](backend/src/ml/INTERFACES.md)**: Model training + inference
-- **[frontend/INTERFACES.md](frontend/INTERFACES.md)**: UI components + service contracts
-
-### Module Implementation Details
-- **[backend/src/core/README.md](backend/src/core/README.md)**: Physics engine specifications
-- **[backend/src/common/README.md](backend/src/common/README.md)**: Shared infrastructure
-- **[backend/src/ingestor/README.md](backend/src/ingestor/README.md)**: Feed ingestion details
-- **[backend/src/lake/README.md](backend/src/lake/README.md)**: Data persistence architecture
-- **[backend/src/gateway/README.md](backend/src/gateway/README.md)**: WebSocket service details
-- **[backend/src/ml/README.md](backend/src/ml/README.md)**: ML training and evaluation
-
----
-
-## Configuration
-
-**Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
-
-**Key Parameters**:
-- Physics windows: `W_b=240s` (barrier), `W_t=60s` (tape), `W_g=60s` (fuel)
-- Confirmation: `CONFIRMATION_WINDOW_SECONDS=240` (Stage B t1)
-- Monitoring: `MONITOR_BAND=0.25` (compute signals if |spot - level| ≤ $0.25)
-- Thresholds: `R_vac=0.3` (VACUUM), `R_wall=1.5` (WALL), `F_thresh=100` (ES contracts)
-- Weights: `w_L=0.45` (liquidity), `w_H=0.35` (hedge), `w_T=0.20` (tape)
-- Smoothing: `tau_score=2.0s`, `tau_velocity=1.5s`
-
----
-
-## Data Sources
-
-**Live Feeds**:
-- Polygon WebSocket: SPY equity + options (trades, quotes)
-- Databento: ES futures (trades + MBP-10 depth) [historical only in current setup]
-
-**Historical Replay**:
-- Databento DBN files: `backend/data/raw/dbn/` (trades, MBP-10)
-- Configurable replay speed (0x = fast, 1x = realtime, 2x = 2x speed)
-
-**Storage** (Medallion Architecture):
-- Bronze: `backend/data/lake/bronze/` (raw normalized events)
-- Silver: `backend/data/lake/silver/features/` (versioned feature experiments)
-- Gold: `backend/data/lake/gold/` (production datasets + streaming signals)
-- S3/MinIO: Optional via `USE_S3=true` config
-
----
-
-## Performance Targets
-
-**Latency** (end-to-end):
-- Polygon event → NATS: <15ms
-- NATS → Core → NATS: <50ms
-- NATS → Gateway → WebSocket: <5ms
-- **Total: <70ms** (exchange → frontend)
-
-**Throughput**:
-- Ingestor: 10k+ events/sec
-- Core: 4 Hz signal rate (250ms snap interval)
-- Gateway: 100+ concurrent WebSocket clients
-
-**Storage**:
-- Bronze: ~5-10GB/day (raw normalized events)
-- Silver: ~2-5GB/day per feature version (varies with experiments)
-- Gold: ~100-500MB/day (production datasets + streaming signals)
-
----
-
-## Testing
+### Testing
 
 ```bash
-# Backend unit tests
+# Backend tests
 cd backend
 uv run pytest tests/
 
-# Specific engine tests
+# Specific modules
 uv run pytest tests/test_barrier_engine.py -v
-uv run pytest tests/test_tape_engine.py -v
+uv run pytest tests/test_replay_determinism.py -v
 
 # Frontend tests
 cd frontend
 npm test
-
-# End-to-end replay determinism
-cd backend
-uv run pytest tests/test_replay_determinism.py -v
 ```
 
 ---
 
-## Development Tools
+## Key Concepts
 
-**Environment**: Python 3.11+ with `uv`, Node.js 18+ with npm, Docker Compose
-
-**Required Services**:
-- NATS JetStream (message bus)
-- MinIO (optional, S3-compatible storage)
-
-**Recommended IDE Setup**:
-- Python: VSCode with Pylance
-- Frontend: VSCode with Angular Language Service
-- Docker: Docker Desktop
+**Neuro-Hybrid**: Deterministic physics engines + kNN retrieval (not pure ML)  
+**Continuous Inference**: Features at every 2-min candle (not just touches)  
+**Multi-Window**: 1-20min lookback encodes "setup shape" for kNN matching  
+**Two-Stage Hyperopt**: Optimize data generation BEFORE model training  
+**Sparse > Dense**: 15 high-quality events/day better than 100 noisy events  
+**Front-Month Purity**: ES futures AND ES options on same contract (prevents ghost walls)  
+**Deterministic IDs**: Event IDs are reproducible (no UUIDs) for retrieval consistency
 
 ---
 
-**Version**: 2.0 (Phase 2 microservices architecture)  
-**Last Updated**: 2025-12-23  
-**Status**: Active development
+**Version**: 2.0  
+**Last Updated**: 2025-12-28  
+**Status**: Production (ES futures + ES 0DTE options system)

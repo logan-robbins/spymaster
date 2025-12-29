@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 backend/mlflow.db
+research/*
 
 # Python
 __pycache__/

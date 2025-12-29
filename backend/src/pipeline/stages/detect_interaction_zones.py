@@ -30,16 +30,15 @@ def compute_deterministic_event_id(
     """
     Generate deterministic event ID for retrieval reproducibility.
     
-    Per Final Call v1 spec Section 4.3:
-    - Must be deterministic (no random UUIDs)
-    - Must uniquely identify the event
+    Deterministic (no random UUIDs) - same inputs produce same ID.
     
     Format: {date}_{level_kind}_{level_price_cents}_{anchor_ts_ns}_{direction}
+    Example: 20251203_PM_HIGH_692000_1733248200000000000_UP
     
     Args:
         date: Date string (YYYY-MM-DD)
-        level_kind: Level type (e.g., 'PM_HIGH', 'SMA_200')
-        level_price: Level price in SPX points
+        level_kind: Level type (PM_HIGH, OR_LOW, SMA_200, etc.)
+        level_price: Level price in ES index points
         anchor_ts_ns: Anchor timestamp in nanoseconds
         direction: 'UP' or 'DOWN'
     
@@ -94,15 +93,17 @@ def detect_interaction_zone_entries(
     df['ts_ns'] = df['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
     
     # Compute dynamic zone width
-    # Per Final Call spec: width = max(w_min, k × ATR_RTH)
-    w_min = 1.0  # SPX points (≈ $0.25 in SPY equivalent)
-    k_atr = 0.5  # ATR multiplier
+    # Per user specification: ±5 points for ES interaction zone
+    # This is tight enough to detect precise level engagement
+    # but not so wide that we get false events
+    w_min = 5.0  # ES points (±5pt = ±20 ticks, ~0.2 strike @ 25pt spacing)
+    k_atr = 0.1  # Small ATR multiplier (zone shouldn't expand much)
     
     if atr is not None and len(atr) > 0:
-        # Use trailing ATR for each bar
+        # Allow slight expansion with volatility, but keep tight
         zone_width = np.maximum(w_min, k_atr * atr.fillna(w_min).values)
     else:
-        # Fallback to fixed width
+        # Fallback to fixed 5-point width
         zone_width = np.full(len(df), w_min)
     
     # Extract arrays for vectorized operations

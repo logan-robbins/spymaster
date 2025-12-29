@@ -1,21 +1,15 @@
 """
-Price conversion for ES futures system.
+Price tracking for ES futures + ES options system.
 
-v1 Final Call: ES futures + ES options (PERFECT alignment!)
-- ES futures: Quoted in S&P 500 index points (e.g., 5740.00)
-- ES options: SAME underlying, SAME units, SAME venue (CME)
-- NO conversion needed!
+ES futures and ES options are the SAME underlying instrument (E-mini S&P 500).
+Both are quoted in S&P 500 index points (e.g., 6920.0).
 
-This module provides:
-- Pass-through methods for API consistency
-- Optional basis tracking (for diagnostics)
-- Legacy compatibility with existing code
+NO CONVERSION: ES futures price = ES options price
 
-Key evolution:
-- v0 (SPY): ES/10 ≈ SPY (ES 6870 → SPY 687) - REQUIRED CONVERSION
-- v1 (ES):  ES = ES (ES 5740 → ES 5740) - NO CONVERSION!
-
-This is simpler, cleaner, and more accurate than SPY or SPX approaches.
+This module:
+- Tracks current ES price from futures trades
+- Monitors basis spread between futures and options (<5 points typical)
+- Provides pass-through methods (ES → ES, no-op)
 """
 
 from typing import Optional
@@ -23,20 +17,18 @@ from typing import Optional
 
 class PriceConverter:
     """
-    Price converter for ES futures system (v1: ES futures + ES options).
+    Price tracker for ES futures + ES options system.
 
-    ES options and ES futures use identical pricing - both in S&P 500 index points.
-    This class provides pass-through methods for API consistency with existing code.
+    ES futures and ES options use identical pricing (S&P 500 index points).
+    All methods are pass-through (no conversion).
 
     Usage:
         converter = PriceConverter()
-        converter.update_es_price(5740.0)  # From ES futures trade
-        # For ES options:
-        spot = 5740.0  # Direct use, no conversion!
-        es_level = converter.es_to_spx(5740.0)  # Returns 5740.0 (pass-through)
+        converter.update_es_price(6920.0)  # From ES futures trade
+        spot = converter.es_to_spx(6920.0)  # Returns 6920.0 (no conversion)
     """
 
-    DEFAULT_RATIO = 1.0  # No conversion needed (ES = ES)
+    DEFAULT_RATIO = 1.0  # ES = ES (same underlying)
 
     def __init__(self):
         self._last_es_price: Optional[float] = None
@@ -53,33 +45,21 @@ class PriceConverter:
 
     def update_spx_price(self, spx_price: float):
         """
-        Legacy compatibility method (no-op for ES options).
-        
-        For ES options, this is not needed since ES futures = ES options underlying.
-        Kept for API compatibility with existing code.
+        Update with index price (no-op for ES system - futures ARE the index proxy).
 
         Args:
-            spx_price: Price value (ignored for ES system)
+            spx_price: Price value (not needed for ES futures/options)
         """
-        pass  # No-op for ES options
+        pass
 
     @property
     def basis(self) -> float:
-        """
-        Get basis spread (always 0 for ES options).
-        
-        ES options and ES futures are the same underlying - no basis spread!
-        Kept for API compatibility.
-        """
+        """Get basis spread (always 0 - ES futures = ES options underlying)."""
         return 0.0
     
     @property
     def ratio(self) -> float:
-        """
-        Get price ratio (always 1.0 for ES system).
-        
-        Legacy compatibility property. ES futures and ES options use same pricing.
-        """
+        """Get price ratio (always 1.0 - ES futures = ES options)."""
         return 1.0
 
     def es_to_spx(self, es_price: float) -> float:
@@ -132,14 +112,6 @@ class PriceConverter:
         """
         return spx_points / es_tick_size
     
-    # Legacy compatibility aliases (some code may still use these)
-    def es_to_spy(self, es_price: float) -> float:
-        """Legacy alias for es_to_spx (backward compatibility)."""
-        return self.es_to_spx(es_price)
-    
-    def spy_to_es(self, spy_price: float) -> float:
-        """Legacy alias for spx_to_es (backward compatibility)."""
-        return self.spx_to_es(spy_price)
 
     def get_state(self) -> dict:
         """Get converter state for debugging/logging."""

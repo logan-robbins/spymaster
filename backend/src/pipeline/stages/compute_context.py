@@ -1,7 +1,6 @@
 """Compute context features stage."""
 from typing import Any, Dict, List
 from datetime import time as dt_time
-import uuid
 import pandas as pd
 import numpy as np
 
@@ -84,15 +83,24 @@ class ComputeContextFeaturesStage(BaseStage):
 
         # Add date and symbol
         signals_df['date'] = ctx.date
-        signals_df['symbol'] = 'SPY'
+        signals_df['symbol'] = 'ES'
 
         # Add direction sign
         signals_df['direction_sign'] = np.where(
             signals_df['direction'] == 'UP', 1, -1
         )
 
-        # Generate event IDs
-        signals_df['event_id'] = [str(uuid.uuid4()) for _ in range(len(signals_df))]
+        # Generate deterministic event IDs
+        # Format: {date}_{level_kind_name}_{level_price}_{ts_ns}_{direction}
+        # Reproducible for retrieval across runs
+        if 'event_id' not in signals_df.columns:
+            signals_df['event_id'] = (
+                signals_df['date'].astype(str) + '_' +
+                signals_df['level_kind_name'].astype(str) + '_' +
+                signals_df['level_price'].astype(str) + '_' +
+                signals_df['ts_ns'].astype(str) + '_' +
+                signals_df['direction'].astype(str)
+            )
 
         # Attach ATR for normalization
         atr_values = atr_series.to_numpy()
