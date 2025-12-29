@@ -126,9 +126,9 @@ class BarrierEngine:
         # Get ES trades in window (for passive fill detection)
         es_trades = market_state.get_es_trades_in_window(ts_now_ns, self.window_seconds)
 
-        # Convert SPY level to ES equivalent for depth queries
-        # SPY strikes at $1 intervals → ES at $10 intervals
-        es_level_price = market_state.price_converter.spx_to_es(level_price)
+        # ES system: level_price is already in ES points (no conversion needed)
+        # ES strikes at 25pt intervals (dominant ATM) or 5pt (tight ATM)
+        es_level_price = level_price  # ES futures = ES options
 
         # Zone is ±N ES ticks around the level (tight around strike)
         zone_es = self.zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
@@ -157,9 +157,9 @@ class BarrierEngine:
         depth_in_zone = self._get_zone_depth(current_mbp, zone_low, zone_high, side)
         defending_quote_es = self._get_best_defending_quote(current_mbp, side)
 
-        # Convert defending quote price to SPY for output
+        # ES system: price is already in ES points (no conversion needed)
         defending_quote = {
-            "price": market_state.price_converter.es_to_spx(defending_quote_es["price"]) if defending_quote_es["price"] else 0.0,
+            "price": defending_quote_es["price"] if defending_quote_es["price"] else 0.0,  # ES = ES
             "size": defending_quote_es["size"]
         }
 

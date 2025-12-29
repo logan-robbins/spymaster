@@ -1,13 +1,11 @@
 """
-Compute confluence features stage (v2.0+).
+Compute confluence features stage.
 
-DISABLED FOR V1:
-- Confluence features are over-engineered for v1
-- Composite pressure metrics don't define similarity space
-- Keep raw physics features only
+NOTE: Confluence features are currently stubbed out.
+- Over-engineered for initial deployment
+- Returns zero/null values for compatibility
 
-This stage is stubbed to maintain pipeline compatibility but returns
-minimal/zero-valued features.
+This stage maintains pipeline compatibility but returns minimal stub features.
 """
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import time as dt_time
@@ -24,16 +22,15 @@ def compute_confluence_features_dynamic(
     dynamic_levels: Dict[str, pd.Series]
 ) -> pd.DataFrame:
     """
-    DISABLED FOR V1: Return minimal stub features.
+    Return minimal stub features (currently not needed).
     
-    Drop confluence features for v1.
     This stub maintains pipeline compatibility.
     """
     if signals_df.empty:
         return signals_df
 
-    # DISABLED FOR V1 - return zeros/nulls
-    # Original complex confluence computation removed per spec
+    # Stubbed out - returns zero/null values
+    # Complex confluence computation not needed for initial deployment
 
     dynamic_arrays = {
         name: series.to_numpy(dtype=np.float64)
@@ -412,15 +409,10 @@ def compute_confluence_level_features(
 
 class ComputeConfluenceStage(BaseStage):
     """
-    DISABLED FOR V1: Confluence features stubbed out.
+    Confluence features computation stage (currently stubbed out).
     
-    Confluence computation (disabled for v1):
-    - Drop confluence features (over-engineered)
-    - Drop dealer velocity features
-    - Drop pressure indicators
-    - Drop attempt clustering
-    
-    This stage maintained for pipeline compatibility but returns pass-through.
+    Confluence features are over-engineered and return zero values.
+    This stage is maintained for pipeline compatibility.
     """
 
     @property
@@ -434,7 +426,7 @@ class ComputeConfluenceStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df'].copy()
         
-        # DISABLED FOR V1: All confluence/pressure features removed
+        # Stubbed out: confluence/pressure features return zero values
         # Return pass-through with stub columns for compatibility
         
         # Minimal stub columns (zeros) to prevent downstream breakage

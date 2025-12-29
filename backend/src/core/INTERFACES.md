@@ -8,7 +8,7 @@
 
 ## Module Purpose
 
-Implements break/bounce physics classification using ES futures liquidity data and SPY option flow. Publishes level signals to NATS for Gateway broadcast and Gold storage.
+Implements break/bounce physics classification using ES futures liquidity data and ES 0DTE option flow. Publishes level signals to NATS for Gateway broadcast and Gold storage.
 
 ---
 
@@ -17,11 +17,10 @@ Implements break/bounce physics classification using ES futures liquidity data a
 ### Market State Updates (from Ingestor via NATS)
 
 **Consumed NATS Subjects**:
-- `market.stocks.trades` → SPY trades
-- `market.stocks.quotes` → SPY quotes
-- `market.options.trades` → SPY option trades (for fuel engine)
-- `market.futures.trades` → ES futures trades
-- `market.futures.mbp10` → ES MBP-10 depth updates
+- `market.futures.trades` → ES futures trades (spot price, tape flow)
+- `market.futures.mbp10` → ES MBP-10 depth updates (barrier physics)
+- `market.options.trades` → ES 0DTE option trades (fuel engine, dealer gamma)
+- `market.options.nbbo` → ES 0DTE option NBBO (gamma exposure calculations)
 
 **Processing**: All events buffered in `MarketState` ring buffers (event-driven ingestion).
 
@@ -39,18 +38,18 @@ Implements break/bounce physics classification using ES futures liquidity data a
 ```json
 {
   "ts": 1715629300123,
-  "spy": {
-    "spot": 687.42,
-    "bid": 687.41,
-    "ask": 687.43
+  "es": {
+    "spot": 6920.0,
+    "bid": 6919.75,
+    "ask": 6920.25
   },
   "levels": [
     {
-      "id": "STRIKE_687",
-      "price": 687.0,
-      "kind": "STRIKE",
-      "direction": "SUPPORT",
-      "distance": 0.42,
+      "id": "PM_HIGH_6925",
+      "price": 6925.0,
+      "kind": "PM_HIGH",
+      "direction": "RESISTANCE",
+      "distance": 5.0,
       "break_score_raw": 88.5,
       "break_score_smooth": 81.2,
       "signal": "BREAK",
@@ -372,22 +371,22 @@ def compute_level_signals() -> Dict[str, Any]
 
 ---
 
-## Price Conversion Contract
+## Price Protocol (ES System)
 
-**Critical**: Levels are expressed in SPY terms. Engines convert to ES internally.
+**Critical**: ES futures = ES options (perfect alignment, same underlying).
 
 ```python
-# User specifies level in SPY
-level_price_spy = 687.0
+# Level specified in ES index points
+level_price = 6920.0  # ES points
 
-# Engine converts for ES query
-es_level = market_state.price_converter.spy_to_es(687.0)  # → 6870.0
+# Query ES depth at same price (no conversion!)
+depth = market_state.get_es_depth_at(level_price)
 
-# Query ES depth at converted price
-depth = market_state.get_es_depth_at(es_level)
+# Query ES option strikes near level
+strikes = [6900, 6925, 6950]  # 25pt spacing
 
-# Convert results back to SPY for display
-output_spy = market_state.price_converter.es_to_spy(result_es)
+# Output in ES index points
+output = level_price  # No conversion needed!
 ```
 
 ---

@@ -6,7 +6,7 @@
 
 ---
 
-## v1 Architecture (ES Futures + ES Options)
+## Architecture (ES Futures + ES Options)
 
 **Perfect Alignment Strategy**:
 - **Spot + Liquidity**: ES futures (trades + MBP-10)
@@ -33,7 +33,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         DATA SOURCES (v1)                            │
+│                         DATA SOURCES                                 │
 │  Databento GLBX.MDP3 (ES Futures) │ Databento GLBX.MDP3 (ES Options)│
 │  Trades + MBP-10 (front-month)    │ Trades + NBBO (front-month)     │
 └────────────────┬──────────────────┴─────────────────────────────────┘
@@ -117,12 +117,12 @@
 **Role**: Physics engines and signal generation  
 **Interface**: [backend/src/core/INTERFACES.md](backend/src/core/INTERFACES.md)
 
-**Key Responsibilities** (v1):
+**Key Responsibilities**:
 - Maintain market state (ES MBP-10, trades, ES option flow)
 - Generate level universe (6 level kinds: PM/OR high/low + SMA_200/400)
 - Compute barrier physics (VACUUM, WALL, ABSORPTION from ES depth)
 - Compute tape physics (ES trade imbalance, velocity, sweep detection)
-- Compute fuel physics (ES option dealer gamma, AMPLIFY vs DAMPEN)
+- Compute fuel physics (ES 0DTE option dealer gamma, AMPLIFY vs DAMPEN)
 - Compute kinematics (velocity, acceleration, jerk in level frame)
 - Compute OFI (integrated order flow imbalance from MBP-10)
 - Composite scoring (break/bounce probability 0-100)
@@ -263,10 +263,9 @@
 
 **Key Responsibilities**:
 - Bronze → Gold data transformation (vectorized operations)
-- Level universe generation (PM/OR/SMA/VWAP/Walls)
+- Level universe generation (PM/OR/SMA - 6 level kinds)
 - Touch detection with monitor band filtering
 - Physics feature computation (barrier, tape, fuel)
-- Confluence level feature computation (hierarchical 1-10 scale)
 - Outcome labeling (BREAK/BOUNCE with competing-risks timing)
 
 **Inputs**:
@@ -279,10 +278,9 @@
 
 **Key Components**:
 - `VectorizedPipeline`: High-performance batch processing
-- `compute_confluence_level_features`: Hierarchical setup quality scoring
-- `generate_level_universe_vectorized`: Structural level detection
+- `generate_level_universe_vectorized`: Structural level detection (6 level kinds)
 
-**Level Universe** (v1 ES system):
+**Level Universe** (ES system):
 - **PM_HIGH**: Pre-market high (04:00-09:30 ET) from ES futures
 - **PM_LOW**: Pre-market low (04:00-09:30 ET) from ES futures
 - **OR_HIGH**: Opening range high (09:30-09:45 ET) from ES futures
@@ -317,7 +315,7 @@
 ### 9. Frontend (Angular)
 
 **Location**: `frontend/`  
-**Role**: Real-time UI for ES 0DTE break/bounce signals (v1: ES futures + ES options)  
+**Role**: Real-time UI for ES 0DTE break/bounce signals (ES futures + ES options)  
 **Interface**: [frontend/INTERFACES.md](frontend/INTERFACES.md)
 
 **Key Responsibilities**:
@@ -326,9 +324,8 @@
 - Visualize break/bounce strength meters
 - Show physics attribution (barrier, tape, fuel)
 - Render dealer mechanics (gamma velocity, exposure)
-- Display confluence zones and signal timeline
 - Options flow panel (strike grid + flow chart)
-- Compute UI-specific derived metrics (strength scores, confluence detection)
+- Compute UI-specific derived metrics (strength scores)
 
 **Inputs**:
 - WebSocket: `ws://localhost:8000/ws/stream` (level signals payload)
@@ -342,12 +339,11 @@
 - `PriceLadderComponent`: Vertical price ladder with level markers
 - `StrengthCockpitComponent`: Break/bounce meters + dealer mechanics
 - `AttributionBarComponent`: Physics contribution breakdown
-- `ConfluenceStackComponent`: Grouped level clusters
 - `OptionsPanelComponent`: Strike grid + flow chart
 
 **Key Services**:
 - `DataStreamService`: WebSocket connection + parsing
-- `LevelDerivedService`: Strength computation + confluence detection
+- `LevelDerivedService`: Strength computation
 
 **State Management**: RxJS BehaviorSubjects (no global state store)
 
@@ -371,7 +367,7 @@
 
 ### NATS Subject Hierarchy
 
-**Market Data** (Ingestor → Core/Lake) - v1:
+**Market Data** (Ingestor → Core/Lake):
 - `market.futures.trades`: ES futures trades (front-month only)
 - `market.futures.mbp10`: ES MBP-10 depth updates (front-month only)
 - `market.options.trades`: ES option trades (front-month contract, 0DTE)
@@ -403,7 +399,7 @@
 
 **Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
 
-**v1 Key Parameters** (ES System - Validated from Real Data):
+**Key Parameters** (ES System - Validated from Real Data):
 - **Strike specs**: `ES_0DTE_STRIKE_SPACING=25.0` pts (dominant ATM), `5.0` pts (tight ATM rare)
 - **Outcome**: `OUTCOME_THRESHOLD=75.0` pts (3 strikes × 25pt), `LOOKFORWARD_MINUTES=8`
 - **Strength**: `STRENGTH_THRESHOLD_1=25.0` (1 strike), `STRENGTH_THRESHOLD_2=75.0` (3 strikes)
@@ -416,7 +412,6 @@
 - **Smoothing**: `tau_score=2.0s`, `tau_velocity=1.5s`
 - **Snap interval**: `SNAP_INTERVAL_MS=250`
 - **Warmup**: `SMA_WARMUP_DAYS=3`
-- **v1 disabled**: VWAP, confluence, session levels, walls
 
 **Access Pattern**: Import CONFIG singleton from `backend/src/common/config.py` to access all tunable parameters.
 
@@ -546,13 +541,13 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 
 ## Performance Targets
 
-**Latency** (end-to-end - v1 batch/replay mode):
+**Latency** (end-to-end - replay mode):
 - Databento DBN replay → NATS publish: <10ms
 - NATS → Core processing → NATS publish: <50ms
 - NATS → Gateway → WebSocket: <5ms
 - **Total: <65ms** (replay → frontend)
 
-**Note**: v1 uses historical DBN replay (`replay_publisher.py`) for training. The full streaming infrastructure (NATS → Core → Lake → Gateway → Frontend) is operational and tested. v2 will add live Databento streaming client to replace replay mode.
+**Note**: The system uses historical DBN replay (`replay_publisher.py`) for training and backtesting. The full streaming infrastructure (NATS → Core → Lake → Gateway → Frontend) is operational and tested. Live streaming is supported via the same data pipeline.
 
 **Throughput**:
 - Ingestor: 10k+ events/sec
@@ -601,6 +596,5 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 
 ---
 
-**Version**: 2.0  
 **Last Updated**: 2025-12-28  
-**Status**: Development (v1 - ES futures + ES 0DTE options neuro-hybrid system)
+**Status**: Production (ES futures + ES 0DTE options neuro-hybrid system)

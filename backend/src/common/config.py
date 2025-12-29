@@ -185,9 +185,9 @@ class Config:
     ATR_WINDOW_MINUTES: int = 14
 
     # ========== Confluence feature settings ==========
-    VOLUME_LOOKBACK_DAYS: int = 7          # Days for relative volume baseline
+    VOLUME_LOOKBACK_DAYS: int = 3          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_DOLLARS: float = 75.0    # 75 points (3 ES option strikes @ 25pt spacing) for GEX wall proximity
+    WALL_PROXIMITY_POINTS: float = 75.0    # 75 ES points (3 ES option strikes @ 25pt spacing) for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 

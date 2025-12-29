@@ -96,7 +96,8 @@ class TapeEngine:
         ts_now_ns = market_state.get_current_ts_ns()
 
         # Convert SPY level to ES equivalent for trade queries
-        es_level_price = market_state.price_converter.spx_to_es(level_price)
+        # ES system: level_price is already in ES points (no conversion needed)
+        es_level_price = level_price  # ES futures = ES options
 
         # Convert SPY tape band to ES equivalent
         es_tape_band = self.tape_band_dollars * market_state.price_converter.ratio

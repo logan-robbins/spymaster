@@ -25,18 +25,12 @@ def generate_level_universe(
     ohlcv_2min: Optional[pd.DataFrame] = None
 ) -> LevelInfo:
     """
-    Generate v1 level universe (RESTRICTED SET for SPY-only launch).
+    Generate ES system level universe (6 level kinds).
     
-    v1 level types generated:
+    Level types:
     - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
     - OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET) high/low
     - SMA_200/SMA_400: Moving averages on 2-min bars
-    
-    REMOVED for v1 (over-engineered):
-    - SESSION_HIGH/SESSION_LOW: Too noisy, constantly changing
-    - VWAP: Lagging, less physics-based
-    - CALL_WALL/PUT_WALL: Treat as features, not levels
-    - ROUND/STRIKE: Disabled for SPY ($1 strikes are redundant)
     
     Returns:
         LevelInfo with arrays for processing

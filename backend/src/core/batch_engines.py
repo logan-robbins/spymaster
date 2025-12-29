@@ -70,14 +70,16 @@ class VectorizedMarketData:
     call_gamma: Dict[float, float]
     put_gamma: Dict[float, float]
 
-    # Price converter
-    spx_to_es_ratio: float = 10.0
+    # Price converter (ES futures = ES options, no conversion)
+    spx_to_es_ratio: float = 1.0  # ES = ES (same underlying)
 
-    def spx_to_es(self, spy_price: float) -> float:
-        return spy_price * self.spx_to_es_ratio
+    def spx_to_es(self, es_price: float) -> float:
+        """Pass-through for ES system (ES options = ES futures)."""
+        return es_price
 
     def es_to_spx(self, es_price: float) -> float:
-        return es_price / self.spx_to_es_ratio
+        """Pass-through for ES system (ES options = ES futures)."""
+        return es_price
 
 
 def build_vectorized_market_data(
@@ -647,7 +649,7 @@ def compute_all_physics_batch(
 # PERFORMANCE BENCHMARK
 # =============================================================================
 
-def benchmark_vectorized_engines():
+def benchmark_batch_engines():
     """
     Benchmark vectorized engines performance.
 
@@ -744,4 +746,4 @@ def benchmark_vectorized_engines():
 
 if __name__ == "__main__":
     from datetime import datetime
-    benchmark_vectorized_engines()
+    benchmark_batch_engines()

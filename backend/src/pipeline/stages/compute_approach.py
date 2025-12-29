@@ -10,7 +10,8 @@ from src.common.config import CONFIG
 def compute_approach_context(
     signals_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
-    lookback_minutes: int = None
+    lookback_minutes: int = None,
+    date_override: str = None
 ) -> pd.DataFrame:
     """
     Compute backward-looking approach context features.
@@ -67,22 +68,24 @@ def compute_approach_context(
         get_session_start_ns
     )
     
-    # Get date from context (passed via signals_df metadata or ctx)
-    # Infer date from first signal timestamp if not in context
-    if hasattr(signals_df, 'date'):
-        date = signals_df.date
+    # Get date (prioritize override > column > infer)
+    if date_override:
+        date_str = date_override
+    elif 'date' in signals_df.columns:
+        # Get from first row if it's a column
+        date_str = str(signals_df['date'].iloc[0])
     else:
         # Infer from first timestamp
         first_ts_dt = pd.Timestamp(signal_ts[0], unit='ns', tz='UTC')
-        date = first_ts_dt.tz_convert('America/New_York').strftime('%Y-%m-%d')
+        date_str = first_ts_dt.tz_convert('America/New_York').strftime('%Y-%m-%d')
     
     # Compute correct session timing (relative to 09:30 ET, NOT first bar)
-    minutes_since_open = compute_minutes_since_open(signal_ts, date)
-    bars_since_open = compute_bars_since_open(signal_ts, date, bar_duration_minutes=1)
+    minutes_since_open = compute_minutes_since_open(signal_ts, date_str)
+    bars_since_open = compute_bars_since_open(signal_ts, date_str, bar_duration_minutes=1)
     
     # Track touches per level for prior_touches calculation
     # IMPORTANT: Only count RTH touches, not overnight/premarket
-    session_start_ns = get_session_start_ns(date)
+    session_start_ns = get_session_start_ns(date_str)
     level_touch_counts = {}
 
     for i in range(n):
@@ -338,8 +341,8 @@ class ComputeApproachFeaturesStage(BaseStage):
         signals_df = ctx.data['signals_df']
         ohlcv_df = ctx.data['ohlcv_1min']
 
-        # Compute approach context
-        signals_df = compute_approach_context(signals_df, ohlcv_df)
+        # Compute approach context (pass date from context)
+        signals_df = compute_approach_context(signals_df, ohlcv_df, lookback_minutes=None)
 
         # Sparse feature transforms + normalization
         signals_df = add_sparse_feature_transforms(signals_df)
