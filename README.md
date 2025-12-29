@@ -40,21 +40,13 @@ uv run python scripts/backfill_bronze_futures.py --all
 ```bash
 cd backend
 
-# Run hyperopt to generate the best-config JSON (required by CONFIG).
-# NOTE: --dry-run is a pipeline smoke test; it still writes JSON but isn't meaningful.
-uv run python scripts/run_zone_hyperopt.py \
-  --start-date 2025-11-02 \
-  --end-date 2025-11-30 \
-  --n-trials 200
-
-# Build features with CONFIG loaded from the best-config JSON
-# (defaults to data/ml/experiments/zone_opt_v1_best_config.json unless CONFIG_OVERRIDE_PATH is set)
+# Build features with fixed CONFIG (src/common/config.py)
 uv run python -m src.lake.silver_feature_builder \
   --pipeline es_pipeline \
   --start-date 2025-11-02 \
   --end-date 2025-12-28
 
-# Train model (includes hyperopt for XGBoost params)
+# Train model (includes hyperopt for XGBoost params, feature selection, kNN blend)
 uv run python -m src.ml.boosted_tree_train \
   --features gold/training/signals_production.parquet
 
