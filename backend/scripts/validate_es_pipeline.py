@@ -1,5 +1,5 @@
 """
-Validate ES pipeline implementation.
+Validate ES pipeline implementation (v3.0.0).
 
 QA Gates for ES pipeline validation.
 
@@ -9,6 +9,8 @@ Gates:
 3. Premarket leakage: ATR/vol baselines are RTH-only
 4. Causality: Retrieval features use lookbacks only (labels look forward)
 5. Non-zero coverage: Physics metrics are non-trivial (not all zeros)
+6. Outcome labels: REJECT (not BOUNCE) with first-crossing semantics
+7. Episode construction: 111-dim vectors generated if normalization stats available
 """
 
 import argparse
@@ -25,7 +27,7 @@ from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 
 
 class ESPipelineValidator:
-    """Validate v1 pipeline implementation."""
+    """Validate v3.0.0 pipeline implementation."""
     
     def __init__(self, bronze_root: str):
         """
@@ -48,7 +50,7 @@ class ESPipelineValidator:
             Dict with gate results
         """
         print(f"\n{'='*60}")
-        print(f"Validating v1 Pipeline: {date}")
+        print(f"Validating v3.0.0 Pipeline: {date}")
         print(f"{'='*60}")
         
         results = {
@@ -128,7 +130,7 @@ class ESPipelineValidator:
         
         # Gate 5: Non-zero coverage
         print("\n5. Non-Zero Coverage Gate...")
-        if not signals_df.empty:
+        if signals_df is not None and not signals_df.empty:
             physics_cols = [
                 'barrier_delta_liq', 'barrier_replenishment_ratio',
                 'tape_imbalance', 'tape_velocity',
@@ -156,6 +158,37 @@ class ESPipelineValidator:
             print("  ✗ FAIL: No signals generated")
             results['gates']['non_zero_coverage'] = False
             results['passed'] = False
+        
+        # Gate 6: Outcome labels (v3.0.0 validation)
+        print("\n6. Outcome Label Gate (v3.0.0)...")
+        if signals_df is not None and not signals_df.empty and 'outcome' in signals_df.columns:
+            outcome_values = set(signals_df['outcome'].unique())
+            
+            # Check for REJECT (not BOUNCE)
+            if 'REJECT' in outcome_values:
+                print(f"  ✓ PASS: REJECT outcome present (v3.0.0)")
+                results['gates']['outcome_labels'] = True
+            elif 'BOUNCE' in outcome_values:
+                print(f"  ✗ FAIL: Found BOUNCE (should be REJECT in v3.0.0)")
+                results['gates']['outcome_labels'] = False
+                results['passed'] = False
+                results['warnings'].append("Using old BOUNCE labels, should be REJECT")
+            else:
+                print(f"  ⚠ WARNING: No REJECT or BOUNCE found")
+                results['gates']['outcome_labels'] = None
+            
+            # Log distribution
+            outcome_dist = signals_df['outcome'].value_counts().to_dict()
+            print(f"  Outcome distribution: {outcome_dist}")
+            
+            # Check for new excursion fields
+            if 'excursion_favorable' in signals_df.columns and 'excursion_adverse' in signals_df.columns:
+                print(f"  ✓ PASS: New ATR-normalized excursion fields present")
+            else:
+                print(f"  ⚠ WARNING: excursion_favorable/adverse not found")
+        else:
+            print("  ⚠ WARNING: No outcome column found")
+            results['gates']['outcome_labels'] = None
         
         # Summary
         print(f"\n{'='*60}")
@@ -213,7 +246,7 @@ class ESPipelineValidator:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate v1 pipeline')
+    parser = argparse.ArgumentParser(description='Validate v3.0.0 pipeline (IMPLEMENTATION_READY.md)')
     parser.add_argument('--date', type=str, help='Single date to validate')
     parser.add_argument('--start', type=str, help='Start date for batch validation')
     parser.add_argument('--end', type=str, help='End date for batch validation')

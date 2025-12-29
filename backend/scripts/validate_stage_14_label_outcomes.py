@@ -1,16 +1,23 @@
 """
-Validate Stage 14: LabelOutcomes
+Validate Stage 14: LabelOutcomes (v3.0.0 - First-Crossing Semantics)
 
 Goals:
-1. Compute multi-timeframe outcome labels (2/4/8 min)
+1. Compute multi-timeframe outcome labels (2/4/8 min) using first-crossing
 2. Populate primary outcome fields (4min window)
-3. Preserve signal identity and row count
+3. Generate ATR-normalized excursion metrics
+4. Preserve signal identity and row count
+
+Outcome Semantics (UPDATED):
+- BREAK: Price crossed 1 ATR in direction of approach
+- REJECT: Price reversed 1 ATR in opposite direction (was "BOUNCE")
+- CHOP: Neither threshold crossed within horizon
 
 Validation Checks:
-- Required inputs present (signals_df, ohlcv_1min)
+- Required inputs present (signals_df, ohlcv_2min)
 - signals_df output exists and has required outcome columns
-- Row count matches touches_df
-- Outcome values within expected set
+- Row count matches input
+- Outcome values within expected set {BREAK, REJECT, CHOP}
+- New fields present: excursion_favorable, excursion_adverse
 """
 
 import argparse
@@ -90,7 +97,7 @@ class Stage14Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['signals_df', 'ohlcv_1min']
+        required_inputs = ['signals_df', 'ohlcv_2min']  # Updated to use 2min bars
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())
@@ -143,16 +150,24 @@ class Stage14Validator:
         self.logger.info(f"  Total signals: {len(signals_df):,}")
 
         suffixes = ['2min', '4min', '8min']
-        required_cols = ['outcome', 'strength_signed', 'strength_abs', 'tradeable_2', 'confirm_ts_ns', 'anchor_spot']
+        required_cols = [
+            'outcome',  # Primary outcome (4min)
+            'strength_signed',
+            'strength_abs',
+            'excursion_favorable',  # New ATR-normalized excursions
+            'excursion_adverse',
+            'excursion_max',  # Backward compat
+            'excursion_min',
+            'time_to_break_1',
+            'time_to_bounce_1'
+        ]
 
+        # Multi-horizon outcomes
         for suffix in suffixes:
             required_cols.extend([
                 f'outcome_{suffix}',
-                f'strength_signed_{suffix}',
-                f'strength_abs_{suffix}',
-                f'tradeable_2_{suffix}',
-                f'confirm_ts_ns_{suffix}',
-                f'anchor_spot_{suffix}'
+                f'time_to_break_1_{suffix}',
+                f'time_to_bounce_1_{suffix}'
             ])
 
         missing_cols = [col for col in required_cols if col not in signals_df.columns]
@@ -180,8 +195,8 @@ class Stage14Validator:
                 checks['row_count_match'] = True
                 self.logger.info("  ✅ signals_df row count matches touches_df")
 
-        # Validate outcomes
-        valid_outcomes = {'BREAK', 'BOUNCE', 'CHOP', 'UNDEFINED'}
+        # Validate outcomes (v3.0.0: REJECT replaces BOUNCE)
+        valid_outcomes = {'BREAK', 'REJECT', 'CHOP'}
         outcome_values = set(signals_df['outcome'].astype(str).unique())
         invalid = sorted(outcome_values - valid_outcomes)
         if invalid:
