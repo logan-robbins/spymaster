@@ -10,7 +10,7 @@
 
 Provides shared contracts that enable parallel development and deterministic replay across the entire system. All other backend modules depend on `common`, but `common` depends on nothing else.
 
-**Architectural principle**: This creates a stable foundation where interface changes are deliberate and backward-compatible.
+**Architectural principle**: This creates a stable foundation where interface changes are deliberate and versioned.
 
 ---
 
@@ -19,17 +19,15 @@ Provides shared contracts that enable parallel development and deterministic rep
 ### Event Types (`event_types.py`)
 Canonical dataclasses for runtime message passing. Every event carries `ts_event_ns` (event time) and `ts_recv_ns` (receive time) in Unix nanoseconds UTC.
 
-**Types**: `StockTrade`, `StockQuote`, `OptionTrade`, `FuturesTrade`, `MBP10`, `GreeksSnapshot`
+**Types**: `OptionTrade`, `FuturesTrade`, `MBP10`, `BidAskLevel`
 
 ### Configuration (`config.py`)
 Single source of truth for all tunable parameters. Centralized CONFIG singleton accessed by all modules.
 
 **Categories**: Physics windows, monitoring bands, thresholds, score weights, smoothing parameters
 
-### Price Converter (`price_converter.py`)
-ES ↔ SPY price conversion with dynamic ratio support (ES ≈ SPY × 10).
-
-**Purpose**: Levels are SPY dollars, but liquidity analysis uses ES futures depth.
+### Price Utilities (`price_converter.py`)
+ES price normalization utilities used by core analytics and features.
 
 ### Storage Schemas (`schemas/`)
 Pydantic + PyArrow schema definitions for Bronze/Silver/Gold tiers. Includes SchemaRegistry for version management.
@@ -57,10 +55,6 @@ Tracks run metadata for reproducibility. Captures git commit, config hash, event
 
 This separation allows fast event routing without Pydantic overhead in hot paths.
 
-### Why Dynamic ES/SPY Conversion?
-
-ES/SPY ratio varies 9.98–10.02 intraday due to dividends, interest rates, and fair value. Static ratio introduces systematic pricing error (0.1–0.2% drift).
-
 ### Why Flatten Gold Schema?
 
 Parquet columnar format is optimized for flat schemas. Nested JSON loses compression efficiency and requires complex readers. ML frameworks expect flat feature vectors.
@@ -86,11 +80,9 @@ uv run pytest tests/test_run_manifest_manager.py -v  # 24 tests
 
 ## Common Pitfalls
 
-1. **Timestamp conversion**: Polygon sends milliseconds → multiply by 1,000,000
-2. **Quote sizes**: `bid_sz`/`ask_sz` are SHARES, not round lots (as of 2025-11-03)
-3. **Price queries**: Always use `PriceConverter` for ES queries, never hardcode ratio
-4. **Config mutation**: Don't modify CONFIG during runtime (breaks manifest tracking)
-5. **Gold schemas**: Use flat fields, not nested dicts for Parquet efficiency
+1. **Timestamp conversion**: Databento data arrives in nanoseconds (no conversion needed)
+2. **Config mutation**: Don't modify CONFIG during runtime (breaks manifest tracking)
+3. **Gold schemas**: Use flat fields, not nested dicts for Parquet efficiency
 
 ---
 
@@ -100,7 +92,7 @@ uv run pytest tests/test_run_manifest_manager.py -v  # 24 tests
 **Phase 2** (Current): Single-machine server, NATS JetStream  
 **Phase 3** (Future): Colocation, Redpanda/Kafka, Iceberg metadata layer
 
-Schema versioning ensures backward compatibility across phases.
+Schema versioning ensures controlled changes across phases.
 
 ---
 

@@ -1,0 +1,70 @@
+2025-12-28 22:43:28,108 - INFO - Starting Stage 0 validation for 2025-12-16
+2025-12-28 22:43:28,108 - INFO - Log file: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_00_2025-12-16.log
+2025-12-28 22:43:28,108 - INFO - Running LoadBronze stage...
+2025-12-28 22:43:28,108 - [2.0.0] Starting pipeline: es_pipeline
+2025-12-28 22:43:28,108 - [2.0.0] Date: 2025-12-16
+2025-12-28 22:43:28,108 - [2.0.0] Stages: 16
+2025-12-28 22:43:28,108 - [2.0.0] Checkpointing enabled: data/checkpoints
+2025-12-28 22:43:28,108 - [2.0.0] Will stop after stage 0
+2025-12-28 22:43:28,108 - [2.0.0] (1/16) Running: load_bronze
+2025-12-28 22:43:28,108 -   Loading Bronze data for 2025-12-16...
+2025-12-28 22:43:29,176 -     ES trades: 612,748 records
+2025-12-28 22:43:31,681 -     MBP-10 snapshots: 95,409 records
+2025-12-28 22:43:31,693 -     ES options: 973 records
+2025-12-28 22:43:31,697 - [2.0.0]   Completed in 3.59s
+2025-12-28 22:43:33,127 -   Failed to serialize '_reader': cannot pickle 'module' object
+2025-12-28 22:43:33,128 - [2.0.0] No 'signals' in context, returning empty DataFrame
+2025-12-28 22:43:33,213 - Loading checkpoint from stage 0: load_bronze
+2025-12-28 22:43:34,029 - ================================================================================
+2025-12-28 22:43:34,029 - Validating Stage 0: LoadBronze for 2025-12-16
+2025-12-28 22:43:34,029 - ================================================================================
+2025-12-28 22:43:34,029 - 
+1. Checking required outputs...
+2025-12-28 22:43:34,029 -   ✅ All required outputs present: ['trades', 'trades_df', 'mbp10_snapshots', 'option_trades_df']
+2025-12-28 22:43:34,029 - 
+2. Validating ES Futures Trades...
+2025-12-28 22:43:34,029 -   Row count: 612,748
+2025-12-28 22:43:34,029 -   ✅ Schema valid
+2025-12-28 22:43:34,032 -   Timestamp range: 2025-12-16 00:00:00.069984703 to 2025-12-16 23:59:59.693222593
+2025-12-28 22:43:34,033 -   ✅ Timestamps monotonic
+2025-12-28 22:43:34,043 -   Unique symbols: ['ES']
+2025-12-28 22:43:34,053 -   ✅ Single contract: ES
+2025-12-28 22:43:34,054 -   Price range: 6817.50 - 6892.00
+2025-12-28 22:43:34,055 -   ✅ Price range reasonable
+2025-12-28 22:43:34,061 -   Size range: 1 - 1060, median: 1.0
+2025-12-28 22:43:34,061 -   ✅ Size range valid
+2025-12-28 22:43:34,061 -   ✅ trades list matches DataFrame
+2025-12-28 22:43:34,062 - 
+3. Validating ES MBP-10 Snapshots...
+2025-12-28 22:43:34,062 -   Snapshot count: 95,409
+2025-12-28 22:43:34,062 -   Timestamp range: 2025-12-16 14:26:00.087893295 to 2025-12-16 21:03:59.979977795
+2025-12-28 22:43:34,062 -   Duration: 6.63 hours
+2025-12-28 22:43:34,062 -   ✅ Duration reasonable
+2025-12-28 22:43:34,062 -   Levels per snapshot: 10
+2025-12-28 22:43:34,062 -   ✅ 10 levels present
+2025-12-28 22:43:34,062 -   Top bid: 6867.75 x 23
+2025-12-28 22:43:34,062 -   Top ask: 6868.0 x 14
+2025-12-28 22:43:34,062 -   ✅ Prices valid
+2025-12-28 22:43:34,062 - 
+4. Validating ES Options Trades...
+2025-12-28 22:43:34,062 -   Row count: 973
+2025-12-28 22:43:34,062 -   ✅ Schema valid
+2025-12-28 22:43:34,063 -   Underlyings: ['ES']
+2025-12-28 22:43:34,063 -   ✅ ES underlying present
+2025-12-28 22:43:34,063 -   Expiration dates: ['2025-12-16']
+2025-12-28 22:43:34,063 -   ⚠️  Non-0DTE options present
+2025-12-28 22:43:34,063 -   Strike range: 1600 - 8900
+2025-12-28 22:43:34,063 -   Unique strikes: 115
+2025-12-28 22:43:34,063 -   Common strike spacing: 25 points
+2025-12-28 22:43:34,063 -   ✅ Strike spacing reasonable
+2025-12-28 22:43:34,064 -   Call/Put distribution:
+2025-12-28 22:43:34,064 -     C: 563 (57.9%)
+2025-12-28 22:43:34,064 -     P: 410 (42.1%)
+2025-12-28 22:43:34,064 - 
+================================================================================
+2025-12-28 22:43:34,064 - ✅ Stage 0 Validation: PASSED
+2025-12-28 22:43:34,064 - Warnings: 1
+2025-12-28 22:43:34,064 -   - Non-0DTE options found: ['2025-12-16']
+2025-12-28 22:43:34,064 - ================================================================================
+
+2025-12-28 22:43:34,064 - Results saved to: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_00_2025-12-16_results.json

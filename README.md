@@ -4,7 +4,7 @@
 
 **Data**: ES futures + ES 0DTE options from Databento GLBX.MDP3  
 **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)  
-**Strike Spacing**: CME listing schedule varies by moneyness/time-to-expiry (5/10/50/100-point intervals; dynamic 5-point additions); GEX bands aggregate across actually listed strikes within point bands  
+**Strike Spacing**: CME listing schedule varies by moneyness/time-to-expiry (5/10/50/100-point intervals); GEX features aggregate gamma within ±1/±2/±3 strikes (typically 5pt spacing for ES 0DTE ATM)  
 **Outcome Threshold**: Volatility-scaled barrier
 **Inference**: Event-driven adaptive cadence (physics @ 250ms; ML updates by distance-to-level + triggers)  
 **Pipeline**: 16 stages (load → levels → physics → labels → filter)  

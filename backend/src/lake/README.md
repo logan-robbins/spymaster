@@ -35,7 +35,7 @@ Orchestrator for streaming Bronze and Gold writers. Manages graceful shutdown wi
 Consumes `market.*` from NATS, writes append-only Parquet to Bronze tier.
 
 **Micro-batching**: Buffer 1000 events or 5 seconds → flush to Parquet  
-**Subscriptions**: `market.stocks.trades`, `market.options.trades`, `market.futures.trades`, `market.futures.mbp10`
+**Subscriptions**: `market.futures.trades`, `market.futures.mbp10`, `market.options.trades`
 
 **Key Characteristics**:
 - At-least-once semantics (duplicates possible)
@@ -48,7 +48,7 @@ Consumes `levels.signals` from NATS, writes real-time signals to Gold streaming 
 
 **Flattening**: Nested physics dicts → flat columns for Parquet efficiency  
 **Micro-batching**: Buffer 500 records or 10 seconds  
-**Output**: `gold/streaming/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/*.parquet`
+**Output**: `gold/levels/signals/underlying=ES/date=YYYY-MM-DD/hour=HH/*.parquet`
 
 ### SilverFeatureBuilder (`silver_feature_builder.py`)
 
@@ -81,7 +81,7 @@ builder.register_experiment(
 
 **Implementation**:
 - Uses versioned pipelines internally for feature computation
-- Applies RTH filtering (09:30-16:00 ET)
+- Applies RTH filtering (09:30-13:30 ET)
 - Writes to `silver/features/{version}/date=YYYY-MM-DD/*.parquet`
 - Creates `manifest.yaml` and `validation.json` per version
 
@@ -157,7 +157,7 @@ See workflow in [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md#feature-
 **Bronze/Gold Streaming**:
 ```
 futures/trades/symbol=ES/date=2025-12-16/hour=14/part-143012_345678.parquet
-options/trades/underlying=SPY/date=2025-12-16/hour=14/part-143012_345678.parquet
+options/trades/underlying=ES/date=2025-12-16/hour=14/part-143012_345678.parquet
 ```
 
 **Silver**:

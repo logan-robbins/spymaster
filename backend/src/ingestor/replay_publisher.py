@@ -300,7 +300,7 @@ class ReplayPublisher:
         end_ns: Optional[int]
     ) -> Iterator[OptionTrade]:
         options_df = self.bronze_reader.read_option_trades(
-            underlying="SPY",
+            underlying="ES",
             date=date,
             start_ns=start_ns,
             end_ns=end_ns
@@ -340,7 +340,7 @@ class ReplayPublisher:
                 ts_event_ns=int(ts_event[idx]),
                 ts_recv_ns=int(ts_recv[idx]),
                 source=EventSource.REPLAY,
-                underlying=underlying[idx] if underlying is not None else "SPY",
+                underlying=underlying[idx] if underlying is not None else "ES",
                 option_symbol=option_symbol[idx],
                 exp_date=str(exp_date[idx]),
                 strike=float(strike[idx]),

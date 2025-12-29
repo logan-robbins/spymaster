@@ -1,0 +1,36 @@
+{
+  "stage": "compute_multiwindow_kinematics",
+  "stage_idx": 7,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals_df": {
+      "signals_df_type": true,
+      "required_columns_present": true,
+      "row_count_match": true,
+      "velocity_1min_nan": true,
+      "acceleration_1min_nan": true,
+      "jerk_1min_nan": true,
+      "velocity_3min_nan": true,
+      "acceleration_3min_nan": true,
+      "jerk_3min_nan": true,
+      "momentum_trend_3min_nan": true,
+      "velocity_5min_nan": true,
+      "acceleration_5min_nan": true,
+      "jerk_5min_nan": true,
+      "momentum_trend_5min_nan": true,
+      "velocity_10min_nan": true,
+      "acceleration_10min_nan": true,
+      "jerk_10min_nan": true,
+      "momentum_trend_10min_nan": true,
+      "velocity_20min_nan": true,
+      "acceleration_20min_nan": true,
+      "jerk_20min_nan": true,
+      "momentum_trend_20min_nan": true
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

@@ -10,7 +10,7 @@
 
 Trains boosted-tree multi-head models for tradeability, direction, strength, and time-to-threshold predictions. Provides kNN retrieval for similar historical patterns. PatchTST sequence model serves as baseline.
 
-**Scope**: SPY 0DTE options only (consistent with system scope).
+**Scope**: ES 0DTE options only (consistent with system scope).
 
 ---
 
@@ -267,6 +267,6 @@ To add new features to models:
 
 ---
 
-**Scope**: SPY 0DTE only  
+**Scope**: ES 0DTE only  
 **Dependencies**: `common` (schemas), `lake` (Silver/Gold datasets), `pipeline` (versioned pipelines)  
 **Integration**: Core Service (live viewport scoring)

@@ -67,9 +67,7 @@ def build_ohlcv(
     ohlcv = ohlcv.dropna(subset=['open'])
     ohlcv = ohlcv.reset_index()
 
-    # ES to SPX conversion (ES and SPX are in same units - index points!)
-    # No division needed - ES 5740.0 ≈ SPX 5740.0
-    # This is a key advantage of SPX over SPY
+    # ES prices are already in index points; no conversion needed.
     if convert_to_spx:
         # Keep as-is (ES prices are already in SPX-equivalent index points)
         # Small basis spread (1-5 points) handled by PriceConverter if needed

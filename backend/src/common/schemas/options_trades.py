@@ -5,8 +5,8 @@ Fields per PLAN.md §2.4:
 - ts_event_ns: int64 (UTC nanoseconds)
 - ts_recv_ns: int64 (UTC nanoseconds)
 - source: utf8 (EventSource enum value)
-- underlying: utf8 (e.g., 'SPY')
-- option_symbol: utf8 (vendor symbol, e.g., 'O:SPY251216C00676000')
+- underlying: utf8 (e.g., 'ES')
+- option_symbol: utf8 (vendor symbol, e.g., ES option symbol)
 - exp_date: date32 (expiration date)
 - strike: float64
 - right: utf8 ('C' or 'P')
@@ -67,12 +67,12 @@ class OptionTradeV1(BaseEventModel):
         ...,
         min_length=1,
         max_length=10,
-        description="Underlying symbol (e.g., 'SPY')"
+        description="Underlying symbol (e.g., 'ES')"
     )
     option_symbol: str = Field(
         ...,
         min_length=1,
-        description="Vendor option symbol (e.g., 'O:SPY251216C00676000')"
+        description="Vendor option symbol (e.g., ES option symbol)"
     )
     exp_date: date = Field(
         ...,

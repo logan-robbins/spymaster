@@ -1,0 +1,24 @@
+{
+  "stage": "compute_barrier_evolution",
+  "stage_idx": 9,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals_df": {
+      "signals_df_type": true,
+      "required_columns_present": true,
+      "row_count_match": true,
+      "barrier_delta_1min_nan": true,
+      "barrier_pct_change_1min_nan": true,
+      "barrier_delta_3min_nan": true,
+      "barrier_pct_change_3min_nan": true,
+      "barrier_delta_5min_nan": true,
+      "barrier_pct_change_5min_nan": true,
+      "barrier_depth_current_nan": true
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

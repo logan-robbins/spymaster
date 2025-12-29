@@ -1,8 +1,9 @@
 """
 Compute ES options gamma exposure (GEX) features.
 
-Point-banded GEX features around tested level using all listed strikes
-within a points band (no fixed strike-count assumptions).
+Strike-banded GEX features around tested level. Aggregates gamma exposure
+within ±1, ±2, ±3 strikes from the tested level (not fixed point distances).
+ES 0DTE strikes are typically spaced 5 points apart at ATM.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,22 +21,23 @@ def compute_strike_banded_gex(
     band_points: List[float] = None
 ) -> pd.DataFrame:
     """
-    Compute gamma exposure in point bands around each tested level.
+    Compute gamma exposure in strike bands around each tested level.
     
     GEX feature computation:
     - Filter to 0DTE options (exp_date == session date)
     - Use open_interest from greeks snapshots if available, else trades
-    - Compute GEX per strike, then aggregate into bands
+    - Compute GEX per strike, then aggregate into strike bands
     - Summarize relative to tested level
     
-    Point bands (ES 0DTE): ±5, ±10, ±15 points by default.
-    This adapts to the actual strike mesh and avoids counting strikes.
+    Strike bands: ±1, ±2, ±3 strikes from tested level.
+    For ES 0DTE ATM options, strikes are typically spaced 5 points apart,
+    so ±1 strike = ±5 points, ±2 strikes = ±10 points, ±3 strikes = ±15 points.
     
     Args:
         signals_df: DataFrame with signals
         option_trades_df: Option trades/greeks with gamma, open_interest
         date: Session date for 0DTE filtering
-        band_points: List of point bands (default [5, 10, 15])
+        band_points: Strike spacing in points (default: [5, 10, 15] for ±1/±2/±3 strikes)
     
     Returns:
         DataFrame with GEX features added
@@ -124,7 +126,7 @@ def compute_strike_banded_gex(
     gex_call_vals = gex_calls.reindex(strikes_available, fill_value=0.0).to_numpy(dtype=np.float64)
     gex_put_vals = gex_puts.reindex(strikes_available, fill_value=0.0).to_numpy(dtype=np.float64)
 
-    # Initialize result arrays (band labels preserved for schema compatibility)
+    # Initialize result arrays (band labels align with schema)
     result_dict = {}
     for band in band_labels:
         result_dict[f'gex_above_{band}strike'] = np.zeros(n, dtype=np.float64)
@@ -166,7 +168,7 @@ def compute_strike_banded_gex(
         max_band = max(band_points) if band_points else 0.0
         in_range = np.abs(strikes_available - level) <= max_band
         net_gex = float(gex_all_vals[in_range].sum()) if np.any(in_range) else 0.0
-        net_gex_2strike[i] = net_gex  # Keep name for compatibility
+        net_gex_2strike[i] = net_gex  # Keep name aligned with schema
     
     result = signals_df.copy()
     for key, values in result_dict.items():

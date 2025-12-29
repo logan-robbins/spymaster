@@ -348,7 +348,7 @@ class ContextEngine:
     def generate_mock_ohlcv(
         start_time: Optional[datetime] = None,
         num_minutes: int = 480,  # 8 hours (4am - 12pm)
-        base_price: float = 687.0,
+        base_price: float = 6870.0,
         volatility: float = 0.5
     ) -> pd.DataFrame:
         """
@@ -359,7 +359,7 @@ class ContextEngine:
         Args:
             start_time: Start timestamp (defaults to 04:00 ET today)
             num_minutes: Number of 1-minute bars to generate
-            base_price: Base price level (SPY price, e.g., 687.00)
+            base_price: Base price level (ES price, e.g., 6870.00)
             volatility: Price volatility (dollar amount)
             
         Returns:

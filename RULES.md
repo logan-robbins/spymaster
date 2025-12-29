@@ -32,7 +32,7 @@ For non-trivial tasks, follow this sequence:
 
 <code_principles>
 - Search first: Before creating any new file, search for existing patterns and utilities
-- Single implementation: Create one canonical solution without fallback, legacy, or optional code paths
+- Single implementation: Create one canonical solution without fallback or optional code paths
 - Fail fast: Return clear errors when prerequisites are missing
 - Atomic changes: Each change should be self-contained and not break unrelated domains
 </code_principles>

@@ -203,7 +203,7 @@ class PhysicsEngine:
     @staticmethod
     def generate_mock_mbp10(
         timestamp_ns: int = None,
-        level_price: float = 6870.0,  # ES price (SPY * 10)
+        level_price: float = 6870.0,  # ES price (index points)
         wall_size: int = 10000,
         symbol: str = "ES"
     ) -> MBP10:
@@ -369,4 +369,3 @@ if __name__ == "__main__":
     print("✓ Physics Engine tests complete")
     print("✓ All methods use real MBP-10 and FuturesTrade schemas")
     print("=" * 60)
-

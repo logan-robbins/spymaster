@@ -1,0 +1,23 @@
+2025-12-28 22:52:58,010 - [2.0.0] Starting pipeline: es_pipeline
+2025-12-28 22:52:58,010 - [2.0.0] Date: 2025-12-16
+2025-12-28 22:52:58,010 - [2.0.0] Stages: 16
+2025-12-28 22:52:58,010 - [2.0.0] Checkpointing enabled: data/checkpoints
+2025-12-28 22:52:58,010 - [2.0.0] Will stop after stage 1
+2025-12-28 22:52:58,010 - [2.0.0] (1/16) Running: load_bronze
+2025-12-28 22:52:58,010 -   Loading Bronze data for 2025-12-16...
+2025-12-28 22:52:59,015 -     ES trades: 612,748 records
+2025-12-28 22:53:01,442 -     MBP-10 snapshots: 95,409 records
+2025-12-28 22:53:01,455 -     ES options: 973 records
+2025-12-28 22:53:01,457 - [2.0.0]   Completed in 3.45s
+2025-12-28 22:53:02,916 -   Failed to serialize '_reader': cannot pickle 'module' object
+2025-12-28 22:53:02,916 - [2.0.0] (2/16) Running: build_ohlcv_1min
+2025-12-28 22:53:03,030 - [2.0.0]   Completed in 0.11s
+2025-12-28 22:53:04,155 -   Failed to serialize '_reader': cannot pickle 'module' object
+2025-12-28 22:53:04,157 - [2.0.0] No 'signals' in context, returning empty DataFrame
+Running ES pipeline for 2025-12-16
+Checkpoints: data/checkpoints
+Stopping at stage: 1
+
+
+Pipeline completed successfully
+Final signals: 0 rows

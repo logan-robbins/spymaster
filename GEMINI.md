@@ -17,7 +17,7 @@ You must strictly adhere to `uv` for all Python operations.
 
 ## 4. Coding Principles
 1.  **Search First:** Before creating files, search the codebase for existing patterns, utilities, or similar implementations. Prefer extension over creation.
-2.  **Single Implementation:** Create one canonical solution. Do not create fallback, legacy, or optional code paths.
+2.  **Single Implementation:** Create one canonical solution. Do not create fallback or optional code paths.
 3.  **Fail Fast:** If prerequisites are unmet, return clear errors immediately. Do not build complex fallback logic.
 4.  **Atomic Changes:** Keep changes self-contained; do not break unrelated domains.
 

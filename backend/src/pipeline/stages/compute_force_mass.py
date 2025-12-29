@@ -49,18 +49,13 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
         result['force_mass_ratio'] = 0.0
         return result
     
-    # Check for required columns
-    required = ['acceleration']
-    optional_force = ['integrated_ofi', 'tape_imbalance']
-    optional_mass = ['barrier_delta_liq']
-    
-    has_accel = all(col in signals_df.columns for col in required)
-    if not has_accel:
-        result = signals_df.copy()
-        result['predicted_accel'] = 0.0
-        result['accel_residual'] = 0.0
-        result['force_mass_ratio'] = 0.0
-        return result
+    # Determine acceleration column (single-window or multi-window)
+    if 'acceleration' in signals_df.columns:
+        accel_col = 'acceleration'
+    elif 'acceleration_1min' in signals_df.columns:
+        accel_col = 'acceleration_1min'
+    else:
+        raise ValueError("signals_df missing acceleration column (acceleration or acceleration_1min)")
     
     # Build force proxy (combination of OFI + tape)
     force = np.zeros(len(signals_df), dtype=np.float64)
@@ -69,7 +64,7 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
         force += signals_df['integrated_ofi'].fillna(0).values
     
     if 'tape_imbalance' in signals_df.columns:
-        # Scale tape imbalance to compatible units
+        # Scale tape imbalance to consistent units
         force += signals_df['tape_imbalance'].fillna(0).values * 10.0
     
     # Build mass proxy (liquidity depth)
@@ -86,7 +81,7 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     predicted_accel = (force / mass) * scale_factor
     
     # Actual acceleration
-    actual_accel = signals_df['acceleration'].fillna(0).values
+    actual_accel = signals_df[accel_col].fillna(0).values
     
     # Residual (unexplained acceleration)
     accel_residual = actual_accel - predicted_accel
@@ -126,4 +121,3 @@ class ComputeForceMassStage(BaseStage):
         signals_df = compute_force_mass_features(signals_df)
         
         return {'signals_df': signals_df}
-

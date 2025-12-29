@@ -15,19 +15,15 @@ Phase 1 deliverable per PLAN.md §2.5 / §1.2.
 import os
 import time
 import asyncio
-from typing import Dict, List, Any, Optional, Set
-from dataclasses import asdict, fields
+from typing import Dict, List, Any, Optional
+from dataclasses import fields
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from src.common.event_types import (
-    StockTrade, StockQuote, OptionTrade, GreeksSnapshot,
-    FuturesTrade, MBP10, EventSource, Aggressor
-)
+from src.common.event_types import MBP10
 
 
 class WALManager:
@@ -44,35 +40,12 @@ class WALManager:
         backend/data/wal/
             futures_trades_ES.arrow       # active segment
             futures_mbp10_ES.arrow
-            options_trades_SPY.arrow
-            options_trades_SPY.001.arrow  # rotated segment (unflushed)
+            options_trades_ES.arrow
+            options_trades_ES.001.arrow   # rotated segment (unflushed)
     """
     
     # Schema name to PyArrow schema mapping
     SCHEMAS = {
-        'stocks.trades': pa.schema([
-            ('ts_event_ns', pa.int64()),
-            ('ts_recv_ns', pa.int64()),
-            ('source', pa.string()),
-            ('symbol', pa.string()),
-            ('price', pa.float64()),
-            ('size', pa.int32()),
-            ('exchange', pa.int16()),
-            ('seq', pa.int64()),
-        ]),
-        'stocks.quotes': pa.schema([
-            ('ts_event_ns', pa.int64()),
-            ('ts_recv_ns', pa.int64()),
-            ('source', pa.string()),
-            ('symbol', pa.string()),
-            ('bid_px', pa.float64()),
-            ('ask_px', pa.float64()),
-            ('bid_sz', pa.int32()),
-            ('ask_sz', pa.int32()),
-            ('bid_exch', pa.int16()),
-            ('ask_exch', pa.int16()),
-            ('seq', pa.int64()),
-        ]),
         'options.trades': pa.schema([
             ('ts_event_ns', pa.int64()),
             ('ts_recv_ns', pa.int64()),
@@ -88,19 +61,6 @@ class WALManager:
             ('opt_ask', pa.float64()),
             ('aggressor', pa.int8()),
             ('seq', pa.int64()),
-        ]),
-        'options.greeks_snapshots': pa.schema([
-            ('ts_event_ns', pa.int64()),
-            ('source', pa.string()),
-            ('underlying', pa.string()),
-            ('option_symbol', pa.string()),
-            ('delta', pa.float64()),
-            ('gamma', pa.float64()),
-            ('theta', pa.float64()),
-            ('vega', pa.float64()),
-            ('implied_volatility', pa.float64()),
-            ('open_interest', pa.int32()),
-            ('snapshot_id', pa.string()),
         ]),
         'futures.trades': pa.schema([
             ('ts_event_ns', pa.int64()),
@@ -184,7 +144,7 @@ class WALManager:
         
         Args:
             schema_name: e.g., 'futures.trades'
-            partition_key: e.g., 'ES' or 'SPY'
+            partition_key: e.g., 'ES'
             segment: segment number (0=active, >0=rotated)
         
         Returns:
@@ -260,7 +220,7 @@ class WALManager:
         
         Args:
             schema_name: e.g., 'futures.trades'
-            partition_key: e.g., 'ES' or 'SPY'
+            partition_key: e.g., 'ES'
             event: Event dataclass instance
         """
         stream_key = self._get_stream_key(schema_name, partition_key)
@@ -467,4 +427,3 @@ class WALManager:
             self._current_sizes.clear()
         
         print("  WAL closed")
-

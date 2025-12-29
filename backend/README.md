@@ -1,35 +1,17 @@
 # Spymaster Backend
 
-Physics-based signal generation and ML feature engineering for SPY 0DTE break/bounce prediction.
+Physics-based signal generation and ML feature engineering for ES 0DTE break/bounce prediction.
 
 ---
 
 ## Purpose
 
-Predicts whether SPY price will BREAK through or BOUNCE off key levels ($1 strikes, VWAP, session extremes) by modeling:
+Predicts whether ES price will BREAK through or BOUNCE off key levels (PM/OR extremes, SMA_200/400) by modeling:
 1. **Order book liquidity** (ES futures MBP-10): Dealer defense vs abandonment
 2. **Trade flow** (ES futures trades): Aggressive buying/selling pressure
-3. **Options flow** (SPY 0DTE): Dealer gamma hedging effects
+3. **Options flow** (ES 0DTE): Dealer gamma hedging effects
 
-**Signal Trigger**: Price enters critical zone (±$0.25 of level) → compute physics → publish break/bounce prediction (0-100 score)
-
----
-
-## ES/SPY Price Conversion
-
-**ES futures = SPY liquidity proxy** (SPY equity has no public order book)
-
-**Conversion**: `ES_price = SPY_price × 10`
-
-| SPY | ES | Context |
-|-----|-----|---------|
-| $687.00 | $6870.00 | Price |
-| ±$0.25 | ±$2.50 (10 ticks) | MONITOR_BAND |
-| ±$0.20 | ±$2.00 (8 ticks) | BARRIER_ZONE |
-
-**All barrier/tape computations use ES data, convert back to SPY for output.**
-
-**See**: `backend/src/common/price_converter.py` for implementation.
+**Signal Trigger**: Price enters critical zone (±0.25 ES points of level) → compute physics → publish break/bounce prediction (0-100 score)
 
 ## Quick Start
 
@@ -92,17 +74,17 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 ## Data Pipeline
 
 **Batch Processing** (for ML training):
-1. Load Bronze via DuckDB (ES trades/MBP-10 + SPY options)
-2. Generate level universe (strikes, VWAP, PM/OR/session extremes, walls)
-3. Detect touches (OHLCV crosses level price)
-4. Filter to critical zone (|close - level| ≤ $0.25)
+1. Load Bronze via DuckDB (ES trades/MBP-10 + ES options)
+2. Generate level universe (PM/OR highs/lows, SMA_200/400)
+3. Detect interaction zones (event-driven zone entry)
+4. Filter to critical zone (|close - level| ≤ 0.25 ES points)
 5. Compute physics (barrier, tape, fuel) + approach context
-6. Label outcomes (BREAK/BOUNCE/CHOP based on $2.00 threshold, anchored at t1 and measured vs level price)
+6. Label outcomes (BREAK/BOUNCE/CHOP using volatility-scaled barrier)
 7. Output: Silver features → Gold training via GoldCurator (`data/lake/gold/training/signals_production.parquet`)
 
 **Live Processing** (Core Service):
 1. Subscribe to NATS (`market.*` subjects)
-2. Update MarketState (ES MBP-10, trades, SPY option flow)
+2. Update MarketState (ES MBP-10, trades, ES option flow)
 3. Generate level universe every snap tick (250ms)
 4. Compute physics + score for levels within MONITOR_BAND
 5. Publish to NATS (`levels.signals`)
@@ -113,25 +95,16 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 
 ## Feature Schema
 
-**Authoritative source**: `backend/features.json`
+**Authoritative source**: `backend/SILVER_SCHEMA.md`
 
-**Feature Groups**:
-- **Identity**: `event_id`, `ts_ns`, `date`, `symbol`
-- **Level**: `level_price`, `level_kind`, `direction`, `distance`, `spot`
-- **Barrier**: `barrier_state`, `delta_liq`, `replenishment_ratio`, `wall_ratio`
-- **Tape**: `tape_imbalance`, `tape_velocity`, `buy_vol`, `sell_vol`, `sweep_detected`
-- **Fuel**: `gamma_exposure`, `fuel_effect`
-- **Approach**: `approach_velocity`, `approach_bars`, `prior_touches`
-- **Outcome**: `outcome` (BREAK/BOUNCE/CHOP), `strength_signed`, `tradeable_1/2`, `time_to_break_*`, `time_to_bounce_*`
-
-**See**: [backend/src/common/INTERFACES.md](src/common/INTERFACES.md) for event type contracts.
+**Schema reference**: `backend/src/common/schemas/silver_features.py`
 
 ## Configuration
 
 **Single source**: `backend/src/common/config.py` (CONFIG singleton)
 
 **Key parameters**:
-- `MONITOR_BAND = 0.25`: Compute signals if |spot - level| ≤ $0.25
+- `MONITOR_BAND = 0.25`: Compute signals if |spot - level| ≤ 0.25 ES points
 - `W_b = 240.0`: Barrier window (seconds)
 - `W_t = 60.0`: Tape window (seconds)
 - `W_g = 60.0`: Fuel window (seconds)
@@ -147,7 +120,7 @@ Ingestor → NATS JetStream → Core/Lake/Gateway
 ```
 backend/src/
 ├── common/           # Shared contracts (event types, schemas, config)
-├── ingestor/         # Data normalization (Polygon, Databento)
+├── ingestor/         # Data normalization (Databento)
 ├── core/             # Physics engines + signal generation
 ├── lake/             # Bronze/Silver/Gold persistence
 ├── gateway/          # WebSocket relay
@@ -158,9 +131,8 @@ backend/src/
 
 ## Data Sources
 
-**Live feeds** (Ingestor service):
-- Polygon WebSocket: SPY equity + 0DTE options (trades, quotes)
-- Databento: ES futures (trades, MBP-10) [historical replay]
+**Ingestor sources**:
+- Databento DBN: ES futures (trades, MBP-10) and ES options (trades)
 
 **Storage locations**:
 - DBN files: `dbn-data/trades/`, `dbn-data/MBP-10/`
@@ -208,13 +180,12 @@ uv run pytest tests/test_replay_determinism.py -v
 
 ## Key Invariants
 
-1. **ES/SPY conversion**: Always use `PriceConverter`, never hardcode ratio
-2. **Time windows**: Physics looks FORWARD from touch timestamp
-3. **Config authority**: All parameters in `src/common/config.py`
-4. **Event-time ordering**: Sort by `ts_event_ns`, not `ts_recv_ns`
-5. **$2.00 threshold**: BREAK/BOUNCE require ≥2 strikes movement
-6. **Critical zone**: Signals only when |spot - level| ≤ MONITOR_BAND
-7. **Deterministic replay**: Same inputs + config → same outputs
+1. **Time windows**: Physics looks FORWARD from touch timestamp
+2. **Config authority**: All parameters in `src/common/config.py`
+3. **Event-time ordering**: Sort by `ts_event_ns`, not `ts_recv_ns`
+4. **2.00-point threshold**: BREAK/BOUNCE require ≥2.00 ES points movement
+5. **Critical zone**: Signals only when |spot - level| ≤ MONITOR_BAND
+6. **Deterministic replay**: Same inputs + config → same outputs
 
 ---
 

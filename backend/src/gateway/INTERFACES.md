@@ -307,9 +307,9 @@ async def test_client():
             msg = await ws.recv()
             data = json.loads(msg)
             if 'levels' in data:
-                spy = data['levels'].get('spy', {})
+                es = data['levels'].get('es', {})
                 levels = data['levels'].get('levels', [])
-                print(f"SPY: {spy.get('spot')}, Levels: {len(levels)}")
+                print(f"ES: {es.get('spot')}, Levels: {len(levels)}")
 
 asyncio.run(test_client())
 ```

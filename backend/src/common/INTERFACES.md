@@ -19,20 +19,14 @@ Provides foundational infrastructure with zero dependencies on other backend mod
 **Purpose**: Canonical event dataclasses for runtime message passing.
 
 **Key Types**:
-- `StockTrade`: SPY equity trades
-- `StockQuote`: SPY NBBO quotes
-- `OptionTrade`: SPY option trades
 - `FuturesTrade`: ES futures trades
 - `MBP10`: ES market-by-price L2 depth (10 levels)
+- `OptionTrade`: ES options trades
 - `BidAskLevel`: Single bid/ask level in MBP-10
-- `GreeksSnapshot`: Option greeks cache entries
 
 **EventSource Enum**:
 ```python
 class EventSource(str, Enum):
-    POLYGON_WS = "polygon_ws"
-    DATABENTO_REPLAY = "databento_replay"
-    DATABENTO_LIVE = "databento_live"
     DIRECT_FEED = "direct_feed"
     REPLAY = "replay"
     SIM = "sim"
@@ -40,11 +34,10 @@ class EventSource(str, Enum):
 
 **Aggressor Enum**:
 ```python
-class Aggressor(str, Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-    MID = "MID"
-    UNKNOWN = "UNKNOWN"
+class Aggressor(int, Enum):
+    BUY = 1
+    SELL = -1
+    MID = 0
 ```
 
 **Contract**:
@@ -52,14 +45,14 @@ class Aggressor(str, Enum):
 # All events carry:
 ts_event_ns: int      # Event time (Unix nanoseconds UTC)
 ts_recv_ns: int       # Receive time (Unix nanoseconds UTC)
-source: EventSource   # POLYGON_WS | DATABENTO_REPLAY | REPLAY | etc.
+source: EventSource   # DIRECT_FEED | REPLAY | SIM
 ```
 
 **Import**:
 ```python
 from src.common.event_types import (
-    StockTrade, StockQuote, OptionTrade,
-    FuturesTrade, MBP10, BidAskLevel, GreeksSnapshot,
+    OptionTrade,
+    FuturesTrade, MBP10, BidAskLevel,
     EventSource, Aggressor
 )
 ```
@@ -82,8 +75,8 @@ velocity_window = CONFIG.W_v       # 3.0 seconds
 wall_window = CONFIG.W_wall        # 300.0 seconds
 
 # Bands and thresholds
-monitor_band = CONFIG.MONITOR_BAND              # 0.25 SPY dollars
-touch_band = CONFIG.TOUCH_BAND                  # 0.10 SPY dollars
+monitor_band = CONFIG.MONITOR_BAND              # 0.25 ES points
+touch_band = CONFIG.TOUCH_BAND                  # 0.10 ES points
 barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 ```
 
@@ -97,9 +90,9 @@ barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 - `W_wall`: Call/put wall lookback (300.0s)
 
 **Monitoring Bands**:
-- `MONITOR_BAND`: 0.25 SPY dollars (compute signals)
-- `TOUCH_BAND`: 0.10 SPY dollars (level touching)
-- `CONFLUENCE_BAND`: 0.20 SPY dollars (nearby levels)
+- `MONITOR_BAND`: 0.25 ES points (compute signals)
+- `TOUCH_BAND`: 0.10 ES points (level touching)
+- `CONFLUENCE_BAND`: 0.20 ES points (nearby levels)
 - `BARRIER_ZONE_ES_TICKS`: 8 ES ticks around level
 
 **Barrier Thresholds**:
@@ -108,7 +101,7 @@ barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 - `F_thresh`: 100 (delta liquidity, ES contracts)
 
 **Tape Thresholds**:
-- `TAPE_BAND`: 0.50 SPY dollars
+- `TAPE_BAND`: 0.50 ES points
 - `SWEEP_MIN_NOTIONAL`: 500,000.0
 - `SWEEP_MAX_GAP_MS`: 100ms
 - `SWEEP_MIN_VENUES`: 1
@@ -151,32 +144,7 @@ barrier_zone_ticks = CONFIG.BARRIER_ZONE_ES_TICKS  # 8 ES ticks
 
 ---
 
-### 3. Price Converter (`price_converter.py`)
-
-**Purpose**: ES ↔ SPY price conversion (ES ≈ SPY × 10).
-
-**Interface**:
-```python
-class PriceConverter:
-    def spy_to_es(spy_price: float) -> float
-    def es_to_spy(es_price: float) -> float
-    def update_es_price(es_price: float)
-    def update_spy_price(spy_price: float)
-
-    @property
-    def ratio(self) -> float  # Dynamic if both prices available
-```
-
-**Usage**:
-```python
-converter = PriceConverter()
-es_level = converter.spy_to_es(687.0)  # → 6870.0
-spy_level = converter.es_to_spy(6870.0)  # → 687.0
-```
-
----
-
-### 4. Storage Schemas (`schemas/`)
+### 3. Storage Schemas (`schemas/`)
 
 **Purpose**: Pydantic + PyArrow schema definitions for Bronze/Silver/Gold tiers.
 
@@ -188,20 +156,20 @@ from src.common.schemas import SchemaRegistry
 schemas = SchemaRegistry.list_schemas()
 
 # Get Pydantic model
-model = SchemaRegistry.get('stocks.trades.v1')
+model = SchemaRegistry.get('futures.trades.v1')
 
 # Get Arrow schema for Parquet
-arrow_schema = SchemaRegistry.get_arrow_schema('stocks.trades.v1')
+arrow_schema = SchemaRegistry.get_arrow_schema('futures.trades.v1')
 ```
 
 **Key Schemas**:
-- Bronze: `stocks.trades.v1`, `stocks.quotes.v1`, `options.trades.v1`, `futures.trades.v1`, `futures.mbp10.v1`
-- Silver: `options.trades_enriched.v1`
-- Gold: `levels.signals.v1`
+- Bronze: `options.trades.v1`, `futures.trades.v1`, `futures.mbp10.v1`
+- Silver: `silver.features.es_pipeline.v1`
+- Gold: `training.es_pipeline.v1`, `levels.signals.v1`
 
 ---
 
-### 5. NATS Bus (`bus.py`)
+### 4. NATS Bus (`bus.py`)
 
 **Purpose**: NATS JetStream wrapper for pub/sub messaging.
 
@@ -231,7 +199,7 @@ class NATSBus:
 from src.common.bus import BUS
 
 await BUS.connect()
-await BUS.publish('market.stocks.trades', trade_dict)
+await BUS.publish('market.futures.trades', trade_dict)
 await BUS.subscribe('levels.signals', handle_signal, 'consumer_name')
 ```
 
@@ -241,7 +209,7 @@ await BUS.subscribe('levels.signals', handle_signal, 'consumer_name')
 
 ---
 
-### 6. Run Manifest Manager (`run_manifest_manager.py`)
+### 5. Run Manifest Manager (`run_manifest_manager.py`)
 
 **Purpose**: Track run metadata for reproducibility.
 
@@ -326,17 +294,12 @@ Ingestor → event_types dataclass → NATS (bus.py) → Core/Lake/Gateway
 Any module → config.py (CONFIG singleton) → Read parameters
 ```
 
-**Price Conversion**:
-```
-Level (SPY dollars) → price_converter → ES query → Results (convert back to SPY)
-```
-
 ---
 
 ## Schema Versioning Contract
 
 **Version Bump Triggers**:
-- Add required field → bump version (backward incompatible)
+- Add required field → bump version (breaking change)
 - Add optional field → can stay same version
 - Remove field → bump version
 - Change field type → bump version
@@ -344,14 +307,14 @@ Level (SPY dollars) → price_converter → ES query → Results (convert back t
 **Example**:
 ```python
 # v1
-class StockTradeV1(BaseEventModel):
-    _schema_version = SchemaVersion('stocks.trades', version=1, tier='bronze')
+class FuturesTradeV1(BaseEventModel):
+    _schema_version = SchemaVersion('futures.trades', version=1, tier='bronze')
     price: float
     size: int
 
 # v2 (optional field added)
-class StockTradeV2(BaseEventModel):
-    _schema_version = SchemaVersion('stocks.trades', version=2, tier='bronze')
+class FuturesTradeV2(BaseEventModel):
+    _schema_version = SchemaVersion('futures.trades', version=2, tier='bronze')
     price: float
     size: int
     venue_timestamp: Optional[int] = None
@@ -363,10 +326,9 @@ class StockTradeV2(BaseEventModel):
 
 1. **Time units**: All timestamps are Unix nanoseconds UTC
 2. **Enum serialization**: JSON-encode enums as `.value` for NATS
-3. **ES/SPY conversion**: Always use `PriceConverter`, never hardcode ratio
-4. **Config immutability**: Don't modify CONFIG during runtime
-5. **Schema stability**: Never break backward compatibility without version bump
-6. **NATS streams**: MARKET_DATA and LEVEL_SIGNALS with 24h retention
+3. **Config immutability**: Don't modify CONFIG during runtime
+4. **Schema stability**: Version every schema change and update consumers together
+5. **NATS streams**: MARKET_DATA and LEVEL_SIGNALS with 24h retention
 
 ---
 

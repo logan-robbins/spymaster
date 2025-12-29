@@ -11,7 +11,7 @@
 Comprehensive test suite for the vectorized pipeline that combines three data sources:
 1. **ES Futures MBP-10** (Market By Price depth) - Barrier physics
 2. **ES Futures Trades** - Tape physics
-3. **SPY Options Flows** - Fuel (gamma) physics
+3. **ES Options Flows** - Fuel (gamma) physics
 
 Tests use **easy-to-validate numbers** to ensure calculation correctness.
 
@@ -67,7 +67,7 @@ Velocity = +0.25 ES/sec (rising)
 
 **Test Setup** (wall consumption):
 ```
-MBP-10 Snapshots at SPY 685.00 (ES 6850.00):
+MBP-10 Snapshots at 6850.00:
 - t=0s: Bid 6850.00 x 2000 (wall)
 - t=5s: Bid 6850.00 x 1000 (consumed)
 
@@ -93,10 +93,10 @@ State = CONSUMED or VACUUM (depending on thresholds)
 
 **Test Setup** (gamma aggregation):
 ```
-SPY Options at 685.00 (strike_range = 2.0):
-- 684 Put: +30,000 gamma (dealers long)
-- 685 Call: -25,000 gamma (dealers short)
-- 686 Call: +15,000 gamma (dealers long)
+ES Options at 6850.00 (strike_range = 10.0):
+- 6840 Put: +30,000 gamma (dealers long)
+- 6850 Call: -25,000 gamma (dealers short)
+- 6860 Call: +15,000 gamma (dealers long)
 
 Expected:
 Net gamma = 30,000 - 25,000 + 15,000 = +20,000
@@ -123,17 +123,6 @@ Effect = DAMPEN (positive > 10K threshold)
 3. ✅ Fuel metrics from options (gamma = +20,000)
 4. ✅ All arrays same length
 5. ✅ Values match expected calculations
-
----
-
-### 6. Price Conversion (2 tests) ✅
-
-| Test | Conversion | Expected | Status |
-|------|-----------|----------|--------|
-| `test_spy_to_es_conversion` | SPY → ES (×10) | 685.0 → 6850.0 | ✅ |
-| `test_es_to_spy_conversion` | ES → SPY (÷10) | 6850.0 → 685.0 | ✅ |
-
-**Critical**: SPY strikes at $1 intervals → ES levels at $10 intervals
 
 ---
 
@@ -167,16 +156,6 @@ Effect = DAMPEN (positive > 10K threshold)
 | `test_vacuum_scenario` | Liquidity pulled | Wall removed without fills | ✅ |
 | `test_wall_scenario` | Replenishment | Liquidity returns after consumption | ✅ |
 | `test_heavy_sell_imbalance` | One-sided flow | Imbalance = -1.0 (perfect sell) | ✅ |
-
----
-
-### 10. Strike Alignment (1 test) ✅
-
-| Test | Validates | Status |
-|------|-----------|--------|
-| `test_spy_strikes_at_dollar_intervals` | $1 SPY intervals → $10 ES | ✅ |
-
-**Critical Invariant**: SPY options strike every $1 → ES levels every $10
 
 ---
 
@@ -221,19 +200,19 @@ else:  # Resistance (approaching from below)
 
 **Critical Logic**:
 ```python
-# For SPY level 685.00 with strike_range=2.0:
-relevant_strikes = [683, 684, 685, 686, 687]  # Within ±2
+# For ES level 6850.00 with strike_range=10.0:
+relevant_strikes = [6840, 6850, 6860]  # Within ±10
 net_gamma = sum(gamma[strike] for strike in relevant_strikes)
 ```
 
-**Test Case** (strike_range=2.0):
-- 684 Put: +30,000
-- 685 Call: -25,000
-- 686 Call: +15,000
+**Test Case** (strike_range=10.0):
+- 6840 Put: +30,000
+- 6850 Call: -25,000
+- 6860 Call: +15,000
 - **Net**: +20,000 (DAMPEN) ✅
 
-**Test Case** (strike_range=0.5):
-- Only 685 Call: -25,000 (AMPLIFY) ✅
+**Test Case** (strike_range=2.5):
+- Only 6850 Call: -25,000 (AMPLIFY) ✅
 
 ---
 
@@ -258,10 +237,10 @@ mbp_ask_prices: (n_snapshots, 10) float64
 mbp_ask_sizes: (n_snapshots, 10) int64
 ```
 
-**SPY Options**:
+**ES Options**:
 ```python
-strike_gamma: Dict[float, float]  # SPY strike → net gamma
-strike_volume: Dict[float, int]   # SPY strike → volume
+strike_gamma: Dict[float, float]  # ES strike → net gamma
+strike_volume: Dict[float, int]   # ES strike → volume
 call_gamma: Dict[float, float]
 put_gamma: Dict[float, float]
 ```
@@ -296,7 +275,7 @@ put_gamma: Dict[float, float]
 ### Example: Complete Physics for One Touch
 
 **Given**:
-- **Touch**: SPY 685.00 at t=0s (approaching from below, resistance)
+- **Touch**: ES 6850.00 at t=0s (approaching from below, resistance)
 - **Window**: 5-10 seconds forward
 
 **ES Trades** (in window):
@@ -330,16 +309,16 @@ End depth in zone = 500
 Delta = 500 - 500 = 0 (neutral)
 ```
 
-**SPY Options** (at strikes):
+**ES Options** (at strikes):
 ```
-684 Put: +30,000 gamma
-685 Call: -25,000 gamma
-686 Call: +15,000 gamma
+6840 Put: +30,000 gamma
+6850 Call: -25,000 gamma
+6860 Call: +15,000 gamma
 ```
 
-**Fuel Calculation** (strike_range=2.0):
+**Fuel Calculation** (strike_range=10.0):
 ```
-Relevant strikes: 684, 685, 686 (within ±2 of 685)
+Relevant strikes: 6840, 6850, 6860 (within ±10 of 6850)
 Net gamma = 30,000 - 25,000 + 15,000 = +20,000 ✅
 Effect = DAMPEN (> +10,000 threshold) ✅
 ```
@@ -350,14 +329,13 @@ Effect = DAMPEN (> +10,000 threshold) ✅
 
 1. ✅ **Timestamp ordering**: Trades and MBP sorted chronologically
 2. ✅ **Forward windows**: Look forward from touch timestamp (not backward)
-3. ✅ **SPY → ES conversion**: Ratio of 10.0 exactly
-4. ✅ **Side selection**: Support → BID, Resistance → ASK
-5. ✅ **Price band filtering**: Trades outside band excluded
-6. ✅ **Strike range filtering**: Options outside range excluded
-7. ✅ **Aggressor encoding**: BUY=1, SELL=-1
-8. ✅ **Empty data handling**: Graceful defaults (zeros, NEUTRAL)
-9. ✅ **Batch consistency**: Batch results = individual results
-10. ✅ **Array shape alignment**: All output arrays same length
+3. ✅ **Side selection**: Support → BID, Resistance → ASK
+4. ✅ **Price band filtering**: Trades outside band excluded
+5. ✅ **Strike range filtering**: Options outside range excluded
+6. ✅ **Aggressor encoding**: BUY=1, SELL=-1
+7. ✅ **Empty data handling**: Graceful defaults (zeros, NEUTRAL)
+8. ✅ **Batch consistency**: Batch results = individual results
+9. ✅ **Array shape alignment**: All output arrays same length
 
 ---
 
@@ -613,4 +591,3 @@ assert abs(result['tape_imbalance'][0] - 0.4118) < 0.01  # ✅ Passes
 **Status**: ✅ All Passing  
 **Execution Time**: ~0.26 seconds  
 **Coverage**: Tape (6), Barrier (3), Fuel (4), Integration (2), Edge Cases (6), Conversion (2), Scenarios (3), Alignment (1), Efficiency (1)
-

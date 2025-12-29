@@ -46,8 +46,18 @@ def generate_level_universe(
             kind_names=[]
         )
 
-    # Ensure timestamp is datetime
+    # Ensure timestamp is datetime (can be index or column)
     df = ohlcv_df.copy()
+    
+    if isinstance(df.index, pd.DatetimeIndex):
+        # Using DatetimeIndex
+        df = df.reset_index()
+        if 'timestamp' not in df.columns:
+            df = df.rename(columns={'index': 'timestamp'})
+    
+    if 'timestamp' not in df.columns:
+        raise ValueError("ohlcv_df must have DatetimeIndex or 'timestamp' column")
+    
     if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
 
@@ -85,6 +95,11 @@ def generate_level_universe(
         df_2min = df_2min.reset_index()
     else:
         df_2min = ohlcv_2min.copy()
+        # Handle DatetimeIndex
+        if isinstance(df_2min.index, pd.DatetimeIndex):
+            df_2min = df_2min.reset_index()
+            if 'timestamp' not in df_2min.columns:
+                df_2min = df_2min.rename(columns={'index': 'timestamp'})
 
     if not df_2min.empty and 'timestamp' in df_2min.columns:
         df_2min = df_2min.sort_values('timestamp')
@@ -193,7 +208,12 @@ def compute_wall_series(
         wall_strikes = rolling.idxmin(axis=1)
         wall_strikes[total_abs == 0.0] = np.nan
 
-        ohlcv_minutes = ohlcv_df['timestamp'].dt.floor('1min')
+        # Get timestamp from index or column
+        if isinstance(ohlcv_df.index, pd.DatetimeIndex):
+            ohlcv_minutes = ohlcv_df.index.floor('1min')
+        else:
+            ohlcv_minutes = ohlcv_df['timestamp'].dt.floor('1min')
+        
         aligned = pd.merge_asof(
             pd.DataFrame({'minute': ohlcv_minutes}),
             wall_strikes.rename('wall_strike').reset_index(),
@@ -215,6 +235,13 @@ def compute_dynamic_level_series(
 ) -> Dict[str, pd.Series]:
     """Build per-bar dynamic level series (causal) for structural levels."""
     df = ohlcv_df.copy()
+    
+    # Handle DatetimeIndex
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index()
+        if 'timestamp' not in df.columns:
+            df = df.rename(columns={'index': 'timestamp'})
+    
     df = df.sort_values('timestamp')
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
     df['time_et'] = df['timestamp'].dt.tz_convert('America/New_York').dt.time
@@ -258,6 +285,13 @@ def compute_dynamic_level_series(
     vwap_series = vwap_num / vwap_den.replace(0, np.nan)
 
     df_2min = ohlcv_2min.copy()
+    
+    # Handle DatetimeIndex for ohlcv_2min
+    if isinstance(df_2min.index, pd.DatetimeIndex):
+        df_2min = df_2min.reset_index()
+        if 'timestamp' not in df_2min.columns:
+            df_2min = df_2min.rename(columns={'index': 'timestamp'})
+    
     df_2min = df_2min.sort_values('timestamp')
     df_2min['timestamp'] = pd.to_datetime(df_2min['timestamp'], utc=True)
     sma_200_series = df_2min['close'].rolling(200).mean()

@@ -1,0 +1,48 @@
+2025-12-28 23:16:58,217 - INFO - Starting Stage 4 validation for 2025-12-16
+2025-12-28 23:16:58,217 - INFO - Log file: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_04_2025-12-16.log
+2025-12-28 23:16:58,217 - INFO - Running through GenerateLevels stage...
+2025-12-28 23:16:58,217 - [2.0.0] Starting pipeline: es_pipeline
+2025-12-28 23:16:58,217 - [2.0.0] Date: 2025-12-16
+2025-12-28 23:16:58,217 - [2.0.0] Stages: 16
+2025-12-28 23:16:58,217 - [2.0.0] Checkpointing enabled: data/checkpoints
+2025-12-28 23:16:58,217 - [2.0.0] Resuming from stage 4
+2025-12-28 23:16:58,217 - Loading checkpoint from stage 3: init_market_state
+2025-12-28 23:16:59,623 - [2.0.0] Will stop after stage 4
+2025-12-28 23:16:59,623 - [2.0.0] (5/16) Running: generate_levels
+2025-12-28 23:16:59,624 - [2.0.0] Stage 'generate_levels' failed: 'timestamp'
+2025-12-28 23:16:59,624 - Validation failed with exception: 'timestamp'
+2025-12-28 23:16:59,628 - Traceback (most recent call last):
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'timestamp'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/validate_stage_04_generate_levels.py", line 338, in main
+    signals_df = pipeline.run(
+                 ^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/src/pipeline/core/pipeline.py", line 141, in run
+    ctx = stage.run(ctx)
+          ^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/src/pipeline/core/stage.py", line 65, in run
+    outputs = self.execute(ctx)
+              ^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/src/pipeline/stages/generate_levels.py", line 323, in execute
+    level_info = generate_level_universe(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/src/pipeline/stages/generate_levels.py", line 51, in generate_level_universe
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                                                ~~^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4113, in __getitem__
+    indexer = self.columns.get_loc(key)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'timestamp'
+

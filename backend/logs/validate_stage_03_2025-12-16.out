@@ -1,0 +1,36 @@
+2025-12-28 23:12:24,168 - INFO - Starting Stage 3 validation for 2025-12-16
+2025-12-28 23:12:24,168 - INFO - Log file: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_03_2025-12-16.log
+2025-12-28 23:12:24,168 - INFO - Running through InitMarketState stage...
+2025-12-28 23:12:24,168 - [2.0.0] Starting pipeline: es_pipeline
+2025-12-28 23:12:24,168 - [2.0.0] Date: 2025-12-16
+2025-12-28 23:12:24,168 - [2.0.0] Stages: 16
+2025-12-28 23:12:24,168 - [2.0.0] Checkpointing enabled: data/checkpoints
+2025-12-28 23:12:24,168 - [2.0.0] Resuming from stage 3
+2025-12-28 23:12:24,168 - Loading checkpoint from stage 2: build_ohlcv_2min
+2025-12-28 23:12:25,011 - [2.0.0] Will stop after stage 3
+2025-12-28 23:12:25,011 - [2.0.0] (4/16) Running: init_market_state
+2025-12-28 23:12:26,281 - [2.0.0]   Completed in 1.27s
+2025-12-28 23:12:29,381 - [2.0.0] No 'signals' in context, returning empty DataFrame
+2025-12-28 23:12:29,525 - Loading checkpoint from stage 3: init_market_state
+2025-12-28 23:12:30,886 - ================================================================================
+2025-12-28 23:12:30,886 - Validating Stage 3: InitMarketState for 2025-12-16
+2025-12-28 23:12:30,886 - ================================================================================
+2025-12-28 23:12:30,886 - 
+1. Checking required outputs...
+2025-12-28 23:12:30,886 -   ✅ Previous outputs preserved
+2025-12-28 23:12:30,886 -   ✅ New outputs present: market_state, spot_price
+2025-12-28 23:12:30,886 - 
+2. Validating MarketState...
+2025-12-28 23:12:30,886 -   ✅ MarketState instance created
+2025-12-28 23:12:30,886 - Validation failed with exception: 'MarketState' object has no attribute 'es_trades'
+2025-12-28 23:12:30,887 - Traceback (most recent call last):
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/validate_stage_03_init_market_state.py", line 381, in main
+    results = validator.validate(args.date, ctx)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/validate_stage_03_init_market_state.py", line 72, in validate
+    self._validate_market_state(ctx.data['market_state'], date)
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/validate_stage_03_init_market_state.py", line 155, in _validate_market_state
+    trades_count = len(market_state.es_trades)
+                       ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'MarketState' object has no attribute 'es_trades'
+

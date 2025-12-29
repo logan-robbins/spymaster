@@ -1,0 +1,33 @@
+{
+  "stage": "build_ohlcv_1min",
+  "stage_idx": 1,
+  "checks": {
+    "previous_outputs_preserved": true,
+    "new_outputs_present": true,
+    "ohlcv_dataframe": {
+      "ohlcv_non_empty": true,
+      "ohlcv_schema": true,
+      "atr_present": false,
+      "datetime_index": true,
+      "index_monotonic": true,
+      "includes_premarket": false,
+      "bar_count": true,
+      "ohlc_relationships": true,
+      "price_range": true,
+      "volume_non_zero": true,
+      "no_nans": true
+    },
+    "atr": {
+      "atr_computed": true,
+      "atr_values": true,
+      "atr_range": true,
+      "atr_positive": true
+    }
+  },
+  "warnings": [
+    "Missing early premarket: starts at 19:00 ET"
+  ],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

@@ -8,7 +8,7 @@
 
 ## Purpose
 
-Ingests market data from live feeds (Polygon WebSocket) or historical files (Databento DBN), normalizes to canonical event types, and publishes to NATS JetStream.
+Ingests market data from Databento DBN files, normalizes to canonical event types, and publishes to NATS JetStream.
 
 **Key responsibility**: Be the single point of vendor integration. All downstream services consume normalized events from NATS, never directly from vendors.
 
@@ -20,7 +20,6 @@ Ingests market data from live feeds (Polygon WebSocket) or historical files (Dat
 Data Sources → Ingestor → NATS JetStream → Core/Lake/Gateway
 ```
 
-**Live path**: Polygon WebSocket → StreamIngestor → NATS  
 **Replay path**: Databento DBN files → DBNIngestor → ReplayPublisher → NATS
 
 **Transparency principle**: Downstream services cannot distinguish live from replay (same NATS subjects, same schemas).
@@ -29,18 +28,13 @@ Data Sources → Ingestor → NATS JetStream → Core/Lake/Gateway
 
 ## Components
 
-### StreamIngestor (`stream_ingestor.py`)
-Live WebSocket adapter for Polygon feeds. Handles SPY equity (trades, quotes) and SPY options (trades).
-
-**Dynamic strikes**: Option subscriptions automatically update as SPY price moves (managed by `StrikeManager`).
-
 ### DBNIngestor (`dbn_ingestor.py`)
 Databento DBN file reader with streaming iterators. Reads ES futures trades and MBP-10 depth updates.
 
 **Iterator pattern**: Yields events one-by-one (no full file loads) to handle large MBP-10 files (10GB+).
 
 ### ReplayPublisher (`replay_publisher.py`)
-Publishes DBN data to NATS at configurable speed. Merges trades + MBP-10 into single time-ordered stream.
+Publishes DBN data to NATS at configurable speed. Merges futures trades + MBP-10 with optional Bronze ES options trades into a single time-ordered stream.
 
 **Speed control**: `0.0` = fast as possible, `1.0` = realtime, `2.0` = 2x speed
 
@@ -48,9 +42,9 @@ Publishes DBN data to NATS at configurable speed. Merges trades + MBP-10 into si
 
 ## Normalization Contract
 
-**Time units**: Polygon sends milliseconds → multiply by 1,000,000 to get nanoseconds  
-**Aggressor**: Inferred from bid/ask for Polygon, explicit in Databento  
-**Source tagging**: Every event carries `EventSource` enum (`POLYGON_WS`, `DIRECT_FEED`, `REPLAY`)
+**Time units**: Databento DBN timestamps are already in nanoseconds  
+**Aggressor**: Explicit in Databento (`side` field)  
+**Source tagging**: Every event carries `EventSource` enum (`DIRECT_FEED`, `REPLAY`, `SIM`)
 
 **Output schemas**: See [INTERFACES.md](INTERFACES.md) for event type specifications.
 
@@ -59,9 +53,7 @@ Publishes DBN data to NATS at configurable speed. Merges trades + MBP-10 into si
 ## NATS Subject Hierarchy
 
 **Published subjects**:
-- `market.stocks.trades`: SPY equity trades
-- `market.stocks.quotes`: SPY equity quotes
-- `market.options.trades`: SPY option trades
+- `market.options.trades`: ES option trades
 - `market.futures.trades`: ES futures trades
 - `market.futures.mbp10`: ES MBP-10 depth
 
@@ -71,11 +63,6 @@ Publishes DBN data to NATS at configurable speed. Merges trades + MBP-10 into si
 
 ## Data Sources
 
-**Polygon WebSocket**:
-- Endpoint: `wss://socket.massive.com/stocks` and `/options`
-- Auth: API key from `POLYGON_API_KEY` env var
-- Subscriptions: `T.SPY`, `Q.SPY`, dynamic `T.O:SPY*` for options
-
 **Databento DBN files**:
 - Location: `dbn-data/trades/`, `dbn-data/MBP-10/`
 - Dataset: GLBX.MDP3 (CME Globex)
@@ -84,12 +71,6 @@ Publishes DBN data to NATS at configurable speed. Merges trades + MBP-10 into si
 ---
 
 ## Running
-
-### Live Ingestion
-```bash
-export POLYGON_API_KEY="your_key"
-uv run python -m src.ingestor.main
-```
 
 ### Replay
 ```bash
@@ -108,28 +89,10 @@ docker-compose up ingestor -d
 
 ## Performance
 
-**Live ingestion**:
-- Latency: ~5-15ms (Polygon → NATS publish)
-- Throughput: 10k+ events/sec
-- Memory: ~50-100MB steady state
-
 **Replay**:
 - Fast mode (0x): ~100k events/sec
 - Realtime (1x): Matches wall clock
 - Memory: ~200-500MB (bounded by iterator pattern)
-
----
-
-## Option Ticker Parsing
-
-**Format**: `O:SPY{YYMMDD}{C|P}{strike*1000}`  
-**Example**: `O:SPY251216C00676000`
-- Underlying: SPY
-- Expiration: 2025-12-16
-- Right: C (call)
-- Strike: 676.0
-
-**See**: [INTERFACES.md](INTERFACES.md) for parsing logic.
 
 ---
 
@@ -143,17 +106,12 @@ nats sub "market.>"
 
 # Check stream info
 nats stream info MARKET_DATA
-
-# Manual test client
-uv run python backend/src/ingestor/test_stream.py
 ```
 
 ---
 
 ## Common Issues
 
-**Polygon disconnect**: Auto-reconnects (may lose 1-2 seconds data)  
-**Missing API key**: Set `POLYGON_API_KEY` environment variable  
 **NATS connection failure**: Service crashes → Docker restarts automatically  
 **DBN file missing**: Check `dbn-data/` directory structure  
 **Out of memory**: Should not occur (iterator pattern) → check for buffer leaks
@@ -164,9 +122,7 @@ uv run python backend/src/ingestor/test_stream.py
 
 | Failure | Behavior | Recovery |
 |---------|----------|----------|
-| Polygon disconnect | Auto-reconnect | Automatic |
 | NATS disconnect | Service crashes | Restart (NATS retains 24h) |
-| Invalid API key | Exit with error | Set correct env var |
 | Malformed vendor data | Log error, skip event | Continues processing |
 
 ---
