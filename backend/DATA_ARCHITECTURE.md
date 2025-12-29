@@ -61,11 +61,11 @@ data/
 │
 └── ml/                                # Model artifacts + hyperopt studies
     ├── experiments/
-    │   ├── zone_hyperopt_v1/          # Stage 1: Feature engineering hyperopt
-    │   └── model_hyperopt_v1/         # Stage 2: Model training hyperopt
+    │   ├── zone_hyperopt/             # Feature engineering hyperopt
+    │   └── model_hyperopt/            # Model training hyperopt
     ├── production/
-    │   ├── xgb_v1.1_prod.pkl          # Production model (post Stage 2)
-    │   └── knn_index_v1.1.faiss       # kNN index for retrieval
+    │   ├── xgb_prod.pkl               # Production XGBoost model
+    │   └── knn_index.faiss            # kNN retrieval index
     └── registry.json
 ```
 
@@ -75,7 +75,7 @@ data/
 
 ## Data Flow
 
-### Historical Data Ingestion (v1 - ES Options)
+### Historical Data Ingestion (ES Options)
 
 ```
 Databento GLBX.MDP3 (CME Globex)
@@ -149,24 +149,24 @@ Gold Training (production ML dataset)
     ↓
 Model Artifacts
     ml/production/
-        ├── xgb_v1.1_prod.pkl (XGBoost model)
-        └── knn_index_v1.1.faiss (kNN retrieval index)
+        ├── xgb_prod.pkl (XGBoost model)
+        └── knn_index.faiss (kNN retrieval index)
 ```
 
-### Streaming Pipeline (v2 - Real-time Databento)
+### Streaming Pipeline (Real-time Databento)
 
 **Status**: Infrastructure complete, awaiting live Databento client implementation.
 
-**Current (v1)**: Historical replay via `replay_publisher.py` (DBN files → NATS)  
-**Future (v2)**: Live Databento feed via streaming client
+**Current**: Historical replay via `replay_publisher.py` (DBN files → NATS)  
+**Future**: Live Databento feed via streaming client
 
 ```
-Live Databento Feed (ES futures + ES options)   [v2 - NOT YET IMPLEMENTED]
+Live Databento Feed (ES futures + ES options)   [NOT YET IMPLEMENTED]
     ↓ [Ingestor with live client]
 NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
     ├─→ [BronzeWriter] → Bronze (all hours, append-only)     [WORKING]
     └─→ [Core Service] → Continuous inference every 2-min candle  [WORKING]
-            ├─→ Load model (xgb_v1.1_prod.pkl + knn_index)
+            ├─→ Load model (xgb_prod.pkl + knn_index)
             ├─→ Compute multi-window physics features
             ├─→ kNN retrieval: Find 5 similar past events
             └─→ Predict: "4/5 past similar setups BROKE → 80% confidence"

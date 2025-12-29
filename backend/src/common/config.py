@@ -120,7 +120,7 @@ class Config:
     # - Excludes overnight ES action (6:00 PM prev day - 4:00 AM)
     # - PM_HIGH/PM_LOW from THIS window become structural levels for RTH
     # - SMA warmup includes premarket bars, but "since_open" starts at 9:30!
-    PREMARKET_START_HOUR: int = 4  # 4:00 AM ET (can experiment with 0, 2, 6, 7, 18 in v1.1)
+    PREMARKET_START_HOUR: int = 4  # 4:00 AM ET (can experiment with other values: 0, 2, 6, 7, 18)
     PREMARKET_START_MINUTE: int = 0
     
     # ========== Outcome labeling ==========
