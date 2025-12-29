@@ -20,7 +20,6 @@ Implements break/bounce physics classification using ES futures liquidity data a
 - `market.futures.trades` → ES futures trades (spot price, tape flow)
 - `market.futures.mbp10` → ES MBP-10 depth updates (barrier physics)
 - `market.options.trades` → ES 0DTE option trades (fuel engine, dealer gamma)
-- `market.options.nbbo` → ES 0DTE option NBBO (gamma exposure calculations)
 
 **Processing**: All events buffered in `MarketState` ring buffers (event-driven ingestion).
 
@@ -157,7 +156,7 @@ def update_option_trade(trade: OptionTrade, delta: float, gamma: float) -> None
 
 **Query Methods** (called by Engines):
 ```python
-def get_spot() -> float  # SPY-equivalent
+def get_spot() -> float  # ES spot
 def get_bid_ask() -> (float, float)
 def get_current_ts_ns() -> int
 def get_es_mbp10_snapshot() -> MBP10
@@ -176,7 +175,7 @@ def get_option_flows_near_level(level_price: float, strike_range: float, exp_dat
 **Interface**:
 ```python
 def compute_barrier_state(
-    level_price: float,      # SPY level (e.g., 687.0)
+    level_price: float,      # ES level (e.g., 6870.0)
     direction: Direction,     # SUPPORT or RESISTANCE
     market_state: MarketState
 ) -> BarrierMetrics
@@ -249,7 +248,7 @@ class TapeMetrics:
 
 ### 4. FuelEngine (`fuel_engine.py`)
 
-**Purpose**: Estimate dealer gamma effect from SPY option flow.
+**Purpose**: Estimate dealer gamma effect from ES option flow.
 
 **Interface**:
 ```python

@@ -1,0 +1,42 @@
+{
+  "stage": "compute_level_distances",
+  "stage_idx": 10,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals_df": {
+      "signals_df_type": true,
+      "required_columns_present": true,
+      "row_count_match": true,
+      "dist_to_pm_high_nan": false,
+      "dist_to_pm_high_atr_nan": false,
+      "dist_to_pm_low_nan": false,
+      "dist_to_pm_low_atr_nan": false,
+      "dist_to_or_high_nan": false,
+      "dist_to_or_high_atr_nan": false,
+      "dist_to_or_low_nan": false,
+      "dist_to_or_low_atr_nan": false,
+      "dist_to_sma_200_nan": true,
+      "dist_to_sma_200_atr_nan": true,
+      "dist_to_sma_400_nan": true,
+      "dist_to_sma_400_atr_nan": true,
+      "dist_to_tested_level_nan": true,
+      "level_stacking_2pt_nan": true,
+      "level_stacking_5pt_nan": true,
+      "level_stacking_10pt_nan": true
+    }
+  },
+  "warnings": [
+    "dist_to_pm_high has NaN values",
+    "dist_to_pm_high_atr has NaN values",
+    "dist_to_pm_low has NaN values",
+    "dist_to_pm_low_atr has NaN values",
+    "dist_to_or_high has NaN values",
+    "dist_to_or_high_atr has NaN values",
+    "dist_to_or_low has NaN values",
+    "dist_to_or_low_atr has NaN values"
+  ],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

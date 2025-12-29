@@ -2,14 +2,14 @@
 
 **Module**: `frontend/`
 **Framework**: Angular 18
-**Role**: Real-time UI for SPY 0DTE break/bounce signals
+**Role**: Real-time UI for ES 0DTE break/bounce signals
 **Audience**: AI Coding Agents
 
 ---
 
 ## Module Purpose
 
-Provides real-time visualization of SPY 0DTE level signals with physics attribution, strength meters, and dealer mechanics. Connects to Gateway WebSocket for live data.
+Provides real-time visualization of ES 0DTE level signals with physics attribution, strength meters, and dealer mechanics. Connects to Gateway WebSocket for live data.
 
 ---
 
@@ -330,12 +330,12 @@ type BucketKey = 'call_above' | 'call_below' | 'put_above' | 'put_below';
 <div class="command-center">
   <header class="command-header">
     <div class="brand">
-      <div class="brand-title">SPYMASTER</div>
+      <div class="brand-title">ESMASTER</div>
       <div class="brand-subtitle">0DTE BOUNCE/BREAK COMMAND</div>
     </div>
     <div class="status">
       <div class="status-pill">{{ statusText() }}</div>
-      <div class="spy-price">SPY {{ spy()!.spot }}</div>
+      <div class="es-price">ES {{ es()!.spot }}</div>
     </div>
   </header>
 

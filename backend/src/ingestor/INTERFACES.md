@@ -8,7 +8,7 @@
 
 ## Module Purpose
 
-Ingests market data from live feeds (Polygon WebSocket) or historical files (Databento DBN), normalizes to canonical event types, and publishes to NATS JetStream.
+Ingests market data from Databento DBN files, normalizes to canonical event types, and publishes to NATS JetStream.
 
 ---
 
@@ -20,11 +20,9 @@ All normalized events published to NATS subjects:
 
 | Subject | Event Type | Schema | Cadence |
 |---------|-----------|--------|---------|
-| `market.stocks.trades` | StockTrade | `stocks.trades.v1` | Real-time |
-| `market.stocks.quotes` | StockQuote | `stocks.quotes.v1` | Real-time |
-| `market.options.trades` | OptionTrade | `options.trades.v1` | Real-time or replay |
-| `market.futures.trades` | FuturesTrade | `futures.trades.v1` | Real-time or replay |
-| `market.futures.mbp10` | MBP10 | `futures.mbp10.v1` | Real-time or replay |
+| `market.futures.trades` | FuturesTrade | `futures.trades.v1` | Replay or live |
+| `market.futures.mbp10` | MBP10 | `futures.mbp10.v1` | Replay or live |
+| `market.options.trades` | OptionTrade | `options.trades.v1` | Replay or live |
 
 **Message Format**: JSON-serialized event dataclass from `src.common.event_types`.
 
@@ -47,21 +45,12 @@ Every event MUST include:
 
 ```python
 class EventSource(Enum):
-    MASSIVE_WS = "massive_ws"
-    MASSIVE_REST = "massive_rest"
-    POLYGON_WS = "polygon_ws"
-    POLYGON_REST = "polygon_rest"
     REPLAY = "replay"
     SIM = "sim"
     DIRECT_FEED = "direct_feed"
 ```
 
 ### Time Unit Conversion
-
-**Polygon WebSocket**: Timestamps in milliseconds
-```python
-ts_event_ns = polygon_timestamp_ms * 1_000_000
-```
 
 **Databento DBN**: Timestamps already in nanoseconds
 ```python
@@ -70,50 +59,10 @@ ts_event_ns = dbn_record.ts_event  # No conversion
 
 ### Aggressor Classification
 
-**Polygon** (inferred from bid/ask):
-- Trade at/above ask → `Aggressor.BUY`
-- Trade at/below bid → `Aggressor.SELL`
-- Trade between → `Aggressor.MID`
-
 **Databento**:
 - `side = 'B'` → `Aggressor.BUY`
 - `side = 'A'` → `Aggressor.SELL`
 - `side = 'N'` → `Aggressor.MID`
-
----
-
-## Live Feed Interface (StreamIngestor)
-
-### Initialization
-
-```python
-class StreamIngestor:
-    def __init__(
-        self,
-        api_key: str,
-        bus: NATSBus,
-        strike_manager: StrikeManager,
-        queue: Optional[asyncio.Queue] = None  # Deprecated
-    )
-```
-
-### Subscriptions
-
-**SPY Equity**:
-- `T.SPY` (trades)
-- `Q.SPY` (quotes)
-
-**SPY Options** (dynamic):
-- `T.O:SPY{YYMMDD}{C|P}{strike}` (trades)
-- Strikes updated as SPY moves (managed by StrikeManager)
-
-### Run Method
-
-```python
-async def run_async(self) -> None
-```
-
-Connects to Polygon WebSocket clients and runs message handlers concurrently.
 
 ---
 
@@ -223,46 +172,17 @@ project_root/dbn-data/
     symbology.json
 ```
 
-### Option Ticker Parsing
-
-**Format**: `O:SPY{YYMMDD}{C|P}{strike*1000}`
-
-**Example**: `O:SPY251216C00676000`
-- Underlying: SPY
-- Expiration: 2025-12-16 (YYMMDD = 251216)
-- Right: C (call)
-- Strike: 676.0 (676000 / 1000)
-
-**Parsing Logic**:
-```python
-suffix = ticker[-15:]
-exp_date = f"20{suffix[:2]}-{suffix[2:4]}-{suffix[4:6]}"
-right = suffix[6]  # 'C' or 'P'
-strike = float(suffix[7:]) / 1000.0
-```
-
----
-
 ## Environment Variables
-
-### Live Ingestion
-- `POLYGON_API_KEY` (required): Polygon API key
-- `NATS_URL` (optional): NATS server URL (default: `nats://localhost:4222`)
 
 ### Replay
 - `REPLAY_SPEED` (optional): Replay speed multiplier (default: 1.0)
 - `REPLAY_DATE` (optional): Single date YYYY-MM-DD, or omit for all dates
 - `REPLAY_INCLUDE_OPTIONS` (optional): Include Bronze option trades (default: `false`)
+- `NATS_URL` (optional): NATS server URL (default: `nats://localhost:4222`)
 
 ---
 
 ## Entry Points
-
-### Live Ingestion
-```bash
-export POLYGON_API_KEY="your_key"
-uv run python -m src.ingestor.main
-```
 
 ### Replay
 ```bash
@@ -275,11 +195,6 @@ uv run python -m src.ingestor.replay_publisher
 ---
 
 ## Performance Characteristics
-
-**Live Ingestion**:
-- Latency: ~5-15ms (Polygon → NATS publish)
-- Throughput: 10k+ events/sec
-- Memory: ~50-100MB steady state
 
 **Replay**:
 - Fast mode (0x): ~100k events/sec
@@ -295,8 +210,7 @@ uv run python -m src.ingestor.replay_publisher
 2. **Source tagging**: Events tagged with correct `EventSource` enum
 3. **Replay transparency**: Live and replay use same NATS subjects
 4. **Iterator pattern**: No full-file loads for DBN (memory safety)
-5. **Dynamic strikes**: Option subscriptions update as SPY moves
-6. **Stream-merge ordering**: Events published in strict `ts_event_ns` order
+5. **Stream-merge ordering**: Events published in strict `ts_event_ns` order
 
 ---
 
@@ -305,4 +219,4 @@ uv run python -m src.ingestor.replay_publisher
 - Full module documentation: `backend/src/ingestor/README.md`
 - Event types: `backend/src/common/event_types.py`
 - NATS subjects: `backend/src/common/bus.py`
-
+- Pipeline context: `backend/src/pipeline/README.md`

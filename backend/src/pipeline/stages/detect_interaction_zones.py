@@ -87,6 +87,14 @@ def detect_interaction_zone_entries(
     
     # Ensure timestamp column
     df = ohlcv_df.copy()
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index()
+        if 'timestamp' not in df.columns:
+            df = df.rename(columns={'index': 'timestamp'})
+
+    if 'timestamp' not in df.columns:
+        raise ValueError("ohlcv_df must have DatetimeIndex or 'timestamp' column")
+
     if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
     
@@ -156,11 +164,13 @@ def detect_interaction_zone_entries(
                     'event_id': event_id,
                     'ts_ns': int(ts_ns[i]),
                     'timestamp': timestamps[i],
+                    'bar_idx': int(i),
                     'level_price': level_price,
                     'level_kind': level_kind,
                     'level_kind_name': level_name,
                     'direction': direction,
                     'entry_price': closes[i],
+                    'spot': closes[i],
                     'zone_width': zone_width[i],
                     'date': date
                 })
@@ -185,7 +195,7 @@ class DetectInteractionZonesStage(BaseStage):
     - Direction from approach side
     
     Outputs:
-        touches_df: DataFrame with interaction events (renamed for compatibility)
+        touches_df: DataFrame with interaction events
     """
     
     @property
@@ -211,5 +221,4 @@ class DetectInteractionZonesStage(BaseStage):
             atr=atr
         )
         
-        # Return as 'touches_df' for compatibility with downstream stages
         return {'touches_df': events_df}

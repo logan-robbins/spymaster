@@ -1,0 +1,62 @@
+2025-12-28 22:59:40,680 - INFO - Starting Stage 2 validation for 2025-12-16
+2025-12-28 22:59:40,680 - INFO - Log file: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_02_2025-12-16.log
+2025-12-28 22:59:40,680 - INFO - Running through BuildOHLCV (2min) stage...
+2025-12-28 22:59:40,680 - [2.0.0] Starting pipeline: es_pipeline
+2025-12-28 22:59:40,680 - [2.0.0] Date: 2025-12-16
+2025-12-28 22:59:40,680 - [2.0.0] Stages: 16
+2025-12-28 22:59:40,680 - [2.0.0] Checkpointing enabled: data/checkpoints
+2025-12-28 22:59:40,680 - [2.0.0] Resuming from stage 2
+2025-12-28 22:59:40,680 - Loading checkpoint from stage 1: build_ohlcv_1min
+2025-12-28 22:59:41,536 - [2.0.0] Will stop after stage 2
+2025-12-28 22:59:41,536 - [2.0.0] (3/16) Running: build_ohlcv_2min
+2025-12-28 22:59:42,113 - [2.0.0]   Completed in 0.58s
+2025-12-28 22:59:43,311 - [2.0.0] No 'signals' in context, returning empty DataFrame
+2025-12-28 22:59:43,390 - Loading checkpoint from stage 2: build_ohlcv_2min
+2025-12-28 22:59:44,199 - ================================================================================
+2025-12-28 22:59:44,199 - Validating Stage 2: BuildOHLCV (2min with warmup) for 2025-12-16
+2025-12-28 22:59:44,199 - ================================================================================
+2025-12-28 22:59:44,199 - 
+1. Checking required outputs...
+2025-12-28 22:59:44,199 -   ✅ Previous outputs preserved
+2025-12-28 22:59:44,199 -   ✅ New output present: ohlcv_2min
+2025-12-28 22:59:44,199 -   ℹ️  No warmup_dates metadata (may not be needed)
+2025-12-28 22:59:44,199 - 
+2. Validating 2min OHLCV DataFrame...
+2025-12-28 22:59:44,199 -   Bar count: 690
+2025-12-28 22:59:44,199 -   ✅ Schema valid
+2025-12-28 22:59:44,199 -   ✅ DatetimeIndex
+2025-12-28 22:59:44,199 -   ✅ Index monotonic
+2025-12-28 22:59:44,199 -   Time range: 2025-12-16 00:00:00+00:00 to 2025-12-16 23:58:00+00:00
+2025-12-28 22:59:44,199 -   Date span: 2025-12-16 to 2025-12-16
+2025-12-28 22:59:44,199 -   ⚠️  No warmup data (starts on target date)
+2025-12-28 22:59:44,199 -   ✅ Bar count reasonable (690 bars)
+2025-12-28 22:59:44,199 - 
+  Checking OHLC logical consistency...
+2025-12-28 22:59:44,199 -     ✅ OHLC relationships valid
+2025-12-28 22:59:44,199 - 
+  Price statistics:
+2025-12-28 22:59:44,199 -     Open:  min=6822.00, max=6889.00
+2025-12-28 22:59:44,199 -     High:  min=6824.00, max=6892.00
+2025-12-28 22:59:44,199 -     Low:   min=6817.50, max=6885.75
+2025-12-28 22:59:44,199 -     Close: min=6822.25, max=6888.75
+2025-12-28 22:59:44,199 - 
+  Volume statistics:
+2025-12-28 22:59:44,199 -     Total: 1,664,448
+2025-12-28 22:59:44,199 -     Mean: 2412
+2025-12-28 22:59:44,200 -     Median: 463
+2025-12-28 22:59:44,200 -     ✅ All bars have volume
+2025-12-28 22:59:44,200 -   ✅ No NaN values
+2025-12-28 22:59:44,200 - 
+  Comparing with 1min bars...
+2025-12-28 22:59:44,200 -     1min bars (date only): 1380
+2025-12-28 22:59:44,200 -     2min bars (date only): 690
+2025-12-28 22:59:44,200 -     ✅ 2min bars ≈ 1min bars / 2
+2025-12-28 22:59:44,200 -     ✅ 2min aggregation consistent with 1min
+2025-12-28 22:59:44,200 - 
+================================================================================
+2025-12-28 22:59:44,200 - ✅ Stage 2 Validation: PASSED
+2025-12-28 22:59:44,200 - Warnings: 1
+2025-12-28 22:59:44,200 -   - No warmup data (starts on target date)
+2025-12-28 22:59:44,200 - ================================================================================
+
+2025-12-28 22:59:44,201 - Results saved to: /Users/loganrobbins/research/qmachina/spymaster/backend/logs/validate_stage_02_2025-12-16_results.json

@@ -58,7 +58,16 @@ def label_outcomes(
         return signals_df
 
     # Prepare OHLCV data for fast lookup
-    ohlcv_sorted = ohlcv_df.sort_values('timestamp')
+    ohlcv = ohlcv_df.copy()
+    if isinstance(ohlcv.index, pd.DatetimeIndex):
+        ohlcv = ohlcv.reset_index()
+        if 'timestamp' not in ohlcv.columns:
+            ohlcv = ohlcv.rename(columns={'index': 'timestamp'})
+
+    if 'timestamp' not in ohlcv.columns:
+        raise ValueError("ohlcv_df must have DatetimeIndex or 'timestamp' column")
+
+    ohlcv_sorted = ohlcv.sort_values('timestamp')
     ohlcv_ts = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
     ohlcv_close = ohlcv_sorted['close'].values.astype(np.float64)
     ohlcv_high = ohlcv_sorted['high'].values.astype(np.float64)

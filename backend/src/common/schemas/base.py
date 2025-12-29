@@ -22,7 +22,7 @@ class SchemaVersion:
     def __init__(self, name: str, version: int, tier: str):
         """
         Args:
-            name: Schema name (e.g., 'stocks.trades')
+            name: Schema name (e.g., 'futures.trades')
             version: Version number (e.g., 1)
             tier: Data tier ('bronze', 'silver', 'gold')
         """
@@ -32,7 +32,7 @@ class SchemaVersion:
 
     @property
     def full_name(self) -> str:
-        """Returns 'stocks.trades.v1' format."""
+        """Returns 'futures.trades.v1' format."""
         return f"{self.name}.v{self.version}"
 
     def __repr__(self) -> str:
@@ -48,8 +48,8 @@ class BaseEventModel(BaseModel):
     model_config = ConfigDict(
         # Validate on assignment for runtime safety
         validate_assignment=True,
-        # Allow extra fields to be ignored (forward compatibility)
-        extra='ignore',
+        # Enforce schema strictness to keep a single canonical contract
+        extra='forbid',
         # Use enum values in serialization
         use_enum_values=True,
         # Strict type coercion
@@ -64,11 +64,7 @@ class BaseEventModel(BaseModel):
 
 
 class EventSourceEnum(str, Enum):
-    """Event source enumeration (string-based for Pydantic compatibility)."""
-    MASSIVE_WS = "massive_ws"
-    MASSIVE_REST = "massive_rest"
-    POLYGON_WS = "polygon_ws"
-    POLYGON_REST = "polygon_rest"
+    """Event source enumeration (string-based for Pydantic serialization)."""
     REPLAY = "replay"
     SIM = "sim"
     DIRECT_FEED = "direct_feed"
@@ -308,7 +304,7 @@ class SchemaRegistry:
 
     @classmethod
     def get(cls, schema_name: str) -> Optional[Type[BaseEventModel]]:
-        """Get schema model by full name (e.g., 'stocks.trades.v1')."""
+        """Get schema model by full name (e.g., 'futures.trades.v1')."""
         return cls._schemas.get(schema_name)
 
     @classmethod

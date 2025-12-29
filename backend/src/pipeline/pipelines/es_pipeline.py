@@ -45,7 +45,7 @@ def build_es_pipeline() -> Pipeline:
     9. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
     10. ComputeBarrierEvolution (depth changes at 1,3,5min)
     11. ComputeLevelDistances (signed distances to all structural levels)
-    12. ComputeGEX (gamma within ±1/±2/±3 point bands using listed strikes)
+    12. ComputeGEX (gamma within ±1/±2/±3 strikes; 5pt spacing for ES 0DTE ATM)
     13. ComputeForceMass (F=ma validation features)
     14. ComputeApproach (approach context + timing + normalization + clustering)
     15. LabelOutcomes (triple-barrier: vol-scaled barrier, multi-horizon)
@@ -59,8 +59,8 @@ def build_es_pipeline() -> Pipeline:
         version="2.0.0",
         stages=[
             LoadBronzeStage(),
-            BuildOHLCVStage(freq='1min', output_key='ohlcv_1min'),
-            BuildOHLCVStage(freq='2min', output_key='ohlcv_2min', include_warmup=True),
+            BuildOHLCVStage(freq='1min', output_key='ohlcv_1min', rth_only=False),
+            BuildOHLCVStage(freq='2min', output_key='ohlcv_2min', include_warmup=True, rth_only=False),
             InitMarketStateStage(),
             GenerateLevelsStage(),
             DetectInteractionZonesStage(),

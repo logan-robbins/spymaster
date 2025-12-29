@@ -32,10 +32,8 @@ data/
 │   │   │     └── (front-month only, filtered by ContractSelector)
 │   │   ├── futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/*.parquet
 │   │   │     └── (front-month only, downsampled to 1Hz)
-│   │   ├── options/trades/underlying=ES/date=YYYY-MM-DD/hour=HH/*.parquet
-│   │   │     └── (front-month contract only, 0DTE filtered, CME GLBX.MDP3)
-│   │   └── options/nbbo/underlying=ES/date=YYYY-MM-DD/hour=HH/*.parquet
-│   │         └── (MBP-1 NBBO for ES options, front-month contract only)
+│   │   └── options/trades/underlying=ES/date=YYYY-MM-DD/hour=HH/*.parquet
+│   │         └── (front-month contract only, 0DTE filtered, CME GLBX.MDP3)
 │   │
 │   ├── silver/                        # Stage 2: Feature engineering output
 │   │   └── features/
@@ -72,7 +70,7 @@ data/
 ```
 Databento GLBX.MDP3 (CME Globex)
     ├─→ ES Futures (trades + MBP-10)
-    └─→ ES Options (trades + NBBO)
+    └─→ ES Options (trades)
             ↓
     [download_es_options.py + DBNIngestor]
             ↓
@@ -84,8 +82,7 @@ Databento GLBX.MDP3 (CME Globex)
 Bronze (all hours 00:00-23:59 UTC, immutable, Parquet+ZSTD)
     ├── futures/trades/symbol=ES/
     ├── futures/mbp10/symbol=ES/
-    ├── options/trades/underlying=ES/
-    └── options/nbbo/underlying=ES/
+    └── options/trades/underlying=ES/
 ```
 
 ### Batch Feature Engineering Pipeline (Event-Driven Model)
@@ -424,7 +421,7 @@ Pipeline behavior controlled by `backend/src/common/config.py` (single source of
 | **Instruments** | ES futures (spot + liquidity) + ES 0DTE options (gamma) from CME GLBX.MDP3 |
 | **RTH Window** | 09:30-13:30 ET (first 4 hours) - when to generate training events |
 | **Premarket** | 04:00-09:30 ET - for PM_HIGH/PM_LOW calculation only |
-| **Strike Spacing** | CME strike listing varies by moneyness/time-to-expiry (5/10/50/100-point intervals; dynamic 5-point additions); aggregate listed strikes within point bands |
+| **Strike Spacing** | CME strike listing varies by moneyness/time-to-expiry (5/10/50/100-point intervals; dynamic 5-point additions); GEX features aggregate gamma within ±1/±2/±3 strikes (typically 5pt spacing for ES 0DTE ATM) |
 | **Touch Zone** | TOUCH_BAND = MONITOR_BAND = 4.0 (single engaged zone concept) |
 | **Episode Boundaries** | EXIT_HYST + EXIT_DWELL_SEC (prevent spurious episode breaks) |
 | **Outcome Labels** | Volatility-scaled barrier (vol window + horizon); applied at episode level |

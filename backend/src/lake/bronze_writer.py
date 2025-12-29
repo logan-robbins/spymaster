@@ -2,42 +2,29 @@
 Bronze layer Parquet writer per PLAN.md §2.2-§2.4 (Phase 2: NATS + S3).
 
 Writes append-only, replayable, schema-versioned raw captures:
-- stocks/trades/symbol=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
-- stocks/quotes/symbol=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
-- options/trades/underlying=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
-- options/greeks_snapshots/underlying=SPY/date=YYYY-MM-DD/part-*.parquet
+- options/trades/underlying=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
 - futures/trades/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
 - futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
-
-Phase 2 changes:
-- Removed WAL (NATS JetStream is the WAL)
-- Subscribes to market.* subjects via NATS
-- Supports S3/MinIO storage (via s3fs)
-
-Agent B deliverable per NEXT.md.
 """
 
 import os
 import asyncio
 import time
-from dataclasses import asdict, fields
+from dataclasses import fields
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Type, TypeVar, Set
+from typing import Dict, List, Any, Optional, TypeVar
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import s3fs
 
-from src.common.event_types import (
-    StockTrade, StockQuote, OptionTrade, GreeksSnapshot,
-    FuturesTrade, MBP10, EventSource, Aggressor
-)
+from src.common.event_types import OptionTrade, FuturesTrade, MBP10
 from src.common.config import CONFIG
 
 
 # Type variable for event types
-T = TypeVar('T', StockTrade, StockQuote, OptionTrade, GreeksSnapshot, FuturesTrade, MBP10)
+T = TypeVar('T', OptionTrade, FuturesTrade, MBP10)
 
 
 def _flatten_dict(obj: Any) -> Any:
@@ -140,20 +127,14 @@ class BronzeWriter:
 
     # Schema name to path prefix mapping
     SCHEMA_PATHS = {
-        'stocks.trades': 'stocks/trades',
-        'stocks.quotes': 'stocks/quotes',
         'options.trades': 'options/trades',
-        'options.greeks_snapshots': 'options/greeks_snapshots',
         'futures.trades': 'futures/trades',
         'futures.mbp10': 'futures/mbp10',
     }
     
     # Subject to schema mapping for NATS subscriptions
     SUBJECT_TO_SCHEMA = {
-        'market.stocks.trades': 'stocks.trades',
-        'market.stocks.quotes': 'stocks.quotes',
         'market.options.trades': 'options.trades',
-        'market.options.greeks': 'options.greeks_snapshots',
         'market.futures.trades': 'futures.trades',
         'market.futures.mbp10': 'futures.mbp10',
     }
@@ -218,7 +199,7 @@ class BronzeWriter:
         Build Hive-style partition path.
 
         Returns path like:
-        bronze/stocks/trades/symbol=SPY/date=2025-12-22/hour=14/
+        bronze/futures/trades/symbol=ES/date=2025-12-22/hour=14/
         """
         dt = datetime.fromtimestamp(ts_event_ns / 1e9, tz=timezone.utc)
         date_str = dt.strftime('%Y-%m-%d')
@@ -227,27 +208,15 @@ class BronzeWriter:
         schema_path = self.SCHEMA_PATHS[schema_name]
 
         # Determine partition key name
-        if schema_name.startswith('stocks') or schema_name.startswith('futures'):
-            key_name = 'symbol'
-        else:
-            key_name = 'underlying'
+        key_name = 'symbol' if schema_name.startswith('futures') else 'underlying'
 
-        # Greeks snapshots don't partition by hour (per PLAN.md §2.3)
-        if schema_name == 'options.greeks_snapshots':
-            return os.path.join(
-                self.bronze_root,
-                schema_path,
-                f'{key_name}={partition_key}',
-                f'date={date_str}'
-            )
-        else:
-            return os.path.join(
-                self.bronze_root,
-                schema_path,
-                f'{key_name}={partition_key}',
-                f'date={date_str}',
-                f'hour={hour_str}'
-            )
+        return os.path.join(
+            self.bronze_root,
+            schema_path,
+            f'{key_name}={partition_key}',
+            f'date={date_str}',
+            f'hour={hour_str}'
+        )
 
     async def start(self, bus=None):
         """
@@ -282,10 +251,10 @@ class BronzeWriter:
         
         Message format (from NATS):
         {
-            "schema_name": "stocks.trades",
+            "schema_name": "futures.trades",
             "ts_event_ns": 1234567890000000000,
             "ts_recv_ns": 1234567890000000000,
-            "symbol": "SPY",
+            "symbol": "ES",
             ... (schema-specific fields)
         }
         """
@@ -299,27 +268,15 @@ class BronzeWriter:
             partition_key = None
             
             # Infer schema from message structure
-            if 'symbol' in message:
-                if 'bid_px' in message or 'ask_px' in message:
-                    schema_name = 'stocks.quotes'
-                    partition_key = message['symbol']
-                elif 'size' in message and 'price' in message:
-                    if message.get('symbol', '').startswith('ES'):
-                        schema_name = 'futures.trades'
-                        partition_key = message['symbol']
-                    else:
-                        schema_name = 'stocks.trades'
-                        partition_key = message['symbol']
-                elif 'levels' in message:
-                    schema_name = 'futures.mbp10'
-                    partition_key = message['symbol']
-            elif 'underlying' in message:
-                if 'option_symbol' in message:
-                    if 'delta' in message or 'gamma' in message:
-                        schema_name = 'options.greeks_snapshots'
-                    else:
-                        schema_name = 'options.trades'
-                    partition_key = message['underlying']
+            if 'levels' in message:
+                schema_name = 'futures.mbp10'
+                partition_key = message['symbol']
+            elif 'symbol' in message and 'size' in message and 'price' in message:
+                schema_name = 'futures.trades'
+                partition_key = message['symbol']
+            elif 'underlying' in message and 'option_symbol' in message:
+                schema_name = 'options.trades'
+                partition_key = message['underlying']
             
             if schema_name and partition_key:
                 await self._buffer_event(schema_name, message, partition_key)
@@ -479,16 +436,10 @@ class BronzeWriter:
 
     def _get_arrow_schema(self, schema_name: str) -> pa.Schema:
         """Get canonical Arrow schema for a schema name."""
-        from src.common.schemas import (
-            StockTradeV1, StockQuoteV1, OptionTradeV1, 
-            GreeksSnapshotV1, FuturesTradeV1, MBP10V1
-        )
+        from src.common.schemas import OptionTradeV1, FuturesTradeV1, MBP10V1
         
         schema_map = {
-            'stocks.trades': StockTradeV1._arrow_schema,
-            'stocks.quotes': StockQuoteV1._arrow_schema,
             'options.trades': OptionTradeV1._arrow_schema,
-            'options.greeks_snapshots': GreeksSnapshotV1._arrow_schema,
             'futures.trades': FuturesTradeV1._arrow_schema,
             'futures.mbp10': MBP10V1._arrow_schema,
         }
@@ -554,41 +505,9 @@ class BronzeReader:
             self._duckdb = duckdb
         return self._duckdb
 
-    def read_stock_trades(
-        self,
-        symbol: str = 'SPY',
-        date: str = None,  # YYYY-MM-DD
-        start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
-    ) -> pd.DataFrame:
-        """Read stock trades from Bronze."""
-        return self._read_schema(
-            'stocks/trades',
-            f'symbol={symbol}',
-            date,
-            start_ns,
-            end_ns
-        )
-
-    def read_stock_quotes(
-        self,
-        symbol: str = 'SPY',
-        date: str = None,
-        start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
-    ) -> pd.DataFrame:
-        """Read stock quotes from Bronze."""
-        return self._read_schema(
-            'stocks/quotes',
-            f'symbol={symbol}',
-            date,
-            start_ns,
-            end_ns
-        )
-
     def read_option_trades(
         self,
-        underlying: str = 'SPY',
+        underlying: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
         end_ns: Optional[int] = None
@@ -699,22 +618,6 @@ class BronzeReader:
                     # Fall back to returning all contracts
         
         return df
-
-    def read_greeks_snapshots(
-        self,
-        underlying: str = 'SPY',
-        date: str = None,
-        start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None
-    ) -> pd.DataFrame:
-        """Read greeks snapshots from Bronze."""
-        return self._read_schema(
-            'options/greeks_snapshots',
-            f'underlying={underlying}',
-            date,
-            start_ns,
-            end_ns
-        )
 
     def _read_schema(
         self,

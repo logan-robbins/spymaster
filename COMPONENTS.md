@@ -377,3 +377,13 @@
 - Consumers: Durable (resume on restart)
 
 ---
+
+## Pipeline Validation Progress
+
+**Last Updated**: 2025-12-29  
+**Validated Stages**: 0-15 (load_bronze → filter_rth)  
+**Latest Fix**: DatetimeIndex handling in `src/pipeline/stages/label_outcomes.py`  
+**Latest Result**: 53 RTH-filtered signals with silver schema pass (Stage 15)  
+**Silver Schema**: `backend/SILVER_SCHEMA.md`  
+**Docs Updated**: `backend/src/lake/INTERFACES.md` aligned with current lake interfaces  
+**Legacy Cleanup**: Removed stock/greeks schemas and legacy pipeline stage stubs

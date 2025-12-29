@@ -203,7 +203,7 @@ All components work with mock ML predictions
 
 ### Philosophy
 
-> **SPY options trade during regular hours (9:30-16:00 ET), but they're informed by structural levels from pre-market and longer timeframes.**
+> **ES options trade during regular hours (09:30-13:30 ET), but they're informed by structural levels from pre-market and longer timeframes.**
 
 ### How This Works
 
@@ -235,7 +235,7 @@ All components work with mock ML predictions
 - **Options not trading yet** → No viewport targets
 
 **10:00 AM ET** (Regular Hours):
-- SPY at $585.10, approaching PM High ($585.50)
+- ES at 5850.0, approaching PM High (5855.0)
 - **Viewport shows**: PM_HIGH as target with ML predictions
 - **ML predicts**: 75% tradeable, 60% bounce
 - **Trader decision**: Buy puts at PM High expecting bounce
@@ -471,8 +471,8 @@ asyncio.run(test())
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    SPYMASTER COMMAND CENTER                    │
-│  [Stream OK]                                    [SPY 585.08]   │
+│                    ESMASTER COMMAND CENTER                    │
+│  [Stream OK]                                     [ES 5850.8]   │
 ├─────────────┬──────────────────────────────┬───────────────────┤
 │ PRICE       │  🎯 ML VIEWPORT              │  OPTIONS          │
 │ LADDER      │  ┌─────────────────────────┐ │  ACTIVITY         │
@@ -661,4 +661,3 @@ core:
 **Status**: ✅ **Ready for Production**  
 **Next Step**: Train ML models and enable VIEWPORT_SCORING in backend  
 **Test URL**: http://localhost:4300/?mock
-

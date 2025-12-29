@@ -184,7 +184,7 @@ async def test():
     async with websockets.connect('ws://localhost:8000/ws/stream') as ws:
         msg = await ws.recv()
         data = json.loads(msg)
-        print(f'SPY: {data[\"levels\"][\"spy\"][\"spot\"]}')
+        print(f'ES: {data[\"levels\"][\"es\"][\"spot\"]}')
 asyncio.run(test())
 "
 ```

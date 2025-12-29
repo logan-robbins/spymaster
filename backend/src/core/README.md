@@ -25,7 +25,7 @@ Implements real-time physics-based classification of whether price levels will B
 2. **No hindsight calibration**: All thresholds are mechanical constants (no ML training in signal generation)
 3. **Deterministic replay**: Same inputs + config → same outputs (within FP rounding)
 4. **Separation of concerns**: Each engine focuses on one physics dimension
-5. **Price conversion abstraction**: Levels in SPY terms, barrier/tape query ES internally
+5. **Price normalization**: Levels and physics use ES points consistently
 
 ---
 
@@ -173,7 +173,7 @@ To add a new physics dimension (e.g., "Spread Engine"):
 ## Common Issues
 
 **No levels showing**: Check MONITOR_BAND allows levels (spot ± 0.25)  
-**Weird spot values**: Data parsing issue (ES/SPY conversion error)  
+**Weird spot values**: Data parsing issue (spot scaling error)  
 **Flickering signals**: Increase `TRIGGER_HOLD_TIME` or smoothing `tau`  
 **High CPU usage**: Reduce snap interval or optimize query patterns
 

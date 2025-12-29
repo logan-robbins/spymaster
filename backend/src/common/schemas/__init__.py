@@ -9,10 +9,7 @@ This module provides:
 Schemas per PLAN.md §2.4:
 
 Bronze (raw, normalized):
-- stocks.trades.v1 - Stock trades (SPY)
-- stocks.quotes.v1 - Stock NBBO quotes (SPY)
-- options.trades.v1 - Option trades
-- options.greeks_snapshots.v1 - Greeks from REST API
+- options.trades.v1 - ES option trades
 - futures.trades.v1 - ES futures trades
 - futures.mbp10.v1 - ES MBP-10 depth
 
@@ -24,24 +21,23 @@ Gold (derived analytics):
 
 Usage:
     from src.common.schemas import (
-        StockTradeV1,
-        StockQuoteV1,
         OptionTradeV1,
+        FuturesTradeV1,
         SchemaRegistry,
     )
 
     # Create a validated record
-    trade = StockTradeV1(
+    trade = FuturesTradeV1(
         ts_event_ns=1734567890000000000,
         ts_recv_ns=1734567890001000000,
-        source='massive_ws',
-        symbol='SPY',
-        price=687.50,
-        size=100,
+        source='direct_feed',
+        symbol='ES',
+        price=6870.50,
+        size=5,
     )
 
     # Get Arrow schema for Parquet writing
-    arrow_schema = StockTradeV1._arrow_schema
+    arrow_schema = FuturesTradeV1._arrow_schema
 
     # List all registered schemas
     SchemaRegistry.list_schemas()
@@ -60,10 +56,7 @@ from .base import (
 )
 
 # Bronze tier schemas
-from .stocks_trades import StockTradeV1
-from .stocks_quotes import StockQuoteV1
 from .options_trades import OptionTradeV1
-from .options_greeks import GreeksSnapshotV1
 from .futures_trades import FuturesTradeV1
 from .futures_mbp10 import MBP10V1, BidAskLevelModel
 
@@ -97,10 +90,7 @@ __all__ = [
     'pydantic_to_arrow_table',
     
     # Bronze
-    'StockTradeV1',
-    'StockQuoteV1',
     'OptionTradeV1',
-    'GreeksSnapshotV1',
     'FuturesTradeV1',
     'MBP10V1',
     'BidAskLevelModel',
@@ -127,10 +117,7 @@ __all__ = [
 # Version information
 __version__ = '1.0.0'
 __schema_versions__ = {
-    'stocks.trades': 1,
-    'stocks.quotes': 1,
     'options.trades': 1,
-    'options.greeks_snapshots': 1,
     'options.trades_enriched': 1,
     'futures.trades': 1,
     'futures.mbp10': 1,

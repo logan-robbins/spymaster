@@ -1,0 +1,31 @@
+{
+  "stage": "compute_physics",
+  "stage_idx": 6,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals_df": {
+      "signals_df_type": true,
+      "required_columns_present": true,
+      "row_count_match": true,
+      "barrier_state_values": true,
+      "fuel_effect_values": true,
+      "barrier_delta_liq_nan": true,
+      "barrier_replenishment_ratio_nan": true,
+      "wall_ratio_nan": true,
+      "tape_imbalance_nan": true,
+      "tape_buy_vol_nan": true,
+      "tape_sell_vol_nan": true,
+      "tape_velocity_nan": true,
+      "gamma_exposure_nan": true,
+      "tape_buy_vol_non_negative": true,
+      "tape_sell_vol_non_negative": true,
+      "wall_ratio_non_negative": true,
+      "sweep_detected_bool": true
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

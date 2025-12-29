@@ -1,7 +1,7 @@
 # Features Module
 
-**Purpose**: Context analysis and structural level identification for SPY 0DTE trading  
-**Status**: Production (ContextEngine), Legacy (PhysicsEngine)  
+**Purpose**: Context analysis and structural level identification for ES 0DTE trading  
+**Status**: Production (ContextEngine)  
 **Primary User**: Research pipeline (`src/pipeline/`)
 
 ---
@@ -44,7 +44,7 @@ levels = engine.get_active_levels(
     current_price=687.50,
     current_time=ts_ns
 )
-# Returns levels within $0.10 tolerance
+# Returns levels within 0.10 ES points tolerance
 ```
 
 **Data Requirements**:
@@ -56,24 +56,6 @@ levels = engine.get_active_levels(
 - ContextEngine is currently used by tests and available for research pipelines, but not wired into the production pipeline.
 
 **Test Coverage**: 19 tests in `tests/test_context_engine.py`
-
----
-
-### ⚠️ PhysicsEngine (Legacy)
-
-**Status**: **Prototype replaced by production engines**
-
-This was an early implementation of microstructure metrics:
-- Wall ratio calculation
-- Replenishment detection
-- Tape velocity
-
-**Replaced By**:
-- `src/core/barrier_engine.py` - Order book liquidity physics
-- `src/core/tape_engine.py` - Trade flow physics
-- `src/core/fuel_engine.py` - Option gamma physics
-
-**Test Coverage**: 10 tests in `tests/test_physics_engine.py` (legacy reference)
 
 ---
 
@@ -197,7 +179,7 @@ MARKET_OPEN = time(9, 30, 0)         # 09:30 ET
 FIRST_15M_END = time(9, 45, 0)       # 09:45 ET
 
 # Level detection
-LEVEL_TOLERANCE_USD = 0.10  # $0.10 - levels within this distance are "active"
+LEVEL_TOLERANCE_USD = 0.10  # ES points within this distance are "active"
 
 # SMA parameters
 SMA_PERIOD = 200

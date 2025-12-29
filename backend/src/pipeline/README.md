@@ -1,17 +1,17 @@
 # Pipeline Module
 
-**Purpose**: Modular stage-based feature engineering pipeline
-**Status**: Production
-**Primary Consumer**: SilverFeatureBuilder
+**Purpose**: Stage-based feature engineering for ES futures + ES 0DTE options  
+**Status**: Production  
+**Primary Consumer**: `SilverFeatureBuilder`  
 **Architecture**: See [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
 
 ---
 
 ## Overview
 
-Provides a modular, versioned pipeline architecture for transforming Bronze data into Silver features. Different pipeline versions use different stage compositions, allowing feature sets to be tailored to specific experiments.
-
-**Key Principle**: Pipelines are composed of independent stages. Each stage has explicit inputs/outputs and uses vectorized NumPy/pandas operations optimized for Apple M4 Silicon.
+This module defines the ES pipeline used to transform Bronze data into Silver features.
+The pipeline is composed of explicit stages with declared inputs/outputs and validated
+against the Silver schema after RTH filtering.
 
 ---
 
@@ -20,28 +20,30 @@ Provides a modular, versioned pipeline architecture for transforming Bronze data
 ```
 src/pipeline/
 ├── core/
-│   ├── stage.py         # BaseStage, StageContext abstractions
-│   └── pipeline.py      # Pipeline orchestrator
+│   ├── stage.py                # BaseStage, StageContext
+│   ├── pipeline.py             # Pipeline orchestrator
+│   └── checkpoint.py           # Stage checkpoints (resume/inspect)
 ├── stages/
-│   ├── load_bronze.py           # Stage 1: DuckDB data loading
-│   ├── build_ohlcv.py           # Stage 2-3: OHLCV bar construction
-│   ├── init_market_state.py     # Stage 4: MarketState + Greeks
-│   ├── generate_levels.py       # Stage 5: Level universe
-│   ├── detect_touches.py        # Stage 6: Touch detection
-│   ├── compute_physics.py       # Stage 7: Barrier/Tape/Fuel
-│   ├── compute_context.py       # Stage 8: Context features
-│   ├── compute_sma.py           # Stage 9: SMA features (v2.0+)
-│   ├── compute_confluence.py    # Stage 10: Confluence (v2.0+)
-│   ├── compute_approach.py      # Stage 11: Approach features (v2.0+)
-│   ├── label_outcomes.py        # Stage 12: Outcome labeling
-│   └── filter_rth.py            # Stage 13: RTH filtering
+│   ├── load_bronze.py                  # Stage 0: DuckDB data loading
+│   ├── build_spx_ohlcv.py              # Stage 1-2: OHLCV (1min/2min)
+│   ├── init_market_state.py            # Stage 3: MarketState + Greeks
+│   ├── generate_levels.py              # Stage 4: Level universe + dynamic series
+│   ├── detect_interaction_zones.py     # Stage 5: Zone entry events
+│   ├── compute_physics.py              # Stage 6: Barrier/Tape/Fuel physics
+│   ├── compute_multiwindow_kinematics.py # Stage 7: Multi-window kinematics
+│   ├── compute_multiwindow_ofi.py      # Stage 8: Multi-window OFI
+│   ├── compute_barrier_evolution.py    # Stage 9: Barrier evolution
+│   ├── compute_level_distances.py      # Stage 10: Level distances + stacking
+│   ├── compute_gex_features.py         # Stage 11: Strike-banded GEX
+│   ├── compute_force_mass.py           # Stage 12: F=ma validation features
+│   ├── compute_approach.py             # Stage 13: Approach context + normalization
+│   ├── label_outcomes.py               # Stage 14: Triple-barrier labels
+│   └── filter_rth.py                   # Stage 15: RTH filtering + schema validation
 ├── pipelines/
-│   ├── v1_0_mechanics_only.py   # 10 stages: pure physics
-│   ├── v2_0_full_ensemble.py    # 13 stages: physics + TA
-│   └── registry.py              # get_pipeline_for_version()
+│   ├── es_pipeline.py           # build_es_pipeline()
+│   └── registry.py              # get_pipeline()
 └── utils/
-    ├── duckdb_reader.py         # DuckDB wrapper with downsampling
-    └── vectorized_ops.py        # Vectorized operation exports
+    └── duckdb_reader.py         # DuckDB wrapper with downsampling
 ```
 
 ---
@@ -54,48 +56,50 @@ from src.lake.silver_feature_builder import SilverFeatureBuilder
 
 builder = SilverFeatureBuilder()
 builder.build_feature_set(
-    manifest=manifest,  # manifest.version determines pipeline
-    dates=['2025-12-16', '2025-12-17']
+    manifest=manifest,  # manifest.version maps to es_pipeline
+    dates=['2025-12-16']
 )
-# Internally calls get_pipeline_for_version(manifest.version)
 ```
 
 **Direct Usage**:
 ```python
-from src.pipeline import get_pipeline_for_version
+from src.pipeline.pipelines.es_pipeline import build_es_pipeline
+from src.pipeline.pipelines.registry import get_pipeline
 
-# Get pipeline for version
-pipeline = get_pipeline_for_version("v1.0_mechanics_only")
+pipeline = build_es_pipeline()
 signals_df = pipeline.run("2025-12-16")
 
-# Or use specific builders
-from src.pipeline.pipelines import build_v1_0_pipeline, build_v2_0_pipeline
-
-pipeline = build_v2_0_pipeline()
+# Or via registry
+pipeline = get_pipeline("es_pipeline")
 signals_df = pipeline.run("2025-12-16")
 ```
 
 ---
 
-## Pipeline Versions
+## ES Pipeline (16 stages)
 
-### v1.0 - Mechanics Only (10 stages)
-Pure physics features without TA indicators:
-1. LoadBronze → 2. BuildOHLCV (1min) → 3. BuildOHLCV (2min)
-4. InitMarketState → 5. GenerateLevels → 6. DetectTouches
-7. ComputePhysics → 8. ComputeContext → 9. LabelOutcomes → 10. FilterRTH
-
-### v2.0 - Full Ensemble (13 stages)
-All features including SMA, confluence, and approach context:
-1-8. Same as v1.0
-9. ComputeSMAFeatures → 10. ComputeConfluence → 11. ComputeApproachFeatures
-12. LabelOutcomes → 13. FilterRTH
+1. LoadBronze  
+2. BuildOHLCV (1min)  
+3. BuildOHLCV (2min, warmup)  
+4. InitMarketState  
+5. GenerateLevels  
+6. DetectInteractionZones  
+7. ComputePhysics  
+8. ComputeMultiWindowKinematics  
+9. ComputeMultiWindowOFI  
+10. ComputeBarrierEvolution  
+11. ComputeLevelDistances  
+12. ComputeGEXFeatures  
+13. ComputeForceMass  
+14. ComputeApproachFeatures  
+15. LabelOutcomes  
+16. FilterRTH
 
 ---
 
 ## Stage Dependencies
 
-Each stage declares required inputs via `required_inputs` property:
+Each stage declares required inputs via `required_inputs`:
 
 | Stage | Required Inputs |
 |-------|-----------------|
@@ -103,110 +107,69 @@ Each stage declares required inputs via `required_inputs` property:
 | BuildOHLCV | trades |
 | InitMarketState | trades, mbp10_snapshots, option_trades_df |
 | GenerateLevels | ohlcv_1min, market_state |
-| DetectTouches | ohlcv_1min, static_level_info, dynamic_levels |
+| DetectInteractionZones | ohlcv_1min, level_info, atr |
 | ComputePhysics | touches_df, market_state, trades, mbp10_snapshots |
-| ComputeContext | signals_df, atr, ohlcv_1min |
-| ComputeSMA | signals_df, ohlcv_1min |
-| ComputeConfluence | signals_df, dynamic_levels, option_trades_df, ohlcv_1min |
-| ComputeApproach | signals_df, ohlcv_1min |
+| ComputeMultiWindowKinematics | signals_df, ohlcv_1min |
+| ComputeMultiWindowOFI | signals_df, mbp10_snapshots |
+| ComputeBarrierEvolution | signals_df, mbp10_snapshots |
+| ComputeLevelDistances | signals_df, dynamic_levels, atr |
+| ComputeGEXFeatures | signals_df, option_trades_df |
+| ComputeForceMass | signals_df |
+| ComputeApproachFeatures | signals_df, ohlcv_1min, atr |
 | LabelOutcomes | signals_df, ohlcv_1min |
 | FilterRTH | signals_df |
 
 ---
 
-## Level Universe (SPY-Specific)
+## Level Universe (ES)
 
-Generated structural levels:
+Structural levels used for event generation:
 - **PM_HIGH/PM_LOW**: Pre-market high/low (04:00-09:30 ET)
-- **OR_HIGH/OR_LOW**: Opening range (09:30-09:45 ET)
-- **SESSION_HIGH/SESSION_LOW**: Running session extremes
-- **SMA_200/SMA_400**: Moving averages on 2-min bars (requires warmup)
-- **VWAP**: Session volume-weighted average price
-- **CALL_WALL/PUT_WALL**: Max gamma concentration strikes
+- **OR_HIGH/OR_LOW**: Opening range high/low (09:30-09:45 ET)
+- **SMA_200/SMA_400**: Moving averages on 2-min bars (warmup required)
 
-**Note**: ROUND and STRIKE levels are disabled for SPY due to $1 strike spacing.
+Dynamic series (context-only) include session highs/lows, VWAP, and call/put walls.
 
 ---
 
 ## Feature Categories
 
-**Barrier Physics** (ES MBP-10 depth):
-- `barrier_state`, `barrier_delta_liq`, `wall_ratio`
-
-**Tape Physics** (ES trade flow):
-- `tape_imbalance`, `tape_velocity`, `sweep_detected`
-
-**Fuel Physics** (SPY option gamma):
-- `gamma_exposure`, `fuel_effect`, `dealer_pressure`
-
-**Approach Context** (v2.0+):
-- `approach_velocity`, `attempt_index`, `prior_touches`
-
-**Confluence Features** (v2.0+):
-- `confluence_level`, `gex_alignment`, `rel_vol_ratio`
-
-**Labels** (competing risks):
-- `outcome`, `strength_signed`, `t1_60`, `t2_60`, `tradeable_1`, `tradeable_2`
+- **Barrier/Tape/Fuel Physics**: `barrier_state`, `tape_imbalance`, `fuel_effect`, `gamma_exposure`
+- **Kinematics**: `velocity_*`, `acceleration_*`, `jerk_*`, `momentum_trend_*`
+- **Order Flow**: `ofi_*`, `ofi_acceleration`
+- **Barrier Evolution**: `barrier_delta_*`, `barrier_pct_change_*`
+- **Level Distances**: `dist_to_*`, `level_stacking_*`
+- **GEX**: `gex_*`, `gex_asymmetry`, `gex_ratio`, `net_gex_2strike`
+- **F=ma**: `predicted_accel`, `accel_residual`, `force_mass_ratio`
+- **Approach/Normalization**: `approach_*`, `distance_signed_*`, `*_pct`
+- **Labels**: `outcome*`, `strength_*`, `tradeable_*`
 
 ---
 
-## Performance
+## Output
 
-**Apple M4 Silicon Optimized**:
-- All operations use numpy broadcasting
-- Batch processing of all touches simultaneously
-- Memory-efficient chunked processing
-- Optional Numba JIT compilation
+Final output is written by SilverFeatureBuilder to:
+`silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet`
 
-**Typical Performance** (M4 Mac, 128GB RAM):
-- Single date: ~2-5 seconds
-- 10 dates: ~30-60 seconds
-- ~500-1000 signals/sec throughput
+Schema reference:
+- [../../SILVER_SCHEMA.md](../../SILVER_SCHEMA.md)
+- [../common/schemas/silver_features.py](../common/schemas/silver_features.py)
 
 ---
 
 ## Configuration
 
-Pipeline behavior controlled by `backend/src/common/config.py` (single source of truth):
+Pipeline behavior is controlled by `backend/src/common/config.py`:
 - Physics windows: `W_b`, `W_t`, `W_g`
-- Touch detection: `MONITOR_BAND`, `TOUCH_BAND`
+- Zone/monitor bands: `MONITOR_BAND`, `TOUCH_BAND`
 - Confirmation windows: `CONFIRMATION_WINDOWS_MULTI`
-- Warmup: `SMA_WARMUP_DAYS`, `VOLUME_LOOKBACK_DAYS`
-
----
-
-## Creating New Pipeline Versions
-
-1. Create new file in `pipelines/` (e.g., `v2_1_custom.py`)
-2. Define stage sequence using existing or new stages
-3. Register in `pipelines/registry.py`
-
-```python
-# pipelines/v2_1_custom.py
-def build_v2_1_pipeline() -> Pipeline:
-    return Pipeline(
-        stages=[
-            LoadBronzeStage(),
-            BuildOHLCVStage(freq='1min'),
-            # ... custom stage composition
-        ],
-        name="custom",
-        version="v2.1"
-    )
-
-# pipelines/registry.py
-_PIPELINES = {
-    'v1.0': build_v1_0_pipeline,
-    'v2.0': build_v2_0_pipeline,
-    'v2.1': build_v2_1_pipeline,  # Add new version
-}
-```
+- Warmup: `SMA_WARMUP_DAYS`
 
 ---
 
 ## References
 
 - **Architecture**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md)
-- **Feature Manifests**: [../common/schemas/feature_manifest.py](../common/schemas/feature_manifest.py)
-- **Physics Engines**: [../core/](../core/)
+- **Pipelines**: [pipelines/es_pipeline.py](pipelines/es_pipeline.py)
+- **Registry**: [pipelines/registry.py](pipelines/registry.py)
 - **Silver Builder**: [../lake/silver_feature_builder.py](../lake/silver_feature_builder.py)

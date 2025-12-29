@@ -29,8 +29,6 @@ class BronzeQAReport:
     mbp10_count: int
     price_min: float
     price_max: float
-    spy_equiv_min: float
-    spy_equiv_max: float
     
     # Warnings
     warnings: List[str]
@@ -52,7 +50,6 @@ class BronzeQAReport:
             "",
             f"Price Range:",
             f"  ES: ${self.price_min:.2f} - ${self.price_max:.2f}",
-            f"  SPY Equiv: ${self.spy_equiv_min:.2f} - ${self.spy_equiv_max:.2f}",
         ]
         
         if self.warnings:
@@ -156,8 +153,6 @@ class BronzeQA:
         if not trades_df.empty and 'price' in trades_df.columns:
             price_min = trades_df['price'].min()
             price_max = trades_df['price'].max()
-            spy_equiv_min = price_min / 10.0
-            spy_equiv_max = price_max / 10.0
             
             # Sanity checks
             if price_min < 3000 or price_max > 10000:
@@ -168,8 +163,6 @@ class BronzeQA:
         else:
             price_min = 0.0
             price_max = 0.0
-            spy_equiv_min = 0.0
-            spy_equiv_max = 0.0
         
         return BronzeQAReport(
             date=date,
@@ -181,8 +174,6 @@ class BronzeQA:
             mbp10_count=mbp10_count,
             price_min=price_min,
             price_max=price_max,
-            spy_equiv_min=spy_equiv_min,
-            spy_equiv_max=spy_equiv_max,
             warnings=warnings
         )
     
@@ -203,4 +194,3 @@ class BronzeQA:
             except Exception as e:
                 print(f"ERROR: QA check failed for {date}: {e}")
         return reports
-

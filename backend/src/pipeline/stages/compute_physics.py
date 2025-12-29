@@ -32,7 +32,7 @@ def compute_physics_batch(
     time-windowed queries, falls back to per-signal processing otherwise.
 
     Args:
-        touches_df: DataFrame from detect_touches
+        touches_df: DataFrame from detect_interaction_zones
         market_state: Initialized MarketState
         barrier_engine: BarrierEngine instance
         tape_engine: TapeEngine instance

@@ -1,0 +1,19 @@
+{
+  "stage": "filter_rth",
+  "stage_idx": 15,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals": {
+      "signals_type": true,
+      "row_count": true,
+      "ts_ns_nan": true,
+      "rth_bounds": true,
+      "bar_idx_removed": true
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "passed": true,
+  "date": "2025-12-16"
+}

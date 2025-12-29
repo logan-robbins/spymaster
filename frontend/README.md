@@ -106,7 +106,7 @@ export interface FlowMetrics {
   delta: number;                  // per-contract delta (optional for now)
   gamma: number;                  // per-contract gamma (optional for now)
 
-  strike_price: number;           // numeric strike (ideally integer dollars for SPY)
+  strike_price: number;           // numeric strike (ES points)
   type: "C" | "P";                // call/put
   expiration: string;             // ISO date string
 
