@@ -1,7 +1,7 @@
 """
 Detect interaction zone entries (level-relative event extraction).
 
-Per Final Call v1 spec Section 4: Define events as physics interactions with a level
+Define events as physics interactions with a level
 (not single tick touches). This stage replaces the simple touch detection with
 zone-based event extraction.
 
@@ -65,7 +65,7 @@ def detect_interaction_zone_entries(
     """
     Detect zone-based interaction events (not simple touches).
     
-    Per Final Call v1 spec Section 4:
+    Interaction zone detection:
     - Define interaction zone with dynamic width (k × ATR)
     - Create event when price ENTERS zone from outside
     - Assign direction based on approach side
@@ -179,7 +179,7 @@ class DetectInteractionZonesStage(BaseStage):
     """
     Detect zone-based interaction events (replaces simple touch detection).
     
-    Per Final Call v1 spec Section 4:
+    Interaction zone detection:
     - Dynamic interaction zones (ATR-scaled)
     - Entry events (not continuous touches)
     - Deterministic event IDs

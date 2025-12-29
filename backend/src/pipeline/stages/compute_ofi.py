@@ -1,7 +1,7 @@
 """
 Compute Order Flow Imbalance (OFI) features from ES MBP-10.
 
-Per Final Call v1 spec Section 6.6: Integrated OFI is the correct "force" proxy at L2.
+Integrated OFI is the "force" proxy at L2.
 
 OFI measures the net pressure from order book updates:
 - Bid side: increases in bid size or decreases in ask size → buying pressure
@@ -154,7 +154,7 @@ class ComputeOFIStage(BaseStage):
     """
     Compute integrated Order Flow Imbalance from MBP-10.
     
-    Per Final Call v1 spec Section 6.6: OFI is the "force" proxy.
+    OFI is the "force" proxy.
     
     Outputs:
         signals_df: Updated with OFI features

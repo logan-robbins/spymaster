@@ -1,7 +1,7 @@
 """
 Compute kinematic features in the level frame.
 
-Per Final Call v1 spec Section 6.3: Velocity, acceleration, jerk detect phase transitions.
+Velocity, acceleration, jerk detect phase transitions.
 
 Level frame physics:
 - x(t) = SPX_mid(t) - L(t)  (distance to level)
@@ -32,7 +32,7 @@ def compute_level_frame_kinematics(
     """
     Compute kinematics in the level frame (position, velocity, acceleration, jerk).
     
-    Per Final Call spec: These features capture the "phase transition" dynamics
+    These features capture the "phase transition" dynamics
     as price approaches and interacts with a level.
     
     Args:
@@ -144,7 +144,7 @@ class ComputeKinematicsStage(BaseStage):
     """
     Compute level-frame kinematics (position, velocity, acceleration, jerk).
     
-    Per Final Call v1 spec Section 6.3: Kinematics in level frame capture
+    Kinematics in level frame capture
     phase transitions as price approaches/interacts with structural levels.
     
     Outputs:

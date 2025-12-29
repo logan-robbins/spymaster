@@ -1,7 +1,7 @@
 """
-Validate v1 Final Call pipeline implementation.
+Validate v1 pipeline implementation.
 
-Per Final Call spec Section 10: QA Gates.
+QA Gates for pipeline validation.
 
 Gates:
 1. Front-month purity: Exactly 1 ES symbol used, dominance ratio logged
@@ -25,7 +25,7 @@ from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 
 
 class V1PipelineValidator:
-    """Validate v1 Final Call pipeline implementation."""
+    """Validate v1 pipeline implementation."""
     
     def __init__(self, bronze_root: str):
         """
@@ -212,7 +212,7 @@ class V1PipelineValidator:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate v1 Final Call pipeline')
+    parser = argparse.ArgumentParser(description='Validate v1 pipeline')
     parser.add_argument('--date', type=str, help='Single date to validate')
     parser.add_argument('--start', type=str, help='Start date for batch validation')
     parser.add_argument('--end', type=str, help='End date for batch validation')

@@ -2,7 +2,7 @@
 
 **Version**: 5.0  
 **Last Updated**: 2025-12-28  
-**Status**: Production (v1 Final Call - ES Futures + ES Options)
+**Status**: Development (v1 - ES Futures + ES Options)
 
 ---
 
@@ -153,21 +153,28 @@ Model Artifacts
         └── knn_index_v1.1.faiss (kNN retrieval index)
 ```
 
-### Streaming Pipeline (Real-time - Future)
+### Streaming Pipeline (v2 - Real-time Databento)
+
+**Status**: Infrastructure complete, awaiting live Databento client implementation.
+
+**Current (v1)**: Historical replay via `replay_publisher.py` (DBN files → NATS)  
+**Future (v2)**: Live Databento feed via streaming client
 
 ```
-Live Databento Feed (ES futures + ES options)
-    ↓ [Ingestor]
-NATS (market.futures.*, market.options.*)
-    ├─→ [BronzeWriter] → Bronze (all hours, append-only)
-    └─→ [Core Service] → Continuous inference every 2-min candle
+Live Databento Feed (ES futures + ES options)   [v2 - NOT YET IMPLEMENTED]
+    ↓ [Ingestor with live client]
+NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
+    ├─→ [BronzeWriter] → Bronze (all hours, append-only)     [WORKING]
+    └─→ [Core Service] → Continuous inference every 2-min candle  [WORKING]
             ├─→ Load model (xgb_v1.1_prod.pkl + knn_index)
             ├─→ Compute multi-window physics features
             ├─→ kNN retrieval: Find 5 similar past events
             └─→ Predict: "4/5 past similar setups BROKE → 80% confidence"
                     ↓
-            NATS (levels.signals) → Gateway → Frontend
+            NATS (levels.signals) → Gateway → Frontend    [WORKING]
 ```
+
+**What's needed for v2**: Replace `replay_publisher.py` with live Databento streaming client for ES futures + options.
 
 ---
 
@@ -217,11 +224,14 @@ NATS (market.futures.*, market.options.*)
 - **Benefit**: Model gets more accurate as price approaches level
 
 **Feature Set** (Multi-Window Lookback):
-- **Kinematics**: velocity, accel, jerk at **1, 3, 5, 10, 20 minutes** (15 features)
-- **OFI**: integrated OFI at **30, 60, 120, 300 seconds** (4 features)
-- **Barrier**: depth evolution at **1, 3, 5 minutes** (3 windows)
-- **GEX**: Strike-banded gamma at **±1, ±2, ±3 strikes** (25pt spacing)
-- **Structural**: PM/OR/SMA distance features
+- **Kinematics**: velocity (5 windows), acceleration (4 windows), jerk (4 windows) at **1, 3, 5, 10, 20 minutes** = 13 features
+- **OFI**: integrated OFI (4 windows), OFI trend (3 windows), variance, peak at **30, 60, 120, 300 seconds** = 9 features
+- **Barrier**: depth evolution at **1, 3, 5 minutes** (7 features: current, 3x changes, slope, volatility, absorption rate)
+- **GEX**: Strike-banded gamma at **±1, ±2, ±3 strikes** (25pt spacing) = 9 features
+- **Structural**: PM/OR/SMA distance features (8 level distance features)
+- **Force/Mass**: F=ma validation (4 features)
+- **Session Context**: 5 features (timing, ATR, distance)
+- **Tape/Fuel**: ~8 additional physics features
 - **Total**: ~70 physics features (multi-window encoding)
 
 **Key Capabilities**:
@@ -275,22 +285,9 @@ The pipeline module (`src/pipeline/`) provides modular, versioned feature engine
 
 ### Core Components
 
-```
-src/pipeline/
-├── core/
-│   ├── stage.py         # BaseStage, StageContext abstractions
-│   └── pipeline.py      # Pipeline orchestrator
-├── stages/              # Individual processing stages
-├── pipelines/           # Pipeline version definitions
-│   ├── v1_0_mechanics_only.py
-│   ├── v2_0_full_ensemble.py
-│   └── registry.py      # get_pipeline_for_version()
-└── utils/
-    ├── duckdb_reader.py     # DuckDB wrapper with downsampling
-    └── vectorized_ops.py    # Vectorized NumPy/pandas operations
-```
+See `backend/src/pipeline/` directory structure for the modular pipeline architecture including stages, pipelines, and utilities.
 
-### Pipeline Stages (v1.0_spx_final_call - 16 stages)
+### Pipeline Stages (v1.0 - 16 stages)
 
 Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 
@@ -329,22 +326,9 @@ Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 **Labels**: Triple-barrier ±75pts (3 strikes), 8min forward  
 **RTH**: 09:30-13:30 ET (first 4 hours)
 
-```
-LoadBronze (ES+options, front-month) 
-→ BuildOHLCV(1min) → BuildOHLCV(2min) → InitMarketState
-→ GenerateLevels (6 level kinds: PM/OR high/low + SMA_200/400)
-→ DetectInteractionZones (continuous: every 2-min candle)
-→ ComputePhysics (barrier/tape/fuel)
-→ ComputeMultiWindowKinematics (1,3,5,10,20min)
-→ ComputeMultiWindowOFI (30,60,120,300s)
-→ ComputeBarrierEvolution (1,3,5min)
-→ ComputeLevelDistances (PM/OR/SMA distances)
-→ ComputeGEX (±1/±2/±3 strikes)
-→ ComputeForceMass (F=ma validation)
-→ ComputeApproach (approach + session timing)
-→ LabelOutcomes (triple-barrier ±75pts)
-→ FilterRTH (09:30-13:30 ET)
-```
+**Pipeline Flow**: LoadBronze → BuildOHLCV → InitMarketState → GenerateLevels → DetectInteractionZones → ComputePhysics → MultiWindow stages → LabelOutcomes → FilterRTH
+
+**Implementation**: See `backend/src/pipeline/pipelines/es_pipeline.py` for complete 16-stage pipeline definition.
 
 **Event Density**: ~15-25 events/day (sparse, high-precision)  
 **Use Case**: kNN retrieval - "Find 5 similar setups, 4/5 BROKE → 80% confidence"
@@ -369,12 +353,12 @@ Generated levels from ES futures (**6 level kinds** total):
 - SMA levels: Mean reversion anchors
 - Removed: Lagging indicators (VWAP), constantly changing (SESSION_HIGH/LOW), now in features (walls)
 
-### Feature Categories (v1 Final Call - ~50 Features)
+### Feature Categories (v1 - Core Physics Features)
 
-**Multi-Window Kinematics** (15 features - LEVEL FRAME):
-- `velocity_{1,3,5,10,20}min` - Velocity at 5 timescales (ES pts/min)
-- `acceleration_{1,3,5,10}min` - Acceleration at 4 timescales (pts/min²)
-- `jerk_{1,3,5,10}min` - Jerk at 4 timescales (pts/min³)
+**Multi-Window Kinematics** (13 features - LEVEL FRAME):
+- `velocity_{1,3,5,10,20}min` - Velocity at 5 timescales (ES pts/min) = 5 features
+- `acceleration_{1,3,5,10}min` - Acceleration at 4 timescales (pts/min²) = 4 features
+- `jerk_{1,3,5,10}min` - Jerk at 4 timescales (pts/min³) = 4 features
 - **Purpose**: Encode "setup shape" - fast aggressive vs slow decelerating approach
 
 **Multi-Window OFI** (9 features - ORDER FLOW):
@@ -517,7 +501,7 @@ uv run python -m src.core.service
 
 Pipeline behavior controlled by `backend/src/common/config.py`:
 
-### v1 Final Call Configuration (ES System)
+### v1 Configuration (ES System)
 
 **See `backend/src/common/config.py` for authoritative parameter values.**
 
@@ -768,21 +752,7 @@ Compute features for NEAREST level in each category (PM/OR/SMA)
 - If we mix both: Creates artificial "ghost walls" in our data
 - ES options on ESZ5 ≠ ES options on ESH6
 
-**Implementation**:
-```python
-from src.common.utils.contract_selector import ContractSelector
-from src.common.utils.bronze_qa import BronzeQA
-
-# Select front-month contract
-selector = ContractSelector('data/lake/bronze')
-selection = selector.select_front_month('2025-12-16')
-# Result: ESZ5 (dominance=0.87, not roll-contaminated)
-
-# Quality gate
-qa = BronzeQA('data/lake/bronze')
-report = qa.generate_report('2025-12-16')
-assert report.front_month_purity_pass  # Enforces 60% dominance threshold
-```
+**Implementation**: See `backend/src/common/utils/contract_selector.py` (ContractSelector) and `backend/src/common/utils/bronze_qa.py` (BronzeQA) for front-month selection and quality gate enforcement (60% dominance threshold).
 
 ---
 
@@ -827,82 +797,17 @@ cat data/lake/silver/features/es_pipeline/validation.json
 
 ### Why Multi-Window Features Are Critical
 
-**Single-Window Problem**:
-```python
-# Only velocity_10min available
-velocity_10min = +2.0 pts/min
+**Single-Window Problem**: A single velocity measurement (e.g., velocity_10min=+2.0) could represent fast constant approach, slow acceleration, or fast deceleration - completely different setups with different outcomes.
 
-# This matches:
-# - Fast constant approach: v_1min=+2.0, v_10min=+2.0
-# - Slow accelerating: v_1min=+4.0, v_10min=+2.0 (average)
-# - Fast decelerating: v_1min=+0.5, v_10min=+2.0 (average)
-
-# These are DIFFERENT setups with DIFFERENT outcomes!
-```
-
-**Multi-Window Solution**:
-```python
-# Encode the shape of the approach
-Setup A (Fast aggressive):
-  velocity_1min=+4.5, velocity_3min=+3.8, velocity_5min=+3.2, velocity_10min=+2.5
-  → Accelerating into level → BREAK likely
-
-Setup B (Slow decelerating):
-  velocity_1min=+0.8, velocity_3min=+1.5, velocity_5min=+2.0, velocity_10min=+2.5
-  → Losing momentum → BOUNCE likely
-
-# kNN can distinguish these!
-```
+**Multi-Window Solution**: By encoding velocity at multiple timescales (1min, 3min, 5min, 10min, 20min), we capture the "shape" of the approach. Fast aggressive approaches (accelerating) show increasing velocity across windows, while decelerating approaches show decreasing velocity. kNN retrieval can distinguish these patterns.
 
 ### kNN Index Structure
 
 **Built from**: `gold/training/signals_v2_multiwindow.parquet` (curated events)
 
-**Index**:
-```python
-from faiss import IndexFlatL2
+**Implementation**: See `backend/src/ml/build_retrieval_index.py` for FAISS index construction using normalized physics features (~20-30 most predictive features including multi-window kinematics, OFI, barrier evolution, and GEX).
 
-# Build index on normalized physics features
-physics_features = [
-    'velocity_1min', 'velocity_3min', 'velocity_5min', 'velocity_10min',
-    'acceleration_1min', 'acceleration_3min',
-    'integrated_ofi_30s', 'integrated_ofi_60s', 'integrated_ofi_120s',
-    'barrier_depth_change_1min', 'barrier_depth_change_3min',
-    'gex_asymmetry', 'gex_ratio_3strike',
-    # ... ~20-30 most predictive physics features
-]
-
-# Normalize (each feature to [0,1] range)
-X_normalized = normalize_features(df[physics_features])
-
-# Build FAISS index
-index = IndexFlatL2(X_normalized.shape[1])
-index.add(X_normalized)
-
-# Save
-faiss.write_index(index, 'ml/production/knn_index_v1.1.faiss')
-```
-
-**Retrieval at Inference**:
-```python
-# Query: Current event's physics features
-query_vector = compute_physics_features(current_state)
-
-# Find 5 nearest neighbors
-distances, indices = index.search(query_vector.reshape(1, -1), k=5)
-
-# Retrieve outcomes
-neighbor_outcomes = training_df.iloc[indices[0]]['outcome'].values
-# Example: ['BREAK', 'BREAK', 'BREAK', 'BREAK', 'BOUNCE']
-
-# Compute kNN probability
-knn_break_prob = (neighbor_outcomes == 'BREAK').mean()  # 0.80
-
-# Blend with XGBoost
-xgb_break_prob = xgb_model.predict_proba(query_vector)[0, 1]  # 0.72
-
-final_prob = 0.25 * knn_break_prob + 0.75 * xgb_break_prob  # 0.74
-```
+**Retrieval Process**: At inference, find k=5 nearest neighbors in physics space, compute kNN probability from neighbor outcomes, and blend with XGBoost prediction (25% kNN + 75% XGBoost).
 
 ---
 

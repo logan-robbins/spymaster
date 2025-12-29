@@ -1,7 +1,7 @@
 """
 Session time utilities for ET-canonical timing.
 
-Per Final Call v1 spec Section 2: All "since open" features must be relative
+All "since open" features must be relative
 to 09:30 ET, NOT the first bar in a UTC-partitioned file.
 """
 
@@ -69,7 +69,7 @@ def compute_minutes_since_open(ts_ns: np.ndarray, date: str) -> np.ndarray:
     """
     Compute minutes since RTH open (09:30 ET) for timestamps.
     
-    This is the CORRECT implementation per Final Call v1 spec.
+    This is the correct implementation for v1.
     Previous implementation incorrectly used "first bar in file".
     
     Args:
@@ -109,7 +109,7 @@ def compute_session_phase(ts_ns: np.ndarray, date: str) -> np.ndarray:
     """
     Compute session phase bucket for timestamps.
     
-    Phases (per Final Call v1 spec):
+    Session phases:
     - 0: premarket (< 09:30)
     - 1: first 15 minutes (09:30-09:45)
     - 2: 15-30 minutes (09:45-10:00)
