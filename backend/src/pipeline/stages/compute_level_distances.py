@@ -1,7 +1,7 @@
 """
 Compute distances to all structural levels.
 
-Per Final Call v1 spec Section 6.1 and Claude's analysis:
+Compute distances to structural levels:
 All distance features should be SIGNED and have ATR-normalized variants.
 
 Required distances (v1 level universe):
@@ -140,7 +140,7 @@ class ComputeLevelDistancesStage(BaseStage):
     """
     Compute signed distances to all v1 structural levels.
     
-    Per Final Call spec Section 6.1 and Claude's requirements.
+    Compute structural level distances.
     
     Outputs:
         signals_df: Updated with distance features

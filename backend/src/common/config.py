@@ -99,7 +99,7 @@ class Config:
     TRIGGER_HOLD_TIME: float = 3.0  # seconds score must be sustained
 
     # ========== v1 Scope: ES futures + ES options, first 4 hours ==========
-    # Per Final Call v1 spec: focus on first 4 hours (09:30-13:30 ET)
+    # v1: focus on first 4 hours (09:30-13:30 ET)
     # 
     # FINAL ARCHITECTURE: ES Options + ES Futures (PERFECT ALIGNMENT)
     # - ES options: Cash-settled, European-style, on E-mini S&P 500

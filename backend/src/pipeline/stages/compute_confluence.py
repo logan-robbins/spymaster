@@ -1,7 +1,7 @@
 """
 Compute confluence features stage (v2.0+).
 
-DISABLED FOR V1 per Final Call spec Section 8:
+DISABLED FOR V1:
 - Confluence features are over-engineered for v1
 - Composite pressure metrics don't define similarity space
 - Keep raw physics features only
@@ -26,7 +26,7 @@ def compute_confluence_features_dynamic(
     """
     DISABLED FOR V1: Return minimal stub features.
     
-    Per Final Call spec: Drop confluence features for v1.
+    Drop confluence features for v1.
     This stub maintains pipeline compatibility.
     """
     if signals_df.empty:
@@ -414,7 +414,7 @@ class ComputeConfluenceStage(BaseStage):
     """
     DISABLED FOR V1: Confluence features stubbed out.
     
-    Per Final Call spec Section 8:
+    Confluence computation (disabled for v1):
     - Drop confluence features (over-engineered)
     - Drop dealer velocity features
     - Drop pressure indicators

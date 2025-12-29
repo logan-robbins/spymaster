@@ -1,7 +1,7 @@
 """
 Compute SPX options gamma exposure (GEX) features.
 
-Per Final Call v1 spec Section 6.8: Strike-banded GEX features around tested level.
+Strike-banded GEX features around tested level.
 
 Key differences for SPX vs SPY:
 - SPX strikes: $5-$10 intervals (vs SPY $1)
@@ -27,14 +27,14 @@ def compute_strike_banded_gex(
     """
     Compute gamma exposure in strike bands around each tested level.
     
-    Per Final Call spec Section 6.8 + user clarification:
+    GEX feature computation:
     - Filter to 0DTE options (exp_date == session date)
     - Use open_interest from greeks snapshots if available, else trades
     - Compute GEX per strike, then aggregate into bands
     - Summarize relative to tested level
     
-    Strike bands (ES 0DTE): ±1, ±2, ±3 strikes (at 5-point spacing)
-    We model 3-strike minimum moves, so bands up to ±3 are needed.
+    Strike bands (ES 0DTE): ±1, ±2, ±3 strikes (at 25-point spacing)
+    We model 3-strike minimum moves (75 points), so bands up to ±3 are needed.
     
     Args:
         signals_df: DataFrame with signals
@@ -207,7 +207,7 @@ class ComputeGEXFeaturesStage(BaseStage):
     """
     Compute SPX options gamma exposure features.
     
-    Per Final Call v1 spec Section 6.8: Strike-banded GEX around tested level.
+    Strike-banded GEX around tested level.
     
     Outputs:
         signals_df: Updated with GEX features

@@ -21,7 +21,7 @@ def label_outcomes(
     """
     Label outcomes using TRIPLE-BARRIER method (competing risks).
     
-    Per Final Call v1 spec Section 7:
+    Outcome labeling:
     - Break barrier: level + dir_sign × (+threshold_2)
     - Bounce barrier: level + dir_sign × (-threshold_2)
     - Vertical barrier: lookforward_minutes (if neither break/bounce)

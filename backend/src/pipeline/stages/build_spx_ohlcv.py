@@ -1,7 +1,7 @@
 """
 Build SPX OHLCV series from ES futures.
 
-Per Final Call v1 spec Section 2: ES futures ARE the spot proxy for SPX.
+ES futures ARE the spot proxy for SPX.
 No conversion needed - ES and SPX are both quoted in S&P 500 index points.
 
 This replaces the old approach of using ES/10 for SPY.
@@ -97,7 +97,7 @@ def compute_rth_atr(ohlcv_df: pd.DataFrame, window_minutes: int = None) -> pd.Se
     """
     Compute ATR from RTH-only OHLCV data.
     
-    Per Final Call spec: ATR must be RTH-only (no premarket/overnight leakage).
+    ATR must be RTH-only (no premarket/overnight leakage).
     
     Args:
         ohlcv_df: OHLCV DataFrame (already filtered to RTH)
@@ -132,7 +132,7 @@ def compute_rth_volatility(ohlcv_df: pd.DataFrame, window_minutes: int = 20) -> 
     """
     Compute realized volatility from RTH-only returns.
     
-    Per Final Call spec: Vol baselines must be RTH-only.
+    Vol baselines must be RTH-only.
     
     Args:
         ohlcv_df: OHLCV DataFrame (RTH-filtered)
@@ -155,7 +155,7 @@ class BuildOHLCVStage(BaseStage):
     """
     Build SPX OHLCV bars from ES futures.
     
-    Per Final Call spec: ES futures ARE the SPX spot proxy (same index points).
+    ES futures ARE the SPX spot proxy (same index points).
     
     Args:
         freq: Bar frequency ('1min', '2min')

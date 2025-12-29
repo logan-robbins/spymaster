@@ -6,7 +6,7 @@
 
 ---
 
-## v1 Final Call Architecture (ES Futures + ES Options)
+## v1 Architecture (ES Futures + ES Options)
 
 **Perfect Alignment Strategy**:
 - **Spot + Liquidity**: ES futures (trades + MBP-10)
@@ -418,12 +418,7 @@
 - **Warmup**: `SMA_WARMUP_DAYS=3`
 - **v1 disabled**: VWAP, confluence, session levels, walls
 
-**Access Pattern**:
-```python
-from src.common.config import CONFIG
-barrier_window = CONFIG.W_b
-monitor_band = CONFIG.MONITOR_BAND
-```
+**Access Pattern**: Import CONFIG singleton from `backend/src/common/config.py` to access all tunable parameters.
 
 ---
 
@@ -431,15 +426,9 @@ monitor_band = CONFIG.MONITOR_BAND
 
 ### Docker Compose Services
 
-```yaml
-services:
-  nats:          # Message bus (JetStream)
-  minio:         # Object storage (S3-compatible)
-  ingestor:      # Data ingestion (live or replay)
-  core:          # Physics engines + signal generation
-  lake:          # Bronze/Silver/Gold persistence
-  gateway:       # WebSocket relay to frontend
-```
+**Services**: NATS (message bus), MinIO (object storage), Ingestor (data ingestion), Core (physics engines), Lake (data persistence), Gateway (WebSocket relay)
+
+**Configuration**: See `docker-compose.yml` for complete service definitions.
 
 **Startup Order**:
 1. NATS + MinIO (infrastructure)
@@ -563,7 +552,7 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 - NATS → Gateway → WebSocket: <5ms
 - **Total: <65ms** (replay → frontend)
 
-**Note**: v1 uses historical replay for training, real-time streaming TBD for v2
+**Note**: v1 uses historical DBN replay (`replay_publisher.py`) for training. The full streaming infrastructure (NATS → Core → Lake → Gateway → Frontend) is operational and tested. v2 will add live Databento streaming client to replace replay mode.
 
 **Throughput**:
 - Ingestor: 10k+ events/sec
@@ -614,4 +603,4 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 
 **Version**: 2.0  
 **Last Updated**: 2025-12-28  
-**Status**: Production (ES futures + ES 0DTE options neuro-hybrid system)
+**Status**: Development (v1 - ES futures + ES 0DTE options neuro-hybrid system)

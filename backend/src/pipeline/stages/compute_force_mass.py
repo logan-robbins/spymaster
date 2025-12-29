@@ -1,7 +1,7 @@
 """
 Compute F=ma consistency checks (physics validation features).
 
-Per Final Call v1 spec Section 6.7: Cross-validate force and mass proxies
+Cross-validate force and mass proxies
 with observed acceleration.
 
 F = ma analogy:
@@ -106,7 +106,7 @@ class ComputeForceMassStage(BaseStage):
     """
     Compute F=ma physics validation features.
     
-    Per Final Call v1 spec Section 6.7: Cross-validate force/mass with observed kinematics.
+    Cross-validate force/mass with observed kinematics.
     
     Outputs:
         signals_df: Updated with F=ma features

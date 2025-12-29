@@ -27,7 +27,7 @@ def generate_level_universe(
     """
     Generate v1 level universe (RESTRICTED SET for SPY-only launch).
     
-    Per Final Call v1 spec, ONLY these levels are generated:
+    v1 level types generated:
     - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
     - OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET) high/low
     - SMA_200/SMA_400: Moving averages on 2-min bars
@@ -116,7 +116,7 @@ def generate_level_universe(
 
     # 6. CALL_WALL / PUT_WALL (max gamma concentration)
     # 6. CALL WALL / PUT WALL - REMOVED FOR V1
-    # Per Final Call spec: treat GEX as FEATURES (fuel field), not levels themselves
+    # GEX treated as FEATURES (fuel field), not levels themselves
     # GEX will be computed per-event as strike-banded features around the tested level
 
     # Remove duplicates while preserving order

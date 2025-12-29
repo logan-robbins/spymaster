@@ -10,7 +10,7 @@ class FilterRTHStage(BaseStage):
     """
     Filter signals to v1 scope: first 4 hours only (09:30-13:30 ET).
     
-    Per Final Call v1 spec:
+    RTH filtering:
     - Only create events during 09:30-13:30 ET (first 4 hours)
     - Use Policy B: keep anchors up to 13:30, allow forward window spillover
     - Ensures all signals have complete forward window for labeling

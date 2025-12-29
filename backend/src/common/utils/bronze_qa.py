@@ -1,7 +1,7 @@
 """
 Bronze data quality assurance utilities.
 
-Per Final Call v1 spec Section 10: QA Gates.
+QA Gates for Bronze data validation.
 """
 
 from dataclasses import dataclass
@@ -68,7 +68,7 @@ class BronzeQA:
     """
     Bronze data quality assurance checker.
     
-    Implements QA gates from Final Call v1 spec Section 10.
+    Implements QA gates for Bronze data validation.
     """
     
     def __init__(self, bronze_root: str):

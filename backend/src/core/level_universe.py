@@ -118,7 +118,7 @@ class LevelUniverse:
         }
         
         # ========== VWAP - REMOVED FOR V1 ==========
-        # Per Final Call spec: VWAP removed for v1 (lagging, less physics-based)
+        # VWAP removed for v1 (lagging, less physics-based)
 
         # ========== Structural levels (Context) ==========
         pm_high = market_state.get_premarket_high()
@@ -307,7 +307,7 @@ class LevelUniverse:
         levels = []
         
         # REMOVED FOR V1: Wall generation disabled
-        # Per Final Call spec: GEX treated as FEATURES not LEVELS
+        # GEX treated as FEATURES not LEVELS
         # Walls will be computed as strike-banded features around tested levels
         # (not as standalone levels in the universe)
         

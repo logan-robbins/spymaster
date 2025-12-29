@@ -4,7 +4,7 @@ Front-month contract selector for ES futures.
 Implements volume-dominant selection to ensure data quality by preventing
 roll-period contamination where multiple ES contracts trade simultaneously.
 
-Per the Final Call v1 spec:
+Contract selection logic:
 - Use volume-dominant selection (no schedule-based assumptions)
 - Compute dominance ratio as quality gate
 - Apply same chosen symbol to BOTH trades and MBP-10
