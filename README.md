@@ -80,9 +80,11 @@ uv run python scripts/run_zone_hyperopt.py \
 
 **[COMPONENTS.md](COMPONENTS.md)**: Component architecture, engines, interface contracts  
 **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline, hyperopt workflow, kNN system  
-**[backend/features.json](backend/features.json)**: Feature column specs (v2.0.0)  
+**[backend/src/common/schemas/](backend/src/common/schemas/)**: Enforced PyArrow schemas (Bronze/Silver/Gold)  
 **[backend/src/common/config.py](backend/src/common/config.py)**: All tunable parameters (CONFIG singleton)  
 **[backend/HYPEROPT_PLAN.md](backend/HYPEROPT_PLAN.md)**: Two-stage optimization strategy
+
+**Legacy**: `backend/features.json` (specification, replaced by enforced schemas)
 
 **Module Docs**: See `backend/src/{module}/README.md` and `backend/src/{module}/INTERFACES.md` for implementation details
 

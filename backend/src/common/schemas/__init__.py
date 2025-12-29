@@ -69,6 +69,7 @@ from .futures_mbp10 import MBP10V1, BidAskLevelModel
 
 # Silver tier schemas
 from .options_trades_enriched import OptionTradeEnrichedV1
+from .silver_features import SilverFeaturesESPipelineV1, validate_silver_features
 
 # Gold tier schemas
 from .levels_signals import (
@@ -82,6 +83,7 @@ from .levels_signals import (
     FuelEffect,
     RunwayQuality,
 )
+from .gold_training import GoldTrainingESPipelineV1, validate_gold_training
 
 __all__ = [
     # Base
