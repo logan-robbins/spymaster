@@ -2,10 +2,10 @@
 ES Futures + ES Options Multi-Window Physics Pipeline.
 
 Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
-Inference: Continuous (every 2-min candle)
-Features: ~70 physics features (multi-window 1-20min lookback) + ~40 labels
+Inference: Event-driven (zone entry + adaptive cadence)
+Features: 182 columns (10 identity + 108 engineered features + 64 labels)
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
-Outcome: Triple-barrier ±15pts (3 ATM strikes), 8min forward
+Outcome: Triple-barrier with volatility-scaled barrier, 2/4/8min horizons
 RTH: 09:30-13:30 ET (first 4 hours)
 """
 
@@ -39,16 +39,16 @@ def build_es_pipeline() -> Pipeline:
     3. BuildOHLCV (2min with warmup for SMA_200/400)
     4. InitMarketState (ES market state)
     5. GenerateLevels (6 level kinds: PM/OR high/low + SMA_200/400)
-    6. DetectInteractionZones (continuous: every 2-min candle, deterministic IDs)
+    6. DetectInteractionZones (event-driven zone entry, deterministic IDs)
     7. ComputePhysics (barrier, tape, fuel from engines)
     8. ComputeMultiWindowKinematics (velocity/accel/jerk at 1,3,5,10,20min)
     9. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
     10. ComputeBarrierEvolution (depth changes at 1,3,5min)
     11. ComputeLevelDistances (signed distances to all structural levels)
-    12. ComputeGEX (gamma at ±1/±2/±3 nearest listed strikes)
+    12. ComputeGEX (gamma within ±1/±2/±3 point bands using listed strikes)
     13. ComputeForceMass (F=ma validation features)
-    14. ComputeApproach (approach context + session timing)
-    15. LabelOutcomes (triple-barrier: ±15pts, 8min forward)
+    14. ComputeApproach (approach context + timing + normalization + clustering)
+    15. LabelOutcomes (triple-barrier: vol-scaled barrier, multi-horizon)
     16. FilterRTH (09:30-13:30 ET with forward spillover)
     
     Returns:

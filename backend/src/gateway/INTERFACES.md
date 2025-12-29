@@ -73,8 +73,8 @@ The Gateway normalizes Core Service signals to frontend-friendly values:
 
 **Signal**:
 - `REJECT` → `BOUNCE`
-- `CONTESTED` → `CHOP`
-- `NEUTRAL` → `CHOP`
+- `CONTESTED` → `NO_TRADE`
+- `NEUTRAL` → `NO_TRADE`
 
 ### Normalized Level Schema
 
@@ -106,7 +106,7 @@ Each level is transformed by `_normalize_level_signal`:
     "bars_since_open": int,             # Minutes since 9:30 ET
     "break_score_raw": float,
     "break_score_smooth": float,
-    "signal": str,                      # BREAK, BOUNCE, CHOP (normalized)
+    "signal": str,                      # BREAK, BOUNCE, NO_TRADE (normalized)
     "confidence": str,                  # HIGH, MEDIUM, LOW
     "note": Optional[str],
 
@@ -400,7 +400,7 @@ await self.bus.subscribe(
 4. **Fan-out**: Single JSON serialization per broadcast
 5. **Automatic cleanup**: Failed connections removed automatically
 6. **NATS durability**: Durable consumers survive Gateway restarts
-7. **Signal mapping**: REJECT→BOUNCE, CONTESTED/NEUTRAL→CHOP
+7. **Signal mapping**: REJECT→BOUNCE, CONTESTED/NEUTRAL→NO_TRADE
 8. **ML prediction merging**: Viewport predictions matched by level_id and merged into normalized levels
 9. **Confluence preservation**: All confluence features preserved from Core output
 
@@ -411,4 +411,3 @@ await self.bus.subscribe(
 - Full module documentation: `backend/src/gateway/README.md`
 - NATS subjects: `backend/src/common/bus.py`
 - Level signals schema: `backend/src/core/INTERFACES.md`
-

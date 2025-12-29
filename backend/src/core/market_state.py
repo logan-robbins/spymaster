@@ -17,6 +17,8 @@ from typing import Optional, List, Dict, Tuple, Any
 import time
 from datetime import datetime, timezone, date
 from zoneinfo import ZoneInfo
+import math
+import numpy as np
 
 from src.common.event_types import FuturesTrade, MBP10, OptionTrade, Aggressor
 from src.common.price_converter import PriceConverter
@@ -426,6 +428,25 @@ class MarketState:
         if window <= 0:
             return None
         return sum(trs[-window:]) / window
+
+    def get_recent_return_std(self, window_seconds: int) -> Optional[float]:
+        """
+        Compute realized std of minute-to-minute returns over a short window.
+
+        Returns:
+            Std of returns in ES points per minute, or None if insufficient data.
+        """
+        window_minutes = max(1, int(math.ceil(window_seconds / 60)))
+        closes = self.get_recent_minute_closes(window_minutes + 1)
+        if len(closes) < 3:
+            return None
+
+        returns = np.diff(np.array(closes, dtype=np.float64))
+        if len(returns) < 2:
+            return None
+        if len(returns) > window_minutes:
+            returns = returns[-window_minutes:]
+        return float(np.std(returns))
 
     def get_sma_at_offset(self, period: int, offset_bars: int) -> Optional[float]:
         closes = self._get_two_minute_closes(include_current=True)

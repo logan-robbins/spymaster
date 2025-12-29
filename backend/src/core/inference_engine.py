@@ -110,6 +110,7 @@ class ViewportInferenceEngine:
 
             strength = float(tree_preds.strength_signed[i])
             p_tradeable_2 = float(tree_preds.tradeable_2[i])
+            p_no_trade = 1.0 - p_tradeable_2
             utility = p_tradeable_2 * abs(strength)
 
             level_id_val = level_id[i] if level_id is not None else None
@@ -129,6 +130,7 @@ class ViewportInferenceEngine:
                 "distance": distance_val,
                 "distance_signed": distance_signed_val,
                 "p_tradeable_2": p_tradeable_2,
+                "p_no_trade": p_no_trade,
                 "p_break": p_break,
                 "p_bounce": 1.0 - p_break,
                 "strength_signed": strength,

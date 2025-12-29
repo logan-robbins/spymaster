@@ -21,10 +21,10 @@ def label_outcomes(
     """
     Label outcomes using TRIPLE-BARRIER method (competing risks).
     
-    Outcome labeling:
-    - Break barrier: level + dir_sign × (+threshold_2)
-    - Bounce barrier: level + dir_sign × (-threshold_2)
-    - Vertical barrier: lookforward_minutes (if neither break/bounce)
+    Outcome labeling (triple-barrier, anchored at level):
+    - Price must touch the level within the horizon window
+    - After touch, the first barrier hit determines outcome
+    - Barriers are volatility-scaled (dynamic) using near-term realized vol
     
     First barrier hit determines label:
     - Hit break first → BREAK
@@ -33,9 +33,10 @@ def label_outcomes(
     
     Policy B: Anchors up to 13:30 ET, forward window can spillover for labels.
     
-    Threshold for ES: 15 points ≈ 3 ATM strikes at 5-pt spacing.
+    Thresholds are dynamic, derived from recent realized volatility and
+    scaled by horizon length. Static thresholds are fallback only.
     
-    Multi-timeframe mode generates outcomes at 2min, 4min, 8min confirmations
+    Multi-timeframe mode generates outcomes at 2min, 4min, 8min horizons
     to enable training models for different trading horizons.
 
     Args:
@@ -59,31 +60,58 @@ def label_outcomes(
     # Prepare OHLCV data for fast lookup
     ohlcv_sorted = ohlcv_df.sort_values('timestamp')
     ohlcv_ts = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
-    ohlcv_open = ohlcv_sorted['open'].values.astype(np.float64)
     ohlcv_close = ohlcv_sorted['close'].values.astype(np.float64)
     ohlcv_high = ohlcv_sorted['high'].values.astype(np.float64)
     ohlcv_low = ohlcv_sorted['low'].values.astype(np.float64)
 
-    # Lookforward in nanoseconds
-    lookforward_ns = int(lookforward_minutes * 60 * 1e9)
-    
     # Multi-timeframe windows or single window
     if use_multi_timeframe:
         confirmation_windows = CONFIG.CONFIRMATION_WINDOWS_MULTI  # [120, 240, 480]
         window_labels = ['2min', '4min', '8min']
     else:
-        confirmation_windows = [confirmation_seconds or CONFIG.CONFIRMATION_WINDOW_SECONDS]
+        confirmation_windows = [confirmation_seconds or (lookforward_minutes * 60)]
         window_labels = ['']
     
     n = len(signals_df)
-    signal_ts = signals_df['ts_ns'].values
+    signal_ts = signals_df['ts_ns'].values.astype(np.int64)
     directions = signals_df['direction'].values
-    bar_idx = signals_df['bar_idx'].values if 'bar_idx' in signals_df.columns else None
     if 'level_price' not in signals_df.columns:
         raise ValueError("Missing level_price for outcome labeling.")
     level_prices = signals_df['level_price'].values.astype(np.float64)
-    threshold_1 = CONFIG.STRENGTH_THRESHOLD_1
-    threshold_2 = CONFIG.STRENGTH_THRESHOLD_2
+    entry_prices = signals_df['entry_price'].values.astype(np.float64) if 'entry_price' in signals_df.columns else None
+
+    vol_window_minutes = max(1, int(round(CONFIG.LABEL_VOL_WINDOW_SECONDS / 60)))
+    barrier_min = CONFIG.LABEL_BARRIER_MIN_POINTS
+    barrier_max = CONFIG.LABEL_BARRIER_MAX_POINTS
+    barrier_scale = CONFIG.LABEL_BARRIER_SCALE
+    t1_fraction = CONFIG.LABEL_T1_FRACTION
+    monitor_band = CONFIG.MONITOR_BAND
+
+    def _sigma_per_minute(anchor_idx: int) -> Optional[float]:
+        if anchor_idx <= 0:
+            return None
+        start_idx = max(1, anchor_idx - vol_window_minutes)
+        returns = np.diff(ohlcv_close[start_idx:anchor_idx + 1])
+        if len(returns) < 2:
+            return None
+        return float(np.std(returns))
+
+    def _atr_fallback(anchor_idx: int) -> Optional[float]:
+        if anchor_idx <= 0:
+            return None
+        window = max(1, CONFIG.ATR_WINDOW_MINUTES)
+        start_idx = max(1, anchor_idx - window)
+        highs = ohlcv_high[start_idx:anchor_idx + 1]
+        lows = ohlcv_low[start_idx:anchor_idx + 1]
+        closes = ohlcv_close[start_idx:anchor_idx + 1]
+        if len(closes) == 0:
+            return None
+        prev_close = np.roll(closes, 1)
+        prev_close[0] = closes[0]
+        tr = np.maximum(highs - lows, np.maximum(np.abs(highs - prev_close), np.abs(lows - prev_close)))
+        if len(tr) == 0:
+            return None
+        return float(np.mean(tr))
     
     # Storage for multi-timeframe results
     results_by_window = {}
@@ -91,7 +119,8 @@ def label_outcomes(
     # Process each confirmation window
     for window_sec, label in zip(confirmation_windows, window_labels):
         suffix = f'_{label}' if label else ''
-        confirmation_ns = int(window_sec * 1e9)
+        horizon_minutes = window_sec / 60.0
+        horizon_ns = int(window_sec * 1e9)
         
         # Initialize arrays for this window
         outcomes = np.empty(n, dtype=object)
@@ -114,84 +143,85 @@ def label_outcomes(
         # Vectorized: find indices for each signal's lookforward window
         for i in range(n):
             ts = signal_ts[i]
-            anchor_idx = None
-            if bar_idx is not None:
-                anchor_idx = int(bar_idx[i])
-            else:
-                anchor_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
-
-            if anchor_idx < 0 or anchor_idx >= len(ohlcv_ts):
-                outcomes[i] = 'UNDEFINED'
-                continue
-
-            anchor_time = ohlcv_ts[anchor_idx] + confirmation_ns
-            confirm_ts_ns[i] = anchor_time
-
-            confirm_idx = np.searchsorted(ohlcv_ts, anchor_time, side='left')
-            if confirm_idx >= len(ohlcv_ts):
-                outcomes[i] = 'UNDEFINED'
-                continue
-
-            if confirm_idx < len(ohlcv_ts) and ohlcv_ts[confirm_idx] == anchor_time:
-                anchor_spot[i] = ohlcv_open[confirm_idx]
-            else:
-                prior_idx = confirm_idx - 1
-                if prior_idx < 0:
+            if entry_prices is not None:
+                if abs(entry_prices[i] - level_prices[i]) > monitor_band:
                     outcomes[i] = 'UNDEFINED'
                     continue
-                anchor_spot[i] = ohlcv_close[prior_idx]
 
-            start_idx = confirm_idx
-            end_idx = np.searchsorted(ohlcv_ts, anchor_time + lookforward_ns, side='right')
-
-            if start_idx >= len(ohlcv_ts) or start_idx >= end_idx:
+            start_idx = np.searchsorted(ohlcv_ts, ts, side='left')
+            if start_idx < 0 or start_idx >= len(ohlcv_ts):
                 outcomes[i] = 'UNDEFINED'
                 continue
 
-            future_close = ohlcv_close[start_idx:end_idx]
-            future_high = ohlcv_high[start_idx:end_idx]
-            future_low = ohlcv_low[start_idx:end_idx]
-
-            if len(future_close) == 0:
+            end_idx = np.searchsorted(ohlcv_ts, ts + horizon_ns, side='right')
+            if start_idx >= end_idx:
                 outcomes[i] = 'UNDEFINED'
                 continue
 
             direction = directions[i]
             level_price = level_prices[i]
-            future_prices[i] = future_close[-1]
 
-            max_above = max(future_high.max() - level_price, 0.0)
-            max_below = max(level_price - future_low.min(), 0.0)
+            sigma_per_min = _sigma_per_minute(start_idx)
+            if sigma_per_min is None or sigma_per_min <= 0:
+                sigma_per_min = _atr_fallback(start_idx)
+            if sigma_per_min is None or sigma_per_min <= 0:
+                barrier = outcome_threshold
+            else:
+                barrier = sigma_per_min * np.sqrt(horizon_minutes) * barrier_scale
+                barrier = max(barrier_min, min(barrier, barrier_max))
 
-            above_1 = np.where(future_high >= level_price + threshold_1)[0]
-            above_2 = np.where(future_high >= level_price + threshold_2)[0]
-            below_1 = np.where(future_low <= level_price - threshold_1)[0]
-            below_2 = np.where(future_low <= level_price - threshold_2)[0]
+            threshold_2 = barrier
+            threshold_1 = max(1e-6, threshold_2 * t1_fraction)
+
+            window_high = ohlcv_high[start_idx:end_idx]
+            window_low = ohlcv_low[start_idx:end_idx]
+            window_close = ohlcv_close[start_idx:end_idx]
+            window_ts = ohlcv_ts[start_idx:end_idx]
+
+            if len(window_close) == 0:
+                outcomes[i] = 'UNDEFINED'
+                continue
+
+            # Require level touch before evaluating barrier outcomes
+            touch_mask = (window_low <= level_price) & (window_high >= level_price)
+            if not np.any(touch_mask):
+                outcomes[i] = 'CHOP'
+                future_prices[i] = window_close[-1]
+                continue
+
+            touch_offset = int(np.argmax(touch_mask))
+            touch_ts = window_ts[touch_offset]
+            confirm_ts_ns[i] = touch_ts
+            anchor_spot[i] = window_close[touch_offset]
+
+            post_high = window_high[touch_offset:]
+            post_low = window_low[touch_offset:]
+            post_ts = window_ts[touch_offset:]
 
             if direction == 'UP':
-                break_1 = above_1
-                break_2 = above_2
-                bounce_1 = below_1
-                bounce_2 = below_2
+                break_1 = np.where(post_high >= level_price + threshold_1)[0]
+                break_2 = np.where(post_high >= level_price + threshold_2)[0]
+                bounce_1 = np.where(post_low <= level_price - threshold_1)[0]
+                bounce_2 = np.where(post_low <= level_price - threshold_2)[0]
             else:
-                break_1 = below_1
-                break_2 = below_2
-                bounce_1 = above_1
-                bounce_2 = above_2
+                break_1 = np.where(post_low <= level_price - threshold_1)[0]
+                break_2 = np.where(post_low <= level_price - threshold_2)[0]
+                bounce_1 = np.where(post_high >= level_price + threshold_1)[0]
+                bounce_2 = np.where(post_high >= level_price + threshold_2)[0]
 
             if len(break_1) > 0:
-                idx = start_idx + break_1[0]
-                time_to_break_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+                idx = break_1[0]
+                time_to_break_1[i] = (post_ts[idx] - touch_ts) / 1e9
             if len(bounce_1) > 0:
-                idx = start_idx + bounce_1[0]
-                time_to_bounce_1[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+                idx = bounce_1[0]
+                time_to_bounce_1[i] = (post_ts[idx] - touch_ts) / 1e9
 
             if len(break_2) > 0:
-                idx = start_idx + break_2[0]
-                time_to_break_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+                idx = break_2[0]
+                time_to_break_2[i] = (post_ts[idx] - touch_ts) / 1e9
             if len(bounce_2) > 0:
-                idx = start_idx + bounce_2[0]
-                time_to_bounce_2[i] = (ohlcv_ts[idx] - anchor_time) / 1e9
+                idx = bounce_2[0]
+                time_to_bounce_2[i] = (post_ts[idx] - touch_ts) / 1e9
 
             t1_candidates = [
                 v for v in (time_to_break_1[i], time_to_bounce_1[i]) if np.isfinite(v)
@@ -207,6 +237,9 @@ def label_outcomes(
                 time_to_threshold_2[i] = min(t2_candidates)
                 tradeable_2[i] = 1
 
+            max_above = max(post_high.max() - level_price, 0.0)
+            max_below = max(level_price - post_low.min(), 0.0)
+
             if direction == 'UP':
                 excursion_max[i] = max_above
                 excursion_min[i] = max_below
@@ -217,7 +250,7 @@ def label_outcomes(
                 excursion_min[i] = max_above
                 strength_signed[i] = max_below - max_above
                 strength_abs[i] = max(max_below, max_above)
-            
+
             break_t2 = time_to_break_2[i]
             bounce_t2 = time_to_bounce_2[i]
             if np.isfinite(break_t2) and np.isfinite(bounce_t2):
@@ -238,6 +271,8 @@ def label_outcomes(
                 outcomes[i] = 'BOUNCE'
             else:
                 outcomes[i] = 'CHOP'
+
+            future_prices[i] = window_close[-1]
         
         # Store results for this window
         results_by_window[label] = {
