@@ -56,6 +56,33 @@ All core components have been implemented per specification:
 
 The system is ready for backtesting and deployment.
 
+### Validation Scripts (Updated for v3.0.0)
+
+**Main Pipeline Validator**: `backend/scripts/validate_es_pipeline.py`
+- Updated to v3.0.0 with 6 QA gates
+- Now checks for REJECT (not BOUNCE) in outcomes
+- Validates ATR-normalized excursion fields
+- Usage: `uv run python backend/scripts/validate_es_pipeline.py --date 2024-12-20`
+
+**Stage Validators Created/Updated**:
+- ✅ **Stage 14** (`validate_stage_14_label_outcomes.py`) - Updated for first-crossing semantics (BREAK/REJECT/CHOP)
+- ✅ **Stage 16** (`validate_stage_16_materialize_state_table.py`) - NEW: Validates 30s state table
+- ✅ **Stage 18** (`validate_stage_18_construct_episodes.py`) - NEW: Validates 111-dim episode vectors
+
+**How to Run Stage Validators**:
+```bash
+# Stage 14 (Label Outcomes)
+uv run python backend/scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
+
+# Stage 16 (State Table)
+uv run python backend/scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
+
+# Stage 18 (Episode Vectors)
+uv run python backend/scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
+```
+
+All validators create JSON output in `backend/logs/` and return exit code 0 (pass) or 1 (fail).
+
 ---
 
 ## Table of Contents

@@ -1,7 +1,16 @@
 # Silver Layer Schema
 
-## ES Pipeline Features
+## ES Pipeline Features (v3.0.0 - December 2025)
 **Path**: `silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet`
+
+**⚠️ IMPORTANT SCHEMA UPDATE (v3.0.0)**:
+- **Outcome Labels Changed**: Now using **REJECT** instead of **BOUNCE**
+- **Semantics**: First-crossing with 1.0 ATR threshold
+  - `BREAK`: Price crossed 1 ATR in direction of approach
+  - `REJECT`: Price reversed 1 ATR in opposite direction  
+  - `CHOP`: Neither threshold crossed within horizon
+- **New Fields**: `excursion_favorable` and `excursion_adverse` (ATR-normalized)
+- **Multi-Horizon**: outcome_2min, outcome_4min, outcome_8min (independent labels)
 
 | Field | Type | Description |
 |-------|------|-------------|
