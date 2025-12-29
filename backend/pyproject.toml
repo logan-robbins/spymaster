@@ -8,6 +8,7 @@ dependencies = [
     "boto3>=1.41.5",
     "databento>=0.68.1",
     "duckdb>=1.4.3",
+    "faiss-cpu>=1.13.2",
     "fastapi[standard]>=0.124.4",
     "mlflow>=3.8.0",
     "nats-py>=2.12.0",

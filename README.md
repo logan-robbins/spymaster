@@ -8,16 +8,16 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 
 **Canonical Specification**: See **[IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)** for complete system architecture, data contracts, and implementation details.
 
-**Version**: 3.0.0 (December 2025)  
-**Status**: ✅ Implementation complete (10/10 sections)
+**Version**: 3.1.0 (December 2025)
 
 ## Quick Facts
 
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
 - **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)
 - **Outcomes**: BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold)
-- **Episode Vectors**: 111 dimensions (context + trajectory + micro-history + physics + trends)
-- **Retrieval**: FAISS similarity search (48 partitions)
+- **Episode Vectors**: 144 dimensions with DCT trajectory basis
+- **Zone Threshold**: 2.0 ATR for approach detection
+- **Retrieval**: FAISS similarity search (60 partitions: 6 levels × 2 directions × 5 time buckets)
 - **Pipeline**: 18 stages (bronze → silver → gold → indices)
 
 ---
@@ -57,7 +57,7 @@ uv run python scripts/backfill_bronze_futures.py --all
 ```bash
 cd backend
 
-# Run v3.0.0 pipeline (18 stages: bronze → features → episodes)
+# Run pipeline (18 stages: bronze → features → episodes)
 uv run python -m src.lake.silver_feature_builder \
   --pipeline es_pipeline \
   --start-date 2024-11-01 \
@@ -72,7 +72,7 @@ uv run python scripts/validate_es_pipeline.py --date 2024-12-20
 ```bash
 cd backend
 
-# Stage 17: Compute normalization statistics (60-day lookback)
+# Compute normalization statistics (60-day lookback, 144 features)
 uv run python -c "
 from pathlib import Path
 from src.ml.normalization import ComputeNormalizationStage
@@ -86,7 +86,7 @@ result = stage.execute()
 print(f'Stats saved: {result[\"output_file\"]}')
 "
 
-# Stage 19: Build FAISS indices (48 partitions)
+# Build FAISS indices (60 partitions)
 uv run python -c "
 from pathlib import Path
 from src.ml.index_builder import BuildIndicesStage
@@ -107,7 +107,7 @@ print(f'Built {result[\"n_partitions_built\"]} indices')
 **📘 [IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)**: **CANONICAL SPECIFICATION** - Complete system architecture, data contracts, algorithms, and validation  
 **[COMPONENTS.md](COMPONENTS.md)**: Component architecture and interface contracts  
 **[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline and storage architecture  
-**[backend/SILVER_SCHEMA.md](backend/SILVER_SCHEMA.md)**: Silver layer schema (v3.0.0)  
+**[backend/SILVER_SCHEMA.md](backend/SILVER_SCHEMA.md)**: Silver layer schema  
 **[backend/src/common/schemas/](backend/src/common/schemas/)**: PyArrow schema definitions  
 
 **Module Docs**: See `backend/src/{module}/README.md` for implementation details
@@ -161,8 +161,10 @@ uv run python scripts/validate_es_pipeline.py --start 2024-12-01 --end 2024-12-3
 
 **Level-Relative Features**: All distances ATR-normalized, level-centric coordinate system  
 **First-Crossing Semantics**: BREAK (1 ATR in direction), REJECT (1 ATR opposite), CHOP (neither)  
-**Multi-Scale Dynamics**: 1-20min kinematics + 30-300s order flow capture approach shape  
-**Similarity Retrieval**: 111-dim vectors → FAISS ANN search → outcome distributions  
-**48 Partitions**: (6 levels × 2 directions × 4 time buckets) for regime-comparable neighbors  
+**Multi-Scale Dynamics**: 1-20min kinematics + 30-300s order flow + DCT trajectory basis  
+**Trajectory Encoding**: DCT-II on 4 series (distance, OFI, barrier, tape) × 8 coefficients = 32 dims  
+**Similarity Retrieval**: 144-dim vectors → FAISS ANN search → outcome distributions  
+**60 Partitions**: (6 levels × 2 directions × 5 time buckets) for regime-comparable neighbors  
+**Zone Threshold**: 2.0 ATR approach zone (tighter for higher-quality anchors)  
 **Online Safety**: All features use only past data, labels never in feature vectors  
-**Deterministic**: Event IDs reproducible, no UUIDs, enables consistent retrieval
+**Deterministic**: Event IDs reproducible, enables consistent retrieval
