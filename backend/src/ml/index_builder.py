@@ -99,7 +99,7 @@ def build_faiss_index(
     elif index_type == 'IVFPQ':
         # Product quantization for large corpora
         nlist = min(4096, max(16, N // 100))
-        # m must divide D evenly. D=111, closest divisors: 3, 37
+        # m must divide D evenly. D=144, divisors: 2, 3, 4, 6, 8, 9, 12, 16, 18, 24, 36, 48, 72
         # Use m=3 for minimal compression, or pad D to 112 for m=8
         # For now, use m=3 (37 subvectors)
         m = 3
@@ -128,7 +128,7 @@ def load_episode_corpus(
         date_filter: List of dates to include (None = all dates)
     
     Returns:
-        Tuple of (vectors array [N × 111], metadata DataFrame)
+        Tuple of (vectors array [N × 144], metadata DataFrame)
     """
     episodes_dir = Path(episodes_dir)
     

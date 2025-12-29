@@ -190,8 +190,8 @@ def compute_section_attribution(
     - Identify which sections lean toward which outcome
     
     Args:
-        query_vector: Query vector [111]
-        retrieved_vectors: Retrieved vectors [N × 111]
+        query_vector: Query vector [144]
+        retrieved_vectors: Retrieved vectors [N × 144]
         outcomes: Outcome labels [N]
     
     Returns:
@@ -274,11 +274,11 @@ def compute_attribution(
     Convenience function that calls all attribution methods.
     
     Args:
-        query_vector: Query vector [111]
-        retrieved_vectors: Retrieved vectors [N × 111]
+        query_vector: Query vector [144]
+        retrieved_vectors: Retrieved vectors [N × 144]
         outcomes: Outcome labels [N]
         similarities: Similarity scores [N] (optional)
-        feature_names: Feature names [111] (optional, will use default)
+        feature_names: Feature names [144] (optional, will use default)
     
     Returns:
         Dict with all attribution analyses

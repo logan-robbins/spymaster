@@ -180,7 +180,7 @@ class Config:
     INFERENCE_VOL_WINDOW_SECONDS: int = 120
     INFERENCE_MIN_SIGMA_POINTS: float = 0.5
     INFERENCE_Z_ENGAGED: float = 1.5
-    INFERENCE_Z_APPROACH: float = 3.0
+    INFERENCE_Z_APPROACH: float = 2.0  # Updated: 2.0 ATR (compromise analyst opinion)
     INFERENCE_INTERVAL_ENGAGED_S: float = 0.25
     INFERENCE_INTERVAL_APPROACH_S: float = 2.0
     INFERENCE_INTERVAL_FAR_S: float = 10.0
