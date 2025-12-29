@@ -167,7 +167,7 @@ Generated structural levels:
 
 ## Configuration
 
-Pipeline behavior controlled by `backend/src/common/config.py`, which loads best-config JSON by default (`data/ml/experiments/zone_opt_v1_best_config.json` or `CONFIG_OVERRIDE_PATH`):
+Pipeline behavior controlled by `backend/src/common/config.py` (single source of truth):
 - Physics windows: `W_b`, `W_t`, `W_g`
 - Touch detection: `MONITOR_BAND`, `TOUCH_BAND`
 - Confirmation windows: `CONFIRMATION_WINDOWS_MULTI`

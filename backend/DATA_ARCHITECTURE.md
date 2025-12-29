@@ -12,10 +12,10 @@ Spymaster uses the **Medallion Architecture** (Bronze → Silver → Gold) for p
 **Key Principles**:
 - **Immutability**: Bronze is append-only, never modified
 - **Reproducibility**: Bronze + manifest → deterministic Silver output
-- **Reproducibility**: Features deterministically built from Bronze + CONFIG (after best-config JSON overrides)
+- **Reproducibility**: Features deterministically built from Bronze + CONFIG
 - **Event-time first**: All records carry `ts_event_ns` and `ts_recv_ns`
-- **Adaptive inference**: Features computed on level engagement; ML updates by distance-to-level + triggers; 250ms stream holds last inference
-- **Multi-window lookback**: 1-20 minute windows encode "setup" across timescales
+- **Episode-based inference**: Continuous inference at 250-500ms while within touch zone (4 points); episodes group continuous touches; retrieval votes on episode-collapsed neighbors
+- **Multi-window lookback**: 1-20 minute windows encode "setup shape" before touch for kNN retrieval
 
 ---
 
@@ -40,7 +40,7 @@ data/
 │   ├── silver/                        # Stage 2: Feature engineering output
 │   │   └── features/
 │   │       └── es_pipeline/           # ES system (16 stages, 182 columns: 10 identity + 108 engineered + 64 labels)
-│   │           ├── manifest.yaml      # Feature config (from CONFIG, post override JSON)
+│   │           ├── manifest.yaml      # Feature config snapshot from CONFIG
 │   │           ├── validation.json    # Quality metrics
 │   │           └── date=YYYY-MM-DD/*.parquet
 │   │
@@ -124,9 +124,9 @@ Stage 16: Filter to RTH
     ↓
 Silver Features (RTH only 09:30-13:30 ET)
     silver/features/es_pipeline/
-        ├── manifest.yaml (records CONFIG snapshot after JSON overrides)
+        ├── manifest.yaml (records CONFIG snapshot)
         ├── validation.json (quality metrics)
-        └── date=YYYY-MM-DD/*.parquet (~15-25 events/day)
+        └── date=YYYY-MM-DD/*.parquet (dense in-zone snapshots; ~20-50 episode-snapshots/day)
     ↓
 [GoldCurator] → Promote to Gold
     ↓
@@ -156,11 +156,18 @@ Live Databento Feed (ES futures + ES options)   [NOT YET IMPLEMENTED]
     ↓ [Ingestor with live client]
 NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
     ├─→ [BronzeWriter] → Bronze (all hours, append-only)     [WORKING]
-    └─→ [Core Service] → 250ms physics stream; ML inference adaptive to in-play distance/triggers  [WORKING]
+    └─→ [Core Service] → Episode-based inference while in touch zone (4 points)  [WORKING]
             ├─→ Load model (xgb_prod.pkl + knn_index)
-            ├─→ Compute multi-window physics features
-            ├─→ kNN retrieval: Find 5 similar past events
-            └─→ Predict: "4/5 past similar setups BROKE → 80% confidence"
+            ├─→ When abs(price - level) <= 4.0:
+            │     - Track episode_id (continuous touch episode)
+            │     - Compute 20-min PRE-TOUCH state snapshot
+            │     - Compute dwell/touch-intensity features
+            │     - kNN retrieval: Find 50-200 similar past EPISODES (episode-collapsed)
+            │     - Distance-weighted vote on outcomes
+            │     - Apply EWMA smoothing
+            │     - Expose similarity strength metric
+            │     - Infer continuously at 250-500ms cadence
+            └─→ Predict: "45/50 similar episodes BROKE → 90% confidence"
                     ↓
             NATS (levels.signals) → Gateway → Frontend    [WORKING]
 ```
@@ -202,17 +209,20 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Purpose**: Feature engineering output  
 **Format**: Parquet with ZSTD compression  
-**Schema**: `SilverFeaturesESPipelineV1` (182 columns: 10 identity + 108 engineered features + 64 labels; enforced) - see `backend/src/common/schemas/silver_features.py`  
+**Schema**: `SilverFeaturesESPipelineV1` (~200 columns: 10 identity + ~125 engineered features + 64 labels; enforced) - see `backend/src/common/schemas/silver_features.py`  
 **Time Coverage**: RTH only (09:30-13:30 ET)  
 **Semantics**: Reproducible transformations (Bronze + CONFIG-from-JSON → deterministic Silver)  
 **Retention**: Overwrite when CONFIG changes (no versioning needed)
 
-**Inference Model**: **EVENT-DRIVEN** (adaptive cadence)
-- Features computed on level engagement (zone entry) for all 6 levels
-- ML inference cadence adapts by distance-to-level (z) and event triggers
-- Physics telemetry still updates at 250ms for UI; ML probabilities are latched between updates
+**Inference Model**: **CONTINUOUS EPISODE-BASED**
+- **Touch zone**: Single 4-point band (TOUCH_BAND = MONITOR_BAND = 4.0)
+- **Episodes**: Continuous time spent within touch zone; grouped by `episode_id`
+- **Inference cadence**: 250-500ms continuously while in-zone (engaged)
+- **Direction-of-travel**: Computed from pre-touch signed distance slope (approaching from above vs below)
+- **kNN retrieval**: Query on 20-minute pre-touch state snapshot; votes episode-collapsed to avoid redundancy
+- **Smoothing**: EWMA on displayed probabilities; expose similarity strength for "no close analogs" detection
 
-**Feature Set** (108 engineered features + 64 label columns):
+**Feature Set** (~125 engineered features + 64 label columns):
 - **Physics (barrier/tape/fuel)**: 11 features (barrier_state, barrier_delta_liq, barrier_replenishment_ratio, wall_ratio, tape_imbalance, tape_buy_vol, tape_sell_vol, tape_velocity, sweep_detected, fuel_effect, gamma_exposure)
 - **Kinematics**: 19 features (velocity/accel/jerk at 1/3/5/10/20min + momentum_trend at 3/5/10/20min)
 - **OFI**: 9 features (ofi + ofi_near_level at 30/60/120/300s + ofi_acceleration)
@@ -225,13 +235,16 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - **Sparse Transforms**: 4 features (wall_ratio_nonzero/log, barrier_delta_liq_nonzero/log)
 - **Normalized Features**: 11 features (spot, distance_signed + pct/atr, dist_to_pm_high_pct, dist_to_pm_low_pct, dist_to_sma_200_pct, dist_to_sma_400_pct, approach_distance_{atr,pct}, level_price_pct)
 - **Attempt Clustering**: 6 features (attempt_index, attempt_cluster_id, barrier_replenishment_trend, barrier_delta_liq_trend, tape_velocity_trend, tape_imbalance_trend)
-- **Labels**: 64 columns (2/4/8min horizons + primary copies)
+- **Episode Identity**: 2 features (episode_id, approach_direction)
+- **Dwell/Persistence**: 4 features (time_in_zone_total, time_in_zone_last_60s, time_in_zone_last_300s, fraction_in_zone_last_20m)
+- **Touch Intensity**: 4 features (touch_count_last_60s, touch_count_last_5m, boundary_cross_rate, min_abs_distance_in_episode)
+- **Labels**: 64 columns (2/4/8min horizons + primary copies; applied at episode level)
 
 **Key Capabilities**:
-- Deterministic: Bronze + CONFIG-from-JSON → reproducible Silver output
-- Hyperopt writes best-config JSON; rebuild when the JSON changes
-- Manifest records exact CONFIG snapshot used for each build (post JSON overrides)
+- Deterministic: Bronze + CONFIG → reproducible Silver output
+- Manifest records exact CONFIG snapshot used for each build
 - Multi-window features (1-20min lookback) for kNN retrieval
+- Episode-based labeling prevents label leakage
 
 **Implementation**: `SilverFeatureBuilder` class (`src/lake/silver_feature_builder.py`) + `src/pipeline/pipelines/es_pipeline.py`
 
@@ -239,24 +252,19 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Purpose**: Production-ready ML datasets and evaluation results  
 **Format**: Parquet with ZSTD compression  
-**Schema**: `GoldTrainingESPipelineV1` (182 columns, identical to Silver but curated) - see `backend/src/common/schemas/gold_training.py`  
-**Semantics**: Curated, validated, production-quality  
+**Schema**: `GoldTrainingESPipelineV1` (~200 columns, identical to Silver but curated) - see `backend/src/common/schemas/gold_training.py`  
+**Semantics**: Curated, validated, production-quality; episode-level labels applied to all in-zone snapshots  
 **Retention**: Keep production datasets permanently
 
 **Production Workflow**:
 
-**Step 1: Generate Best-Config JSON (Hyperopt)**
-- Required if `data/ml/experiments/zone_opt_v1_best_config.json` does not exist
-- Output: Best-config JSON (set `CONFIG_OVERRIDE_PATH` if you use a non-default study name)
-- Metrics: kNN-5 purity, Precision@80% (Silhouette logged only)
-
-**Step 2: Build Features**
+**Step 1: Build Features**
 - Input: Bronze (ES futures + ES options)
-- Config: CONFIG loaded from best-config JSON
+- Config: Fixed CONFIG from `src/common/config.py`
 - Output: `silver/features/es_pipeline/` 
 - Command: `uv run python -m src.lake.silver_feature_builder --pipeline es_pipeline`
 
-**Step 3: Train Model**
+**Step 2: Train Model (with Hyperopt)**
 - Input: `silver/features/es_pipeline/` (curated to Gold)
 - Search: XGBoost params, feature selection, kNN blend
 - Output: `ml/production/xgb_prod.pkl` + `knn_index.faiss`
@@ -267,7 +275,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - `gold/streaming/`: Real-time signals from Core Service (event-driven inference)
 - `gold/evaluation/`: Backtest and validation results
 
-**Implementation**: `GoldCurator` class (`src/lake/gold_curator.py`) + `src/ml/zone_objective.py`
+**Implementation**: `GoldCurator` class (`src/lake/gold_curator.py`)
 
 ---
 
@@ -292,7 +300,7 @@ Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 | 4 | `InitMarketStateStage` | Initialize market state | - |
 | **Level Universe** |
 | 5 | `GenerateLevelsStage` | Generate 6 level kinds | `level_info` |
-| 6 | `DetectInteractionZonesStage` | Event-driven zone entry | `signals_df` |
+| 6 | `DetectInteractionZonesStage` | Episode-based touch detection (4pt band) | `signals_df` with `episode_id` |
 | **Physics Features** |
 | 7 | `ComputePhysicsStage` | Barrier/tape/fuel from engines | +11 |
 | 8 | `ComputeMultiWindowKinematicsStage` | Velocity/accel/jerk × [1,3,5,10,20]min + momentum_trend | +19 |
@@ -302,11 +310,11 @@ Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 | 12 | `ComputeGEXFeaturesStage` | Gamma exposure within ±5/±10/±15 points (listed strikes per CME schedule) | +15 |
 | 13 | `ComputeForceMassStage` | F=ma validation | +3 |
 | **Approach & Labels** |
-| 14 | `ComputeApproachFeaturesStage` | Approach + timing + normalization + clustering | +28 |
+| 14 | `ComputeApproachFeaturesStage` | Approach + timing + normalization + clustering + episode/dwell features | +38 |
 | 15 | `LabelOutcomesStage` | Triple-barrier (vol-scaled barrier, multi-horizon) | +64 labels |
 | 16 | `FilterRTHStage` | Filter to RTH 09:30-13:30 ET | Final dataset |
 
-**Total**: 16 stages, 182 columns (10 identity + 108 engineered + 64 labels)
+**Total**: 16 stages, ~200 columns (10 identity + ~125 engineered + 64 labels)
 
 ### Pipeline Versions
 
@@ -376,19 +384,38 @@ Generated levels from ES futures (**6 level kinds** total):
 - `approach_velocity`, `approach_bars`, `approach_distance`, `prior_touches`
 - `minutes_since_open`, `bars_since_open`
 
-**Labels** (Triple-Barrier):
-- `outcome` (BREAK, BOUNCE, CHOP, UNDEFINED) - First volatility-scaled barrier hit after level touch
-- `strength_signed` - Signed excursion magnitude
-- `time_to_break/bounce_{1,2}` - Time to dynamic thresholds (fractional + full barrier)
+**Episode Identity** (2 features - EPISODE TRACKING):
+- `episode_id` - Unique identifier for continuous touch episodes
+- `approach_direction` - Direction of travel at episode start (from_above=-1, from_below=+1)
+- **Purpose**: Group continuous touches; define BREAK/BOUNCE semantics
+
+**Dwell/Persistence** (4 features - TIME IN ZONE):
+- `time_in_zone_total` - Seconds since episode start
+- `time_in_zone_last_60s` - Dwell time in last minute
+- `time_in_zone_last_300s` - Dwell time in last 5 minutes
+- `fraction_in_zone_last_20m` - Stickiness metric (how much of 20min was spent near level)
+- **Purpose**: Capture level "holding power" - persistent vs transient touches
+
+**Touch Intensity** (4 features - MICRO-TEST DYNAMICS):
+- `touch_count_last_60s` - Number of touches in last minute
+- `touch_count_last_5m` - Number of touches in last 5 minutes
+- `boundary_cross_rate` - Oscillation frequency around band edge (Hz)
+- `min_abs_distance_in_episode` - Deepest probe into level (ES points)
+- **Purpose**: Detect "pressing" behavior - repeated tests signal potential break
+
+**Labels** (Triple-Barrier, Episode-Level):
+- `outcome` (BREAK, BOUNCE, CHOP, UNDEFINED) - Determined at episode end based on exit direction and barrier hit
+- `strength_signed` - Signed excursion magnitude beyond barrier
+- `time_to_break/bounce_{1,2}` - Time from episode start to dynamic thresholds (fractional + full barrier)
 - `tradeable_1/2` - Threshold reached flags
 - 2/4/8min horizons + primary copy = 64 label columns
+- **Critical**: Same outcome label applied to ALL snapshots within an episode (prevents label leakage)
 
 ---
 
 ## Configuration
 
-Pipeline behavior controlled by `backend/src/common/config.py`
-Defaults to `data/ml/experiments/zone_opt_v1_best_config.json`; override with `CONFIG_OVERRIDE_PATH` if needed.
+Pipeline behavior controlled by `backend/src/common/config.py` (single source of truth for all parameters).
 
 **Key Configuration Concepts**:
 
@@ -398,53 +425,25 @@ Defaults to `data/ml/experiments/zone_opt_v1_best_config.json`; override with `C
 | **RTH Window** | 09:30-13:30 ET (first 4 hours) - when to generate training events |
 | **Premarket** | 04:00-09:30 ET - for PM_HIGH/PM_LOW calculation only |
 | **Strike Spacing** | CME strike listing varies by moneyness/time-to-expiry (5/10/50/100-point intervals; dynamic 5-point additions); aggregate listed strikes within point bands |
-| **Interaction Zones** | MONITOR_BAND (event detection), TOUCH_BAND (precise contact) - **TUNABLE via hyperopt** |
-| **Outcome Labels** | Volatility-scaled barrier (vol window + horizon) - **TUNABLE via hyperopt** |
-| **Multi-Window Lookback** | 1-20min kinematics, 30s-5min OFI, 1-5min barrier - encode setup across timescales |
-| **Base Physics Windows** | W_b/W_t/W_g - engine lookback windows - **TUNABLE via hyperopt** |
-| **Level Selection** | use_pm/use_or/use_sma_200/use_sma_400 - **TUNABLE via hyperopt** |
+| **Touch Zone** | TOUCH_BAND = MONITOR_BAND = 4.0 (single engaged zone concept) |
+| **Episode Boundaries** | EXIT_HYST + EXIT_DWELL_SEC (prevent spurious episode breaks) |
+| **Outcome Labels** | Volatility-scaled barrier (vol window + horizon); applied at episode level |
+| **Multi-Window Lookback** | 1-20min kinematics, 30s-5min OFI, 1-5min barrier - encode "setup shape" for kNN retrieval |
+| **Base Physics Windows** | W_b/W_t/W_g - engine lookback windows (see `src/common/config.py`) |
+| **Level Selection** | use_pm/use_or/use_sma_200/use_sma_400 (see `src/common/config.py`) |
 
-**Inference Model**: Event-driven (adaptive cadence)
+**Inference Model**: Continuous episode-based (250-500ms while in-zone)
 
-**Hyperopt** (Stage 1): 29 tunable parameters including zone widths, windows, thresholds, level selection  
-**Fixed**: Strike listing schedule (external CME rules; intervals vary; dynamic additions), RTH window (09:30-13:30 ET)
-
----
-
-## Hyperparameter Optimization
-
-**Philosophy**: Optimize CONFIG parameters (via best-config JSON), then build features once with best config.
-
-**Stage 1: Zone/Window Optimization** (Required if no best-config JSON exists):
-```bash
-cd backend
-
-# Or use real data for accurate results
-uv run python scripts/run_zone_hyperopt.py \
-  --start-date 2025-11-02 \
-  --end-date 2025-11-30 \
-  --n-trials 1000
-```
-
-**Searches 29 parameters**:
-- Zone widths (MONITOR_BAND, TOUCH_BAND, per-level)
-- Outcome thresholds (vol window, barrier scale, horizon)
-- Physics windows (W_b, W_t, W_g)
-- Multi-window selection (which timeframes to use)
-- Level selection (use_pm, use_or, use_sma_200/400)
-
-**Optimizes for**: kNN-5 purity (50%) + Precision@80% (30%) + Feature variance (20%)
-
-**Output**: Best CONFIG parameters logged to MLflow + JSON at `data/ml/experiments/<study_name>_best_config.json`
-- Example: `MONITOR_BAND=3.8`, `W_t=45s`, `use_sma_200=False`
-
-**Action**: Run hyperopt to write the JSON (default path), then rebuild (no manual edits). Set `CONFIG_OVERRIDE_PATH` if you use a non-default study name.
+**Configuration**: All parameters defined in `src/common/config.py`  
+**Fixed External Constraints**: Strike listing schedule (CME rules), RTH window (09:30-13:30 ET)
 
 ---
 
-### Stage 2: Model Training
+## Model Training with Hyperparameter Optimization
 
-**Input**: Features from `silver/features/es_pipeline/` (built with CONFIG loaded from best-config JSON)
+**Philosophy**: Fixed CONFIG for feature engineering; optimize only model hyperparameters.
+
+**Input**: Features from `silver/features/es_pipeline/` (built with fixed CONFIG)
 
 ```bash
 # Train XGBoost + build kNN index
@@ -454,9 +453,15 @@ uv run python -m src.ml.boosted_tree_train \
 # Output: ml/production/xgb_prod.pkl + knn_index.faiss
 ```
 
-**Model optimizes**: XGBoost hyperparams, feature selection, kNN blend weight
+**Hyperopt searches**:
+- XGBoost hyperparameters (learning rate, max depth, subsample, etc.)
+- Feature selection (which engineered features to use)
+- kNN blend weight (how much to weight kNN vs XGBoost)
+- kNN retrieval parameters (K, distance metric, episode-collapse settings)
 
-**Target**: Precision@80% > 90% (high confidence = high accuracy)
+**Optimization target**: Precision@80% > 90% (high confidence = high accuracy)
+
+**Why this workflow**: Feature engineering is physics-based with clear semantic meaning. Tuning zone widths and windows would obscure the underlying dynamics. Instead, we fix the physics parameters and let the model learn which features are predictive.
 
 ---
 
@@ -479,39 +484,60 @@ Why v1 uses first 4 hours only?
 - Pre-market data (04:00-09:30 ET) used for PM_HIGH/PM_LOW but NOT for training labels
 - Implementation: `FilterRTHStage` with `RTH_END_HOUR=13`
 
-### Sparse is Better (kNN Retrieval)
-**Counter-intuitive**: 10-20 high-quality events/day > 100 noisy events/day
-- kNN retrieval accumulates events over time (60 days × 15 events = 900 examples)
-- Precision > Recall (better to sit out than be wrong)
-- Hyperopt optimizes for physics distinctiveness, not event density
+### Dense Snapshots, Episode-Collapsed Retrieval
+**Philosophy**: Retain dense in-zone snapshots for state evolution; retrieval votes on episode-collapsed neighbors
+- **Training data**: Many snapshots per episode capture dwell behavior and touch intensity
+- **kNN retrieval**: Episode-collapsed voting prevents redundancy (independent historical attempts only)
+- **Data volume**: 60 days × 20 episodes/day × 6 levels = ~7,200 independent episode examples
+- **Why this works**: Similarity voting on episodes (not ticks) while features capture within-episode dynamics
+- Precision > Recall (better to sit out than be wrong); similarity strength metric prevents false confidence
 
 ---
 
-## Adaptive Inference Architecture
+## Episode-Based Inference Architecture
 
-**Inference Model**: ML updates are event-driven; physics telemetry updates every 250ms.
+**Inference Model**: Continuous inference at 250-500ms while within touch zone; episode-collapsed kNN retrieval.
 
-**Cadence tiers (per level)**:
-- Far (z > 3): infer every 10s
-- Approaching (1.5 < z ≤ 3): infer every 2s
-- Engaged (z ≤ 1.5): infer every 250–500ms
+**Touch Zone**: Single 4-point band (TOUCH_BAND = MONITOR_BAND = 4.0)
+- When `abs(price - level) <= 4.0`, we are **in-zone** (engaged)
+- Continuous inference at 250-500ms cadence while engaged
+- Physics telemetry updates at 250ms; ML probabilities smoothed with EWMA
 
-**Hard triggers override timers**:
-- Enter/exit monitor band
-- Level cross
-- Tape imbalance shock / sweep
-- Barrier regime change (replenish → consume)
-- Gamma sign flip
+**Episode Definition**:
+- **Episode start**: `abs(price - level) <= 4.0` becomes true
+- **Episode end**: `abs(price - level) >= 4.0 + EXIT_HYST` for at least `EXIT_DWELL_SEC`
+- All touches within an episode share the same `episode_id`
+- Episodes group continuous "pressing" behavior at a level
 
-### Feature Computation Strategy
+**Direction-of-Travel**:
+- Computed from pre-touch signed distance slope: `x(t) = price(t) - level`
+- **Approaching from above**: `x > 0` and `dx/dt < 0` (coming down)
+- **Approaching from below**: `x < 0` and `dx/dt > 0` (coming up)
+- Used to define BREAK vs BOUNCE outcomes
 
-1. Compute LevelState for all 6 levels on each snap.
-2. Evaluate distance-to-level (z) + triggers to decide ML refresh.
-3. Latch ML probabilities between updates; gateway merges with physics telemetry.
+### kNN Retrieval Strategy
+
+**Query Vector**: 20-minute pre-touch state snapshot
+- Multi-window kinematics (1-20min velocity/accel/jerk)
+- Multi-window OFI (30-300s)
+- Barrier evolution (1-5min)
+- Session timing, distances, approach context
+- **Critical**: Features computed from PRE-TOUCH windows only
+
+**Episode-Collapsed Retrieval** (prevents redundancy):
+1. Retrieve `K_raw = 500` nearest neighbors
+2. Group by `(session_date, level_kind, episode_id)`
+3. Keep only **single closest** neighbor per episode
+4. Take top `K = 50-200 episodes` (not ticks)
+5. Distance-weighted vote on outcomes (BREAK/BOUNCE/CHOP)
+6. Apply EWMA smoothing to displayed probabilities
+7. Expose **similarity strength** metric (nearest_distance / n_close) for "no close analogs" detection
 
 **Data Volume**:
-- Events only when within monitor band; typically ~10–25/day per level.
-- ML updates are sparse away from levels, dense only in the decision zone.
+- Dense snapshots while in-zone (250-500ms × episode duration)
+- Episode-level labeling prevents label leakage
+- Retrieval votes on **independent historical episodes**, not redundant ticks
+- Typical: 20-50 episode-snapshots per level per day (many touches per episode)
 
 ---
 
@@ -559,6 +585,52 @@ Why v1 uses first 4 hours only?
 
 ---
 
+## Episode Labeling Process
+
+**Episode Definition**: Continuous time spent within touch zone (4 points)
+
+**Episode Lifecycle**:
+1. **Episode Start**: `abs(price - level) <= TOUCH_BAND` becomes true
+   - Assign unique `episode_id`
+   - Compute `approach_direction` from pre-touch signed distance slope:
+     - `x(t) = price(t) - level`
+     - From above: `x > 0` and `dx/dt < 0` → `approach_direction = -1`
+     - From below: `x < 0` and `dx/dt > 0` → `approach_direction = +1`
+
+2. **Episode Active**: Continuous inference at 250-500ms
+   - Compute 20-minute pre-touch state snapshot on each tick
+   - Compute dwell/touch-intensity features (cumulative within episode)
+   - Query kNN (episode-collapsed) for similar past episodes
+   - Apply EWMA smoothing to displayed probabilities
+   - Latch probabilities between updates
+
+3. **Episode End**: `abs(price - level) >= TOUCH_BAND + EXIT_HYST` for `EXIT_DWELL_SEC`
+   - Determine outcome based on exit direction and barrier hits:
+     - **BREAK**: Exit on opposite side from approach AND hit break barrier
+     - **BOUNCE**: Exit on same side as approach AND hit bounce barrier
+     - **CHOP**: Neither barrier hit within horizon
+   - Apply this **same outcome** to ALL snapshots within the episode
+   - This prevents label leakage (all in-episode snapshots get same label)
+
+**Why Episode-Level Labels Matter**:
+- Prevents label leakage: Can't train on tick T and predict tick T+1 within same episode
+- Matches operational reality: All inference during episode uses PRE-TOUCH features
+- Enables dwell/touch-intensity features without contaminating target
+- kNN retrieval votes on independent episodes (not redundant ticks from same attempt)
+
+**Example Episode**:
+```
+t=0s:    Price 5950.00, level PM_HIGH 5950.25 → Episode starts (from below)
+t=0.5s:  Price 5950.50 → In-zone, infer, dwell features update
+t=1.0s:  Price 5949.75 → Still in-zone, infer, touch_count increments
+...
+t=15s:   Price 5952.00 (> 5950.25 + EXIT_HYST) for EXIT_DWELL_SEC → Episode ends
+Outcome: BREAK (exited opposite side + hit barrier)
+Label:   All 30 snapshots (15s × 2Hz) get outcome=BREAK
+```
+
+---
+
 ## Critical Invariants
 
 1. **Bronze is append-only**: Never mutate or delete
@@ -568,11 +640,13 @@ Why v1 uses first 4 hours only?
 5. **Front-month purity**: ES futures AND ES options on SAME contract (CRITICAL!)
 6. **0DTE filtering**: ES options with `exp_date == session_date` only
 7. **RTH filtering**: Silver/Gold contain only 09:30-13:30 ET signals (v1 = first 4 hours)
-8. **Adaptive inference**: Event-driven ML cadence; physics telemetry at 250ms with latched probabilities
-9. **Multi-window lookback**: 1-20min for kinematics, 30s-5min for OFI/barrier
-10. **Partition boundaries**: Date/hour aligned to UTC
-11. **Compression**: ZSTD level 3 for all tiers
-12. **No conversion**: ES futures = ES options (same index points!)
+8. **Episode-based inference**: Continuous 250-500ms inference while in touch zone (4 points); episode_id groups continuous touches
+9. **Multi-window lookback**: 1-20min for kinematics, 30s-5min for OFI/barrier; PRE-TOUCH only for kNN retrieval
+10. **Episode-collapsed kNN**: Retrieve episodes (not ticks) to avoid redundancy; distance-weighted vote on independent historical attempts
+11. **Episode-level labels**: Outcome (BREAK/BOUNCE/CHOP) determined at episode end; applied to all snapshots within episode
+12. **Partition boundaries**: Date/hour aligned to UTC
+13. **Compression**: ZSTD level 3 for all tiers
+14. **No conversion**: ES futures = ES options (same index points!)
 
 ### Front-Month Purity Validation
 
@@ -586,27 +660,39 @@ Why v1 uses first 4 hours only?
 
 ---
 
-## kNN Retrieval System (Neuro-Hybrid)
+## kNN Retrieval System (Episode-Collapsed)
 
 ### The Use Case
 
-**Query**: "Price approaching PM_HIGH with f features"
+**Query**: "Price in touch zone at PM_HIGH; 20-minute pre-touch state shows fast aggressive approach"
 
-**kNN Retrieval**: Find k=5 most similar past events in physics feature space
+**kNN Retrieval**: Find k=50-200 most similar past **episodes** in physics feature space (episode-collapsed)
 
-**Prediction**: "4/5 similar setups resulted in BREAK → 80% confidence BREAK"
+**Prediction**: "45/50 similar episodes resulted in BREAK → 90% confidence BREAK"
 
 ### Why Multi-Window Features Are Critical
 
-**Multi-Window Solution**: By encoding velocity at multiple timescales (1min, 3min, 5min, 10min, 20min), we capture the "shape" of the approach. Fast aggressive approaches (accelerating) show increasing velocity across windows, while decelerating approaches show decreasing velocity. kNN retrieval can distinguish these patterns.
+**Multi-Window Solution**: By encoding velocity at multiple timescales (1min, 3min, 5min, 10min, 20min), we capture the "setup shape" before touch. Fast aggressive approaches (accelerating) show increasing velocity across windows, while decelerating approaches show decreasing velocity. kNN retrieval can distinguish these patterns.
+
+**Critical**: All multi-window features computed from **PRE-TOUCH** data only (backward-looking from touch timestamp).
 
 ### kNN Index Structure
 
-**Built from**: `gold/training/signals_v2_multiwindow.parquet` (curated events)
+**Built from**: `gold/training/signals_v2_multiwindow.parquet` (all in-zone snapshots with episode_id)
 
-**Implementation**: See `backend/src/ml/build_retrieval_index.py` for FAISS index construction using normalized physics features (~20-30 most predictive features including multi-window kinematics, OFI, barrier evolution, and GEX).
+**Implementation**: See `backend/src/ml/build_retrieval_index.py` for FAISS index construction using normalized physics features (~20-30 most predictive features including multi-window kinematics, OFI, barrier evolution, GEX, dwell/touch-intensity).
 
-**Retrieval Process**: At inference, find k=5 nearest neighbors in physics space, compute kNN probability from neighbor outcomes, and blend with XGBoost prediction (25% kNN + 75% XGBoost).
+**Episode-Collapsed Retrieval Process**:
+1. Query FAISS with current 20-minute state vector → retrieve `K_raw = 500` nearest neighbors
+2. Group neighbors by `(session_date, level_kind, episode_id)`
+3. Keep only **single closest** neighbor per episode (prevents redundancy)
+4. Take top `K = 50-200 episodes` with distance weighting
+5. Compute outcome distribution (BREAK/BOUNCE/CHOP) from episode representatives
+6. Apply EWMA smoothing for display
+7. Expose similarity strength metric: `sim_strength = nearest_distance / n_close`
+8. If `sim_strength > threshold`, display "No close analogs" instead of unreliable prediction
+
+**Blending**: kNN probability (25%) + XGBoost prediction (75%) for final confidence
 
 ---
 
@@ -627,8 +713,6 @@ Why v1 uses first 4 hours only?
 - **ES contract selection**: `src/common/utils/contract_selector.py`
 - **Session timing**: `src/common/utils/session_time.py`
 
-**Hyperopt Framework**:
-- **Stage 1 objective**: `src/ml/zone_objective.py` (29-parameter search)
-- **Config override**: `src/common/utils/config_override.py`
-- **Hyperopt runner**: `scripts/run_zone_hyperopt.py`
-- **Grid search**: `scripts/run_zone_grid_search.py`
+**Model Training**:
+- **Boosted tree training**: `src/ml/boosted_tree_train.py`
+- **kNN index builder**: `src/ml/build_retrieval_index.py`
