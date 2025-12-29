@@ -288,7 +288,16 @@ def add_normalized_features(signals_df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("ATR values missing; compute ATR before normalization.")
 
     result = signals_df.copy()
-    spot = result['spot'].astype(np.float64).to_numpy()
+    
+    # Use 'entry_price' as spot if 'spot' not present
+    if 'spot' in result.columns:
+        spot = result['spot'].astype(np.float64).to_numpy()
+    elif 'entry_price' in result.columns:
+        spot = result['entry_price'].astype(np.float64).to_numpy()
+        result['spot'] = spot  # Add for consistency
+    else:
+        raise ValueError("Neither 'spot' nor 'entry_price' column found")
+    
     atr = result['atr'].astype(np.float64).to_numpy()
     eps = 1e-6
 
@@ -335,11 +344,24 @@ class ComputeApproachFeaturesStage(BaseStage):
 
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'ohlcv_1min']
+        return ['signals_df', 'ohlcv_1min', 'atr']
 
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
         ohlcv_df = ctx.data['ohlcv_1min']
+        atr_series = ctx.data['atr']
+
+        # Attach ATR to signals if not already present
+        if 'atr' not in signals_df.columns:
+            # Match signals to OHLCV bars by timestamp to get ATR
+            ohlcv_df['atr_val'] = atr_series
+            signals_with_atr = pd.merge_asof(
+                signals_df.sort_values('ts_ns'),
+                ohlcv_df[['ts_ns', 'atr_val']].rename(columns={'atr_val': 'atr'}),
+                on='ts_ns',
+                direction='backward'
+            )
+            signals_df = signals_with_atr.sort_index()
 
         # Compute approach context (pass date from context)
         signals_df = compute_approach_context(signals_df, ohlcv_df, lookback_minutes=None)

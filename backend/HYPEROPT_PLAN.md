@@ -14,7 +14,7 @@
 **Purpose**: Optimize **how we define the dataset**
 - Zone widths, physics windows, level selection
 - Output: Best feature extraction configuration
-- Tracked in MLflow: `zone_hyperopt_v1`
+- Tracked in MLflow: `zone_hyperopt`
 
 ### Stage 2: Model Training Hyperopt (Separate)
 **Purpose**: Optimize **ML model** on best dataset from Stage 1
@@ -30,7 +30,7 @@
 
 ### What We're Optimizing
 
-**Current v1 hardcoded assumptions**:
+**Current hardcoded assumptions**:
 ```python
 MONITOR_BAND = 5.0    # Interaction zone width
 TOUCH_BAND = 2.0      # Touch zone width  
@@ -192,7 +192,7 @@ Result: 4/5 resulted in BREAK → 80% confidence BREAK prediction
                   ▼
        ┌─────────────────────────────────────┐
        │ Production Feature Dataset          │
-       │ silver/features/v1.1_optimized/     │
+       │ silver/features/optimized/          │
        │                                     │
        │ - High physics distinctiveness      │
        │ - BREAK vs BOUNCE well-separated    │
@@ -222,7 +222,7 @@ Result: 4/5 resulted in BREAK → 80% confidence BREAK prediction
                     ▼
        ┌─────────────────────────────────────┐
        │ Production Model                    │
-       │ models/xgb_v1.1_prod.pkl           │
+       │ models/xgb_prod.pkl                 │
        │                                     │
        │ - Trained on optimized features     │
        │ - Precision@80% > 0.90              │
@@ -1299,7 +1299,7 @@ TOUCH_BAND = 25.0 / 12 ≈ 2.0
 OUTCOME_THRESHOLD = 75.0
 ```
 
-Ship v1 with these, defer optimization to v1.1.
+Ship with these defaults, defer optimization to hyperopt runs.
 
 ---
 
@@ -1310,9 +1310,9 @@ Ship v1 with these, defer optimization to v1.1.
 2. ✅ Use **±2pt touch zone** (precise level contact)
 3. ✅ Use **75pt outcome threshold** (3 strikes, validated)
 4. ✅ **All 4 level types active** initially
-5. 📊 **Defer hyperopt to v1.1** (ship first, optimize second)
+5. 📊 **Defer hyperopt** (ship first, optimize second)
 
-**For v1.1 Enhancement**:
+**For Future Enhancement**:
 - Run grid search on first month of production data
 - Refine with Bayesian optimization
 - Potentially discover per-level-type optimal zones
@@ -1354,7 +1354,7 @@ Ship v1 with these, defer optimization to v1.1.
 
 **Pending**:
 - ES options data download (in progress)
-- Integration of multi-window stages into v1.0_spx_final_call pipeline
+- Integration of multi-window stages into pipeline
 - First production hyperopt run
 
 **Timeline**:
@@ -1390,13 +1390,13 @@ mlflow ui --port 5001
 
 # 5. Rebuild Silver with optimized config
 uv run python scripts/rebuild_silver.py \
-  --version v1.1_optimized \
+  --version optimized \
   --start-date 2025-11-02 \
   --end-date 2025-12-28
 
 # 6. Run Stage 2 (model hyperopt) - separate system
 uv run python -m src.ml.train_with_hyperopt \
-  --silver-version v1.1_optimized \
+  --silver-version optimized \
   --n-trials 100
 ```
 
@@ -1461,11 +1461,11 @@ nano src/common/config.py
 
 # Rebuild Silver with optimized config
 uv run python scripts/rebuild_silver.py \
-  --version v1.1_optimized \
+  --version optimized \
   --start-date 2025-11-02 \
   --end-date 2025-12-28
 
-# Output: silver/features/v1.1_optimized/
+# Output: silver/features/optimized/
 #   - 40 days × 18 events/day = ~720 high-quality events
 #   - Physics features: velocity, accel, OFI, barrier, GEX
 #   - Labels: BREAK/BOUNCE/CHOP with 75pt threshold
@@ -1476,7 +1476,7 @@ uv run python scripts/rebuild_silver.py \
 ```bash
 # Now optimize the ML model on the FIXED optimized dataset
 uv run python -m src.ml.train_with_hyperopt \
-  --silver-version v1.1_optimized \
+  --silver-version optimized \
   --n-trials 100 \
   --study-name model_opt_v1
 
@@ -1503,20 +1503,20 @@ uv run python -m src.ml.train_with_hyperopt \
 #   Coverage@80%: 35% (only predict 35% of events - that's fine!)
 
 # Deploy to production
-cp models/xgb_v1.1_prod.pkl models/production/
+cp models/xgb_prod.pkl models/production/
 ```
 
 ---
 
 ## Comparison: What We Learned
 
-### Naive v1.0 (Hardcoded ±5pt zones):
+### Baseline (Hardcoded ±5pt zones):
 - Events/day: 25
 - Precision@80%: 0.78 (not great)
 - kNN-5 Purity: 0.65 (inconsistent neighbors)
 - Coverage@80%: 45%
 
-### Optimized v1.1 (After Stage 1 hyperopt):
+### Optimized (After Stage 1 hyperopt):
 - Events/day: 18 (FEWER but better!)
 - Precision@80%: 0.89 (+11% improvement)
 - kNN-5 Purity: 0.82 (+17% improvement)
