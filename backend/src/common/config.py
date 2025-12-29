@@ -53,7 +53,7 @@ class Config:
     # Per user specification: ±5 points for interaction zone
     MONITOR_BAND: float = 5.0   # interaction zone: ±5 ES points (±20 ticks, ~0.2 strike)
     TOUCH_BAND: float = 2.0     # touch zone: ±2 ES points (±8 ticks, very precise)
-    CONFLUENCE_BAND: float = 25.0  # band for nearby key level confluence (1 strike)
+    CONFLUENCE_BAND: float = 5.0  # band for nearby key level confluence (1 strike @ 5pt spacing)
     
     # Barrier engine: zone around strike-aligned level
     # ES options strikes: 0.25 point tick size, typically $5-$25 intervals (20-100 ticks)
@@ -76,10 +76,18 @@ class Config:
     SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
     
     # ========== Fuel thresholds ==========
-    # ES 0DTE options: 25-point strike spacing (ATM dominant)
+    # ES 0DTE options: 25-point strike spacing (ATM dominant, validated from data)
     # Use ±75 points to capture 3 strikes on each side (±3 strikes × 25 pts)
-    FUEL_STRIKE_RANGE: float = 75.0  # consider strikes within ±75 points of level (±3 strikes)
+    # 
+    # GAMMA IMPACT ASSESSMENT (Cboe, SpotGamma, Menthor Q studies):
+    # - Net gamma exposure is 0.04-0.17% of ES daily volume
+    # - Hedging flows are balanced (not directional drivers)
+    # - Effect on ES: pinning/chop near strikes, NOT sustained breaks
+    # - Liquidity (order book) + Tape (directional flow) are primary drivers
+    FUEL_STRIKE_RANGE: float = 75.0  # consider strikes within ±75 points of level (±3 strikes @ 25pt)
     DEALER_FLOW_STRIKE_RANGE: float = 75.0  # strike range for dealer flow velocity
+    USE_GAMMA_BUCKET_FILTER: bool = False  # Disable gamma regime filtering in kNN (gamma effects too small)
+    GAMMA_FEATURE_WEIGHT: float = 0.3  # Downweight gamma features in ML training (vs 1.0 for liquidity/tape)
 
     # ========== Mean reversion (SMA) settings ==========
     SMA_SLOPE_WINDOW_MINUTES: int = 20
@@ -89,9 +97,11 @@ class Config:
     SMA_WARMUP_DAYS: int = 3
     
     # ========== Score weights ==========
-    w_L: float = 0.45  # Liquidity (Barrier) weight
-    w_H: float = 0.35  # Hedge (Fuel) weight
-    w_T: float = 0.20  # Tape weight
+    # Note: Gamma effects are small relative to ES futures liquidity (0.04-0.17% of volume)
+    # Liquidity (order book) and Tape (directional flow) are primary drivers
+    w_L: float = 0.55  # Liquidity (Barrier) weight - INCREASED (primary driver)
+    w_H: float = 0.10  # Hedge (Fuel) weight - REDUCED (gamma overstated, pinning only)
+    w_T: float = 0.35  # Tape weight - INCREASED (directional flow matters)
     
     # ========== Trigger thresholds ==========
     BREAK_SCORE_THRESHOLD: float = 80.0
@@ -124,15 +134,16 @@ class Config:
     PREMARKET_START_MINUTE: int = 0
     
     # ========== Outcome labeling ==========
-    # ES 0DTE options: ACTUAL spacing from 2025-11-03 data analysis
-    # ATM region: 25-point dominant spacing (some 5pt very close to money)
+    # ES 0DTE options: CME standard spacing
+    # ATM region (0DTE expiry): 5-point spacing (standard near-the-money on expiration day)
+    # Farther OTM or longer-dated: 25-point spacing (wider intervals away from ATM)
     # Per user requirement: minimum 3 strike move for meaningful attribution
-    # 3 strikes × 25 points = 75 points threshold
-    ES_0DTE_STRIKE_SPACING: float = 25.0    # ES 0DTE ATM spacing (dominant, validated)
-    ES_0DTE_STRIKE_SPACING_TIGHT: float = 5.0  # Very close ATM (rare)
-    OUTCOME_THRESHOLD: float = 75.0         # 75 ES points = 3 strikes @ 25pt spacing
-    STRENGTH_THRESHOLD_1: float = 25.0      # 25 point move (1 strike)
-    STRENGTH_THRESHOLD_2: float = 75.0      # 75 point move (3 strikes)
+    # 3 strikes × 5 points = 15 points threshold (tight 0DTE ATM focus)
+    ES_0DTE_STRIKE_SPACING: float = 5.0     # ES 0DTE ATM spacing (CME standard on expiry)
+    ES_0DTE_STRIKE_SPACING_WIDE: float = 25.0  # Farther OTM or longer-dated contracts
+    OUTCOME_THRESHOLD: float = 15.0         # 15 ES points = 3 strikes @ 5pt spacing (0DTE ATM)
+    STRENGTH_THRESHOLD_1: float = 5.0       # 5 point move (1 strike at 0DTE ATM)
+    STRENGTH_THRESHOLD_2: float = 15.0      # 15 point move (3 strikes at 0DTE ATM)
     LOOKFORWARD_MINUTES: int = 8            # Forward window for outcome determination (8 min to cover all confirmations)
     LOOKBACK_MINUTES: int = 10              # Backward window for approach context
     
@@ -187,7 +198,7 @@ class Config:
     # ========== Confluence feature settings ==========
     VOLUME_LOOKBACK_DAYS: int = 3          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_POINTS: float = 75.0    # 75 ES points (3 ES option strikes @ 25pt spacing) for GEX wall proximity
+    WALL_PROXIMITY_POINTS: float = 15.0    # 15 ES points (3 ES option strikes @ 5pt spacing) for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 

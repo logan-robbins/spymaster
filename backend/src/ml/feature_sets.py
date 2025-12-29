@@ -44,7 +44,9 @@ LABEL_PREFIXES = (
 )
 
 BASE_CATEGORICAL = ["level_kind_name", "direction"]
-MECHANICS_CATEGORICAL = ["barrier_state", "fuel_effect", "gamma_bucket"]
+# Note: gamma_bucket removed from default categoricals - gamma effects are small
+MECHANICS_CATEGORICAL = ["barrier_state", "fuel_effect"]
+GAMMA_CATEGORICAL = ["gamma_bucket"]  # Separate for optional use
 
 STAGE_B_ONLY_PREFIXES = (
     "barrier_",

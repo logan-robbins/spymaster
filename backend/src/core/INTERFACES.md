@@ -383,7 +383,7 @@ level_price = 6920.0  # ES points
 depth = market_state.get_es_depth_at(level_price)
 
 # Query ES option strikes near level
-strikes = [6900, 6925, 6950]  # 25pt spacing
+strikes = [6915, 6920, 6925]  # 5pt spacing (ATM on 0DTE expiry)
 
 # Output in ES index points
 output = level_price  # No conversion needed!

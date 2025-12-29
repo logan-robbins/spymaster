@@ -94,7 +94,7 @@ NATS (market.*) → MarketState (ring buffers)
 **Workflow**:
 1. Level specified in ES index points: `level_price = 6870.0` (ES)
 2. Query ES depth/trades at same price: `es_level = 6870.0` (no conversion!)
-3. Query ES option strikes near level: `strikes = [6850, 6875, 6900]` (25pt spacing)
+3. Query ES option strikes near level: `strikes = [6865, 6870, 6875]` (5pt spacing ATM)
 4. Output in ES index points: `level_price = 6870.0`
 
 **No conversion needed**: ES futures and ES options use identical price scale.
