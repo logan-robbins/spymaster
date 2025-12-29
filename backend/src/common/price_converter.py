@@ -117,7 +117,6 @@ class PriceConverter:
         """Get converter state for debugging/logging."""
         return {
             "basis": self.basis,
-            "dynamic_basis": self._dynamic_basis,
-            "last_es_price": self._last_es_price,
-            "last_spx_price": self._last_spx_price
+            "ratio": self.ratio,
+            "last_es_price": self._last_es_price
         }

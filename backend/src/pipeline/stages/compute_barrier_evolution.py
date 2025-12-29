@@ -135,11 +135,11 @@ class ComputeBarrierEvolutionStage(BaseStage):
     
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'mbp10']
+        return ['signals_df', 'mbp10_snapshots']
     
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
-        mbp10_snapshots = ctx.data.get('mbp10', [])
+        mbp10_snapshots = ctx.data.get('mbp10_snapshots', [])
         
         signals_df = compute_barrier_evolution(
             signals_df=signals_df,

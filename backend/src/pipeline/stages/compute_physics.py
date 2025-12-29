@@ -52,7 +52,7 @@ def compute_physics_batch(
     # Try to use fully vectorized engines if we have raw data
     if trades is not None and len(trades) > 0:
         try:
-            from src.core.vectorized_engines import (
+            from src.core.batch_engines import (
                 build_vectorized_market_data,
                 compute_tape_metrics_batch,
                 compute_barrier_metrics_batch,

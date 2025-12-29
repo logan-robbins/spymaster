@@ -236,8 +236,8 @@ class MarketState:
         # Update price converter with ES price
         self.price_converter.update_es_price(trade.price)
 
-        spx_price = self.price_converter.es_to_spx(trade.price)
-        self._update_context_from_trade(trade.ts_event_ns, spx_price)
+        # ES system: price is already in ES points (no conversion)
+        self._update_context_from_trade(trade.ts_event_ns, trade.price)
 
         # Update session high/low
         if self._session_high is None or trade.price > self._session_high:
@@ -708,47 +708,38 @@ class MarketState:
 
     def get_spot(self) -> Optional[float]:
         """
-        Get current SPX-equivalent spot price (converted from ES trade).
+        Get current spot price (ES futures price in index points).
 
         Returns:
-            SPX-equivalent spot price (e.g., 687.0), or None if no ES data
+            ES spot price (e.g., 6920.0), or None if no ES data
         """
         if self.last_es_trade:
-            return self.price_converter.es_to_spx(self.last_es_trade.price)
+            return self.last_es_trade.price  # ES futures = ES options (no conversion)
         return None
 
     def get_bid_ask(self) -> Optional[Tuple[float, float]]:
         """
-        Get current SPX-equivalent bid/ask (converted from ES MBP-10).
+        Get current bid/ask from ES MBP-10.
 
         Returns:
-            (bid, ask) tuple in SPY terms, or None if no MBP-10 data
+            (bid, ask) tuple in ES points, or None if no MBP-10 data
         """
         if self.es_mbp10_snapshot and self.es_mbp10_snapshot.levels:
             best = self.es_mbp10_snapshot.levels[0]
-            return (
-                self.price_converter.es_to_spx(best.bid_px),
-                self.price_converter.es_to_spx(best.ask_px)
-            )
+            return (best.bid_px, best.ask_px)  # ES futures = ES options (no conversion)
         return None
 
     def get_vwap(self) -> Optional[float]:
-        """Get session VWAP (SPX-equivalent)."""
-        if self._vwap:
-            return self.price_converter.es_to_spx(self._vwap)
-        return None
+        """Get session VWAP (ES points)."""
+        return self._vwap  # ES futures = ES options (no conversion)
 
     def get_session_high(self) -> Optional[float]:
-        """Get session high (SPX-equivalent)."""
-        if self._session_high:
-            return self.price_converter.es_to_spx(self._session_high)
-        return None
+        """Get session high (ES points)."""
+        return self._session_high  # ES futures = ES options (no conversion)
 
     def get_session_low(self) -> Optional[float]:
-        """Get session low (SPX-equivalent)."""
-        if self._session_low:
-            return self.price_converter.es_to_spx(self._session_low)
-        return None
+        """Get session low (ES points)."""
+        return self._session_low  # ES futures = ES options (no conversion)
 
     # ========== Raw ES accessors (for engines that need ES prices) ==========
 

@@ -76,6 +76,7 @@ class ESPipelineValidator:
         
         # Gate 2: Session-time gate
         print("\n2. Session-Time Gate...")
+        signals_df = None
         try:
             session_start_ns = get_session_start_ns(date)
             
@@ -83,7 +84,7 @@ class ESPipelineValidator:
             pipeline = build_es_pipeline()
             signals_df = pipeline.run(date)
             
-            if not signals_df.empty and 'minutes_since_open' in signals_df.columns:
+            if signals_df is not None and not signals_df.empty and 'minutes_since_open' in signals_df.columns:
                 # Check that 09:30 events have minutes_since_open ≈ 0
                 early_signals = signals_df[signals_df['minutes_since_open'] <= 1.0]
                 if not early_signals.empty:
@@ -231,7 +232,7 @@ def main():
         backend_dir = Path(__file__).parent.parent
         bronze_root = str(backend_dir / 'data' / 'lake' / 'bronze')
     
-    validator = V1PipelineValidator(bronze_root)
+    validator = ESPipelineValidator(bronze_root)
     
     if args.date:
         result = validator.validate_date(args.date)

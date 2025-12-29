@@ -439,8 +439,11 @@ class BronzeWriter:
                 # Sort by event time within file
                 df = df.sort_values('ts_event_ns')
 
-                # Write with ZSTD compression
-                table = pa.Table.from_pandas(df, preserve_index=False)
+                # Get canonical schema for this schema_name
+                arrow_schema = self._get_arrow_schema(schema_name)
+
+                # Write with ZSTD compression (enforce schema to prevent type inconsistencies)
+                table = pa.Table.from_pandas(df, schema=arrow_schema, preserve_index=False)
                 
                 if self.use_s3:
                     # S3 path
@@ -474,6 +477,27 @@ class BronzeWriter:
             except Exception as e:
                 print(f"  Bronze ERROR ({schema_name}): {e}")
 
+    def _get_arrow_schema(self, schema_name: str) -> pa.Schema:
+        """Get canonical Arrow schema for a schema name."""
+        from src.common.schemas import (
+            StockTradeV1, StockQuoteV1, OptionTradeV1, 
+            GreeksSnapshotV1, FuturesTradeV1, MBP10V1
+        )
+        
+        schema_map = {
+            'stocks.trades': StockTradeV1._arrow_schema,
+            'stocks.quotes': StockQuoteV1._arrow_schema,
+            'options.trades': OptionTradeV1._arrow_schema,
+            'options.greeks_snapshots': GreeksSnapshotV1._arrow_schema,
+            'futures.trades': FuturesTradeV1._arrow_schema,
+            'futures.mbp10': MBP10V1._arrow_schema,
+        }
+        
+        if schema_name not in schema_map:
+            raise ValueError(f"Unknown schema: {schema_name}")
+        
+        return schema_map[schema_name]
+    
     def get_bronze_path(self) -> str:
         """Return the bronze root path."""
         return self.bronze_root
@@ -717,7 +741,8 @@ class BronzeReader:
 
         try:
             # Use DuckDB for efficient reading
-            query = f"SELECT * FROM read_parquet('{glob_pattern}', hive_partitioning=true)"
+            # union_by_name=true handles schema variations (e.g., dictionary-encoded vs plain strings)
+            query = f"SELECT * FROM read_parquet('{glob_pattern}', hive_partitioning=true, union_by_name=true)"
 
             # Add time filters
             conditions = []

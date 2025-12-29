@@ -132,7 +132,8 @@ class LoadBronzeStage(BaseStage):
 
         # Load ES trades
         logger.debug(f"    Reading ES futures trades...")
-        trades_df = reader.read_futures_trades(symbol='ES', date=ctx.date)
+        # TODO: Re-enable front_month_only=True after fixing Bronze symbol field to use full contract names
+        trades_df = reader.read_futures_trades(symbol='ES', date=ctx.date, front_month_only=False)
         if trades_df.empty:
             raise ValueError(f"No ES trades found for {ctx.date}")
 

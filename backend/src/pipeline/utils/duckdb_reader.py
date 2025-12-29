@@ -129,7 +129,7 @@ class DuckDBReader:
                 SELECT *,
                     CAST((ts_event_ns - {start_ns}) / {bucket_ns} AS BIGINT) AS bucket,
                     row_number() OVER (PARTITION BY bucket ORDER BY ts_event_ns DESC) AS rn
-                FROM read_parquet('{glob_pattern}', hive_partitioning=true)
+                FROM read_parquet('{glob_pattern}', hive_partitioning=true, union_by_name=true)
                 WHERE ts_event_ns BETWEEN {start_ns} AND {end_ns}
             )
             WHERE rn = 1

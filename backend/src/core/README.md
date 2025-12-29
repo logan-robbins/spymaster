@@ -32,7 +32,7 @@ Implements real-time physics-based classification of whether price levels will B
 ## Key Engines
 
 ### MarketState (`market_state.py`)
-Central state store with ring buffers for ES MBP-10, trades, and SPY option flow. Provides query interface for engines.
+Central state store with ring buffers for ES MBP-10, trades, and ES 0DTE option flow. Provides query interface for engines.
 
 **Update methods**: Called by Ingestor (event-driven)  
 **Query methods**: Called by engines (snap-driven)
@@ -48,7 +48,7 @@ Computes tape momentum from ES trades. Measures imbalance, velocity, and sweep d
 **Key insight**: Aggressor classification reveals buy/sell pressure directionality.
 
 ### FuelEngine (`fuel_engine.py`)
-Estimates dealer gamma effect from SPY option flow. Classifies as AMPLIFY (dealers chase) or DAMPEN (dealers fade).
+Estimates dealer gamma effect from ES 0DTE option flow. Classifies as AMPLIFY (dealers chase) or DAMPEN (dealers fade).
 
 **Key insight**: Customer buys option → dealer sells gamma → SHORT gamma → must chase moves.
 
@@ -89,15 +89,15 @@ NATS (market.*) → MarketState (ring buffers)
 
 ## Price Conversion Protocol
 
-**Critical**: Levels are SPY dollars, but liquidity analysis uses ES futures.
+**Critical**: ES futures = ES options (perfect alignment, same underlying).
 
 **Workflow**:
-1. User specifies level: `level_price = 687.0` (SPY)
-2. Engine converts: `es_level = 687.0 * 10 = 6870.0` (ES)
-3. Query ES depth/trades at converted price
-4. Convert results back to SPY for output
+1. Level specified in ES index points: `level_price = 6870.0` (ES)
+2. Query ES depth/trades at same price: `es_level = 6870.0` (no conversion!)
+3. Query ES option strikes near level: `strikes = [6850, 6875, 6900]` (25pt spacing)
+4. Output in ES index points: `level_price = 6870.0`
 
-**See**: `src/common/price_converter.py` for implementation.
+**No conversion needed**: ES futures and ES options use identical price scale.
 
 ---
 

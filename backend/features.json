@@ -1,7 +1,6 @@
 {
-  "version": "2.0.0",
   "description": "ES 0DTE Multi-Window Physics Features for Neuro-Hybrid Attribution",
-  "output_path": "data/lake/gold/training/signals_v2_multiwindow.parquet",
+  "output_path": "data/lake/gold/training/signals_production.parquet",
   "label_column": "outcome",
   "label_values": ["BREAK", "BOUNCE", "CHOP"],
   "pipeline": "src.pipeline.pipelines.es_pipeline",
@@ -34,7 +33,7 @@
         },
         "symbol": {
           "dtype": "string",
-          "description": "Underlying symbol (always ES for v1)",
+          "description": "Underlying symbol (always ES)",
           "example": "ES"
         }
       }
@@ -60,17 +59,17 @@
             "1": "PM_LOW - Pre-market low (04:00-09:30 ET from ES futures)",
             "2": "OR_HIGH - Opening range high (09:30-09:45 ET from ES futures)",
             "3": "OR_LOW - Opening range low (09:30-09:45 ET from ES futures)",
-            "6": "SMA_200 - 200-period moving average on 2-min ES bars",
-            "12": "SMA_400 - 400-period moving average on 2-min ES bars"
-          },
-          "note": "6 level kinds total: 4 structural (PM/OR high/low) + 2 moving averages (SMA_200/400)",
+          "6": "SMA_200 - 200-period moving average on 2-min ES bars",
+          "12": "SMA_400 - 400-period moving average on 2-min ES bars"
+        },
+        "note": "6 level kinds: 4 structural (PM/OR high/low) + 2 moving averages (SMA_200/400)",
           "example": 0
         },
         "level_kind_name": {
           "dtype": "string",
           "description": "Human-readable level type name",
           "values": ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SMA_200", "SMA_400"],
-          "note": "6 level kinds total in v1",
+          "note": "6 level kinds in ES system",
           "example": "PM_HIGH"
         },
         "direction": {
@@ -258,7 +257,7 @@
     },
     "barrier_physics": {
       "description": "Order book liquidity dynamics (ES futures MBP-10)",
-      "source": "vectorized_engines.compute_barrier_metrics_batch",
+      "source": "batch_engines.compute_barrier_metrics_batch",
       "methodology": {
         "price_units": "ES index points (futures and options use same scale - no conversion)",
         "zone_definition": "±8 ES ticks (±2.0 ES points) for barrier depth analysis around level",
@@ -318,7 +317,7 @@
     },
     "tape_physics": {
       "description": "Trade flow momentum (ES futures time & sales)",
-      "source": "vectorized_engines.compute_tape_metrics_batch",
+      "source": "batch_engines.compute_tape_metrics_batch",
       "methodology": {
         "price_band": "5.0 ES points around level (tape flow analysis zone)",
         "forward_window": "60 seconds from touch timestamp"
@@ -353,7 +352,7 @@
     },
     "fuel_physics": {
       "description": "Dealer gamma hedging dynamics (ES 0DTE options - same underlying as ES futures)",
-      "source": "vectorized_engines.compute_fuel_metrics_batch",
+      "source": "batch_engines.compute_fuel_metrics_batch",
       "methodology": {
         "greeks": "Black-Scholes model with real-time IV estimation (vectorized numpy)",
         "aggressor_inference": "Tick Rule (uptick=BUY, downtick=SELL)",
@@ -895,8 +894,8 @@
     }
   },
   "statistics": {
-    "generated_at": "2025-12-28 (updated for ES system)",
-    "expected_v1_stats": {
+    "generated_at": "2025-12-28",
+    "expected_stats": {
       "inference_model": "Continuous (every 2-min candle)",
       "candles_per_day": 120,
       "rows_per_day": 360,
