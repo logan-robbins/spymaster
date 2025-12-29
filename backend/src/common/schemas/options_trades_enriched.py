@@ -6,8 +6,8 @@ Extends options.trades.v1 with:
 - greeks_snapshot_id: utf8 (reference to greeks snapshot used)
 - delta: float64 (as-of joined)
 - gamma: float64 (as-of joined)
-- delta_notional: float64 (delta * size * 100)
-- gamma_notional: float64 (gamma * size * 100)
+- delta_notional: float64 (delta * size * contract multiplier)
+- gamma_notional: float64 (gamma * size * contract multiplier)
 - join_tolerance_ms: int64 (tolerance used for as-of join)
 
 Silver tier: cleaned, normalized, deduped, with Greeks joined.
@@ -136,11 +136,11 @@ class OptionTradeEnrichedV1(BaseEventModel):
     )
     delta_notional: Optional[float] = Field(
         default=None,
-        description="delta * size * 100 (contract multiplier)"
+        description="delta * size * contract multiplier"
     )
     gamma_notional: Optional[float] = Field(
         default=None,
-        description="gamma * size * 100 (contract multiplier)"
+        description="gamma * size * contract multiplier"
     )
     join_tolerance_ms: Optional[int] = Field(
         default=None,
@@ -164,7 +164,8 @@ class OptionTradeEnrichedV1(BaseEventModel):
 
         Returns self for chaining.
         """
-        contract_multiplier = 100
+        from src.common.config import CONFIG
+        contract_multiplier = CONFIG.OPTION_CONTRACT_MULTIPLIER
         if self.delta is not None:
             self.delta_notional = self.delta * self.size * contract_multiplier
         if self.gamma is not None:

@@ -200,7 +200,12 @@ def compute_dealer_velocity_features(
     opt_df['ts_event_ns'] = pd.to_numeric(opt_df['ts_event_ns'], errors='coerce').fillna(0).astype(np.int64)
 
     # Dealer gamma flow: dealer takes opposite of customer aggressor
-    dealer_flow = -opt_df['aggressor'].values * opt_df['size'].values * opt_df['gamma'].values * 100.0
+    dealer_flow = (
+        -opt_df['aggressor'].values
+        * opt_df['size'].values
+        * opt_df['gamma'].values
+        * CONFIG.OPTION_CONTRACT_MULTIPLIER
+    )
     opt_ts = opt_df['ts_event_ns'].values
     opt_strike = opt_df['strike'].values
 

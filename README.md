@@ -52,6 +52,7 @@ uv run python -m src.ml.boosted_tree_train \
   --features gold/training/signals_production.parquet
 
 # Optional: Optimize zones first (then update CONFIG and rebuild)
+# NOTE: --dry-run is a pipeline smoke test; use real data for meaningful optimization.
 uv run python scripts/run_zone_hyperopt.py \
   --start-date 2025-11-02 \
   --end-date 2025-11-30 \
@@ -65,9 +66,9 @@ uv run python scripts/run_zone_hyperopt.py \
 
 **Data**: ES futures + ES 0DTE options from Databento GLBX.MDP3  
 **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)  
-**Strike Spacing**: 25 ES points (ATM dominant)  
-**Outcome Threshold**: 75 ES points (3 strikes)  
-**Inference**: Continuous (every 2-min candle)  
+**Strike Spacing**: 5 ES points ATM on expiry (wider OTM; strike bands use nearest listed strikes)  
+**Outcome Threshold**: 15 ES points (3 ATM strikes)  
+**Inference**: Continuous (features computed every 2-min candle; 250ms stream holds last inference)  
 **Pipeline**: 16 stages (load → levels → physics → labels → filter)  
 **Features**: ~70 physics features (multi-window) + ~40 label columns  
 **Model**: XGBoost + kNN (neuro-hybrid)
@@ -135,7 +136,7 @@ npm test
 ## Key Concepts
 
 **Neuro-Hybrid**: Deterministic physics engines + kNN retrieval (not pure ML)  
-**Continuous Inference**: Features at every 2-min candle (not just touches)  
+**Continuous Inference**: Features at every 2-min candle (touch state only for attempt clustering)  
 **Multi-Window**: 1-20min lookback encodes "setup shape" for kNN matching  
 **Two-Stage Hyperopt**: Optimize data generation BEFORE model training  
 **Sparse > Dense**: 15 high-quality events/day better than 100 noisy events  

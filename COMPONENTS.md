@@ -75,7 +75,7 @@
 **Key Responsibilities**:
 - Event dataclass definitions (StockTrade, OptionTrade, FuturesTrade, MBP10, etc.)
 - Configuration singleton (CONFIG with all tunable parameters)
-- Price conversion (ES ↔ SPY)
+- Price conversion (ES ↔ ES no-op)
 - Storage schemas (Pydantic + PyArrow for Bronze/Silver/Gold - **enforced**)
   - Bronze: `FuturesTradeV1`, `MBP10V1`, `OptionTradeV1` (9 schemas)
   - Silver: `SilverFeaturesESPipelineV1` (182 columns, validated in pipeline)
@@ -404,11 +404,11 @@
 
 **Key Parameters** (ES System - CME Standard):
 - **Strike specs**: `ES_0DTE_STRIKE_SPACING=5.0` pts (ATM on expiry), `25.0` pts (farther OTM/longer-dated)
-- **Outcome**: `OUTCOME_THRESHOLD=75.0` pts (3 strikes × 25pt), `LOOKFORWARD_MINUTES=8`
-- **Strength**: `STRENGTH_THRESHOLD_1=25.0` (1 strike), `STRENGTH_THRESHOLD_2=75.0` (3 strikes)
+- **Outcome**: `OUTCOME_THRESHOLD=15.0` pts (3 ATM strikes), `LOOKFORWARD_MINUTES=8`
+- **Strength**: `STRENGTH_THRESHOLD_1=5.0` (1 ATM strike), `STRENGTH_THRESHOLD_2=15.0` (3 ATM strikes)
 - **Physics windows**: `W_b=240s` (barrier/confirmation), `W_t=60s` (tape), `W_g=60s` (fuel)
 - **Monitoring**: `MONITOR_BAND=5.0` pts (interaction zone), `TOUCH_BAND=2.0` pts (precise contact)
-- **Fuel range**: `FUEL_STRIKE_RANGE=75.0` pts (±3 strikes @ 25pt spacing, ATM dominant)
+- **Fuel range**: `FUEL_STRIKE_RANGE=15.0` pts (±3 ATM strikes; nearest listed strikes)
 - **Time window**: RTH 09:30-13:30 ET (first 4 hours only)
 - **Thresholds**: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`
 - **Score weights**: `w_L=0.55` (liquidity - primary), `w_H=0.10` (gamma - pinning only), `w_T=0.35` (tape)
@@ -524,7 +524,7 @@ docker-compose restart ingestor
 
 # 4. Check data persistence
 ls backend/data/lake/bronze/futures/trades/symbol=ES/date=2025-12-16/
-ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
+ls backend/data/lake/gold/levels/signals/underlying=ES/date=2025-12-16/
 ```
 
 ---
@@ -560,7 +560,7 @@ ls backend/data/lake/gold/levels/signals/underlying=SPY/date=2025-12-16/
 - Gateway: 100+ concurrent WebSocket clients
 
 **Storage**:
-- Bronze: ~5-10GB/day (SPY + ES data)
+- Bronze: ~5-10GB/day (ES futures + ES options data)
 - Silver: ~4-8GB/day (after dedup)
 - Gold: ~100-500MB/day (level signals)
 

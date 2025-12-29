@@ -139,7 +139,7 @@ class DuckDBReader:
 
     def read_option_trades(
         self,
-        underlying: str = 'SPY',
+        underlying: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
         end_ns: Optional[int] = None

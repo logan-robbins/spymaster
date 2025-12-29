@@ -10,12 +10,11 @@ Physics:
 - VACUUM when depth pulled without fills
 - CONSUMED when filled > canceled
 
-Price Conversion:
-- Input level_price is in SPY terms (e.g., 687.0)
-- Internally convert to ES (e.g., 6870.0) for depth queries
-- Output defending_quote.price is in SPY terms for display
+Price:
+- Input level_price is in ES points (no conversion)
+- Output defending_quote.price is in ES points
 
-No SPY L1 fallback - ES MBP-10 is the only data source.
+No equity L1 fallback - ES MBP-10 is the only data source.
 """
 
 from dataclasses import dataclass
@@ -104,7 +103,7 @@ class BarrierEngine:
         Compute barrier state for a level using ES MBP-10 + trades.
 
         Args:
-            level_price: The critical level being tested (SPY price, e.g., 687.0)
+            level_price: The critical level being tested (ES points, e.g., 6870.0)
             direction: SUPPORT or RESISTANCE
             market_state: MarketState instance with ES MBP-10 and trade buffers
 
@@ -127,7 +126,7 @@ class BarrierEngine:
         es_trades = market_state.get_es_trades_in_window(ts_now_ns, self.window_seconds)
 
         # ES system: level_price is already in ES points (no conversion needed)
-        # ES strikes at 25pt intervals (dominant ATM) or 5pt (tight ATM)
+        # ES strikes are 5pt ATM on expiry, wider farther OTM
         es_level_price = level_price  # ES futures = ES options
 
         # Zone is ±N ES ticks around the level (tight around strike)

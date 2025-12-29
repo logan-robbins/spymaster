@@ -1,7 +1,7 @@
 """
-Black-Scholes Greeks Calculator for SPY 0DTE Options.
+Black-76 Greeks Calculator for ES 0DTE Options.
 
-Computes real delta and gamma values using the Black-Scholes model.
+Computes delta and gamma using the Black (Black-76) model for options on futures.
 For 0DTE options, time decay is significant so we use precise time-to-expiry.
 
 Per RULES.md: We NEVER estimate - we calculate real metrics.
@@ -18,7 +18,7 @@ import numpy as np
 
 @dataclass
 class BSMGreeks:
-    """Black-Scholes-Merton Greeks output."""
+    """Black-76 Greeks output."""
     delta: float
     gamma: float
     theta: float
@@ -45,10 +45,10 @@ def compute_d1_d2(
     sigma: float
 ) -> Tuple[float, float]:
     """
-    Compute d1 and d2 for Black-Scholes formula.
+    Compute d1 and d2 for Black-76 (options on futures).
 
     Args:
-        S: Spot price
+        S: Futures price (ES points)
         K: Strike price
         T: Time to expiry in years (e.g., 0.5/252 for half a trading day)
         r: Risk-free rate (annualized, e.g., 0.05 for 5%)
@@ -61,7 +61,7 @@ def compute_d1_d2(
         return 0.0, 0.0
 
     sqrt_T = math.sqrt(T)
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrt_T)
+    d1 = (math.log(S / K) + 0.5 * sigma * sigma * T) / (sigma * sqrt_T)
     d2 = d1 - sigma * sqrt_T
 
     return d1, d2
@@ -76,10 +76,10 @@ def compute_greeks(
     option_type: str
 ) -> BSMGreeks:
     """
-    Compute Black-Scholes Greeks for an option.
+    Compute Black-76 Greeks for an option on futures.
 
     Args:
-        S: Spot price (SPY price)
+        S: Futures price (ES points)
         K: Strike price
         T: Time to expiry in years
         r: Risk-free rate (annualized)
@@ -110,6 +110,7 @@ def compute_greeks(
     sqrt_T = math.sqrt(T)
 
     # Common terms
+    discount = math.exp(-r * T)
     pdf_d1 = _norm_pdf(d1)
     cdf_d1 = _norm_cdf(d1)
     cdf_d2 = _norm_cdf(d2)
@@ -117,25 +118,25 @@ def compute_greeks(
     cdf_neg_d2 = _norm_cdf(-d2)
 
     # Gamma is same for calls and puts
-    gamma = pdf_d1 / (S * sigma * sqrt_T)
+    gamma = discount * pdf_d1 / (S * sigma * sqrt_T)
 
     # Vega is same for calls and puts (per 1% vol move)
-    vega = S * pdf_d1 * sqrt_T / 100.0  # Divided by 100 for per 1% vol
+    vega = discount * S * pdf_d1 * sqrt_T / 100.0  # Per 1% vol
 
     if option_type == 'C':
-        delta = cdf_d1
+        delta = discount * cdf_d1
         theta = (
-            -S * pdf_d1 * sigma / (2 * sqrt_T)
-            - r * K * math.exp(-r * T) * cdf_d2
+            -discount * S * pdf_d1 * sigma / (2 * sqrt_T)
+            + r * discount * (S * cdf_d1 - K * cdf_d2)
         ) / 252  # Per trading day
-        rho = K * T * math.exp(-r * T) * cdf_d2 / 100  # Per 1% rate
+        rho = -T * (discount * (S * cdf_d1 - K * cdf_d2)) / 100
     else:
-        delta = cdf_d1 - 1.0  # Negative for puts
+        delta = discount * (cdf_d1 - 1.0)  # Negative for puts
         theta = (
-            -S * pdf_d1 * sigma / (2 * sqrt_T)
-            + r * K * math.exp(-r * T) * cdf_neg_d2
+            -discount * S * pdf_d1 * sigma / (2 * sqrt_T)
+            + r * discount * (K * cdf_neg_d2 - S * cdf_neg_d1)
         ) / 252  # Per trading day
-        rho = -K * T * math.exp(-r * T) * cdf_neg_d2 / 100
+        rho = -T * (discount * (K * cdf_neg_d2 - S * cdf_neg_d1)) / 100
 
     return BSMGreeks(delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho)
 
@@ -178,7 +179,7 @@ def implied_volatility_newton(
 
         # Calculate vega for Newton step
         d1, _ = compute_d1_d2(S, K, T, r, sigma)
-        vega = S * _norm_pdf(d1) * math.sqrt(T)
+        vega = math.exp(-r * T) * S * _norm_pdf(d1) * math.sqrt(T)
 
         if vega < 1e-10:
             # Vega too small, can't continue
@@ -200,18 +201,18 @@ def implied_volatility_newton(
 
 
 def _bs_price(S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> float:
-    """Calculate Black-Scholes option price."""
+    """Calculate Black-76 option price."""
     d1, d2 = compute_d1_d2(S, K, T, r, sigma)
+    discount = math.exp(-r * T)
 
     if option_type == 'C':
-        return S * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
-    else:
-        return K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
+        return discount * (S * _norm_cdf(d1) - K * _norm_cdf(d2))
+    return discount * (K * _norm_cdf(-d2) - S * _norm_cdf(-d1))
 
 
 class BlackScholesCalculator:
     """
-    Calculator for computing Greeks from option trade data.
+    Calculator for computing Greeks from futures option trade data.
 
     For 0DTE options, time is critical. We compute time-to-expiry precisely
     based on market close at 4:00 PM ET.
@@ -291,7 +292,7 @@ class BlackScholesCalculator:
         Otherwise, we use the provided volatility or default.
 
         Args:
-            spot: Current spot price (SPY)
+            spot: Current futures price (ES points)
             strike: Strike price
             option_type: 'C' or 'P'
             ts_ns: Trade timestamp in nanoseconds
@@ -394,10 +395,10 @@ def compute_greeks_vectorized(
     is_call: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Vectorized Black-Scholes greeks computation for arrays of options.
+    Vectorized Black-76 greeks computation for arrays of futures options.
 
     Args:
-        S: Spot prices (array)
+        S: Futures prices (array)
         K: Strike prices (array)
         T: Time to expiry in years (array)
         r: Risk-free rate (scalar)
@@ -429,17 +430,19 @@ def compute_greeks_vectorized(
     is_call_v = is_call[valid]
 
     sqrt_T = np.sqrt(T_v)
-    d1 = (np.log(S_v / K_v) + (r + 0.5 * sigma * sigma) * T_v) / (sigma * sqrt_T)
+    d1 = (np.log(S_v / K_v) + 0.5 * sigma * sigma * T_v) / (sigma * sqrt_T)
 
     # Standard normal CDF and PDF using scipy-free implementation
     cdf_d1 = 0.5 * (1.0 + _erf_vectorized(d1 / np.sqrt(2.0)))
     pdf_d1 = np.exp(-0.5 * d1 * d1) / np.sqrt(2.0 * np.pi)
 
-    # Delta: calls = N(d1), puts = N(d1) - 1
-    delta_v = np.where(is_call_v, cdf_d1, cdf_d1 - 1.0)
+    discount = np.exp(-r * T_v)
 
-    # Gamma: same for calls and puts
-    gamma_v = pdf_d1 / (S_v * sigma * sqrt_T)
+    # Delta: calls = exp(-rT) * N(d1), puts = exp(-rT) * (N(d1) - 1)
+    delta_v = np.where(is_call_v, discount * cdf_d1, discount * (cdf_d1 - 1.0))
+
+    # Gamma: same for calls and puts (discounted)
+    gamma_v = discount * pdf_d1 / (S_v * sigma * sqrt_T)
 
     delta[valid] = delta_v
     gamma[valid] = gamma_v
@@ -474,13 +477,13 @@ def compute_greeks_for_dataframe(
     default_volatility: float = 0.20
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute Black-Scholes greeks for an entire DataFrame of option trades.
+    Compute Black-76 greeks for an entire DataFrame of option trades.
 
     This is ~100x faster than iterating row-by-row.
 
     Args:
         df: DataFrame with columns 'strike', 'right', 'ts_event_ns'
-        spot: Current spot price
+        spot: Current futures price (ES points)
         exp_date: Expiration date (YYYY-MM-DD)
         risk_free_rate: Annualized risk-free rate
         default_volatility: Volatility to use

@@ -2,7 +2,7 @@
 Gold layer Parquet writer for levels.signals per PLAN.md §2.2-§2.4 (Phase 2: NATS + S3).
 
 Writes derived analytics:
-- gold/levels/signals/underlying=SPY/date=YYYY-MM-DD/hour=HH/part-*.parquet
+- gold/levels/signals/underlying=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
 
 Gold represents computed/derived data that can be regenerated from Bronze.
 
@@ -37,7 +37,7 @@ class GoldWriter:
     - S3/MinIO (if USE_S3=True)
 
     Writes snap tick level signals to Parquet files partitioned by:
-    - underlying (SPY)
+    - underlying (ES)
     - date (YYYY-MM-DD)
     - hour (HH)
 
@@ -98,7 +98,7 @@ class GoldWriter:
         Build Hive-style partition path.
 
         Returns path like:
-        gold/levels/signals/underlying=SPY/date=2025-12-22/hour=14/
+        gold/levels/signals/underlying=ES/date=2025-12-22/hour=14/
         """
         dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
         date_str = dt.strftime('%Y-%m-%d')
@@ -187,7 +187,7 @@ class GoldWriter:
             record = {
                 # Market context
                 'ts_event_ns': ts_ms * 1_000_000,  # Convert ms to ns
-                'underlying': 'SPY',
+                'underlying': 'ES',
                 'spot': spy_data.get('spot'),
                 'bid': spy_data.get('bid'),
                 'ask': spy_data.get('ask'),
@@ -284,7 +284,7 @@ class GoldWriter:
         partitions: Dict[str, List[Dict[str, Any]]] = {}
         for record in data:
             ts_ms = record.pop('_ts_ms')
-            underlying = record.get('underlying', 'SPY')
+            underlying = record.get('underlying', 'ES')
             partition_path = self._get_partition_path(ts_ms, underlying)
 
             if partition_path not in partitions:
@@ -391,7 +391,7 @@ class GoldReader:
 
     def read_level_signals(
         self,
-        underlying: str = 'SPY',
+        underlying: str = 'ES',
         date: str = None,
         start_ns: Optional[int] = None,
         end_ns: Optional[int] = None
@@ -444,7 +444,7 @@ class GoldReader:
             print(f"  Gold READ ERROR: {e}")
             return pd.DataFrame()
 
-    def get_available_dates(self, underlying: str = 'SPY') -> List[str]:
+    def get_available_dates(self, underlying: str = 'ES') -> List[str]:
         """Get list of available dates."""
         base_path = os.path.join(
             self.gold_root,

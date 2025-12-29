@@ -434,7 +434,7 @@ class TestResearchIntegration:
             gamma_exposure=1500.0,
             tape_velocity=12.0,
             outcome=OutcomeLabel.BOUNCE,
-            future_price_5min=399.80,
+            future_price=399.80,
         )
         
         runner = ExperimentRunner(signals=[signal])

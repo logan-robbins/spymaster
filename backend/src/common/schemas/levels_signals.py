@@ -96,7 +96,7 @@ class LevelSignalV1(BaseModel):
     event_id: str = Field(..., description="Unique event identifier")
     ts_event_ns: int = Field(..., description="Event timestamp in nanoseconds UTC")
     confirm_ts_ns: Optional[int] = Field(default=None, description="Confirmation timestamp t1 (ns)")
-    symbol: str = Field(default="SPY", description="Underlying symbol")
+    symbol: str = Field(default="ES", description="Underlying symbol")
     
     # ========== Market Context ==========
     spot: Optional[float] = Field(default=None, description="Current spot price")
@@ -106,7 +106,7 @@ class LevelSignalV1(BaseModel):
     # ========== Level Identity ==========
     level_price: float = Field(..., description="Price level being tested")
     level_kind: LevelKind = Field(..., description="Type of level")
-    level_id: Optional[str] = Field(default=None, description="Level identifier (e.g., 'STRIKE_687')")
+    level_id: Optional[str] = Field(default=None, description="Level identifier (e.g., 'STRIKE_6870')")
     direction: Optional[Direction] = Field(default=None, description="SUPPORT or RESISTANCE")
     distance: Optional[float] = Field(default=None, description="Distance from spot to level")
     direction_sign: Optional[int] = Field(default=None, description="Direction sign (UP=1, DOWN=-1)")
@@ -192,14 +192,17 @@ class LevelSignalV1(BaseModel):
     
     # ========== Outcome (Agent C) ==========
     outcome: OutcomeLabel = Field(default=OutcomeLabel.UNDEFINED, description="Outcome classification")
-    future_price_5min: Optional[float] = Field(default=None, description="Price 5 minutes after touch")
+    future_price: Optional[float] = Field(
+        default=None,
+        description="Price at end of lookforward window after confirmation"
+    )
     anchor_spot: Optional[float] = Field(default=None, description="Spot price at confirmation time t1")
-    tradeable_1: Optional[int] = Field(default=None, description="Reached $1.00 in either direction within 5 minutes")
-    tradeable_2: Optional[int] = Field(default=None, description="Reached $2.00 in either direction within 5 minutes")
+    tradeable_1: Optional[int] = Field(default=None, description="Reached 5 ES points in either direction within forward window")
+    tradeable_2: Optional[int] = Field(default=None, description="Reached 15 ES points in either direction within forward window")
     strength_signed: Optional[float] = Field(default=None, description="Signed strength: break-direction excursion minus opposite")
     strength_abs: Optional[float] = Field(default=None, description="Absolute max excursion in either direction")
-    time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first $1 move in either direction")
-    time_to_threshold_2: Optional[float] = Field(default=None, description="Seconds to first $2 move in either direction")
+    time_to_threshold_1: Optional[float] = Field(default=None, description="Seconds to first 5 ES point move in either direction")
+    time_to_threshold_2: Optional[float] = Field(default=None, description="Seconds to first 15 ES point move in either direction")
     
     # ========== Optional Note ==========
     note: Optional[str] = Field(default=None, description="Human-readable signal summary")

@@ -84,7 +84,7 @@ def label_signal_with_future_data(
     threshold: float = 2.0
 ) -> tuple[OutcomeLabel, Optional[float]]:
     """
-    Convenience wrapper that returns both outcome and future price (5 min forward).
+    Convenience wrapper that returns both outcome and future price at end of lookforward window.
     
     Args:
         level_price: Price level being tested
@@ -94,7 +94,7 @@ def label_signal_with_future_data(
         threshold: Price excursion required for BREAK/BOUNCE ($2.00)
     
     Returns:
-        Tuple of (OutcomeLabel, future_price_5min)
+        Tuple of (OutcomeLabel, future_price)
     """
     
     # Infer direction if not provided
@@ -105,7 +105,7 @@ def label_signal_with_future_data(
     
     outcome = get_outcome(level_price, future_prices, direction, threshold=threshold)
     
-    # Get price at 5 minutes forward (or last available price)
-    future_price_5min = future_prices[-1] if future_prices else None
-    
-    return outcome, future_price_5min
+    # Get price at end of lookforward window (or last available price)
+    future_price = future_prices[-1] if future_prices else None
+
+    return outcome, future_price

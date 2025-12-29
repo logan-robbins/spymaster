@@ -13,7 +13,7 @@ from src.common.config import CONFIG
 class InitMarketStateStage(BaseStage):
     """Initialize MarketState with trades, MBP-10, and options.
 
-    Computes Greeks for options using vectorized Black-Scholes.
+    Computes Greeks for options using vectorized Black-76 (futures options).
 
     Outputs:
         market_state: MarketState instance
@@ -37,15 +37,15 @@ class InitMarketStateStage(BaseStage):
         buffer_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
         market_state = MarketState(max_buffer_window_seconds=buffer_seconds * 2)
 
-        # Load trades and find spot price
+        # Load trades and find spot price (ES points)
         spot_price = None
         for trade in trades:
             market_state.update_es_trade(trade)
             if 3000 < trade.price < 10000:
-                spot_price = trade.price / 10.0
+                spot_price = trade.price
 
         if spot_price is None:
-            spot_price = 600.0
+            spot_price = 6000.0
 
         # Load MBP-10 snapshots
         for mbp in mbp10_snapshots:
@@ -95,7 +95,7 @@ class InitMarketStateStage(BaseStage):
                     ts_event_ns=int(row['ts_event_ns']),
                     ts_recv_ns=int(row.get('ts_recv_ns', row['ts_event_ns'])),
                     source=row.get('source', 'polygon_rest'),
-                    underlying=row.get('underlying', 'SPY'),
+                    underlying=row.get('underlying', 'ES'),
                     option_symbol=row['option_symbol'],
                     exp_date=str(row['exp_date']),
                     strike=float(row['strike']),

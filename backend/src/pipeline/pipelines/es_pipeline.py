@@ -5,7 +5,7 @@ Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
 Inference: Continuous (every 2-min candle)
 Features: ~70 physics features (multi-window 1-20min lookback) + ~40 labels
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
-Outcome: Triple-barrier ±75pts (3 strikes), 8min forward
+Outcome: Triple-barrier ±15pts (3 ATM strikes), 8min forward
 RTH: 09:30-13:30 ET (first 4 hours)
 """
 
@@ -45,10 +45,10 @@ def build_es_pipeline() -> Pipeline:
     9. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
     10. ComputeBarrierEvolution (depth changes at 1,3,5min)
     11. ComputeLevelDistances (signed distances to all structural levels)
-    12. ComputeGEX (strike-banded gamma ±1/±2/±3 strikes)
+    12. ComputeGEX (gamma at ±1/±2/±3 nearest listed strikes)
     13. ComputeForceMass (F=ma validation features)
     14. ComputeApproach (approach context + session timing)
-    15. LabelOutcomes (triple-barrier: ±75pts, 8min forward)
+    15. LabelOutcomes (triple-barrier: ±15pts, 8min forward)
     16. FilterRTH (09:30-13:30 ET with forward spillover)
     
     Returns:
@@ -76,4 +76,3 @@ def build_es_pipeline() -> Pipeline:
             FilterRTHStage()
         ]
     )
-

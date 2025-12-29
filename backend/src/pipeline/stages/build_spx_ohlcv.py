@@ -1,10 +1,8 @@
 """
-Build SPX OHLCV series from ES futures.
+Build ES OHLCV series from ES futures trades.
 
-ES futures ARE the spot proxy for SPX.
-No conversion needed - ES and SPX are both quoted in S&P 500 index points.
-
-This replaces the old approach of using ES/10 for SPY.
+ES futures and ES options are quoted in the same index points.
+No conversion needed.
 """
 
 from typing import Any, Dict, List, Optional
@@ -24,9 +22,9 @@ def build_spx_ohlcv_from_es(
     rth_only: bool = False
 ) -> pd.DataFrame:
     """
-    Build SPX OHLCV from ES futures trades.
+    Build ES OHLCV from ES futures trades.
     
-    KEY: ES and SPX use same units (index points). No conversion needed!
+    ES futures and ES options use the same units (index points). No conversion needed.
     
     Args:
         trades: List of ES FuturesTrade objects
@@ -35,7 +33,7 @@ def build_spx_ohlcv_from_es(
         rth_only: If True, only include RTH bars (09:30-13:30 ET for v1)
     
     Returns:
-        DataFrame with OHLCV columns in SPX index points
+        DataFrame with OHLCV columns in ES index points
     """
     if not trades:
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'ts_ns'])
@@ -87,8 +85,7 @@ def build_spx_ohlcv_from_es(
     # Add ts_ns for merging
     ohlcv['ts_ns'] = ohlcv['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
     
-    # NO CONVERSION - ES prices are already in SPX index points!
-    # Old code: ohlcv[['open', 'high', 'low', 'close']] /= 10.0 (WRONG for SPX)
+    # NO CONVERSION - ES prices are already in ES index points.
     
     return ohlcv
 
@@ -153,9 +150,9 @@ def compute_rth_volatility(ohlcv_df: pd.DataFrame, window_minutes: int = 20) -> 
 
 class BuildOHLCVStage(BaseStage):
     """
-    Build SPX OHLCV bars from ES futures.
+    Build ES OHLCV bars from ES futures.
     
-    ES futures ARE the SPX spot proxy (same index points).
+    ES futures and ES options share the same index points.
     
     Args:
         freq: Bar frequency ('1min', '2min')
@@ -243,4 +240,3 @@ class BuildOHLCVStage(BaseStage):
                     result['warmup_dates'] = warmup_dates
         
         return result
-

@@ -1,5 +1,5 @@
 """
-Fuel Engine: Dealer gamma impulse from SPY 0DTE options
+Fuel Engine: Dealer gamma impulse from ES 0DTE options
 
 Estimates whether dealers will AMPLIFY or DAMPEN a move near a level
 by computing net dealer gamma transfer from option trades.
@@ -78,7 +78,7 @@ class FuelEngine:
         # Extract config values
         self.window_seconds = self.config.W_g  # Rolling window for option flows
         self.wall_window_seconds = self.config.W_wall  # Lookback for wall identification
-        self.strike_range = self.config.FUEL_STRIKE_RANGE  # ±N dollars around level
+        self.strike_range = self.config.FUEL_STRIKE_RANGE  # ±N ES points around level
         
         # Thresholds for classification
         self.gamma_threshold = 10000.0  # Minimum |gamma| for non-neutral classification
@@ -375,4 +375,3 @@ class FuelEngine:
         put_wall = self._identify_put_wall(all_flows, spot)
         
         return call_wall, put_wall
-

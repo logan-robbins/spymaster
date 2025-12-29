@@ -27,8 +27,8 @@ class TestComprehensiveSchema:
         signal = LevelSignalV1(
             event_id="test_001",
             ts_event_ns=time.time_ns(),
-            symbol="SPY",
-            level_price=687.0,
+            symbol="ES",
+            level_price=6870.0,
             level_kind=LevelKind.STRIKE,
             is_first_15m=True,
             wall_ratio=2.5,
@@ -50,23 +50,23 @@ class TestComprehensiveSchema:
             # Identity
             event_id="test_002",
             ts_event_ns=time.time_ns(),
-            symbol="SPY",
+            symbol="ES",
             
             # Market context
-            spot=687.42,
-            bid=687.41,
-            ask=687.43,
+            spot=6874.2,
+            bid=6874.1,
+            ask=6874.3,
             
             # Level identity
-            level_price=687.0,
+            level_price=6870.0,
             level_kind=LevelKind.STRIKE,
-            level_id="STRIKE_687",
+            level_id="STRIKE_6870",
             direction=Direction.SUPPORT,
-            distance=0.42,
+            distance=4.2,
             
             # Context
             is_first_15m=True,
-            dist_to_sma_200=0.25,
+            dist_to_sma_200=2.5,
             
             # Basic physics
             wall_ratio=3.5,
@@ -99,27 +99,27 @@ class TestComprehensiveSchema:
             # Fuel metrics
             fuel_effect=FuelEffect.AMPLIFY,
             fuel_net_dealer_gamma=-185000.0,
-            fuel_call_wall=690.0,
-            fuel_put_wall=684.0,
-            fuel_hvl=687.0,
+            fuel_call_wall=6900.0,
+            fuel_put_wall=6840.0,
+            fuel_hvl=6870.0,
             
             # Runway metrics
             runway_direction="DOWN",
             runway_next_level_id="PUT_WALL",
-            runway_next_level_price=684.0,
-            runway_distance=3.0,
+            runway_next_level_price=6840.0,
+            runway_distance=30.0,
             runway_quality=RunwayQuality.CLEAR,
             
             # Outcome
             outcome=OutcomeLabel.BREAK,
-            future_price_5min=683.5,
+            future_price=683.5,
             
             # Note
             note="Vacuum + dealers chase; sweep confirms"
         )
         
         # Verify all fields
-        assert signal.spot == 687.42
+        assert signal.spot == 6874.2
         assert signal.barrier_state == BarrierState.VACUUM
         assert signal.tape_imbalance == -0.45
         assert signal.fuel_effect == FuelEffect.AMPLIFY
@@ -152,7 +152,7 @@ class TestComprehensiveSchema:
         
         # Agent C: Add outcome
         signal.outcome = OutcomeLabel.BOUNCE
-        signal.future_price_5min = 687.8
+        signal.future_price = 687.8
         
         # Verify incremental additions
         assert signal.wall_ratio == 2.0
@@ -279,4 +279,3 @@ class TestComprehensiveSchema:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

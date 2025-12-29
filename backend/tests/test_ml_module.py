@@ -195,7 +195,7 @@ def synthetic_signals_df() -> pd.DataFrame:
     outcomes = np.random.choice(["BREAK", "BOUNCE", "CHOP"], n_samples, p=[0.45, 0.45, 0.10])
     data.update({
         "outcome": outcomes,
-        "future_price_5min": np.random.uniform(680.0, 690.0, n_samples),
+        "future_price": np.random.uniform(680.0, 690.0, n_samples),
         "anchor_spot": np.random.uniform(680.0, 690.0, n_samples),
         "tradeable_1": np.random.choice([0, 1], n_samples, p=[0.4, 0.6]),
         "tradeable_2": np.random.choice([0, 1], n_samples, p=[0.5, 0.5]),

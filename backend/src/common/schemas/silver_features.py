@@ -8,7 +8,7 @@ Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
 Inference: Continuous (every 2-min candle)
 Features: 182 total (identity + physics + labels)
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
-Outcome: Triple-barrier ±75pts (3 strikes), multi-timeframe (2min/4min/8min)
+Outcome: Triple-barrier ±15pts (3 ATM strikes), multi-timeframe (2min/4min/8min)
 RTH: 09:30-13:30 ET (first 4 hours)
 """
 
@@ -215,7 +215,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('time_to_bounce_2_2min', pa.float64(), True),
     ('tradeable_1_2min', pa.int8(), False),
     ('tradeable_2_2min', pa.int8(), False),
-    ('confirm_ts_ns_2min', pa.float64(), False),
+    ('confirm_ts_ns_2min', pa.int64(), True),
     ('anchor_spot_2min', pa.float64(), False),
     ('future_price_2min', pa.float64(), False),
     
@@ -233,7 +233,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('time_to_bounce_2_4min', pa.float64(), True),
     ('tradeable_1_4min', pa.int8(), False),
     ('tradeable_2_4min', pa.int8(), False),
-    ('confirm_ts_ns_4min', pa.float64(), False),
+    ('confirm_ts_ns_4min', pa.int64(), True),
     ('anchor_spot_4min', pa.float64(), False),
     ('future_price_4min', pa.float64(), False),
     
@@ -251,7 +251,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('time_to_bounce_2_8min', pa.float64(), True),
     ('tradeable_1_8min', pa.int8(), False),
     ('tradeable_2_8min', pa.int8(), False),
-    ('confirm_ts_ns_8min', pa.float64(), False),
+    ('confirm_ts_ns_8min', pa.int64(), True),
     ('anchor_spot_8min', pa.float64(), False),
     ('future_price_8min', pa.float64(), False),
     
@@ -270,9 +270,9 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('time_to_bounce_2', pa.float64(), True),
     ('tradeable_1', pa.int8(), False),
     ('tradeable_2', pa.int8(), False),
-    ('confirm_ts_ns', pa.float64(), False),
+    ('confirm_ts_ns', pa.int64(), True),
     ('anchor_spot', pa.float64(), False),
-    ('future_price_5min', pa.float64(), False),
+    ('future_price', pa.float64(), False),
 ], metadata={
     'schema_name': 'features.es_pipeline.v1',
     'tier': 'silver',
@@ -319,4 +319,3 @@ def validate_silver_features(df) -> bool:
 
 # Note: SchemaRegistry.register decorator not applicable for non-Pydantic schemas
 # This schema is registered via __init__.py import
-

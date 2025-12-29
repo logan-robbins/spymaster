@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from src.common.config import CONFIG
+
 try:
     import optuna
     OPTUNA_AVAILABLE = True
@@ -147,7 +149,7 @@ class ZoneObjective:
             'touch_band': trial.suggest_float('touch_band', 1.0, 5.0),
             
             # ===== Outcome Parameters =====
-            # Outcome threshold (in strikes)
+            # Outcome threshold (in strikes, converted to ES points via ATM spacing)
             'outcome_strikes': trial.suggest_int('outcome_strikes', 2, 5),
             
             # Lookforward window (minutes to wait for outcome)
@@ -209,7 +211,7 @@ class ZoneObjective:
         config_overrides = {
             'MONITOR_BAND': config['monitor_band_pm'],  # Simplified - will need per-level support
             'TOUCH_BAND': config['touch_band'],
-            'OUTCOME_THRESHOLD': config['outcome_strikes'] * 25.0,  # strikes → ES points
+            'OUTCOME_THRESHOLD': config['outcome_strikes'] * float(CONFIG.ES_0DTE_STRIKE_SPACING),
             'LOOKFORWARD_MINUTES': config['lookforward_minutes'],
             'LOOKBACK_MINUTES': config['lookback_minutes'],
             'W_b': config['W_b'],
@@ -507,13 +509,14 @@ class ZoneObjective:
             level_diversity_score = 0.5
         
         # ========== Composite Quality Score (Optimized for kNN) ==========
+        # Note: Silhouette is logged for diagnostics but not used in the score.
         quality_score = (
             0.05 * density_score +            # Event density (relaxed - sparse OK)
             0.15 * outcome_score +            # Outcome balance (less critical)
-            0.15 * variance_score +           # Physics variance
-            0.15 * correlation_score +        # Physics-outcome link
-            0.30 * knn_purity_score +         # kNN retrieval coherence (CRITICAL!)
-            0.15 * silhouette_score_val +     # Between-class separation (CRITICAL!)
+            0.20 * variance_score +           # Physics variance
+            0.20 * correlation_score +        # Physics-outcome link
+            0.35 * knn_purity_score +         # kNN retrieval coherence (CRITICAL!)
+            0.00 * silhouette_score_val +     # Logged only
             0.05 * level_diversity_score      # Level type diversity
         )
         
@@ -640,4 +643,3 @@ class ZoneObjective:
             
         except Exception as e:
             print(f"Warning: MLflow logging failed: {e}")
-
