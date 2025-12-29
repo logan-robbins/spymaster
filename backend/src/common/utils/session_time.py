@@ -102,6 +102,10 @@ def compute_bars_since_open(
     """
     minutes = compute_minutes_since_open(ts_ns, date)
     bars = np.maximum(0, (minutes / bar_duration_minutes).astype(np.int32))
+    session_minutes = ((CONFIG.RTH_END_HOUR * 60 + CONFIG.RTH_END_MINUTE)
+                       - (CONFIG.RTH_START_HOUR * 60 + CONFIG.RTH_START_MINUTE))
+    max_bars = max(0, int(session_minutes / max(1, bar_duration_minutes)))
+    bars = np.minimum(bars, max_bars)
     return bars
 
 
@@ -196,4 +200,3 @@ def filter_premarket_only(df: pd.DataFrame, date: str, ts_col: str = 'ts_ns') ->
     
     mask = (df[ts_col] >= pm_start_ns) & (df[ts_col] < session_start_ns)
     return df[mask].copy()
-

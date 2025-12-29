@@ -25,6 +25,12 @@ from src.common.schemas.feature_manifest import (
     ExperimentRecord,
     ValidationMetrics,
 )
+from src.common.schemas.silver_features import (
+    FEATURE_COLUMNS,
+    IDENTITY_COLUMNS,
+    LABEL_COLUMNS,
+    SilverFeaturesESPipelineV1,
+)
 from src.lake.bronze_writer import BronzeReader
 
 logger = logging.getLogger(__name__)
@@ -147,16 +153,14 @@ class SilverFeatureBuilder:
                     logger.warning(f"  No signals for {date}")
                     continue
 
-                # Filter to requested feature columns
-                feature_cols = self._get_feature_columns(manifest)
+                schema_cols = set(SilverFeaturesESPipelineV1._arrow_schema.names)
+                identity_cols = list(IDENTITY_COLUMNS)
+                label_cols = list(LABEL_COLUMNS)
 
-                # Keep identity columns + requested features + labels
-                identity_cols = ['event_id', 'ts_ns', 'date', 'symbol']
-                label_cols = [
-                    'outcome', 'strength_signed', 'tradeable_1', 'tradeable_2',
-                    't1_60', 't1_120', 't2_60', 't2_120',
-                    't1_break_60', 't1_bounce_60', 't2_break_60', 't2_bounce_60'
-                ]
+                feature_cols = [
+                    col for col in self._get_feature_columns(manifest)
+                    if col in schema_cols
+                ] or list(FEATURE_COLUMNS)
 
                 keep_cols = identity_cols + feature_cols + label_cols
                 available_cols = [c for c in keep_cols if c in signals_df.columns]

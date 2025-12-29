@@ -57,9 +57,10 @@ def compute_approach_context(
     bars_since_open = np.zeros(n, dtype=np.int32)
     minutes_since_open = np.zeros(n, dtype=np.float32)
 
-    signal_ts = signals_df['ts_ns'].values
-    level_prices = signals_df['level_price'].values
+    signal_ts = signals_df['ts_ns'].values.astype(np.int64)
+    level_prices = signals_df['level_price'].values.astype(np.float64)
     directions = signals_df['direction'].values
+    entry_prices = signals_df['entry_price'].values.astype(np.float64) if 'entry_price' in signals_df.columns else None
 
     # Import session timing utilities
     from src.common.utils.session_time import (
@@ -84,7 +85,7 @@ def compute_approach_context(
     bars_since_open = compute_bars_since_open(signal_ts, date_str, bar_duration_minutes=1)
     
     # Track touches per level for prior_touches calculation
-    # IMPORTANT: Only count RTH touches, not overnight/premarket
+    # IMPORTANT: Only count RTH touches, and only when inside TOUCH_BAND.
     session_start_ns = get_session_start_ns(date_str)
     level_touch_counts = {}
 
@@ -101,7 +102,11 @@ def compute_approach_context(
         # Prior touches at this level
         level_key = round(level, 2)
         prior_touches[i] = level_touch_counts.get(level_key, 0)
-        level_touch_counts[level_key] = level_touch_counts.get(level_key, 0) + 1
+        touching = False
+        if entry_prices is not None:
+            touching = abs(entry_prices[i] - level) <= CONFIG.TOUCH_BAND
+        if touching and ts >= session_start_ns:
+            level_touch_counts[level_key] = level_touch_counts.get(level_key, 0) + 1
 
         if start_idx >= end_idx or end_idx > len(ohlcv_ts):
             continue
@@ -151,7 +156,6 @@ def compute_approach_context(
     result['approach_distance'] = approach_distance
     result['prior_touches'] = prior_touches
     result['minutes_since_open'] = minutes_since_open
-    result['bars_since_open'] = bars_since_open
     result['bars_since_open'] = bars_since_open
 
     return result

@@ -4,6 +4,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+import numpy as np
 
 from src.common.bus import NATSBus
 from src.common.config import CONFIG
@@ -197,8 +198,8 @@ class SocketBroadcaster:
         signal = level.get("signal")
         signal_map = {
             "REJECT": "BOUNCE",
-            "CONTESTED": "CHOP",
-            "NEUTRAL": "CHOP"
+            "CONTESTED": "NO_TRADE",
+            "NEUTRAL": "NO_TRADE"
         }
         signal = signal_map.get(signal, signal)
 
@@ -257,6 +258,7 @@ class SocketBroadcaster:
         if viewport_pred:
             normalized["ml_predictions"] = {
                 "p_tradeable_2": viewport_pred.get("p_tradeable_2", 0.0),
+                "p_no_trade": viewport_pred.get("p_no_trade", 0.0),
                 "p_break": viewport_pred.get("p_break", 0.0),
                 "p_bounce": viewport_pred.get("p_bounce", 0.0),
                 "strength_signed": viewport_pred.get("strength_signed", 0.0),
@@ -270,12 +272,14 @@ class SocketBroadcaster:
         return normalized
 
     def _compute_session_context(self, ts_ms: int) -> Tuple[bool, int]:
+        from src.common.utils.session_time import compute_bars_since_open, is_first_15_minutes
+
+        ts_ns = int(ts_ms) * 1_000_000
         dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone(
             ZoneInfo("America/New_York")
         )
-        market_open = dt.replace(hour=9, minute=30, second=0, microsecond=0)
-        minutes_since_open = int((dt - market_open).total_seconds() // 60)
-        if minutes_since_open < 0:
-            minutes_since_open = 0
-        is_first_15m = 0 <= minutes_since_open < 15
-        return is_first_15m, minutes_since_open
+        date_str = dt.strftime("%Y-%m-%d")
+        ts_arr = np.array([ts_ns], dtype=np.int64)
+        bars_since_open = int(compute_bars_since_open(ts_arr, date_str, bar_duration_minutes=1)[0])
+        is_first_15m = bool(is_first_15_minutes(ts_arr, date_str)[0])
+        return is_first_15m, bars_since_open

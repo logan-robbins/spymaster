@@ -93,10 +93,9 @@ def detect_interaction_zone_entries(
     df['ts_ns'] = df['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
     
     # Compute dynamic zone width
-    # Per user specification: ±5 points for ES interaction zone
-    # This is tight enough to detect precise level engagement
-    # but not so wide that we get false events
-    w_min = 5.0  # ES points (±5pt = ±20 ticks, ~0.2 strike @ 25pt spacing)
+    # Use monitor band as the minimum interaction zone (points).
+    # Volatility can expand this slightly, but keep it tight.
+    w_min = float(CONFIG.MONITOR_BAND)
     k_atr = 0.1  # Small ATR multiplier (zone shouldn't expand much)
     
     if atr is not None and len(atr) > 0:
@@ -214,4 +213,3 @@ class DetectInteractionZonesStage(BaseStage):
         
         # Return as 'touches_df' for compatibility with downstream stages
         return {'touches_df': events_df}
-

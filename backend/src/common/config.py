@@ -11,8 +11,10 @@ Per §9 of PLAN.md, this centralizes:
 All values are tunable mechanical constants (no trained calibration in v1).
 """
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -48,7 +50,7 @@ class Config:
     # 
     # KEY: Interaction zone is DIFFERENT from outcome threshold!
     # - Interaction zone: WHERE we detect events (tight around level)
-    # - Outcome threshold: HOW FAR price moves for BREAK/BOUNCE (3 strikes)
+    # - Outcome barrier: HOW FAR price moves for BREAK/BOUNCE (volatility-scaled)
     # 
     # Per user specification: ±5 points for interaction zone
     MONITOR_BAND: float = 5.0   # interaction zone: ±5 ES points (±20 ticks, ~0.2 strike)
@@ -84,7 +86,7 @@ class Config:
     # - Hedging flows are balanced (not directional drivers)
     # - Effect on ES: pinning/chop near strikes, NOT sustained breaks
     # - Liquidity (order book) + Tape (directional flow) are primary drivers
-    FUEL_STRIKE_RANGE: float = 15.0  # consider strikes within ±15 points (~3 ATM strikes at 5pt)
+    FUEL_STRIKE_RANGE: float = 15.0  # consider strikes within ±15 points
     DEALER_FLOW_STRIKE_RANGE: float = 15.0  # strike range for dealer flow velocity
     USE_GAMMA_BUCKET_FILTER: bool = False  # Disable gamma regime filtering in kNN (gamma effects too small)
     GAMMA_FEATURE_WEIGHT: float = 0.3  # Downweight gamma features in ML training (vs 1.0 for liquidity/tape)
@@ -135,25 +137,28 @@ class Config:
     PREMARKET_START_MINUTE: int = 0
     
     # ========== Outcome labeling ==========
-    # ES 0DTE options: CME standard spacing
-    # ATM region (0DTE expiry): 5-point spacing (standard near-the-money on expiration day)
-    # Farther OTM or longer-dated: 25-point spacing (wider intervals away from ATM)
-    # Per user requirement: minimum 3 strike move for meaningful attribution
-    # 3 strikes × 5 points = 15 points threshold (tight 0DTE ATM focus)
+    # Labels are volatility-scaled (dynamic barrier) with a fixed horizon.
+    # If volatility is missing, fall back to static thresholds for determinism.
     ES_0DTE_STRIKE_SPACING: float = 5.0     # ES 0DTE ATM spacing (CME standard on expiry)
     ES_0DTE_STRIKE_SPACING_WIDE: float = 25.0  # Farther OTM or longer-dated contracts
-    OUTCOME_THRESHOLD: float = 15.0         # 15 ES points = 3 strikes @ 5pt spacing (0DTE ATM)
-    STRENGTH_THRESHOLD_1: float = 5.0       # 5 point move (1 strike at 0DTE ATM)
-    STRENGTH_THRESHOLD_2: float = 15.0      # 15 point move (3 strikes at 0DTE ATM)
-    LOOKFORWARD_MINUTES: int = 8            # Forward window for outcome determination (8 min to cover all confirmations)
+    OUTCOME_THRESHOLD: float = 15.0         # Fallback only if vol-based barrier unavailable
+    STRENGTH_THRESHOLD_1: float = 5.0       # Fallback only if vol-based barrier unavailable
+    STRENGTH_THRESHOLD_2: float = 15.0      # Fallback only if vol-based barrier unavailable
+    LOOKFORWARD_MINUTES: int = 8            # Default horizon (minutes) when not using multi-timeframe
     LOOKBACK_MINUTES: int = 10              # Backward window for approach context
     
-    # Multi-timeframe confirmation windows
-    # Generates outcomes at 2min, 4min, 8min to train models on different horizons
+    # Multi-timeframe horizons for outcome labeling (seconds)
     CONFIRMATION_WINDOW_SECONDS: float = 240.0  # Primary confirmation (4 minutes)
     CONFIRMATION_WINDOWS_MULTI: list = field(
         default_factory=lambda: [120.0, 240.0, 480.0]
     )  # 2min, 4min, 8min
+
+    # Volatility-scaled barrier for labels (points)
+    LABEL_VOL_WINDOW_SECONDS: int = 120  # realized vol window for dynamic barrier (seconds)
+    LABEL_BARRIER_SCALE: float = 1.0     # scale factor on sigma*sqrt(horizon)
+    LABEL_BARRIER_MIN_POINTS: float = 5.0
+    LABEL_BARRIER_MAX_POINTS: float = 50.0
+    LABEL_T1_FRACTION: float = 0.33      # threshold_1 = fraction of barrier (tradeable_1)
     
     # ========== Smoothing parameters (EWMA half-lives in seconds) ==========
     tau_score: float = 2.0        # break score smoothing
@@ -172,6 +177,17 @@ class Config:
     
     # ========== Snap tick cadence ==========
     SNAP_INTERVAL_MS: int = 250  # publish level signals every 250ms
+
+    # ========== Adaptive inference cadence ==========
+    INFERENCE_VOL_WINDOW_SECONDS: int = 120
+    INFERENCE_MIN_SIGMA_POINTS: float = 0.5
+    INFERENCE_Z_ENGAGED: float = 1.5
+    INFERENCE_Z_APPROACH: float = 3.0
+    INFERENCE_INTERVAL_ENGAGED_S: float = 0.25
+    INFERENCE_INTERVAL_APPROACH_S: float = 2.0
+    INFERENCE_INTERVAL_FAR_S: float = 10.0
+    INFERENCE_TAPE_IMBALANCE_JUMP: float = 0.25
+    INFERENCE_GAMMA_FLIP_THRESHOLD: float = 0.0
     
     # ========== Level universe settings (ES ~5700-5800 index) ==========
     # ES levels are in index points (same as ES futures/options)
@@ -199,7 +215,7 @@ class Config:
     # ========== Confluence feature settings ==========
     VOLUME_LOOKBACK_DAYS: int = 3          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_POINTS: float = 15.0    # 15 ES points (~3 ATM strikes @ 5pt spacing) for GEX wall proximity
+    WALL_PROXIMITY_POINTS: float = 15.0    # 15 ES points for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 
@@ -231,3 +247,31 @@ class Config:
 
 # Singleton instance
 CONFIG = Config()
+
+# JSON overrides (required, generated by zone hyperopt).
+_CONFIG_OVERRIDE_PATH = os.getenv("CONFIG_OVERRIDE_PATH")
+if _CONFIG_OVERRIDE_PATH:
+    _override_path = Path(_CONFIG_OVERRIDE_PATH).expanduser()
+    if not _override_path.is_absolute():
+        _override_path = (Path(_BASE_DIR) / _override_path).resolve()
+else:
+    _override_path = (
+        Path(_BASE_DIR) / "data" / "ml" / "experiments" / "zone_opt_v1_best_config.json"
+    )
+
+try:
+    if not _override_path.exists():
+        raise FileNotFoundError(f"Override file not found: {_override_path}")
+    with _override_path.open('r', encoding='utf-8') as f:
+        payload = json.load(f)
+    overrides = payload.get('config_overrides', payload) if isinstance(payload, dict) else payload
+    if not isinstance(overrides, dict):
+        raise ValueError("Override payload must be a JSON object")
+    for key, value in overrides.items():
+        if not hasattr(CONFIG, key):
+            raise AttributeError(f"CONFIG has no attribute '{key}'")
+        setattr(CONFIG, key, value)
+except Exception as exc:
+    raise RuntimeError(
+        f"Failed to apply CONFIG overrides from {_override_path}: {exc}"
+    ) from exc

@@ -5,17 +5,55 @@ Generated from ES futures + ES options multi-window physics pipeline.
 This is the authoritative schema for pipeline output validation.
 
 Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
-Inference: Continuous (every 2-min candle)
-Features: 182 total (identity + physics + labels)
+Inference: Event-driven (zone entry + adaptive cadence)
+Features: 182 columns (10 identity + 108 engineered features + 64 labels)
 Levels: 6 kinds (PM/OR high/low + SMA_200/400)
-Outcome: Triple-barrier ±15pts (3 ATM strikes), multi-timeframe (2min/4min/8min)
+Outcome: Triple-barrier with volatility-scaled barrier, multi-timeframe (2min/4min/8min)
 RTH: 09:30-13:30 ET (first 4 hours)
 """
 
-from typing import ClassVar
+from typing import ClassVar, List
 import pyarrow as pa
 
 from .base import SchemaVersion, SchemaRegistry, build_arrow_schema
+
+
+IDENTITY_COLUMNS: List[str] = [
+    "event_id",
+    "ts_ns",
+    "timestamp",
+    "level_price",
+    "level_kind",
+    "level_kind_name",
+    "direction",
+    "entry_price",
+    "zone_width",
+    "date",
+]
+
+LABEL_BASE_COLUMNS: List[str] = [
+    "outcome",
+    "excursion_max",
+    "excursion_min",
+    "strength_signed",
+    "strength_abs",
+    "time_to_threshold_1",
+    "time_to_threshold_2",
+    "time_to_break_1",
+    "time_to_break_2",
+    "time_to_bounce_1",
+    "time_to_bounce_2",
+    "tradeable_1",
+    "tradeable_2",
+    "confirm_ts_ns",
+    "anchor_spot",
+    "future_price",
+]
+
+LABEL_SUFFIXES: List[str] = ["2min", "4min", "8min"]
+LABEL_COLUMNS: List[str] = [
+    f"{base}_{suffix}" for suffix in LABEL_SUFFIXES for base in LABEL_BASE_COLUMNS
+] + LABEL_BASE_COLUMNS
 
 
 class SilverFeaturesESPipelineV1:
@@ -23,21 +61,21 @@ class SilverFeaturesESPipelineV1:
     Silver tier features from ES pipeline.
     
     This schema represents the output of the 16-stage ES pipeline:
-    - Identity fields (event_id, timestamps, level info)
-    - Physics features (~70 features from 7 engines)
-    - Multi-window kinematics (13 features at 1,3,5,10,20min)
-    - Multi-window OFI (9 features at 30,60,120,300s)
-    - Barrier evolution (7 features at 1,3,5min)
-    - GEX features (9 strike-banded features)
-    - Level distances (8 structural context features)
-    - Force/mass validation (3 features)
-    - Approach context (5 features)
-    - Session timing (2 features)
-    - Sparse transforms (4 features)
-    - Normalized features (10 features)
-    - Attempt clustering (4 features)
-    - Multi-timeframe labels (3 × 15 = 45 label columns for 2min/4min/8min)
-    - Primary labels (15 columns)
+    - Identity fields (event_id, timestamps, level info) = 10 columns
+    - Physics features (barrier/tape/fuel) = 11 columns
+    - Multi-window kinematics = 19 columns
+    - Multi-window OFI = 9 columns
+    - Barrier evolution = 7 columns
+    - GEX features = 15 columns
+    - Level distances + stacking = 16 columns
+    - Force/mass validation = 3 columns
+    - Approach context = 5 columns
+    - Session timing = 2 columns
+    - Sparse transforms = 4 columns
+    - Normalized features = 11 columns
+    - Attempt clustering = 6 columns
+    - Multi-timeframe labels = 3 × 16 = 48 columns (2/4/8min)
+    - Primary labels = 16 columns
     """
     
     _schema_version: ClassVar[SchemaVersion] = SchemaVersion(
@@ -78,7 +116,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('fuel_effect', pa.utf8(), False),
     ('gamma_exposure', pa.float64(), False),
     
-    # ===== MULTI-WINDOW KINEMATICS (20 columns: 5 windows × 4 metrics) =====
+    # ===== MULTI-WINDOW KINEMATICS (19 columns: 5 windows × 3 metrics + momentum_trend for 3/5/10/20min) =====
     ('velocity_1min', pa.float64(), False),
     ('acceleration_1min', pa.float64(), False),
     ('jerk_1min', pa.float64(), False),
@@ -123,7 +161,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('barrier_pct_change_5min', pa.float64(), False),
     ('barrier_depth_current', pa.float64(), False),
     
-    # ===== LEVEL DISTANCES (12 columns: 4 levels × 2-3 normalizations) =====
+    # ===== LEVEL DISTANCES (16 columns: 6 levels × 2 + tested level + stacking) =====
     ('dist_to_pm_high', pa.float64(), False),
     ('dist_to_pm_high_atr', pa.float64(), False),
     ('dist_to_pm_low', pa.float64(), False),
@@ -163,7 +201,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('accel_residual', pa.float64(), False),
     ('force_mass_ratio', pa.float64(), False),
     
-    # ===== APPROACH CONTEXT (6 columns) =====
+    # ===== APPROACH CONTEXT (5 columns) =====
     ('atr', pa.float64(), False),
     ('approach_velocity', pa.float64(), False),
     ('approach_bars', pa.int32(), False),
@@ -180,7 +218,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('barrier_delta_liq_nonzero', pa.int8(), False),
     ('barrier_delta_liq_log', pa.float64(), False),
     
-    # ===== NORMALIZED FEATURES (10 columns) =====
+    # ===== NORMALIZED FEATURES (11 columns) =====
     ('spot', pa.float64(), False),
     ('distance_signed', pa.float64(), False),
     ('distance_signed_atr', pa.float64(), False),
@@ -193,7 +231,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('approach_distance_pct', pa.float64(), False),
     ('level_price_pct', pa.float64(), False),
     
-    # ===== ATTEMPT CLUSTERING (4 columns) =====
+    # ===== ATTEMPT CLUSTERING (6 columns) =====
     ('attempt_index', pa.int64(), False),
     ('attempt_cluster_id', pa.int64(), False),
     ('barrier_replenishment_trend', pa.float64(), False),
@@ -201,7 +239,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('tape_velocity_trend', pa.float64(), False),
     ('tape_imbalance_trend', pa.float64(), False),
     
-    # ===== LABELS: 2-MINUTE CONFIRMATION (15 columns) =====
+    # ===== LABELS: 2-MINUTE CONFIRMATION (16 columns) =====
     ('outcome_2min', pa.utf8(), False),
     ('excursion_max_2min', pa.float64(), False),
     ('excursion_min_2min', pa.float64(), False),
@@ -219,7 +257,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('anchor_spot_2min', pa.float64(), False),
     ('future_price_2min', pa.float64(), False),
     
-    # ===== LABELS: 4-MINUTE CONFIRMATION (15 columns) =====
+    # ===== LABELS: 4-MINUTE CONFIRMATION (16 columns) =====
     ('outcome_4min', pa.utf8(), False),
     ('excursion_max_4min', pa.float64(), False),
     ('excursion_min_4min', pa.float64(), False),
@@ -237,7 +275,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('anchor_spot_4min', pa.float64(), False),
     ('future_price_4min', pa.float64(), False),
     
-    # ===== LABELS: 8-MINUTE CONFIRMATION (15 columns) =====
+    # ===== LABELS: 8-MINUTE CONFIRMATION (16 columns) =====
     ('outcome_8min', pa.utf8(), False),
     ('excursion_max_8min', pa.float64(), False),
     ('excursion_min_8min', pa.float64(), False),
@@ -255,7 +293,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('anchor_spot_8min', pa.float64(), False),
     ('future_price_8min', pa.float64(), False),
     
-    # ===== LABELS: PRIMARY (NO SUFFIX) (15 columns) =====
+    # ===== LABELS: PRIMARY (NO SUFFIX) (16 columns) =====
     # These are aliases/copies of the primary timeframe labels
     ('outcome', pa.utf8(), False),
     ('excursion_max', pa.float64(), False),
@@ -281,8 +319,14 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     'description': 'ES futures + ES options multi-window physics features',
     'total_columns': '182',
     'generated_from': '16-stage ES pipeline',
-    'inference_model': 'continuous (every 2-min candle)',
+    'inference_model': 'event-driven (zone entry + adaptive cadence)',
 })
+
+FEATURE_COLUMNS: List[str] = [
+    name
+    for name in SilverFeaturesESPipelineV1._arrow_schema.names
+    if name not in IDENTITY_COLUMNS and name not in LABEL_COLUMNS
+]
 
 
 # Convenience function to validate DataFrame against schema

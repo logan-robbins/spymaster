@@ -14,10 +14,11 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 # Add backend to path
 backend_dir = Path(__file__).parent.parent
@@ -120,6 +121,41 @@ def run_hyperopt(
     return study
 
 
+def build_best_config_payload(study: optuna.Study) -> Dict[str, Any]:
+    """Build JSON payload for the best config overrides."""
+    if study.best_trial is None:
+        return {}
+
+    objective = ZoneObjective(
+        train_dates=['1970-01-01'],
+        dry_run=True
+    )
+    fixed_trial = optuna.trial.FixedTrial(study.best_params)
+    config = objective._sample_config(fixed_trial)
+
+    return {
+        'study_name': study.study_name,
+        'best_value': study.best_value,
+        'best_params': study.best_params,
+        'config_overrides': config.get('config_overrides', {}),
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    }
+
+
+def write_best_config_json(study: optuna.Study, output_path: Path) -> None:
+    """Write best config + overrides to JSON."""
+    payload = build_best_config_payload(study)
+    if not payload:
+        print("No best trial available; skipping best-config JSON output.")
+        return
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open('w', encoding='utf-8') as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+    print(f"✅ Best config JSON saved to: {output_path}")
+
+
 def print_results(study: optuna.Study):
     """Print optimization results."""
     
@@ -209,6 +245,12 @@ Examples:
         action='store_true',
         help='Use mock data for testing (no real pipeline execution)'
     )
+    parser.add_argument(
+        '--best-config-out',
+        type=str,
+        default=None,
+        help='Path to write best config JSON (default: data/ml/experiments/<study_name>_best_config.json)'
+    )
     
     args = parser.parse_args()
     
@@ -243,6 +285,12 @@ Examples:
     
     # Print results
     print_results(study)
+
+    best_config_path = Path(
+        args.best_config_out
+        or Path('data/ml/experiments') / f'{args.study_name}_best_config.json'
+    )
+    write_best_config_json(study, best_config_path)
     
     # Save study
     if not args.dry_run:
@@ -263,4 +311,3 @@ Examples:
 
 if __name__ == "__main__":
     sys.exit(main())
-

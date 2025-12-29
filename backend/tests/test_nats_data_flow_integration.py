@@ -140,7 +140,7 @@ async def test_gateway_normalizes_direction():
 
 @pytest.mark.asyncio
 async def test_gateway_normalizes_signal():
-    """Test Gateway normalizes REJECT/CONTESTED/NEUTRAL to BOUNCE/CHOP."""
+    """Test Gateway normalizes REJECT/CONTESTED/NEUTRAL to BOUNCE/NO_TRADE."""
     mock_bus = MockNATSBus()
     broadcaster = SocketBroadcaster(bus=mock_bus)
     await broadcaster.start()
@@ -153,17 +153,17 @@ async def test_gateway_normalizes_signal():
     await asyncio.sleep(0.01)
     assert broadcaster._latest_levels["levels"][0]["signal"] == "BOUNCE"
     
-    # Test CONTESTED → CHOP
+    # Test CONTESTED → NO_TRADE
     payload["levels"][0]["signal"] = "CONTESTED"
     await mock_bus.simulate_message("levels.signals", payload)
     await asyncio.sleep(0.01)
-    assert broadcaster._latest_levels["levels"][0]["signal"] == "CHOP"
+    assert broadcaster._latest_levels["levels"][0]["signal"] == "NO_TRADE"
     
-    # Test NEUTRAL → CHOP
+    # Test NEUTRAL → NO_TRADE
     payload["levels"][0]["signal"] = "NEUTRAL"
     await mock_bus.simulate_message("levels.signals", payload)
     await asyncio.sleep(0.01)
-    assert broadcaster._latest_levels["levels"][0]["signal"] == "CHOP"
+    assert broadcaster._latest_levels["levels"][0]["signal"] == "NO_TRADE"
     
     # Test BREAK unchanged
     payload["levels"][0]["signal"] = "BREAK"
@@ -360,4 +360,3 @@ async def test_multiple_concurrent_updates():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
