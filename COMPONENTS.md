@@ -21,9 +21,9 @@
 - Zero latency mismatch
 - Zero conversion error
 
-**ES 0DTE Specs** (validated from real data):
-- Strike spacing: 25 points (ATM dominant)
-- Modeling threshold: 3 strikes = 75 points
+**ES 0DTE Specs** (CME standard):
+- Strike spacing: 5 points (ATM on expiration day), 25 points (farther OTM/longer-dated)
+- Modeling threshold: 3 strikes @ 5pt = 15 points (tight ATM focus)
 - Time window: 09:30-13:30 ET (first 4 hours)
 - Level types: 4 only (PM/OR/SMA200/SMA400)
 
@@ -391,7 +391,7 @@
 **ES futures = ES options = same price scale (PERFECT ALIGNMENT)**:
 1. Level specified in ES index points: `level_price = 5850.0`
 2. Query ES depth/trades at same price: `es_level = 5850.0` (no conversion!)
-3. Query ES option strikes near level: `strikes = [5825, 5850, 5875]` (25pt spacing)
+3. Query ES option strikes near level: `strikes = [5845, 5850, 5855]` (5pt spacing ATM)
 4. Output in ES index points: `level_price = 5850.0`
 
 **Ratio**: ES futures / ES options ≈ 1.0 (NO CONVERSION! Small basis spread tracked for diagnostics)
@@ -402,16 +402,17 @@
 
 **Single Source of Truth**: `backend/src/common/config.py` (CONFIG singleton)
 
-**Key Parameters** (ES System - Validated from Real Data):
-- **Strike specs**: `ES_0DTE_STRIKE_SPACING=25.0` pts (dominant ATM), `5.0` pts (tight ATM rare)
+**Key Parameters** (ES System - CME Standard):
+- **Strike specs**: `ES_0DTE_STRIKE_SPACING=5.0` pts (ATM on expiry), `25.0` pts (farther OTM/longer-dated)
 - **Outcome**: `OUTCOME_THRESHOLD=75.0` pts (3 strikes × 25pt), `LOOKFORWARD_MINUTES=8`
 - **Strength**: `STRENGTH_THRESHOLD_1=25.0` (1 strike), `STRENGTH_THRESHOLD_2=75.0` (3 strikes)
 - **Physics windows**: `W_b=240s` (barrier/confirmation), `W_t=60s` (tape), `W_g=60s` (fuel)
 - **Monitoring**: `MONITOR_BAND=5.0` pts (interaction zone), `TOUCH_BAND=2.0` pts (precise contact)
-- **Fuel range**: `FUEL_STRIKE_RANGE=75.0` pts (±3 strikes)
+- **Fuel range**: `FUEL_STRIKE_RANGE=75.0` pts (±3 strikes @ 25pt spacing, ATM dominant)
 - **Time window**: RTH 09:30-13:30 ET (first 4 hours only)
 - **Thresholds**: `R_vac=0.3`, `R_wall=1.5`, `F_thresh=100`
-- **Score weights**: `w_L=0.45`, `w_H=0.35`, `w_T=0.20`
+- **Score weights**: `w_L=0.55` (liquidity - primary), `w_H=0.10` (gamma - pinning only), `w_T=0.35` (tape)
+- **ML weighting**: Gamma features 0.3x (evidence: 0.04-0.17% of ES volume - Cboe/SpotGamma)
 - **Smoothing**: `tau_score=2.0s`, `tau_velocity=1.5s`
 - **Snap interval**: `SNAP_INTERVAL_MS=250`
 - **Warmup**: `SMA_WARMUP_DAYS=3`

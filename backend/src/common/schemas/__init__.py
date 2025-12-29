@@ -95,7 +95,7 @@ __all__ = [
     'ARROW_TYPE_MAP',
     'build_arrow_schema',
     'pydantic_to_arrow_table',
-
+    
     # Bronze
     'StockTradeV1',
     'StockQuoteV1',
@@ -104,11 +104,15 @@ __all__ = [
     'FuturesTradeV1',
     'MBP10V1',
     'BidAskLevelModel',
-
+    
     # Silver
     'OptionTradeEnrichedV1',
-
+    'SilverFeaturesESPipelineV1',
+    'validate_silver_features',
+    
     # Gold
+    'GoldTrainingESPipelineV1',
+    'validate_gold_training',
     'LevelSignalV1',
     'LevelKind',
     'OutcomeLabel',

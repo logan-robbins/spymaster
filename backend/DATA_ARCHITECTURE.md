@@ -382,7 +382,8 @@ Generated levels from ES futures (**6 level kinds** total):
 - `gex_asymmetry` - Net directional gamma pressure
 - `gex_ratio_3strike` - Relative gamma concentration
 - `net_gex_3strike` - Net dealer exposure ±75pts
-- **Purpose**: Dealer hedging pressure (AMPLIFY vs DAMPEN)
+- **Purpose**: Detect pinning/chop near strikes (NOT primary break/bounce driver)
+- **Weight**: 0.3x in ML models (gamma is 0.04-0.17% of ES volume - Cboe/SpotGamma studies)
 
 **Level Distances** (8 features - STRUCTURAL CONTEXT):
 - `dist_to_pm_high/low` - Signed distance to PM levels

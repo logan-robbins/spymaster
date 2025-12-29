@@ -487,13 +487,13 @@
       "description": "Strike-banded gamma exposure features",
       "source": "compute_gex_features",
       "methodology": {
-        "strike_bands": "±1, ±2, ±3 strikes (25pt spacing = 25, 50, 75 pts)",
+        "strike_bands": "±1, ±2, ±3 strikes (5pt spacing = 5, 10, 15 pts ATM)",
         "purpose": "Dealer hedging pressure by proximity to level"
       },
       "columns": {
         "gex_above_1strike": {
           "dtype": "float64",
-          "description": "Gamma exposure above level within 1 strike (25pts).",
+          "description": "Gamma exposure above level within 1 strike (5pts).",
           "example": 15000.0
         },
         "gex_above_2strike": {
@@ -503,7 +503,7 @@
         },
         "gex_above_3strike": {
           "dtype": "float64",
-          "description": "Gamma exposure above level within 3 strikes (75pts).",
+          "description": "Gamma exposure above level within 3 strikes (15pts).",
           "example": 58000.0
         },
         "gex_below_1strike": {
@@ -533,7 +533,7 @@
         },
         "net_gex_3strike": {
           "dtype": "float64",
-          "description": "Net dealer exposure within ±75pts of level.",
+          "description": "Net dealer exposure within ±15pts of level.",
           "example": 103000.0
         }
       }
@@ -738,8 +738,8 @@
     "outcome": {
       "description": "Ground truth label for supervised learning (triple-barrier labeling)",
       "methodology": {
-        "threshold": "75.0 ES points (3 strikes @ 25pt spacing) - actionable for ES 0DTE options",
-        "time_to_thresholds": "25.0 pts (1 strike) and 75.0 pts (3 strikes) for time-to-threshold metrics",
+        "threshold": "15.0 ES points (3 strikes @ 5pt spacing) - tight ATM focus for ES 0DTE",
+        "time_to_thresholds": "5.0 pts (1 strike) and 15.0 pts (3 strikes) for time-to-threshold metrics",
         "lookforward": "8 minutes anchored at confirmation time t1",
         "barrier_model": "Competing risks: first barrier hit wins (break vs bounce vs vertical)",
         "missing_data_policy": "If lookforward window is incomplete, outcome is UNDEFINED"
@@ -750,8 +750,8 @@
           "description": "Outcome determined by triple-barrier labeling",
           "values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
           "labeling": {
-            "BREAK": "Price moved +75.0 ES points (3 strikes) in approach direction from level L",
-            "BOUNCE": "Price moved -75.0 ES points (3 strikes) opposite approach direction from level L",
+            "BREAK": "Price moved +15.0 ES points (3 strikes) in approach direction from level L",
+            "BOUNCE": "Price moved -15.0 ES points (3 strikes) opposite approach direction from level L",
             "CHOP": "Neither barrier hit within 8-minute forward window (vertical barrier)",
             "UNDEFINED": "Insufficient forward window to label outcome"
           },
@@ -769,12 +769,12 @@
         },
         "tradeable_1": {
           "dtype": "int8",
-          "description": "Reached 25 ES points (1 strike) in either direction within forward window",
+          "description": "Reached 5 ES points (1 strike) in either direction within forward window",
           "example": 1
         },
         "tradeable_2": {
           "dtype": "int8",
-          "description": "Reached 75 ES points (3 strikes) in either direction within forward window",
+          "description": "Reached 15 ES points (3 strikes) in either direction within forward window",
           "example": 0
         },
         "excursion_max": {
@@ -799,32 +799,32 @@
         },
         "time_to_threshold_1": {
           "dtype": "float64",
-          "description": "Seconds to first 25 ES point (1 strike) move in either direction from level L",
+          "description": "Seconds to first 5 ES point (1 strike) move in either direction from level L",
           "example": 90.0
         },
         "time_to_threshold_2": {
           "dtype": "float64",
-          "description": "Seconds to first 75 ES point (3 strike) move in either direction from level L",
+          "description": "Seconds to first 15 ES point (3 strike) move in either direction from level L",
           "example": 210.0
         },
         "time_to_break_1": {
           "dtype": "float64",
-          "description": "Seconds to first 25 ES point move in break direction from level L",
+          "description": "Seconds to first 5 ES point move in break direction from level L",
           "example": 60.0
         },
         "time_to_bounce_1": {
           "dtype": "float64",
-          "description": "Seconds to first 25 ES point move in bounce direction from level L",
+          "description": "Seconds to first 5 ES point move in bounce direction from level L",
           "example": 120.0
         },
         "time_to_break_2": {
           "dtype": "float64",
-          "description": "Seconds to first 75 ES point move in break direction from level L",
+          "description": "Seconds to first 15 ES point move in break direction from level L",
           "example": 150.0
         },
         "time_to_bounce_2": {
           "dtype": "float64",
-          "description": "Seconds to first 75 ES point move in bounce direction from level L",
+          "description": "Seconds to first 15 ES point move in bounce direction from level L",
           "example": 210.0
         },
         "outcome_2min": {
@@ -857,30 +857,30 @@
         "strength_abs_2min": {"dtype": "float64", "description": "Absolute strength at 2min", "example": 1.25},
         "strength_abs_4min": {"dtype": "float64", "description": "Absolute strength at 4min", "example": 2.50},
         "strength_abs_8min": {"dtype": "float64", "description": "Absolute strength at 8min", "example": 3.75},
-        "tradeable_1_2min": {"dtype": "int8", "description": "25pt (1 strike) reached at 2min confirmation", "example": 1},
-        "tradeable_1_4min": {"dtype": "int8", "description": "25pt (1 strike) reached at 4min confirmation", "example": 1},
-        "tradeable_1_8min": {"dtype": "int8", "description": "25pt (1 strike) reached at 8min confirmation", "example": 1},
-        "tradeable_2_2min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 2min confirmation", "example": 0},
-        "tradeable_2_4min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 4min confirmation", "example": 1},
-        "tradeable_2_8min": {"dtype": "int8", "description": "75pt (3 strikes) reached at 8min confirmation", "example": 1},
-        "time_to_threshold_1_2min": {"dtype": "float64", "description": "Seconds to 25pt move from 2min confirmation", "example": 45.0},
-        "time_to_threshold_1_4min": {"dtype": "float64", "description": "Seconds to 25pt move from 4min confirmation", "example": 90.0},
-        "time_to_threshold_1_8min": {"dtype": "float64", "description": "Seconds to 25pt move from 8min confirmation", "example": 120.0},
-        "time_to_threshold_2_2min": {"dtype": "float64", "description": "Seconds to 75pt move from 2min confirmation", "example": null},
-        "time_to_threshold_2_4min": {"dtype": "float64", "description": "Seconds to 75pt move from 4min confirmation", "example": 180.0},
-        "time_to_threshold_2_8min": {"dtype": "float64", "description": "Seconds to 75pt move from 8min confirmation", "example": 210.0},
-        "time_to_break_1_2min": {"dtype": "float64", "description": "Seconds to 25pt break from 2min confirmation", "example": 40.0},
-        "time_to_break_1_4min": {"dtype": "float64", "description": "Seconds to 25pt break from 4min confirmation", "example": 80.0},
-        "time_to_break_1_8min": {"dtype": "float64", "description": "Seconds to 25pt break from 8min confirmation", "example": 110.0},
-        "time_to_bounce_1_2min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 2min confirmation", "example": 50.0},
-        "time_to_bounce_1_4min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 4min confirmation", "example": 100.0},
-        "time_to_bounce_1_8min": {"dtype": "float64", "description": "Seconds to 25pt bounce from 8min confirmation", "example": 130.0},
-        "time_to_break_2_2min": {"dtype": "float64", "description": "Seconds to 75pt break from 2min confirmation", "example": null},
-        "time_to_break_2_4min": {"dtype": "float64", "description": "Seconds to 75pt break from 4min confirmation", "example": 160.0},
-        "time_to_break_2_8min": {"dtype": "float64", "description": "Seconds to 75pt break from 8min confirmation", "example": 200.0},
-        "time_to_bounce_2_2min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 2min confirmation", "example": null},
-        "time_to_bounce_2_4min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 4min confirmation", "example": 190.0},
-        "time_to_bounce_2_8min": {"dtype": "float64", "description": "Seconds to 75pt bounce from 8min confirmation", "example": 230.0},
+        "tradeable_1_2min": {"dtype": "int8", "description": "5pt (1 strike) reached at 2min confirmation", "example": 1},
+        "tradeable_1_4min": {"dtype": "int8", "description": "5pt (1 strike) reached at 4min confirmation", "example": 1},
+        "tradeable_1_8min": {"dtype": "int8", "description": "5pt (1 strike) reached at 8min confirmation", "example": 1},
+        "tradeable_2_2min": {"dtype": "int8", "description": "15pt (3 strikes) reached at 2min confirmation", "example": 0},
+        "tradeable_2_4min": {"dtype": "int8", "description": "15pt (3 strikes) reached at 4min confirmation", "example": 1},
+        "tradeable_2_8min": {"dtype": "int8", "description": "15pt (3 strikes) reached at 8min confirmation", "example": 1},
+        "time_to_threshold_1_2min": {"dtype": "float64", "description": "Seconds to 5pt move from 2min confirmation", "example": 45.0},
+        "time_to_threshold_1_4min": {"dtype": "float64", "description": "Seconds to 5pt move from 4min confirmation", "example": 90.0},
+        "time_to_threshold_1_8min": {"dtype": "float64", "description": "Seconds to 5pt move from 8min confirmation", "example": 120.0},
+        "time_to_threshold_2_2min": {"dtype": "float64", "description": "Seconds to 15pt move from 2min confirmation", "example": null},
+        "time_to_threshold_2_4min": {"dtype": "float64", "description": "Seconds to 15pt move from 4min confirmation", "example": 180.0},
+        "time_to_threshold_2_8min": {"dtype": "float64", "description": "Seconds to 15pt move from 8min confirmation", "example": 210.0},
+        "time_to_break_1_2min": {"dtype": "float64", "description": "Seconds to 5pt break from 2min confirmation", "example": 40.0},
+        "time_to_break_1_4min": {"dtype": "float64", "description": "Seconds to 5pt break from 4min confirmation", "example": 80.0},
+        "time_to_break_1_8min": {"dtype": "float64", "description": "Seconds to 5pt break from 8min confirmation", "example": 110.0},
+        "time_to_bounce_1_2min": {"dtype": "float64", "description": "Seconds to 5pt bounce from 2min confirmation", "example": 50.0},
+        "time_to_bounce_1_4min": {"dtype": "float64", "description": "Seconds to 5pt bounce from 4min confirmation", "example": 100.0},
+        "time_to_bounce_1_8min": {"dtype": "float64", "description": "Seconds to 5pt bounce from 8min confirmation", "example": 130.0},
+        "time_to_break_2_2min": {"dtype": "float64", "description": "Seconds to 15pt break from 2min confirmation", "example": null},
+        "time_to_break_2_4min": {"dtype": "float64", "description": "Seconds to 15pt break from 4min confirmation", "example": 160.0},
+        "time_to_break_2_8min": {"dtype": "float64", "description": "Seconds to 15pt break from 8min confirmation", "example": 200.0},
+        "time_to_bounce_2_2min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 2min confirmation", "example": null},
+        "time_to_bounce_2_4min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 4min confirmation", "example": 190.0},
+        "time_to_bounce_2_8min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 8min confirmation", "example": 230.0},
         "confirm_ts_ns_2min": {"dtype": "float64", "description": "Confirmation timestamp at 2min", "example": 1765843320000000000},
         "confirm_ts_ns_4min": {"dtype": "float64", "description": "Confirmation timestamp at 4min", "example": 1765843440000000000},
         "confirm_ts_ns_8min": {"dtype": "float64", "description": "Confirmation timestamp at 8min", "example": 1765843680000000000},
@@ -908,7 +908,7 @@
       "BREAK": 0.40,
       "BOUNCE": 0.40,
       "CHOP": 0.20,
-      "note": "75pt threshold (3 strikes) should yield ~40/40/20 split"
+      "note": "15pt threshold (3 strikes @ 5pt ATM) should yield ~40/40/20 split"
     },
     "barrier_state_distribution": {
       "NEUTRAL": 3180,
@@ -1014,7 +1014,7 @@
       "dataset": "GLBX.MDP3 (CME Globex)",
       "format": "Trades + NBBO (MBP-1)",
       "symbol_format": "ESZ5 P6900 (contract + right + strike)",
-      "strike_spacing": "25 points (ATM dominant), 5 points (very tight ATM)",
+      "strike_spacing": "5 points (ATM on 0DTE expiry), 25 points (farther OTM/longer-dated)",
       "0dte_filtering": "exp_date == session_date",
       "front_month_filtering": "Same contract as ES futures (e.g., ESZ5)",
       "fields": ["ts_event_ns", "symbol", "price", "size", "bid_px", "ask_px", "bid_sz", "ask_sz"]
@@ -1033,10 +1033,10 @@
     "aggressor_inference": "Tick Rule: compare trade price to previous trade",
     "0dte_filter": "All option processing restricted to ES 0DTE (same-day expiration)",
     "es_conversion": "NONE - ES futures = ES options (perfect alignment, same underlying!)",
-    "barrier_zone": "±8 ES ticks (±2 ES pts = ±0.08 strikes @ 25pt spacing) around levels",
+    "barrier_zone": "±8 ES ticks (±2 ES pts = ±0.4 strikes @ 5pt spacing) around levels",
     "interaction_zone": "±5 ES points (MONITOR_BAND) for event detection",
     "touch_zone": "±2 ES points (TOUCH_BAND) for precise contact",
-    "outcome_threshold": "Move >=75 ES points (3 strikes @ 25pt spacing) for BREAK/BOUNCE",
+    "outcome_threshold": "Move >=15 ES points (3 strikes @ 5pt spacing) for BREAK/BOUNCE",
     "lookback_context": "Multi-window: 1,3,5,10,20 minutes for velocity/OFI/barrier evolution",
     "lookforward_window": "8 minutes from confirmation time for outcome labeling",
     "confirmation_delay": "4 minutes (240s) - Stage B confirmation before labeling",

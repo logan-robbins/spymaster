@@ -132,11 +132,12 @@ def compute_strike_banded_gex(
     net_gex_2strike = np.zeros(n, dtype=np.float64)
     
     # ES 0DTE strike spacing: 25 points (validated from actual data)
-    # Near ATM: 25pt dominant, some 5pt very tight
-    # Per user requirement: 3-strike minimum move
+    # ATM on 0DTE expiry: 5pt spacing (CME standard)
+    # Farther OTM or longer-dated: 25pt spacing
+    # Per user requirement: 3-strike minimum move @ 5pt = 15pt threshold
     strikes_available = sorted(gex_by_strike['strike'].unique())
     
-    ES_STRIKE_SPACING = 25.0  # ES 0DTE ATM spacing (validated 2025-11-03 data)
+    ES_STRIKE_SPACING = 5.0  # ES 0DTE ATM spacing (CME standard on expiration day)
     
     for i in range(n):
         level = level_prices[i]
@@ -144,7 +145,7 @@ def compute_strike_banded_gex(
         # For each band, find strikes at ±band positions
         for band in strike_bands:
             # Find strikes above and below at exact multiples
-            # band=1 → ±5pts, band=2 → ±10pts, band=3 → ±15pts
+            # band=1 → ±5pts, band=2 → ±10pts, band=3 → ±15pts (at 5pt spacing)
             target_above = level + (band * ES_STRIKE_SPACING)
             target_below = level - (band * ES_STRIKE_SPACING)
             

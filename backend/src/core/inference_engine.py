@@ -85,7 +85,8 @@ class ViewportInferenceEngine:
                 "level_kind_name": level_kind_name_val,
                 "direction": direction_val
             }
-            if gamma_bucket is not None:
+            # Only filter by gamma bucket if enabled (disabled by default - gamma effects are small)
+            if gamma_bucket is not None and CONFIG.USE_GAMMA_BUCKET_FILTER:
                 filters["gamma_bucket"] = gamma_bucket[i]
 
             retrieval = self.retrieval_index.query(feature_vector, filters=filters, k=20)
