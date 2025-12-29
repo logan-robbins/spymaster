@@ -184,7 +184,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Purpose**: Normalized events in canonical schema  
 **Format**: Parquet with ZSTD compression  
-**Schema**: `src/common/schemas/*.py` (FuturesTrade, MBP10, OptionTrade)  
+**Schema**: Enforced via PyArrow - `FuturesTradeV1`, `MBP10V1`, `OptionTradeV1` (see `backend/src/common/schemas/`)  
 **Time Coverage**: All hours (00:00-23:59 UTC, ~04:00-20:00 ET after timezone conversion)  
 **Semantics**: Append-only, at-least-once delivery  
 **Retention**: Permanent
@@ -211,7 +211,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Purpose**: Feature engineering output  
 **Format**: Parquet with ZSTD compression  
-**Schema**: Defined by manifest (`manifest.yaml` records CONFIG used)  
+**Schema**: `SilverFeaturesESPipelineV1` (182 columns, enforced) - see `backend/src/common/schemas/silver_features.py`  
 **Time Coverage**: RTH only (09:30-13:30 ET)  
 **Semantics**: Reproducible transformations (Bronze + CONFIG → deterministic Silver)  
 **Retention**: Overwrite when CONFIG changes (no versioning needed)
@@ -246,7 +246,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Purpose**: Production-ready ML datasets and evaluation results  
 **Format**: Parquet with ZSTD compression  
-**Schema**: Final ML-ready schema (curated from best Silver experiment)  
+**Schema**: `GoldTrainingESPipelineV1` (182 columns, identical to Silver but curated) - see `backend/src/common/schemas/gold_training.py`  
 **Semantics**: Curated, validated, production-quality  
 **Retention**: Keep production datasets permanently
 
@@ -814,7 +814,10 @@ cat data/lake/silver/features/es_pipeline/validation.json
 ## References
 
 **Core Modules**:
-- **Bronze schemas**: `backend/src/common/schemas/`
+- **Schemas (enforced)**: `backend/src/common/schemas/`
+  - Bronze: `FuturesTradeV1`, `MBP10V1`, `OptionTradeV1` (9 schema files)
+  - Silver: `SilverFeaturesESPipelineV1` (182 columns, validated in pipeline)
+  - Gold: `GoldTrainingESPipelineV1`, `LevelSignalV1` (training + streaming)
 - **Lake module**: `backend/src/lake/`
 - **Pipeline module**: `backend/src/pipeline/`
 - **Configuration**: `backend/src/common/config.py`

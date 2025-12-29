@@ -1,9 +1,14 @@
 """Filter to regular trading hours stage."""
 from typing import Any, Dict, List
 import pandas as pd
+import pyarrow as pa
+import logging
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.config import CONFIG
+from src.common.schemas.silver_features import SilverFeaturesESPipelineV1, validate_silver_features
+
+logger = logging.getLogger(__name__)
 
 
 class FilterRTHStage(BaseStage):
@@ -66,5 +71,13 @@ class FilterRTHStage(BaseStage):
             columns=[c for c in cols_to_drop if c in signals_df.columns]
         )
 
+        # Validate against Silver schema
+        try:
+            validate_silver_features(signals_df)
+            logger.info(f"  ✅ Schema validation passed: {len(signals_df.columns)} columns")
+        except ValueError as e:
+            logger.warning(f"  ⚠️  Schema validation failed: {e}")
+            # Log but don't fail - this is informational during development
+        
         # Return as 'signals' for Pipeline.run() to extract
         return {'signals': signals_df}

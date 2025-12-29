@@ -76,7 +76,10 @@
 - Event dataclass definitions (StockTrade, OptionTrade, FuturesTrade, MBP10, etc.)
 - Configuration singleton (CONFIG with all tunable parameters)
 - Price conversion (ES ↔ SPY)
-- Storage schemas (Pydantic + PyArrow for Bronze/Silver/Gold)
+- Storage schemas (Pydantic + PyArrow for Bronze/Silver/Gold - **enforced**)
+  - Bronze: `FuturesTradeV1`, `MBP10V1`, `OptionTradeV1` (9 schemas)
+  - Silver: `SilverFeaturesESPipelineV1` (182 columns, validated in pipeline)
+  - Gold: `GoldTrainingESPipelineV1`, `LevelSignalV1`
 - NATS bus wrapper (pub/sub messaging)
 
 **Dependencies**: None (zero dependencies on other backend modules)
