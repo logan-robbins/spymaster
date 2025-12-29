@@ -68,15 +68,15 @@ class DataValidator:
     ]
 
     NUMERIC_COLUMNS = {
-        'spot': {'min': 400.0, 'max': 1000.0, 'allow_zero': False},
-        'level_price': {'min': 400.0, 'max': 1000.0, 'allow_zero': False},
-        'distance': {'min': 0.0, 'max': 50.0, 'allow_zero': True},
+        'spot': {'min': 3000.0, 'max': 10000.0, 'allow_zero': False},
+        'level_price': {'min': 3000.0, 'max': 10000.0, 'allow_zero': False},
+        'distance': {'min': 0.0, 'max': 100.0, 'allow_zero': True},
         'gamma_exposure': {'min': -1e9, 'max': 1e9, 'allow_zero': True},
         'tape_imbalance': {'min': -1.0, 'max': 1.0, 'allow_zero': True},
         'tape_velocity': {'min': -10000.0, 'max': 10000.0, 'allow_zero': True},
         'wall_ratio': {'min': 0.0, 'max': 100.0, 'allow_zero': True},
         'barrier_delta_liq': {'min': -1e6, 'max': 1e6, 'allow_zero': True},
-        'future_price_5min': {'min': 400.0, 'max': 1000.0, 'allow_zero': False},
+        'future_price': {'min': 3000.0, 'max': 10000.0, 'allow_zero': False},
         'excursion_max': {'min': 0.0, 'max': 50.0, 'allow_zero': True},
         'excursion_min': {'min': 0.0, 'max': 50.0, 'allow_zero': True},
     }
@@ -90,7 +90,7 @@ class DataValidator:
             'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SESSION_HIGH', 'SESSION_LOW',
             'SMA_200', 'SMA_400', 'VWAP', 'ROUND', 'STRIKE', 'CALL_WALL', 'PUT_WALL'
         ],
-        'symbol': ['SPY'],
+        'symbol': ['ES'],
     }
 
     # Features that should have non-zero values for meaningful analysis
@@ -118,7 +118,7 @@ class DataValidator:
         'confluence_min_distance',
         'time_to_threshold_1',
         'time_to_threshold_2',
-        'future_price_5min',
+        'future_price',
         'excursion_max',
         'excursion_min',
         'strength_signed',

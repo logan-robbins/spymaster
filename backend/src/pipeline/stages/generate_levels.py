@@ -106,7 +106,7 @@ def generate_level_universe(
     # 5. VWAP - REMOVED FOR V1
     # Lagging indicator, less useful for physics-based attribution
     
-    # NOTE: ROUND (8) and STRIKE (9) levels removed for SPY - duplicative with $1 strike spacing.
+    # NOTE: ROUND and STRIKE levels removed for ES pipeline (handled via GEX features).
 
     # 6. CALL_WALL / PUT_WALL (max gamma concentration)
     # 6. CALL WALL / PUT WALL - REMOVED FOR V1
@@ -165,7 +165,12 @@ def compute_wall_series(
     opt_df['right'] = opt_df['right'].astype(str)
 
     opt_df['minute'] = pd.to_datetime(opt_df['ts_event_ns'], unit='ns', utc=True).dt.floor('1min')
-    opt_df['dealer_flow'] = -opt_df['aggressor'] * opt_df['size'] * opt_df['gamma'] * 100.0
+    opt_df['dealer_flow'] = (
+        -opt_df['aggressor']
+        * opt_df['size']
+        * opt_df['gamma']
+        * CONFIG.OPTION_CONTRACT_MULTIPLIER
+    )
 
     window_minutes = max(1, int(round(CONFIG.W_wall / 60.0)))
 

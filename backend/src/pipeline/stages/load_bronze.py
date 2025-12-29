@@ -113,7 +113,7 @@ class LoadBronzeStage(BaseStage):
     Loads:
     - ES futures trades
     - ES MBP-10 order book snapshots (downsampled)
-    - SPY option trades
+    - ES option trades
 
     Outputs:
         trades: List[FuturesTrade]
@@ -164,11 +164,11 @@ class LoadBronzeStage(BaseStage):
         mbp10_snapshots = mbp10_from_df(mbp_df)
         logger.info(f"    MBP-10 snapshots: {len(mbp10_snapshots):,} records")
 
-        # Load SPY options
-        logger.debug(f"    Reading SPY option trades...")
-        option_trades_df = reader.read_option_trades(underlying='SPY', date=ctx.date)
+        # Load ES options
+        logger.debug(f"    Reading ES option trades...")
+        option_trades_df = reader.read_option_trades(underlying='ES', date=ctx.date)
         opt_count = len(option_trades_df) if option_trades_df is not None else 0
-        logger.info(f"    SPY options: {opt_count:,} records")
+        logger.info(f"    ES options: {opt_count:,} records")
 
         return {
             'trades': trades,

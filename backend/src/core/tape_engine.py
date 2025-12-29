@@ -3,12 +3,11 @@ Tape Engine: ES prints confirm direction
 
 Computes aggressor imbalance, velocity, and sweep detection near a level.
 
-Based on PLAN.md §5.2 - adapted for ES futures instead of SPY equities.
+Based on PLAN.md §5.2 - adapted for ES futures.
 
-Price Conversion:
-- Input level_price is in SPY terms (e.g., 687.0)
-- Internally convert to ES (e.g., 6870.0) for trade queries
-- Velocity is computed in ES terms but could be converted for display
+Price:
+- Input level_price is in ES points (no conversion)
+- Velocity is computed in ES points/sec
 
 Interfaces consumed:
 - event_types (Agent A): Aggressor
@@ -87,7 +86,7 @@ class TapeEngine:
         Compute tape metrics for a level using ES trades.
 
         Args:
-            level_price: The critical level being tested (SPY price, e.g., 687.0)
+            level_price: The critical level being tested (ES points, e.g., 6870.0)
             market_state: MarketState instance with ES trade buffers
 
         Returns:
@@ -95,11 +94,10 @@ class TapeEngine:
         """
         ts_now_ns = market_state.get_current_ts_ns()
 
-        # Convert SPY level to ES equivalent for trade queries
         # ES system: level_price is already in ES points (no conversion needed)
         es_level_price = level_price  # ES futures = ES options
 
-        # Convert SPY tape band to ES equivalent
+        # Tape band already in ES points (ratio = 1.0)
         es_tape_band = self.tape_band_dollars * market_state.price_converter.ratio
 
         # Get ES trades near level for imbalance (using ES prices)
@@ -121,7 +119,7 @@ class TapeEngine:
             window_seconds=self.velocity_window_seconds
         )
 
-        # Compute velocity (in ES $/sec - scales with ES prices)
+        # Compute velocity (in ES points/sec)
         velocity = self._compute_velocity(all_trades)
 
         # Detect sweeps (using ES level price)

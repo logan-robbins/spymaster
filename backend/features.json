@@ -2,7 +2,7 @@
   "description": "ES 0DTE Multi-Window Physics Features for Neuro-Hybrid Attribution",
   "output_path": "data/lake/gold/training/signals_production.parquet",
   "label_column": "outcome",
-  "label_values": ["BREAK", "BOUNCE", "CHOP"],
+  "label_values": ["BREAK", "BOUNCE", "CHOP", "UNDEFINED"],
   "pipeline": "src.pipeline.pipelines.es_pipeline",
   "inference_cadence": "2-minute candle close (continuous, not just touches)",
   "architecture": "ES futures + ES 0DTE options (perfect alignment)",
@@ -22,8 +22,8 @@
           "example": 1765843200000000000
         },
         "confirm_ts_ns": {
-          "dtype": "float64",
-          "description": "Confirmation timestamp (t1 = t0 + 240s = 4 minutes) in Unix nanoseconds UTC",
+          "dtype": "int64",
+          "description": "Confirmation timestamp (t1 = t0 + 240s = 4 minutes) in Unix nanoseconds UTC (nullable)",
           "example": 1765843440000000000
         },
         "date": {
@@ -354,9 +354,9 @@
       "description": "Dealer gamma hedging dynamics (ES 0DTE options - same underlying as ES futures)",
       "source": "batch_engines.compute_fuel_metrics_batch",
       "methodology": {
-        "greeks": "Black-Scholes model with real-time IV estimation (vectorized numpy)",
+        "greeks": "Black-76 (options on futures) with real-time IV estimation (vectorized numpy)",
         "aggressor_inference": "Tick Rule (uptick=BUY, downtick=SELL)",
-        "gamma_flow": "Customer trade direction * size * gamma * 100 (contract multiplier)"
+        "gamma_flow": "Customer trade direction * size * gamma * 50 (ES contract multiplier)"
       },
       "columns": {
         "gamma_exposure": {
@@ -487,38 +487,38 @@
       "description": "Strike-banded gamma exposure features",
       "source": "compute_gex_features",
       "methodology": {
-        "strike_bands": "±1, ±2, ±3 strikes (5pt spacing = 5, 10, 15 pts ATM)",
+        "strike_bands": "±1, ±2, ±3 nearest listed strikes (no fixed spacing assumption)",
         "purpose": "Dealer hedging pressure by proximity to level"
       },
       "columns": {
         "gex_above_1strike": {
           "dtype": "float64",
-          "description": "Gamma exposure above level within 1 strike (5pts).",
+          "description": "Gamma exposure at the nearest listed strike above the level.",
           "example": 15000.0
         },
         "gex_above_2strike": {
           "dtype": "float64",
-          "description": "Gamma exposure above level within 2 strikes (50pts).",
+          "description": "Gamma exposure at the 2nd nearest listed strike above the level.",
           "example": 35000.0
         },
         "gex_above_3strike": {
           "dtype": "float64",
-          "description": "Gamma exposure above level within 3 strikes (15pts).",
+          "description": "Gamma exposure at the 3rd nearest listed strike above the level.",
           "example": 58000.0
         },
         "gex_below_1strike": {
           "dtype": "float64",
-          "description": "Gamma exposure below level within 1 strike.",
+          "description": "Gamma exposure at the nearest listed strike below the level.",
           "example": 12000.0
         },
         "gex_below_2strike": {
           "dtype": "float64",
-          "description": "Gamma exposure below level within 2 strikes.",
+          "description": "Gamma exposure at the 2nd nearest listed strike below the level.",
           "example": 28000.0
         },
         "gex_below_3strike": {
           "dtype": "float64",
-          "description": "Gamma exposure below level within 3 strikes.",
+          "description": "Gamma exposure at the 3rd nearest listed strike below the level.",
           "example": 45000.0
         },
         "gex_asymmetry": {
@@ -526,14 +526,14 @@
           "description": "Net gamma pressure (above - below at 3 strikes).",
           "example": 13000.0
         },
-        "gex_ratio_3strike": {
+        "gex_ratio": {
           "dtype": "float64",
           "description": "Relative gamma concentration (above / below at 3 strikes).",
           "example": 1.29
         },
-        "net_gex_3strike": {
+        "net_gex_2strike": {
           "dtype": "float64",
-          "description": "Net dealer exposure within ±15pts of level.",
+          "description": "Net dealer exposure within ±3 nearest listed strikes around the level.",
           "example": 103000.0
         }
       }
@@ -695,7 +695,7 @@
         },
         "prior_touches": {
           "dtype": "int32",
-          "description": "Count of previous touches at this exact level today",
+          "description": "Count of prior signals for this level today (monitored events, not literal touches)",
           "example": 2
         },
         "attempt_index": {
@@ -730,7 +730,7 @@
         },
         "bars_since_open": {
           "dtype": "int32",
-          "description": "Number of bars since market open - session timing context",
+          "description": "Number of 1-min bars since 09:30 ET (RTH-only data expected 0-240)",
           "example": 120
         }
       }
@@ -757,10 +757,10 @@
           },
           "example": "BOUNCE"
         },
-        "future_price_5min": {
+        "future_price": {
           "dtype": "float64",
           "description": "ES futures price (index points) at end of forward window after confirmation time (t1)",
-          "example": 681.425
+          "example": 6814.25
         },
         "anchor_spot": {
           "dtype": "float64",
@@ -881,15 +881,15 @@
         "time_to_bounce_2_2min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 2min confirmation", "example": null},
         "time_to_bounce_2_4min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 4min confirmation", "example": 190.0},
         "time_to_bounce_2_8min": {"dtype": "float64", "description": "Seconds to 15pt bounce from 8min confirmation", "example": 230.0},
-        "confirm_ts_ns_2min": {"dtype": "float64", "description": "Confirmation timestamp at 2min", "example": 1765843320000000000},
-        "confirm_ts_ns_4min": {"dtype": "float64", "description": "Confirmation timestamp at 4min", "example": 1765843440000000000},
-        "confirm_ts_ns_8min": {"dtype": "float64", "description": "Confirmation timestamp at 8min", "example": 1765843680000000000},
-        "anchor_spot_2min": {"dtype": "float64", "description": "Anchor price at 2min confirmation", "example": 682.10},
-        "anchor_spot_4min": {"dtype": "float64", "description": "Anchor price at 4min confirmation", "example": 682.25},
-        "anchor_spot_8min": {"dtype": "float64", "description": "Anchor price at 8min confirmation", "example": 682.50},
-        "future_price_2min": {"dtype": "float64", "description": "Price at end of 2min forward window", "example": 681.80},
-        "future_price_4min": {"dtype": "float64", "description": "Price at end of 4min forward window", "example": 680.40},
-        "future_price_8min": {"dtype": "float64", "description": "Price at end of 8min forward window", "example": 679.25}
+        "confirm_ts_ns_2min": {"dtype": "int64", "description": "Confirmation timestamp at 2min (nullable)", "example": 1765843320000000000},
+        "confirm_ts_ns_4min": {"dtype": "int64", "description": "Confirmation timestamp at 4min (nullable)", "example": 1765843440000000000},
+        "confirm_ts_ns_8min": {"dtype": "int64", "description": "Confirmation timestamp at 8min (nullable)", "example": 1765843680000000000},
+        "anchor_spot_2min": {"dtype": "float64", "description": "Anchor price at 2min confirmation", "example": 6812.50},
+        "anchor_spot_4min": {"dtype": "float64", "description": "Anchor price at 4min confirmation", "example": 6814.00},
+        "anchor_spot_8min": {"dtype": "float64", "description": "Anchor price at 8min confirmation", "example": 6816.25},
+        "future_price_2min": {"dtype": "float64", "description": "Price at end of 2min forward window", "example": 6810.75},
+        "future_price_4min": {"dtype": "float64", "description": "Price at end of 4min forward window", "example": 6804.00},
+        "future_price_8min": {"dtype": "float64", "description": "Price at end of 8min forward window", "example": 6799.25}
       }
     }
   },
@@ -908,7 +908,7 @@
       "BREAK": 0.40,
       "BOUNCE": 0.40,
       "CHOP": 0.20,
-      "note": "15pt threshold (3 strikes @ 5pt ATM) should yield ~40/40/20 split"
+      "note": "Target split for 15pt threshold; actual distribution varies by regime and window."
     },
     "barrier_state_distribution": {
       "NEUTRAL": 3180,
@@ -989,14 +989,16 @@
         "non_zero": 0.976,
         "mean": 39.03,
         "min": 0,
-        "max": 161
+        "max": 161,
+        "note": "Counts prior signals per level (not literal touches), so higher values are expected."
       },
       "bars_since_open": {
         "non_null": 1.0,
         "non_zero": 1.0,
-        "mean": 765.82,
+        "mean": 120.0,
         "min": 0,
-        "max": 1439
+        "max": 240,
+        "note": "RTH-only data should be 0-240. >240 implies data outside the RTH filter."
       }
     }
   },
@@ -1029,11 +1031,11 @@
     "multi_window_lookback": "1min, 3min, 5min, 10min, 20min (encode setup shape across timescales)",
     "why_multi_window": "kNN retrieval needs: 'fast accelerating approach' vs 'slow decelerating approach' - single window can't distinguish!",
     
-    "greeks_calculation": "Black-Scholes-Merton with vectorized NumPy",
+    "greeks_calculation": "Black-76 (options on futures) with vectorized NumPy",
     "aggressor_inference": "Tick Rule: compare trade price to previous trade",
     "0dte_filter": "All option processing restricted to ES 0DTE (same-day expiration)",
     "es_conversion": "NONE - ES futures = ES options (perfect alignment, same underlying!)",
-    "barrier_zone": "±8 ES ticks (±2 ES pts = ±0.4 strikes @ 5pt spacing) around levels",
+    "barrier_zone": "±8 ES ticks (±2 ES pts) around levels",
     "interaction_zone": "±5 ES points (MONITOR_BAND) for event detection",
     "touch_zone": "±2 ES points (TOUCH_BAND) for precise contact",
     "outcome_threshold": "Move >=15 ES points (3 strikes @ 5pt spacing) for BREAK/BOUNCE",

@@ -21,7 +21,7 @@ Spymaster uses the **Medallion Architecture** (Bronze → Silver → Gold) for p
 - **Reproducibility**: Bronze + manifest → deterministic Silver output
 - **Reproducibility**: Features deterministically built from Bronze + CONFIG
 - **Event-time first**: All records carry `ts_event_ns` and `ts_recv_ns`
-- **Continuous inference**: Features computed every 2-min candle (not just touches)
+- **Continuous inference**: Features computed every 2-min candle (not just touches); 250ms stream holds last inference
 - **Multi-window lookback**: 1-20 minute windows encode "setup" across timescales
 
 ---
@@ -105,7 +105,7 @@ Bronze (ES futures + ES options, front-month filtered)
     ↓
 Stage 1-4: Load & Sessionize
   - LoadBronzeStage (ES trades/MBP-10/options)
-  - BuildSPXOHLCVStage (1min, 2min bars from ES)
+  - BuildOHLCVStage (1min, 2min bars from ES)
   - SessionizeStage (compute minutes_since_open relative to 09:30 ET)
     ↓
 Stage 5-6: Level Universe
@@ -118,14 +118,14 @@ Stage 7-13: Physics Features (Multi-Window + Single-Window)
   - ComputeMultiWindowOFIStage (integrated OFI × [30,60,120,300]s)
   - ComputeBarrierEvolutionStage (depth changes × [1,3,5]min)
   - ComputeLevelDistancesStage (signed distances to structural levels)
-  - ComputeGEXFeaturesStage (gamma exposure ±[1,2,3] strikes)
+  - ComputeGEXFeaturesStage (gamma exposure ±1/±2/±3 nearest listed strikes)
   - ComputeForceMassStage (F=ma validation)
     ↓
 Stage 14: Approach Context
   - ComputeApproachFeaturesStage (approach metrics + session timing)
     ↓
 Stage 15: Label Outcomes
-  - LabelOutcomesStage (triple-barrier ±75pts, 8min forward)
+  - LabelOutcomesStage (triple-barrier ±15pts, 8min forward)
     ↓
 Stage 16: Filter to RTH
   - FilterRTHStage (09:30-13:30 ET)
@@ -165,7 +165,7 @@ Live Databento Feed (ES futures + ES options)   [NOT YET IMPLEMENTED]
     ↓ [Ingestor with live client]
 NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
     ├─→ [BronzeWriter] → Bronze (all hours, append-only)     [WORKING]
-    └─→ [Core Service] → Continuous inference every 2-min candle  [WORKING]
+    └─→ [Core Service] → 250ms physics stream; ML inference every 2-min candle (held between)  [WORKING]
             ├─→ Load model (xgb_prod.pkl + knn_index)
             ├─→ Compute multi-window physics features
             ├─→ kNN retrieval: Find 5 similar past events
@@ -227,7 +227,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - **Kinematics**: velocity (5 windows), acceleration (4 windows), jerk (4 windows) at **1, 3, 5, 10, 20 minutes** = 13 features
 - **OFI**: integrated OFI (4 windows), OFI trend (3 windows), variance, peak at **30, 60, 120, 300 seconds** = 9 features
 - **Barrier**: depth evolution at **1, 3, 5 minutes** (7 features: current, 3x changes, slope, volatility, absorption rate)
-- **GEX**: Strike-banded gamma at **±1, ±2, ±3 strikes** (25pt spacing) = 9 features
+- **GEX**: Gamma at **±1, ±2, ±3 nearest listed strikes** = 9 features
 - **Structural**: PM/OR/SMA distance features (8 level distance features)
 - **Force/Mass**: F=ma validation (4 features)
 - **Session Context**: 5 features (timing, ATR, distance)
@@ -262,7 +262,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - Run hyperopt to find better zones/windows
 - Update CONFIG.py with best parameters
 - Rebuild features with `--force` flag
-- Metrics: kNN-5 purity, Silhouette, Precision@80%
+- Metrics: kNN-5 purity, Precision@80% (Silhouette logged only)
 
 **Step 3: Train Model**
 - Input: `silver/features/es_pipeline/` (curated to Gold)
@@ -307,11 +307,11 @@ Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 | 9 | `ComputeMultiWindowOFIStage` | Integrated OFI × [30,60,120,300]s | +9 |
 | 10 | `ComputeBarrierEvolutionStage` | Barrier depth changes × [1,3,5]min | +7 |
 | 11 | `ComputeLevelDistancesStage` | Distances to structural levels | +8 |
-| 12 | `ComputeGEXFeaturesStage` | Gamma exposure ±[1,2,3] strikes | +9 |
+| 12 | `ComputeGEXFeaturesStage` | Gamma exposure at ±1/±2/±3 nearest listed strikes | +9 |
 | 13 | `ComputeForceMassStage` | F=ma validation | +4 |
 | **Approach & Labels** |
 | 14 | `ComputeApproachFeaturesStage` | Approach + session timing | +5 |
-| 15 | `LabelOutcomesStage` | Triple-barrier ±75pts, 8min forward | +20 labels |
+| 15 | `LabelOutcomesStage` | Triple-barrier ±15pts, 8min forward | +20 labels |
 | 16 | `FilterRTHStage` | Filter to RTH 09:30-13:30 ET | Final dataset |
 
 **Total**: 16 stages, ~77 total features (identity + level + physics + labels)
@@ -323,7 +323,7 @@ Each stage is a class extending `BaseStage` with explicit inputs/outputs:
 **Architecture**: ES futures (spot + liquidity) + ES 0DTE options (gamma)  
 **Inference**: Continuous (every 2-min candle)  
 **Features**: ~70 physics features (multi-window 1-20min) + ~40 labels  
-**Labels**: Triple-barrier ±75pts (3 strikes), 8min forward  
+**Labels**: Triple-barrier ±15pts (3 ATM strikes), 8min forward  
 **RTH**: 09:30-13:30 ET (first 4 hours)
 
 **Pipeline Flow**: LoadBronze → BuildOHLCV → InitMarketState → GenerateLevels → DetectInteractionZones → ComputePhysics → MultiWindow stages → LabelOutcomes → FilterRTH
@@ -377,11 +377,11 @@ Generated levels from ES futures (**6 level kinds** total):
 - **Purpose**: Detect "thinning barrier" (bullish BREAK) vs "thickening barrier" (bullish BOUNCE)
 
 **GEX Features** (9 features - GAMMA EXPOSURE):
-- `gex_above_{1,2,3}strike` - Gamma above level at ±1/±2/±3 strikes (25pt spacing)
+- `gex_above_{1,2,3}strike` - Gamma above level at ±1/±2/±3 nearest listed strikes
 - `gex_below_{1,2,3}strike` - Gamma below level
 - `gex_asymmetry` - Net directional gamma pressure
-- `gex_ratio_3strike` - Relative gamma concentration
-- `net_gex_3strike` - Net dealer exposure ±75pts
+- `gex_ratio` - Relative gamma concentration
+- `net_gex_2strike` - Net dealer exposure within ±3 nearest listed strikes (legacy name)
 - **Purpose**: Detect pinning/chop near strikes (NOT primary break/bounce driver)
 - **Weight**: 0.3x in ML models (gamma is 0.04-0.17% of ES volume - Cboe/SpotGamma studies)
 
@@ -401,15 +401,15 @@ Generated levels from ES futures (**6 level kinds** total):
 
 **Session Context** (5 features):
 - `minutes_since_open` - Time since 09:30 ET (0-240 for v1)
-- `bars_since_open` - Bars since open
+- `bars_since_open` - 1-min bars since open (0-240 for RTH)
 - `is_first_15m` - Opening range volatility
 - `atr` - Average True Range (volatility normalization)
 - `distance` - Distance to level (ES points)
 
 **Labels** (Triple-Barrier):
-- `outcome` (BREAK, BOUNCE, CHOP) - First ±75pt (3 strike) threshold hit
+- `outcome` (BREAK, BOUNCE, CHOP, UNDEFINED) - First ±15pt (3 ATM strike) threshold hit
 - `strength_signed` - Signed excursion magnitude
-- `time_to_break/bounce_{1,2}` - Time to ±25pt, ±75pt thresholds
+- `time_to_break/bounce_{1,2}` - Time to ±5pt, ±15pt thresholds
 - `tradeable_1/2` - Threshold reached flags
 
 ---
@@ -513,7 +513,7 @@ Pipeline behavior controlled by `backend/src/common/config.py`:
 | **Instruments** | ES futures (spot + liquidity) + ES 0DTE options (gamma) from CME GLBX.MDP3 |
 | **RTH Window** | 09:30-13:30 ET (first 4 hours) - when to generate training events |
 | **Premarket** | 04:00-09:30 ET - for PM_HIGH/PM_LOW calculation only |
-| **Strike Spacing** | 25pt (ATM dominant), validated from real ES 0DTE data |
+| **Strike Spacing** | 5pt ATM on 0DTE expiry, wider OTM; use nearest listed strikes |
 | **Interaction Zones** | MONITOR_BAND (event detection), TOUCH_BAND (precise contact) - **TUNABLE via hyperopt** |
 | **Outcome Labels** | OUTCOME_THRESHOLD (3-strike min), LOOKFORWARD_MINUTES - **TUNABLE via hyperopt** |
 | **Multi-Window Lookback** | 1-20min kinematics, 30s-5min OFI, 1-5min barrier - encode setup across timescales |
@@ -523,7 +523,7 @@ Pipeline behavior controlled by `backend/src/common/config.py`:
 **Inference Model**: Continuous (features computed every 2-min candle close)
 
 **Hyperopt** (Stage 1): 29 tunable parameters including zone widths, windows, thresholds, level selection  
-**Fixed**: Strike spacing (25pt from data), RTH window (09:30-13:30 ET), inference cadence (2-min)
+**Fixed**: Strike spacing (ATM 5pt; nearest listed strikes), RTH window (09:30-13:30 ET), inference cadence (2-min)
 
 ---
 
@@ -537,7 +537,7 @@ Pipeline behavior controlled by `backend/src/common/config.py`:
 ```bash
 cd backend
 
-# Find best zones/windows using dry-run (no real data needed)
+# Find best zones/windows using dry-run (smoke test only; no meaningful optimization)
 uv run python scripts/run_zone_hyperopt.py \
   --dry-run \
   --n-trials 100
@@ -655,7 +655,7 @@ Compute features for NEAREST level in each category (PM/OR/SMA)
    - Multi-window kinematics (1-20min lookback)
    - Multi-window OFI (30s-5min lookback)
    - Barrier evolution (1-5min lookback)
-   - GEX features (±3 strikes around level)
+   - GEX features (±3 nearest listed strikes around level)
 
 3. Inference:
    - kNN: Find 5 most similar past events in physics space
@@ -740,7 +740,7 @@ Compute features for NEAREST level in each category (PM/OR/SMA)
 5. **Front-month purity**: ES futures AND ES options on SAME contract (CRITICAL!)
 6. **0DTE filtering**: ES options with `exp_date == session_date` only
 7. **RTH filtering**: Silver/Gold contain only 09:30-13:30 ET signals (v1 = first 4 hours)
-8. **Continuous inference**: Features at every 2-min candle (not just touches)
+8. **Continuous inference**: Features at every 2-min candle (not just touches); 250ms stream holds last inference
 9. **Multi-window lookback**: 1-20min for kinematics, 30s-5min for OFI/barrier
 10. **Partition boundaries**: Date/hour aligned to UTC
 11. **Compression**: ZSTD level 3 for all tiers

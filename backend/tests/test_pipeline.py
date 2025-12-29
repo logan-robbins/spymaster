@@ -4,7 +4,7 @@ Comprehensive tests for vectorized pipeline integration.
 Tests the combination of:
 - MBP-10 data (ES futures depth)
 - Trades data (ES futures trades)
-- Options data (SPY options gamma)
+- Options data (ES options gamma)
 
 Using easy-to-validate numbers to ensure calculations are correct.
 """
@@ -44,7 +44,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     """
     Create simple trade tape for easy validation.
     
-    ES at 6850 (SPY 685.00):
+    ES at 6850.00:
     - 10:00:00 - Buy 100 @ 6850.00
     - 10:00:01 - Buy 200 @ 6850.25 
     - 10:00:02 - Sell 150 @ 6850.50
@@ -121,7 +121,7 @@ def simple_mbp10(base_timestamp: int) -> List[MBP10]:
     """
     Create simple MBP-10 snapshots for easy validation.
     
-    ES at 6850.00 (SPY 685.00):
+    ES at 6850.00:
     
     Snapshot 1 (t=0s): Wall at 6850.00
     - Bid: 6850.00 x 2000 (strong wall)
@@ -198,13 +198,13 @@ def simple_option_flows() -> Dict[Tuple[float, str, str], Any]:
     """
     Create simple option flows for easy validation.
     
-    SPY at 685.00:
-    - 684 Put: +30,000 gamma (dealers long, DAMPEN)
-    - 685 Call: -25,000 gamma (dealers short, AMPLIFY)
-    - 686 Call: +15,000 gamma (dealers long, DAMPEN)
+    ES strikes near 6850:
+    - 6845 Put: +30,000 gamma (dealers long, DAMPEN)
+    - 6850 Call: -25,000 gamma (dealers short, AMPLIFY)
+    - 6855 Call: +15,000 gamma (dealers long, DAMPEN)
     
-    At SPY 685.00 level:
-    - In range ±2.0: 684, 685, 686
+    At ES 6850.00 level:
+    - In range ±5.0: 6845, 6850, 6855
     - Net gamma = 30000 - 25000 + 15000 = 20,000 (DAMPEN)
     """
     from dataclasses import dataclass
@@ -216,14 +216,14 @@ def simple_option_flows() -> Dict[Tuple[float, str, str], Any]:
     
     flows = {}
     
-    # 684 Put: +30K gamma (long)
-    flows[(684.0, 'P', '2025-12-16')] = MockFlow(net_gamma_flow=30000.0)
+    # 6845 Put: +30K gamma (long)
+    flows[(6845.0, 'P', '2025-12-16')] = MockFlow(net_gamma_flow=30000.0)
     
-    # 685 Call: -25K gamma (short)
-    flows[(685.0, 'C', '2025-12-16')] = MockFlow(net_gamma_flow=-25000.0)
+    # 6850 Call: -25K gamma (short)
+    flows[(6850.0, 'C', '2025-12-16')] = MockFlow(net_gamma_flow=-25000.0)
     
-    # 686 Call: +15K gamma (long)
-    flows[(686.0, 'C', '2025-12-16')] = MockFlow(net_gamma_flow=15000.0)
+    # 6855 Call: +15K gamma (long)
+    flows[(6855.0, 'C', '2025-12-16')] = MockFlow(net_gamma_flow=15000.0)
     
     return flows
 
@@ -297,14 +297,14 @@ def test_build_vectorized_market_data_aggregates_gamma(simple_trades, simple_mbp
     )
     
     # Check strike gamma
-    assert 684.0 in market_data.strike_gamma
-    assert 685.0 in market_data.strike_gamma
-    assert 686.0 in market_data.strike_gamma
+    assert 6845.0 in market_data.strike_gamma
+    assert 6850.0 in market_data.strike_gamma
+    assert 6855.0 in market_data.strike_gamma
     
     # Check values
-    assert market_data.strike_gamma[684.0] == 30000.0   # Put +30K
-    assert market_data.strike_gamma[685.0] == -25000.0  # Call -25K
-    assert market_data.strike_gamma[686.0] == 15000.0   # Call +15K
+    assert market_data.strike_gamma[6845.0] == 30000.0   # Put +30K
+    assert market_data.strike_gamma[6850.0] == -25000.0  # Call -25K
+    assert market_data.strike_gamma[6855.0] == 15000.0   # Call +15K
 
 
 # =============================================================================
@@ -327,14 +327,14 @@ def test_tape_metrics_imbalance_calculation(simple_trades, simple_mbp10, simple_
     
     # Touch at start, looking forward 5 seconds
     touch_ts = np.array([base_timestamp], dtype=np.int64)
-    level_prices = np.array([685.0], dtype=np.float64)  # SPY
+    level_prices = np.array([6850.0], dtype=np.float64)  # ES
     
     result = compute_tape_metrics_batch(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         market_data=market_data,
         window_seconds=5.0,
-        band_dollars=0.50  # Wide band to capture all trades
+        band_dollars=1.00  # Wide band to capture all trades
     )
     
     # Validate imbalance
@@ -361,12 +361,12 @@ def test_tape_metrics_velocity_positive(simple_trades, simple_mbp10, simple_opti
     )
     
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_tape_metrics_batch(
         touch_ts, level_prices, market_data,
         window_seconds=5.0,
-        band_dollars=0.50
+        band_dollars=1.00
     )
     
     # Velocity should be positive (prices rising)
@@ -379,19 +379,19 @@ def test_tape_metrics_price_band_filtering(simple_trades, simple_mbp10, simple_o
     """
     Test that tape metrics only include trades within price band.
     
-    With narrow band (0.01 SPY = 0.10 ES), only first trade at 6850.00 included.
+    With narrow band (0.10 ES), only first trade at 6850.00 included.
     """
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])  # SPY
+    level_prices = np.array([6850.0])  # ES
     
     result = compute_tape_metrics_batch(
         touch_ts, level_prices, market_data,
         window_seconds=5.0,
-        band_dollars=0.01  # Very narrow band
+        band_dollars=0.10  # Very narrow band
     )
     
     # Only first trade at 6850.00 should be included (ES = 6850)
@@ -418,9 +418,9 @@ def test_barrier_metrics_wall_consumption(simple_trades, simple_mbp10, simple_op
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
-    # Touch at base timestamp (resistance at SPY 685.00)
+    # Touch at base timestamp (resistance at ES 6850.00)
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])  # SPY
+    level_prices = np.array([6850.0])  # ES
     directions = np.array([1])  # UP (resistance, check ask side)
     
     result = compute_barrier_metrics_batch(
@@ -457,7 +457,7 @@ def test_barrier_metrics_support_side_detection(simple_trades, simple_mbp10, sim
     
     # Test support (direction = DOWN = -1)
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid side)
     
     result = compute_barrier_metrics_batch(
@@ -485,7 +485,7 @@ def test_barrier_metrics_multiple_touches(simple_trades, simple_mbp10, simple_op
         base_timestamp + 1_000_000_000,
         base_timestamp + 2_000_000_000
     ])
-    level_prices = np.array([685.0, 685.0, 685.0])
+    level_prices = np.array([6850.0, 6850.0, 6850.0])
     directions = np.array([1, 1, 1])  # All resistance
     
     result = compute_barrier_metrics_batch(
@@ -507,22 +507,22 @@ def test_fuel_metrics_gamma_aggregation(simple_trades, simple_mbp10, simple_opti
     """
     Test fuel metrics gamma aggregation.
     
-    At SPY 685.00 with strike_range=2.0:
-    - 684 Put: +30,000
-    - 685 Call: -25,000
-    - 686 Call: +15,000
+    At ES 6850.00 with strike_range=5.0:
+    - 6845 Put: +30,000
+    - 6850 Call: -25,000
+    - 6855 Call: +15,000
     - Net: 30000 - 25000 + 15000 = +20,000 (DAMPEN)
     """
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_fuel_metrics_batch(
         level_prices=level_prices,
         market_data=market_data,
-        strike_range=2.0
+        strike_range=5.0
     )
     
     # Check gamma exposure
@@ -547,17 +547,17 @@ def test_fuel_metrics_amplify_effect(simple_trades, simple_mbp10, base_timestamp
     
     # Create option flows with large negative gamma
     option_flows = {
-        (685.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=-50000.0)
+        (6850.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=-50000.0)
     }
     
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, option_flows, "2025-12-16"
     )
     
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_fuel_metrics_batch(
-        level_prices, market_data, strike_range=2.0
+        level_prices, market_data, strike_range=5.0
     )
     
     # Large negative gamma → AMPLIFY
@@ -578,17 +578,17 @@ def test_fuel_metrics_neutral_effect(simple_trades, simple_mbp10, base_timestamp
     
     # Small gamma values
     option_flows = {
-        (685.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=5000.0)
+        (6850.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=5000.0)
     }
     
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, option_flows, "2025-12-16"
     )
     
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_fuel_metrics_batch(
-        level_prices, market_data, strike_range=2.0
+        level_prices, market_data, strike_range=5.0
     )
     
     # Small gamma → NEUTRAL
@@ -600,25 +600,25 @@ def test_fuel_metrics_strike_range_filtering(simple_trades, simple_mbp10, simple
     """
     Test that fuel metrics only include strikes within range.
     
-    At SPY 685.00:
-    - strike_range=0.5 → only 685 included
-    - strike_range=2.0 → 684, 685, 686 included
+    At ES 6850.00:
+    - strike_range=1.0 → only 6850 included
+    - strike_range=5.0 → 6845, 6850, 6855 included
     """
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     # Narrow range: only 685
     result_narrow = compute_fuel_metrics_batch(
-        level_prices, market_data, strike_range=0.5
+        level_prices, market_data, strike_range=1.0
     )
     assert result_narrow['gamma_exposure'][0] == -25000.0  # Only 685 Call
     
     # Wide range: 684, 685, 686
     result_wide = compute_fuel_metrics_batch(
-        level_prices, market_data, strike_range=2.0
+        level_prices, market_data, strike_range=5.0
     )
     expected = 30000.0 - 25000.0 + 15000.0  # All three strikes
     assert abs(result_wide['gamma_exposure'][0] - expected) < 1.0
@@ -640,7 +640,7 @@ def test_compute_all_physics_batch_combines_metrics(simple_trades, simple_mbp10,
     )
     
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     directions = np.array([1])  # UP
     
     result = compute_all_physics_batch(
@@ -685,9 +685,9 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
         date="2025-12-16"
     )
     
-    # Step 2: Define touch event (SPY touching 685.00 from below)
+    # Step 2: Define touch event (ES touching 6850.00 from below)
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])  # SPY strike level
+    level_prices = np.array([6850.0])  # ES strike level
     directions = np.array([1])  # UP (resistance)
     
     # Step 3: Compute all physics
@@ -699,12 +699,12 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
     )
     
     # Step 4: Validate tape metrics (ES futures trades)
-    expected_buy_vol = 600  # 100 + 200 + 300
-    expected_sell_vol = 250  # 150 + 100
+    expected_buy_vol = 300  # 100 + 200 within ±0.50 band
+    expected_sell_vol = 150  # 150 within ±0.50 band
     assert result['tape_buy_vol'][0] == expected_buy_vol
     assert result['tape_sell_vol'][0] == expected_sell_vol
     
-    expected_imbalance = (600 - 250) / 850  # ≈ 0.4118
+    expected_imbalance = (300 - 150) / 450  # ≈ 0.3333
     assert abs(result['tape_imbalance'][0] - expected_imbalance) < 0.01
     
     # Velocity should be positive (rising prices)
@@ -716,39 +716,29 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
     assert 'barrier_delta_liq' in result
     assert 'depth_in_zone' in result
     
-    # Step 6: Validate fuel metrics (SPY options gamma)
+    # Step 6: Validate fuel metrics (ES options gamma)
     expected_gamma = 20000.0  # 30K - 25K + 15K
     assert abs(result['gamma_exposure'][0] - expected_gamma) < 1.0
     assert result['fuel_effect'][0] == 'DAMPEN'
 
 
 # =============================================================================
-# TESTS: Price Conversion
+# TESTS: Price Passthrough
 # =============================================================================
 
 
-def test_spy_to_es_conversion(simple_trades, simple_mbp10, simple_option_flows):
-    """Test SPY → ES price conversion (ratio of 10)."""
+def test_es_price_passthrough(simple_trades, simple_mbp10, simple_option_flows):
+    """ES options and futures use the same index points (no conversion)."""
     market_data = build_vectorized_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
-    # SPY 685.00 → ES 6850.00
-    assert market_data.spy_to_es(685.0) == 6850.0
-    assert market_data.spy_to_es(684.0) == 6840.0
-    assert market_data.spy_to_es(686.5) == 6865.0
-
-
-def test_es_to_spy_conversion(simple_trades, simple_mbp10, simple_option_flows):
-    """Test ES → SPY price conversion."""
-    market_data = build_vectorized_market_data(
-        simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
-    )
-    
-    # ES 6850.00 → SPY 685.00
-    assert market_data.es_to_spy(6850.0) == 685.0
-    assert market_data.es_to_spy(6840.0) == 684.0
-    assert market_data.es_to_spy(6865.0) == 686.5
+    assert market_data.spx_to_es(6850.0) == 6850.0
+    assert market_data.spx_to_es(6840.0) == 6840.0
+    assert market_data.spx_to_es(6865.0) == 6865.0
+    assert market_data.es_to_spx(6850.0) == 6850.0
+    assert market_data.es_to_spx(6840.0) == 6840.0
+    assert market_data.es_to_spx(6865.0) == 6865.0
 
 
 # =============================================================================
@@ -769,7 +759,7 @@ def test_empty_trades_handling(simple_mbp10, simple_option_flows, base_timestamp
     
     # Tape metrics should return zeros
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_tape_metrics_batch(
         touch_ts, level_prices, market_data,
@@ -794,7 +784,7 @@ def test_empty_mbp10_handling(simple_trades, simple_option_flows, base_timestamp
     
     # Barrier metrics should return NEUTRAL
     touch_ts = np.array([base_timestamp])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     directions = np.array([1])
     
     result = compute_barrier_metrics_batch(
@@ -817,10 +807,10 @@ def test_no_option_flows_handling(simple_trades, simple_mbp10):
     assert len(market_data.strike_gamma) == 0
     
     # Fuel metrics should return NEUTRAL
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_fuel_metrics_batch(
-        level_prices, market_data, strike_range=2.0
+        level_prices, market_data, strike_range=5.0
     )
     
     assert result['gamma_exposure'][0] == 0.0
@@ -844,7 +834,7 @@ def test_batch_processing_multiple_levels(simple_trades, simple_mbp10, simple_op
     
     # 5 touches at different levels and times
     touch_ts = np.array([base_timestamp] * 5)
-    level_prices = np.array([683.0, 684.0, 685.0, 686.0, 687.0])
+    level_prices = np.array([6830.0, 6840.0, 6850.0, 6860.0, 6870.0])
     directions = np.array([1, -1, 1, -1, 1])  # Mixed
     
     result = compute_all_physics_batch(
@@ -857,7 +847,7 @@ def test_batch_processing_multiple_levels(simple_trades, simple_mbp10, simple_op
     assert len(result['gamma_exposure']) == 5
     
     # Different levels should have different gamma
-    # 685 should have known value, others may differ
+    # 6850 should have known value, others may differ
     idx_685 = 2
     expected_gamma_685 = 20000.0
     assert abs(result['gamma_exposure'][idx_685] - expected_gamma_685) < 1.0
@@ -874,7 +864,7 @@ def test_vectorized_vs_scalar_consistency(simple_trades, simple_mbp10, simple_op
     # Single touch
     single_result = compute_all_physics_batch(
         touch_ts_ns=np.array([base_timestamp]),
-        level_prices=np.array([685.0]),
+        level_prices=np.array([6850.0]),
         directions=np.array([1]),
         market_data=market_data
     )
@@ -882,7 +872,7 @@ def test_vectorized_vs_scalar_consistency(simple_trades, simple_mbp10, simple_op
     # Batch with one element
     batch_result = compute_all_physics_batch(
         touch_ts_ns=np.array([base_timestamp]),
-        level_prices=np.array([685.0]),
+        level_prices=np.array([6850.0]),
         directions=np.array([1]),
         market_data=market_data
     )
@@ -1003,7 +993,7 @@ def test_vacuum_scenario():
     
     # Touch at support (checking bid side)
     touch_ts = np.array([ts_base])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid)
     
     result = compute_barrier_metrics_batch(
@@ -1060,7 +1050,7 @@ def test_wall_scenario():
     
     # Touch at support
     touch_ts = np.array([ts_base])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid)
     
     result = compute_barrier_metrics_batch(
@@ -1090,12 +1080,12 @@ def test_heavy_sell_imbalance():
     market_data = build_vectorized_market_data(trades, [], {}, "2025-12-16")
     
     touch_ts = np.array([ts_base])
-    level_prices = np.array([685.0])
+    level_prices = np.array([6850.0])
     
     result = compute_tape_metrics_batch(
         touch_ts, level_prices, market_data,
         window_seconds=12.0,  # Capture all trades
-        band_dollars=0.50
+        band_dollars=1.00
     )
     
     # All sells → imbalance = -1.0
@@ -1109,12 +1099,11 @@ def test_heavy_sell_imbalance():
 # =============================================================================
 
 
-def test_spy_strikes_at_dollar_intervals():
+def test_es_strikes_at_5pt_intervals():
     """
-    Test that SPY strikes at $1 intervals map correctly to ES levels.
+    Test that ES strikes at 5-point intervals are preserved.
     
-    SPY strikes: 684, 685, 686 ($1 intervals)
-    ES levels: 6840, 6850, 6860 ($10 intervals)
+    ES strikes: 6845, 6850, 6855
     """
     from dataclasses import dataclass
     
@@ -1125,22 +1114,16 @@ def test_spy_strikes_at_dollar_intervals():
     
     ts_base = int(datetime(2025, 12, 16, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1e9)
     
-    # Create flows at SPY strikes (dollar intervals)
+    # Create flows at ES strikes (5-point intervals)
     option_flows = {
-        (684.0, 'P', '2025-12-16'): MockFlow(net_gamma_flow=10000.0),
-        (685.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=-5000.0),
-        (686.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=8000.0),
+        (6845.0, 'P', '2025-12-16'): MockFlow(net_gamma_flow=10000.0),
+        (6850.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=-5000.0),
+        (6855.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=8000.0),
     }
     
     market_data = build_vectorized_market_data([], [], option_flows, "2025-12-16")
     
     # Test gamma lookup at each strike
-    assert market_data.strike_gamma[684.0] == 10000.0
-    assert market_data.strike_gamma[685.0] == -5000.0
-    assert market_data.strike_gamma[686.0] == 8000.0
-    
-    # Test ES conversion
-    assert market_data.spy_to_es(684.0) == 6840.0
-    assert market_data.spy_to_es(685.0) == 6850.0
-    assert market_data.spy_to_es(686.0) == 6860.0
-
+    assert market_data.strike_gamma[6845.0] == 10000.0
+    assert market_data.strike_gamma[6850.0] == -5000.0
+    assert market_data.strike_gamma[6855.0] == 8000.0

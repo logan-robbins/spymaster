@@ -43,8 +43,8 @@ class Config:
     DEALER_FLOW_ACCEL_LONG_MINUTES: int = 3
     
     # ========== Monitoring bands (ES index points) ==========
-    # ES 0DTE strike spacing: 25 points (validated from real data)
-    # ES tick: 0.25 points (100 ticks per strike)
+    # ES 0DTE strike spacing: 5 points ATM on expiry (wider farther OTM).
+    # ES tick: 0.25 points (20 ticks per 5-point strike interval).
     # 
     # KEY: Interaction zone is DIFFERENT from outcome threshold!
     # - Interaction zone: WHERE we detect events (tight around level)
@@ -69,25 +69,26 @@ class Config:
     WEAK_PERCENTILE: float = 0.20  # bottom 20th percentile of defending size
     WEAK_LOOKBACK: float = 1800.0  # 30 minutes
     
-    # ========== Tape thresholds (SPY scale - converted to ES internally) ==========
-    TAPE_BAND: float = 0.50  # price band around level for tape imbalance (SPY dollars)
+    # ========== Tape thresholds (ES points) ==========
+    TAPE_BAND: float = 0.50  # price band around level for tape imbalance (ES points)
     SWEEP_MIN_NOTIONAL: float = 500_000.0  # minimum notional for sweep detection (ES = $50/pt)
     SWEEP_MAX_GAP_MS: int = 100  # max gap between prints in a sweep cluster
     SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
     
     # ========== Fuel thresholds ==========
-    # ES 0DTE options: 25-point strike spacing (ATM dominant, validated from data)
-    # Use ±75 points to capture 3 strikes on each side (±3 strikes × 25 pts)
+    # ES 0DTE options: 5-point strike spacing ATM on expiry (wider farther OTM).
+    # Use point-based ranges and/or nearest listed strikes (no fixed strike grid).
     # 
     # GAMMA IMPACT ASSESSMENT (Cboe, SpotGamma, Menthor Q studies):
     # - Net gamma exposure is 0.04-0.17% of ES daily volume
     # - Hedging flows are balanced (not directional drivers)
     # - Effect on ES: pinning/chop near strikes, NOT sustained breaks
     # - Liquidity (order book) + Tape (directional flow) are primary drivers
-    FUEL_STRIKE_RANGE: float = 75.0  # consider strikes within ±75 points of level (±3 strikes @ 25pt)
-    DEALER_FLOW_STRIKE_RANGE: float = 75.0  # strike range for dealer flow velocity
+    FUEL_STRIKE_RANGE: float = 15.0  # consider strikes within ±15 points (~3 ATM strikes at 5pt)
+    DEALER_FLOW_STRIKE_RANGE: float = 15.0  # strike range for dealer flow velocity
     USE_GAMMA_BUCKET_FILTER: bool = False  # Disable gamma regime filtering in kNN (gamma effects too small)
     GAMMA_FEATURE_WEIGHT: float = 0.3  # Downweight gamma features in ML training (vs 1.0 for liquidity/tape)
+    OPTION_CONTRACT_MULTIPLIER: float = 50.0  # ES options contract multiplier ($50/point)
 
     # ========== Mean reversion (SMA) settings ==========
     SMA_SLOPE_WINDOW_MINUTES: int = 20
@@ -125,7 +126,7 @@ class Config:
     
     # PREMARKET (ES Futures) - CRITICAL: Read ES_PREMARKET_DEFINITION.md
     # ES trades 24/7, but we define "premarket" as 4:00 AM - 9:30 AM ET
-    # - Aligns with equity premarket (SPY: 4:00 AM - 9:30 AM)
+    # - Aligns with equity premarket (04:00 AM - 09:30 AM ET)
     # - Captures morning session sentiment before equity open
     # - Excludes overnight ES action (6:00 PM prev day - 4:00 AM)
     # - PM_HIGH/PM_LOW from THIS window become structural levels for RTH
@@ -198,7 +199,7 @@ class Config:
     # ========== Confluence feature settings ==========
     VOLUME_LOOKBACK_DAYS: int = 3          # Days for relative volume baseline
     SMA_PROXIMITY_THRESHOLD: float = 0.005  # 0.5% of spot for "close to SMA"
-    WALL_PROXIMITY_POINTS: float = 15.0    # 15 ES points (3 ES option strikes @ 5pt spacing) for GEX wall proximity
+    WALL_PROXIMITY_POINTS: float = 15.0    # 15 ES points (~3 ATM strikes @ 5pt spacing) for GEX wall proximity
     REL_VOL_HIGH_THRESHOLD: float = 1.3     # 30% above average = HIGH volume
     REL_VOL_LOW_THRESHOLD: float = 0.7      # 30% below average = LOW volume
 

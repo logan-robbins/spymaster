@@ -33,16 +33,16 @@ def label_outcomes(
     
     Policy B: Anchors up to 13:30 ET, forward window can spillover for labels.
     
-    Threshold for SPX: 10 points ≈ 2 strikes (vs SPY $2 = 2 strikes).
+    Threshold for ES: 15 points ≈ 3 ATM strikes at 5-pt spacing.
     
     Multi-timeframe mode generates outcomes at 2min, 4min, 8min confirmations
     to enable training models for different trading horizons.
 
     Args:
         signals_df: DataFrame with signals
-        ohlcv_df: OHLCV DataFrame (SPX index points from ES futures)
+        ohlcv_df: OHLCV DataFrame (ES points from ES futures)
         lookforward_minutes: Forward window for labeling (defaults to CONFIG.LOOKFORWARD_MINUTES)
-        outcome_threshold: Price move threshold for BREAK/BOUNCE (defaults to CONFIG.OUTCOME_THRESHOLD = 10.0 for SPX)
+        outcome_threshold: Price move threshold for BREAK/BOUNCE (defaults to CONFIG.OUTCOME_THRESHOLD)
         use_multi_timeframe: If True, label at 2min/4min/8min; if False, use single confirmation
 
     Returns:
@@ -108,7 +108,7 @@ def label_outcomes(
         time_to_bounce_2 = np.full(n, np.nan, dtype=np.float64)
         tradeable_1 = np.zeros(n, dtype=np.int8)
         tradeable_2 = np.zeros(n, dtype=np.int8)
-        confirm_ts_ns = np.full(n, np.nan, dtype=np.float64)
+        confirm_ts_ns = np.full(n, -1, dtype=np.int64)
         anchor_spot = np.full(n, np.nan, dtype=np.float64)
         
         # Vectorized: find indices for each signal's lookforward window
@@ -279,7 +279,10 @@ def label_outcomes(
         result[f'time_to_bounce_2{suffix}'] = data['time_to_bounce_2']
         result[f'tradeable_1{suffix}'] = data['tradeable_1']
         result[f'tradeable_2{suffix}'] = data['tradeable_2']
-        result[f'confirm_ts_ns{suffix}'] = data['confirm_ts_ns']
+        confirm_series = pd.Series(data['confirm_ts_ns']).mask(
+            pd.Series(data['confirm_ts_ns']) < 0, pd.NA
+        ).astype("Int64")
+        result[f'confirm_ts_ns{suffix}'] = confirm_series
         result[f'anchor_spot{suffix}'] = data['anchor_spot']
         result[f'future_price{suffix}'] = data['future_prices']
     
@@ -299,9 +302,11 @@ def label_outcomes(
         result['time_to_bounce_2'] = primary_data['time_to_bounce_2']
         result['tradeable_1'] = primary_data['tradeable_1']
         result['tradeable_2'] = primary_data['tradeable_2']
-        result['confirm_ts_ns'] = primary_data['confirm_ts_ns']
+        result['confirm_ts_ns'] = pd.Series(primary_data['confirm_ts_ns']).mask(
+            pd.Series(primary_data['confirm_ts_ns']) < 0, pd.NA
+        ).astype("Int64")
         result['anchor_spot'] = primary_data['anchor_spot']
-        result['future_price_5min'] = primary_data['future_prices']
+        result['future_price'] = primary_data['future_prices']
 
     return result
 

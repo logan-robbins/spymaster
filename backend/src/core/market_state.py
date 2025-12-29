@@ -5,7 +5,7 @@ Agent C deliverable per §12 of PLAN.md.
 
 This module maintains:
 - ES futures MBP-10 snapshots and trades (for barrier physics)
-- SPY options flow aggregates (for fuel engine, from Polygon API)
+- ES options flow aggregates (for fuel engine)
 - Derived values (VWAP, session high/low from ES)
 
 All timestamps are Unix nanoseconds (UTC).
@@ -53,7 +53,7 @@ class OptionFlowAggregate:
 
 @dataclass
 class MinuteBar:
-    """Aggregated 1-minute bar in SPY terms."""
+    """Aggregated 1-minute bar in ES points."""
     start_ts_ns: int
     open: float
     high: float
@@ -120,7 +120,7 @@ class MarketState:
     Maintains:
     - ES MBP-10 snapshots (for barrier physics)
     - ES trades ring buffer
-    - SPY option flow aggregates (from Polygon API)
+    - ES option flow aggregates
 
     Thread-safety: Not thread-safe by default. Use from single event loop.
     """
@@ -128,7 +128,7 @@ class MarketState:
     def __init__(self, max_buffer_window_seconds: Optional[float] = None):
         if max_buffer_window_seconds is None:
             max_buffer_window_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
-        # ========== Price Converter (ES <-> SPY) ==========
+        # ========== Price Converter (ES <-> ES no-op) ==========
         self.price_converter = PriceConverter()
 
         # ========== ES Futures State ==========
@@ -144,7 +144,7 @@ class MarketState:
         # Last ES trade (for spot price)
         self.last_es_trade: Optional[TimestampedESTrade] = None
 
-        # ========== Option flow aggregates (SPY options from Polygon) ==========
+        # ========== Option flow aggregates (ES options) ==========
         # Key: (strike, right, exp_date) -> OptionFlowAggregate
         self.option_flows: Dict[Tuple[float, str, str], OptionFlowAggregate] = {}
 
@@ -155,17 +155,17 @@ class MarketState:
         self._session_high: Optional[float] = None
         self._session_low: Optional[float] = None
 
-        # ========== Context + history (SPY terms) ==========
+        # ========== Context + history (ES points) ==========
         # Session date (ET) used to reset day-scoped context metrics.
         self._session_date_et: Optional[date] = None
 
-        # Structural levels (computed from trade stream, SPY terms)
+        # Structural levels (computed from trade stream, ES points)
         self._premarket_high: Optional[float] = None
         self._premarket_low: Optional[float] = None
         self._opening_range_high: Optional[float] = None
         self._opening_range_low: Optional[float] = None
 
-        # 1-minute closes for approach context (SPY terms)
+        # 1-minute closes for approach context (ES points)
         self._current_minute_start_ns: Optional[int] = None
         self._current_minute_close_spy: Optional[float] = None
         self._current_minute_open_spy: Optional[float] = None
@@ -174,7 +174,7 @@ class MarketState:
         self._minute_closes: deque[Tuple[int, float]] = deque(maxlen=240)  # 4 hours of 1-min closes
         self._minute_bars: deque[MinuteBar] = deque(maxlen=240)
 
-        # 2-minute closes for SMA (SPY terms)
+        # 2-minute closes for SMA (ES points)
         self._current_2m_start_ns: Optional[int] = None
         self._current_2m_close_spy: Optional[float] = None
         self._two_minute_closes: deque[float] = deque(maxlen=400)  # Enough for SMA_400
@@ -261,7 +261,7 @@ class MarketState:
 
         Notes:
         - Uses event timestamps (not wall time) so replay is deterministic.
-        - Computes structural levels in SPY terms for the live level universe.
+        - Computes structural levels in ES points for the live level universe.
         """
         # --- Day boundary handling (ET) ---
         dt_et = datetime.fromtimestamp(ts_event_ns / 1e9, tz=timezone.utc).astimezone(
@@ -364,7 +364,7 @@ class MarketState:
 
     def get_recent_minute_closes(self, lookback_minutes: int) -> List[float]:
         """
-        Return the most recent minute closes (SPY terms).
+        Return the most recent minute closes (ES points).
 
         The list is ordered oldest->newest and includes the current in-progress minute close.
         """
@@ -378,7 +378,7 @@ class MarketState:
 
     def get_recent_minute_bars(self, lookback_minutes: int) -> List[MinuteBar]:
         """
-        Return the most recent minute bars (SPY terms), including the current in-progress bar.
+        Return the most recent minute bars (ES points), including the current in-progress bar.
         """
         if lookback_minutes <= 0:
             return []
@@ -582,7 +582,7 @@ class MarketState:
         max_px = level_price + band_dollars
         return self.get_es_trades_in_window(ts_now_ns, window_seconds, (min_px, max_px))
 
-    # ========== Option updates (SPY options from Polygon) ==========
+    # ========== Option updates (ES options) ==========
 
     def update_option_trade(
         self,
@@ -610,12 +610,12 @@ class MarketState:
         agg = self.option_flows[key]
 
         # Compute flows
-        premium = trade.price * trade.size * 100  # contract multiplier
+        premium = trade.price * trade.size * CONFIG.OPTION_CONTRACT_MULTIPLIER
 
         # Dealer gamma transfer (customer buys = dealer sells gamma)
         customer_sign = trade.aggressor.value  # +1 BUY, -1 SELL, 0 MID
-        delta_notional = customer_sign * trade.size * delta * 100
-        gamma_notional = customer_sign * trade.size * gamma * 100
+        delta_notional = customer_sign * trade.size * delta * CONFIG.OPTION_CONTRACT_MULTIPLIER
+        gamma_notional = customer_sign * trade.size * gamma * CONFIG.OPTION_CONTRACT_MULTIPLIER
         dealer_gamma_change = -gamma_notional  # dealer takes opposite side
 
         # Update aggregate
@@ -638,8 +638,8 @@ class MarketState:
         Build a lightweight per-strike flow snapshot for the frontend.
 
         Args:
-            spot: Current SPY spot (used for strike filtering)
-            strike_range: Optional +/- strike filter (SPY dollars)
+            spot: Current ES spot (used for strike filtering)
+            strike_range: Optional +/- strike filter (ES points)
             exp_date_filter: Optional expiration date filter (YYYY-MM-DD)
 
         Returns:
@@ -658,7 +658,7 @@ class MarketState:
 
             exp_compact = exp_date.replace("-", "")[2:]
             strike_compact = f"{int(round(strike * 1000)):08d}"
-            ticker = f"O:SPY{exp_compact}{right}{strike_compact}"
+            ticker = f"O:ES{exp_compact}{right}{strike_compact}"
 
             snapshot[ticker] = {
                 "cumulative_volume": agg.cumulative_volume,
@@ -687,7 +687,7 @@ class MarketState:
 
         Args:
             level_price: Level price
-            strike_range: Strike range around level (e.g., ±2.0)
+            strike_range: Strike range around level (ES points)
             exp_date_filter: Optional expiration date filter (ISO format)
 
         Returns:

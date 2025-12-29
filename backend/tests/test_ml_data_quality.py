@@ -238,7 +238,7 @@ def test_data_schema_documentation():
         # Identity
         "event_id": "string",
         "ts_ns": "int64",
-        "confirm_ts_ns": "float64",
+        "confirm_ts_ns": "int64",
         "date": "string",
         "symbol": "string",
         
@@ -294,4 +294,3 @@ def test_data_schema_documentation():
     
     # This test documents the schema - always passes
     assert len(expected_schema) > 0, "Schema documentation"
-

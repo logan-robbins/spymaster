@@ -14,7 +14,7 @@ IDENTITY_COLUMNS = {
 
 LABEL_COLUMNS = {
     "outcome",
-    "future_price_5min",
+    "future_price",
     "excursion_max",
     "excursion_min",
     "strength_signed",

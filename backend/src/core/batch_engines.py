@@ -282,7 +282,7 @@ def _compute_tape_metrics_batch_numba(
 
 def compute_tape_metrics_batch(
     touch_ts_ns: np.ndarray,
-    level_prices: np.ndarray,  # SPY prices
+    level_prices: np.ndarray,  # ES prices
     market_data: VectorizedMarketData,
     window_seconds: float = 5.0,
     band_dollars: float = 0.10
@@ -292,17 +292,17 @@ def compute_tape_metrics_batch(
 
     Args:
         touch_ts_ns: Touch timestamps
-        level_prices: Level prices (SPY)
+        level_prices: Level prices (ES points)
         market_data: Vectorized market data
         window_seconds: Lookback window
-        band_dollars: Price band (SPY dollars)
+        band_dollars: Price band (ES points)
 
     Returns:
         Dict with arrays: imbalance, buy_vol, sell_vol, velocity
     """
-    # Convert to ES prices
-    level_prices_es = level_prices * market_data.spx_to_es_ratio
-    band_es = band_dollars * market_data.spx_to_es_ratio
+    # Use ES prices directly
+    level_prices_es = level_prices.astype(np.float64)
+    band_es = float(band_dollars)
     window_ns = int(window_seconds * 1e9)
 
     if NUMBA_AVAILABLE:
@@ -398,7 +398,7 @@ def _compute_depth_in_zone_numba(
 
 def compute_barrier_metrics_batch(
     touch_ts_ns: np.ndarray,
-    level_prices: np.ndarray,  # SPY prices (strike-aligned at $1 intervals)
+    level_prices: np.ndarray,  # ES prices (strike-aligned)
     directions: np.ndarray,    # 'UP' or 'DOWN' as int: 1 or -1
     market_data: VectorizedMarketData,
     window_seconds: float = 10.0,
@@ -407,12 +407,11 @@ def compute_barrier_metrics_batch(
     """
     Compute barrier metrics for all touches in batch.
 
-    SPY strikes are at $1 intervals → ES levels at $10 intervals.
-    We measure ES MBP-10 depth at the strike-aligned level.
+    Use ES points directly for level and MBP-10 depth alignment.
 
     Args:
         touch_ts_ns: Touch timestamps
-        level_prices: Level prices (SPY, strike-aligned)
+        level_prices: Level prices (ES, strike-aligned)
         directions: Direction array (1=UP/resistance, -1=DOWN/support)
         market_data: Vectorized market data
         window_seconds: Forward window for MBP-10 analysis
@@ -433,8 +432,8 @@ def compute_barrier_metrics_batch(
     ES_TICK_SIZE = 0.25
     window_ns = int(window_seconds * 1e9)
 
-    # Convert SPY levels to ES (SPY $684 → ES $6840)
-    level_prices_es = level_prices * market_data.spx_to_es_ratio
+    # Use ES level prices directly
+    level_prices_es = level_prices.astype(np.float64)
     zone_es = zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
 
     for i in range(n):
@@ -533,7 +532,7 @@ def compute_barrier_metrics_batch(
 # =============================================================================
 
 def compute_fuel_metrics_batch(
-    level_prices: np.ndarray,  # SPY prices
+    level_prices: np.ndarray,  # ES prices
     market_data: VectorizedMarketData,
     strike_range: float = 2.0
 ) -> Dict[str, np.ndarray]:
@@ -541,7 +540,7 @@ def compute_fuel_metrics_batch(
     Compute fuel metrics for all levels in batch.
 
     Args:
-        level_prices: Level prices (SPY)
+        level_prices: Level prices (ES)
         market_data: Vectorized market data with pre-aggregated gamma
         strike_range: Strike range around level
 
@@ -598,7 +597,7 @@ def compute_fuel_metrics_batch(
 
 def compute_all_physics_batch(
     touch_ts_ns: np.ndarray,
-    level_prices: np.ndarray,  # SPY prices
+    level_prices: np.ndarray,  # ES prices
     directions: np.ndarray,    # 1=UP, -1=DOWN
     market_data: VectorizedMarketData
 ) -> Dict[str, np.ndarray]:
@@ -609,7 +608,7 @@ def compute_all_physics_batch(
 
     Args:
         touch_ts_ns: Touch timestamps
-        level_prices: Level prices (SPY)
+        level_prices: Level prices (ES)
         directions: Direction array
         market_data: Vectorized market data
 
