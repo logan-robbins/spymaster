@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import List, Tuple
 import pandas as pd
 
-from src.ingestor.dbn_ingestor import DBNIngestor
-from src.lake.bronze_writer import BronzeReader
+from src.ingestion.databento.dbn_reader import DBNIngestor
+from src.io.bronze import BronzeReader
 
 
 def log(msg: str, **kwargs):

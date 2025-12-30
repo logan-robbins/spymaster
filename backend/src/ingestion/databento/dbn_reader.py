@@ -1,5 +1,5 @@
 """
-Databento DBN file ingestor for ES futures data.
+Databento DBN file reader for ES futures data.
 
 Reads DBN files from dbn-data/ directory and converts to our event types:
 - trades schema -> FuturesTrade events
@@ -51,9 +51,9 @@ class DBNFileInfo:
     dataset: str  # e.g., 'glbx-mdp3'
 
 
-class DBNIngestor:
+class DBNReader:
     """
-    Ingestor for Databento DBN files.
+    Reader for Databento DBN files.
 
     Reads DBN files from a directory and yields normalized events.
     Supports streaming iteration to handle large files efficiently.
@@ -61,7 +61,7 @@ class DBNIngestor:
 
     def __init__(self, dbn_data_root: Optional[str] = None):
         """
-        Initialize DBN ingestor.
+        Initialize DBN reader.
 
         Args:
             dbn_data_root: Root directory containing DBN files
@@ -71,8 +71,8 @@ class DBNIngestor:
             self.dbn_root = Path(dbn_data_root)
         else:
             # Default to dbn-data/ in project root
-            # backend/src/ingestor/dbn_ingestor.py -> project_root/dbn-data
-            self.dbn_root = Path(__file__).parent.parent.parent.parent / 'dbn-data'
+            # backend/src/ingestion/databento/dbn_reader.py -> project_root/dbn-data
+            self.dbn_root = Path(__file__).parent.parent.parent.parent.parent / 'dbn-data'
 
         self._symbology_cache: Dict[str, Dict[int, str]] = {}
 
@@ -348,3 +348,4 @@ class DBNIngestor:
                 print(f"  DBN ERROR getting time range from {file_info.path}: {e}")
 
         return min_ts, max_ts
+

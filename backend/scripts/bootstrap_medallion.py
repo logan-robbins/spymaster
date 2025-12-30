@@ -22,8 +22,8 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from src.lake.silver_feature_builder import SilverFeatureBuilder, create_baseline_features
-from src.lake.gold_curator import GoldCurator
+from src.io.silver import SilverFeatureBuilder, create_baseline_features
+from src.io.gold import GoldCurator
 from src.common.schemas.feature_manifest import (
     create_mechanics_only_manifest,
     create_full_ensemble_manifest

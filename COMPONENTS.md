@@ -82,9 +82,9 @@
 
 ### 2. Ingestor Service
 
-**Location**: `backend/src/ingestor/`  
+**Location**: `backend/src/ingestion/`  
 **Role**: Data ingestion and normalization  
-**Interface**: [backend/src/ingestor/INTERFACES.md](backend/src/ingestor/INTERFACES.md)
+**Interface**: [backend/src/ingestion/INTERFACES.md](backend/src/ingestion/INTERFACES.md)
 
 **Key Responsibilities**:
 - Historical replay (Databento DBN files for ES futures + ES options)
@@ -101,8 +101,8 @@
 - NATS subjects: `market.futures.trades`, `market.futures.mbp10`, `market.options.trades`, `market.options.nbbo`
 
 **Entry Points**:
-- Live: `uv run python -m src.ingestor.main`
-- Replay: `uv run python -m src.ingestor.replay_publisher`
+- Live: `uv run python -m src.ingestion.main`
+- Replay: `uv run python -m src.ingestion.replay_publisher`
 
 ---
 
@@ -146,9 +146,9 @@
 
 ### 4. Lake Service
 
-**Location**: `backend/src/lake/`  
+**Location**: `backend/src/io/`  
 **Role**: Bronze/Silver/Gold data persistence  
-**Interface**: [backend/src/lake/INTERFACES.md](backend/src/lake/INTERFACES.md)
+**Interface**: [backend/src/io/INTERFACES.md](backend/src/io/INTERFACES.md)
 
 **Key Responsibilities**:
 - Bronze writer: NATS → append-only Parquet (raw, immutable)
@@ -180,7 +180,7 @@
   - `gold/streaming/*` - Real-time signals from Core Service
   - `gold/evaluation/*` - Backtest and validation results
 
-**Entry Point**: `uv run python -m src.lake.main`
+**Entry Point**: `uv run python -m src.io.main`
 
 ---
 
@@ -385,5 +385,5 @@
 **Latest Fix**: DatetimeIndex handling in `src/pipeline/stages/label_outcomes.py`  
 **Latest Result**: 53 RTH-filtered signals with silver schema pass (Stage 15)  
 **Silver Schema**: `backend/SILVER_SCHEMA.md`  
-**Docs Updated**: `backend/src/lake/INTERFACES.md` aligned with current lake interfaces  
+**Docs Updated**: `backend/src/io/INTERFACES.md` aligned with current lake interfaces  
 **Legacy Cleanup**: Removed stock/greeks schemas and legacy pipeline stage stubs

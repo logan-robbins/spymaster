@@ -14,7 +14,7 @@ from pathlib import Path
 from src.common.event_types import FuturesTrade, MBP10, Aggressor, EventSource, BidAskLevel
 from src.core.market_state import MarketState
 from src.core.level_signal_service import LevelSignalService
-from src.ingestor.dbn_ingestor import DBNIngestor
+from src.ingestion.databento.dbn_reader import DBNReader
 from src.common.price_converter import PriceConverter
 
 
@@ -32,15 +32,15 @@ class TestDBNDataAvailability:
         assert mbp_dir.exists(), f"MBP-10 directory not found: {mbp_dir}"
 
     def test_dbn_ingestor_discovers_files(self):
-        """DBNIngestor should discover available dates."""
-        ingestor = DBNIngestor()
+        """DBNReader should discover available dates."""
+        ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')
         assert len(dates) > 0, "No DBN trade dates found"
         print(f"Available DBN dates: {dates}")
 
     def test_dbn_ingestor_reads_trades(self):
-        """DBNIngestor should read ES trades from DBN files."""
-        ingestor = DBNIngestor()
+        """DBNReader should read ES trades from DBN files."""
+        ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')
         assert dates, "No DBN dates available"
 
@@ -203,7 +203,7 @@ class TestFullReplayE2E:
 
     def test_replay_produces_level_signals(self):
         """Replay DBN data and verify level signals are produced."""
-        ingestor = DBNIngestor()
+        ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')
 
         if not dates:
@@ -274,7 +274,7 @@ class TestBronzeWriterIntegration:
 
     def test_bronze_writer_creates_files(self, temp_data_root):
         """Bronze writer should create Parquet files from ES events."""
-        from src.lake.bronze_writer import BronzeWriter
+        from src.io.bronze import BronzeWriter
 
         writer = BronzeWriter(data_root=temp_data_root, buffer_limit=10)
 
@@ -316,9 +316,9 @@ class TestBronzeWriterIntegration:
 
     def test_bronze_writer_with_real_dbn(self, temp_data_root):
         """Bronze writer should persist real DBN data."""
-        from src.lake.bronze_writer import BronzeWriter
+        from src.io.bronze import BronzeWriter
 
-        ingestor = DBNIngestor()
+        ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')
         if not dates or '2025-12-16' not in dates:
             pytest.skip("Dec 16 DBN data not available")
@@ -353,7 +353,7 @@ class TestSilverCompactionIntegration:
 
     def test_compact_bronze_to_silver(self, temp_data_root):
         """Silver compactor should dedupe and sort Bronze data."""
-        from src.lake.bronze_writer import BronzeWriter
+        from src.io.bronze import BronzeWriter
         from src.lake.silver_compactor import SilverCompactor
 
         # Step 1: Create Bronze data with duplicates
@@ -411,10 +411,10 @@ class TestSilverCompactionIntegration:
 
     def test_compact_real_dbn_to_silver(self, temp_data_root):
         """Compact real DBN Bronze data to Silver."""
-        from src.lake.bronze_writer import BronzeWriter
+        from src.io.bronze import BronzeWriter
         from src.lake.silver_compactor import SilverCompactor
 
-        ingestor = DBNIngestor()
+        ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')
         if not dates or '2025-12-16' not in dates:
             pytest.skip("Dec 16 DBN data not available")

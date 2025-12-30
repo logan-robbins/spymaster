@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-from src.ingestor.dbn_ingestor import DBNIngestor
+from src.ingestion.databento.dbn_reader import DBNReader
 
 
 # US Eastern timezone for market hours
@@ -75,7 +75,7 @@ def get_rth_start_ns(date_str: str) -> int:
 
     # Convert to Unix timestamp (seconds) then to nanoseconds
     return int(dt_et.timestamp() * 1_000_000_000)
-from src.lake.bronze_writer import BronzeReader
+from src.io.bronze import BronzeReader
 from src.common.bus import NATSBus
 from src.common.event_types import FuturesTrade, MBP10, OptionTrade, EventSource, Aggressor, BidAskLevel
 
@@ -126,7 +126,7 @@ class ReplayPublisher:
     def __init__(
         self,
         bus: NATSBus,
-        dbn_ingestor: DBNIngestor,
+        dbn_ingestor: DBNReader,
         replay_speed: float = 1.0,
         bronze_reader: Optional[BronzeReader] = None,
         use_bronze_futures: bool = False,
@@ -494,7 +494,7 @@ async def main():
         export REPLAY_SPEED=1.0  # 1x realtime
         export REPLAY_DATE=2025-12-16
         export REPLAY_INCLUDE_OPTIONS=true
-        uv run python -m src.ingestor.replay_publisher
+        uv run python -m src.ingestion.databento.replay
     """
     import os
     import sys
@@ -518,7 +518,7 @@ async def main():
     await bus.connect()
     
     # Initialize DBN Ingestor
-    dbn_ingestor = DBNIngestor()
+    dbn_ingestor = DBNReader()
     
     # Check available data
     available_dates = dbn_ingestor.get_available_dates('trades')

@@ -17,8 +17,8 @@ import sys
 
 from src.common.bus import NATSBus
 from src.common.config import CONFIG
-from src.lake.bronze_writer import BronzeWriter
-from src.lake.gold_writer import GoldWriter
+from src.io.bronze import BronzeWriter
+from src.io.gold import GoldWriter
 
 
 class LakeService:

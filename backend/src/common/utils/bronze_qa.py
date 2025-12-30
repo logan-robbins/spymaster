@@ -123,7 +123,7 @@ class BronzeQA:
         
         # Load data if not provided
         if trades_df is None:
-            from src.lake.bronze_writer import BronzeReader
+            from src.io.bronze import BronzeReader
             reader = BronzeReader(data_root=self.bronze_root.replace('/bronze', ''))
             trades_df = reader.read_futures_trades(
                 symbol='ES',
@@ -132,7 +132,7 @@ class BronzeQA:
             )
         
         if mbp10_df is None:
-            from src.lake.bronze_writer import BronzeReader
+            from src.io.bronze import BronzeReader
             reader = BronzeReader(data_root=self.bronze_root.replace('/bronze', ''))
             mbp10_df = reader.read_futures_mbp10(
                 symbol='ES',

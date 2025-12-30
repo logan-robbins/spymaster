@@ -7,7 +7,7 @@ Bronze/Silver processing.
 
 import asyncio
 
-from src.ingestor.replay_publisher import main as replay_main
+from src.ingestion.databento.replay import main as replay_main
 
 
 def main() -> None:

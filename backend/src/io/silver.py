@@ -31,7 +31,7 @@ from src.common.schemas.silver_features import (
     LABEL_COLUMNS,
     SilverFeaturesESPipelineV1,
 )
-from src.lake.bronze_writer import BronzeReader
+from src.io.bronze import BronzeReader
 
 logger = logging.getLogger(__name__)
 
