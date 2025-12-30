@@ -1,11 +1,14 @@
 """Materialize state table at fixed cadence - IMPLEMENTATION_READY.md Section 4."""
 import logging
+import shutil
+from pathlib import Path
 from typing import Any, Dict, List
 import pandas as pd
 import numpy as np
 from datetime import time
 
 from src.pipeline.core.stage import BaseStage, StageContext
+from src.common.lake_paths import canonical_state_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +302,32 @@ class MaterializeStateTableStage(BaseStage):
             ohlcv_2min=ohlcv_2min,
             date=date
         )
-        
-        return {'state_df': state_df}
 
+        # Optional: persist canonical state table for this pipeline run
+        state_output_path: Path | None = None
+        if ctx.config.get("PIPELINE_WRITE_STATE_TABLE"):
+            data_root = ctx.config.get("DATA_ROOT")
+            canonical_version = ctx.config.get("PIPELINE_CANONICAL_VERSION")
+            if not data_root or not canonical_version:
+                logger.warning("  Skipping state table write: missing DATA_ROOT or PIPELINE_CANONICAL_VERSION")
+            else:
+                base_dir = canonical_state_dir(data_root, dataset="es_level_state", version=canonical_version)
+                date_dir = base_dir / date_partition(ctx.date)
+
+                if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True) and date_dir.exists():
+                    shutil.rmtree(date_dir)
+                date_dir.mkdir(parents=True, exist_ok=True)
+
+                state_output_path = date_dir / "state.parquet"
+                state_df.to_parquet(
+                    state_output_path,
+                    engine="pyarrow",
+                    compression="zstd",
+                    index=False,
+                )
+                logger.info(f"  Wrote Silver state table: {state_output_path}")
+
+        return {
+            'state_df': state_df,
+            'state_output_path': str(state_output_path) if state_output_path else None,
+        }

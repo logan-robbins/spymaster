@@ -62,7 +62,7 @@ def build_es_pipeline() -> Pipeline:
     """
     return Pipeline(
         name="es_pipeline",
-        version="3.0.0",  # Updated for IMPLEMENTATION_READY.md
+        version="3.1.0",  # Matches README canonical version (Dec 2025)
         stages=[
             LoadBronzeStage(),
             BuildOHLCVStage(freq='1min', output_key='ohlcv_1min', rth_only=False),

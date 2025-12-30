@@ -1,5 +1,6 @@
 """Construct episode vectors - IMPLEMENTATION_READY.md Section 6 (Stage 17)."""
 import logging
+import shutil
 from typing import Any, Dict, List
 from pathlib import Path
 import pandas as pd
@@ -7,6 +8,7 @@ import pandas as pd
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.ml.episode_vector import construct_episodes_from_events, save_episodes
 from src.ml.normalization import load_normalization_stats
+from src.common.lake_paths import canonical_episodes_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,8 @@ class ConstructEpisodesStage(BaseStage):
             stats_path = Path(self.normalization_stats_path)
         else:
             # Default: gold/normalization/current.json
-            stats_path = Path('data/gold/normalization')
+            data_root = ctx.config.get("DATA_ROOT")
+            stats_path = Path(data_root) / "gold" / "normalization" if data_root else Path("data/gold/normalization")
         
         try:
             normalization_stats = load_normalization_stats(stats_path)
@@ -105,8 +108,35 @@ class ConstructEpisodesStage(BaseStage):
         
         avg_weight = metadata['emission_weight'].mean()
         logger.info(f"    Avg emission weight: {avg_weight:.3f}")
-        
+
+        episodes_output = None
+        if ctx.config.get("PIPELINE_WRITE_EPISODES"):
+            data_root = ctx.config.get("DATA_ROOT")
+            canonical_version = ctx.config.get("PIPELINE_CANONICAL_VERSION")
+            if not data_root or not canonical_version:
+                logger.warning("  Skipping episodes write: missing DATA_ROOT or PIPELINE_CANONICAL_VERSION")
+            else:
+                output_dir = canonical_episodes_dir(data_root, dataset="es_level_episodes", version=canonical_version)
+
+                # Ensure overwrite semantics for this date partition
+                date_part = date_partition(ctx.date)
+                vectors_date_dir = output_dir / "vectors" / date_part
+                metadata_date_dir = output_dir / "metadata" / date_part
+                if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True):
+                    if vectors_date_dir.exists():
+                        shutil.rmtree(vectors_date_dir)
+                    if metadata_date_dir.exists():
+                        shutil.rmtree(metadata_date_dir)
+
+                episodes_output = save_episodes(
+                    vectors=vectors,
+                    metadata=metadata,
+                    output_dir=output_dir,
+                    date=date,
+                )
+
         return {
             'episodes_vectors': vectors,
-            'episodes_metadata': metadata
+            'episodes_metadata': metadata,
+            'episodes_output': {k: str(v) for k, v in episodes_output.items()} if episodes_output else None,
         }

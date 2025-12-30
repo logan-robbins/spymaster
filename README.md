@@ -57,11 +57,12 @@ uv run python scripts/backfill_bronze_futures.py --all
 ```bash
 cd backend
 
-# Run pipeline (18 stages)
-uv run python -m scripts.run_pipeline --start 2024-11-01 --end 2024-12-31
+# Run pipeline (18 stages) and write canonical lake outputs under a versioned hierarchy
+# (rerunning the same version overwrites the date partitions by default)
+uv run python -m scripts.run_pipeline --start 2024-11-01 --end 2024-12-31 --canonical-version 3.1.0
 
 # Optional: enable incremental checkpointing / resume support
-uv run python -m scripts.run_pipeline --date 2024-12-20 --checkpoint-dir data/checkpoints
+uv run python -m scripts.run_pipeline --date 2024-12-20 --checkpoint-dir data/checkpoints --canonical-version 3.1.0
 
 # Validate pipeline output
 uv run python scripts/validate_es_pipeline.py --date 2024-12-20
@@ -78,8 +79,8 @@ from pathlib import Path
 from src.ml.normalization import ComputeNormalizationStage
 
 stage = ComputeNormalizationStage(
-    state_table_dir=Path('data/silver/state/es_level_state'),
-    output_dir=Path('data/gold/normalization'),
+    state_table_dir=Path('data/lake/silver/state/es_level_state/version=3.1.0'),
+    output_dir=Path('data/lake/gold/normalization'),
     lookback_days=60
 )
 result = stage.execute()
@@ -92,8 +93,8 @@ from pathlib import Path
 from src.ml.index_builder import BuildIndicesStage
 
 stage = BuildIndicesStage(
-    episodes_dir=Path('data/gold/episodes/es_level_episodes'),
-    output_dir=Path('data/gold/indices/es_level_indices')
+    episodes_dir=Path('data/lake/gold/episodes/es_level_episodes/version=3.1.0'),
+    output_dir=Path('data/lake/gold/indices/es_level_indices/version=3.1.0')
 )
 result = stage.execute()
 print(f'Built {result[\"n_partitions_built\"]} indices')

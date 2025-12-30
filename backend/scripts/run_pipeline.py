@@ -7,18 +7,21 @@ Usage:
     # Run full pipeline with checkpointing
     uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
-      --checkpoint-dir data/checkpoints
+      --checkpoint-dir data/checkpoints \
+      --canonical-version 3.1.0
     
     # Run first 3 stages only
     uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
+      --canonical-version 3.1.0 \
       --stop-at-stage 2
     
     # Resume from stage 3 (loads stage 2 checkpoint)
     uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
+      --canonical-version 3.1.0 \
       --resume-from-stage 3
     
     # List available checkpoints
@@ -37,7 +40,8 @@ Usage:
     uv run python -m scripts.run_pipeline \
       --start 2025-12-16 \
       --end 2025-12-20 \
-      --checkpoint-dir data/checkpoints
+      --checkpoint-dir data/checkpoints \
+      --canonical-version 3.1.0
 """
 
 import argparse
@@ -204,6 +208,34 @@ def main():
         default=None,
         help='Directory for checkpoints (default: data/checkpoints)'
     )
+
+    parser.add_argument(
+        '--canonical-version',
+        type=str,
+        default=None,
+        help='Canonical output version for lake paths (default: pipeline.version)'
+    )
+
+    parser.add_argument(
+        '--data-root',
+        type=str,
+        default=None,
+        help='Override lake DATA_ROOT for this run (default: CONFIG.DATA_ROOT)'
+    )
+
+    parser.add_argument(
+        '--write-outputs',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Write canonical outputs to the lake (silver/features, silver/state, gold/episodes)'
+    )
+
+    parser.add_argument(
+        '--overwrite-partitions',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Overwrite date partitions when writing outputs (recommended for reruns)'
+    )
     
     parser.add_argument(
         '--resume-from-stage',
@@ -313,7 +345,11 @@ def main():
                 date=run_date,
                 checkpoint_dir=args.checkpoint_dir,
                 resume_from_stage=args.resume_from_stage,
-                stop_at_stage=args.stop_at_stage
+                stop_at_stage=args.stop_at_stage,
+                canonical_version=args.canonical_version,
+                data_root=args.data_root,
+                write_outputs=args.write_outputs,
+                overwrite_partitions=args.overwrite_partitions,
             )
         except Exception as e:
             print(f"\nPipeline failed for {run_date}: {e}")
