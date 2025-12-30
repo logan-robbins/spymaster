@@ -1,42 +1,50 @@
 """
-Run ES pipeline with incremental checkpointing support.
+Run ES pipeline with optional checkpointing support.
 
-Enables stage-by-stage execution, inspection, and validation.
+Provides a single canonical entrypoint for full or incremental runs.
 
 Usage:
     # Run full pipeline with checkpointing
-    uv run python -m scripts.run_pipeline_incremental \
+    uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints
     
     # Run first 3 stages only
-    uv run python -m scripts.run_pipeline_incremental \
+    uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
       --stop-at-stage 2
     
     # Resume from stage 3 (loads stage 2 checkpoint)
-    uv run python -m scripts.run_pipeline_incremental \
+    uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
       --resume-from-stage 3
     
     # List available checkpoints
-    uv run python -m scripts.run_pipeline_incremental \
+    uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
       --list
     
     # Clear checkpoints for date
-    uv run python -m scripts.run_pipeline_incremental \
+    uv run python -m scripts.run_pipeline \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
       --clear
+
+    # Run full pipeline for a date range (weekdays only by default)
+    uv run python -m scripts.run_pipeline \
+      --start 2025-12-16 \
+      --end 2025-12-20 \
+      --checkpoint-dir data/checkpoints
 """
 
 import argparse
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 from src.pipeline.core.checkpoint import CheckpointManager
@@ -123,9 +131,43 @@ def inspect_stage_output(checkpoint_dir: str, date: str, stage_idx: int):
     print(f"{'='*80}\n")
 
 
+def build_date_list(
+    date: Optional[str],
+    start_date: Optional[str],
+    end_date: Optional[str],
+    include_weekends: bool
+) -> List[str]:
+    """Resolve a single date or a date range into a list of dates."""
+    if date and (start_date or end_date):
+        raise ValueError("Use --date or --start/--end, not both")
+
+    if date:
+        return [date]
+
+    if not start_date or not end_date:
+        raise ValueError("Provide --date or both --start and --end")
+
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    if start > end:
+        raise ValueError("--start must be on or before --end")
+
+    dates = []
+    current = start
+    while current <= end:
+        if include_weekends or current.weekday() < 5:
+            dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+
+    if not dates:
+        raise ValueError("Date range produced no dates to process")
+
+    return dates
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Run ES pipeline with incremental checkpointing",
+        description="Run ES pipeline (optional checkpointing)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
@@ -133,8 +175,27 @@ def main():
     parser.add_argument(
         '--date',
         type=str,
-        required=True,
         help='Date to process (YYYY-MM-DD)'
+    )
+
+    parser.add_argument(
+        '--start',
+        dest='start_date',
+        type=str,
+        help='Start date for batch run (YYYY-MM-DD)'
+    )
+
+    parser.add_argument(
+        '--end',
+        dest='end_date',
+        type=str,
+        help='End date for batch run (YYYY-MM-DD)'
+    )
+
+    parser.add_argument(
+        '--include-weekends',
+        action='store_true',
+        help='Include weekends when running a date range'
     )
     
     parser.add_argument(
@@ -190,12 +251,18 @@ def main():
         if not args.checkpoint_dir:
             print("Error: --checkpoint-dir required for --list")
             return 1
+        if not args.date:
+            print("Error: --date required for --list")
+            return 1
         list_checkpoints(args.checkpoint_dir, args.date)
         return 0
     
     if args.clear:
         if not args.checkpoint_dir:
             print("Error: --checkpoint-dir required for --clear")
+            return 1
+        if not args.date:
+            print("Error: --date required for --clear")
             return 1
         clear_checkpoints(args.checkpoint_dir, args.date)
         return 0
@@ -204,11 +271,28 @@ def main():
         if not args.checkpoint_dir:
             print("Error: --checkpoint-dir required for --inspect")
             return 1
+        if not args.date:
+            print("Error: --date required for --inspect")
+            return 1
         inspect_stage_output(args.checkpoint_dir, args.date, args.inspect)
         return 0
+
+    try:
+        dates = build_date_list(
+            args.date,
+            args.start_date,
+            args.end_date,
+            args.include_weekends
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
     
     # Run pipeline
-    print(f"Running ES pipeline for {args.date}")
+    if len(dates) == 1:
+        print(f"Running ES pipeline for {dates[0]}")
+    else:
+        print(f"Running ES pipeline for {len(dates)} dates: {dates[0]} -> {dates[-1]}")
     if args.checkpoint_dir:
         print(f"Checkpoints: {args.checkpoint_dir}")
     if args.resume_from_stage is not None:
@@ -218,25 +302,34 @@ def main():
     print()
     
     pipeline = build_es_pipeline()
-    
-    try:
-        signals_df = pipeline.run(
-            date=args.date,
-            checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=args.resume_from_stage,
-            stop_at_stage=args.stop_at_stage
-        )
-        
-        print(f"\nPipeline completed successfully")
+    processed = 0
+
+    for idx, run_date in enumerate(dates, 1):
+        print(f"\n{'='*60}")
+        print(f"[{idx}/{len(dates)}] Running pipeline for {run_date}")
+        print(f"{'='*60}\n")
+        try:
+            signals_df = pipeline.run(
+                date=run_date,
+                checkpoint_dir=args.checkpoint_dir,
+                resume_from_stage=args.resume_from_stage,
+                stop_at_stage=args.stop_at_stage
+            )
+        except Exception as e:
+            print(f"\nPipeline failed for {run_date}: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+
+        print(f"\nPipeline completed successfully for {run_date}")
         print(f"Final signals: {len(signals_df):,} rows")
-        
-        return 0
-        
-    except Exception as e:
-        print(f"\nPipeline failed: {e}")
-        import traceback
-        traceback.print_exc()
+        processed += 1
+
+    if processed != len(dates):
+        print(f"\nProcessed {processed}/{len(dates)} dates")
         return 1
+
+    return 0
 
 
 if __name__ == "__main__":
