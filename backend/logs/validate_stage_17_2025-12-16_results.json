@@ -2,13 +2,13 @@
   "stage": "construct_episodes",
   "stage_idx": 17,
   "checks": {
-    "required_inputs_present": false,
+    "required_inputs_present": true,
     "new_outputs_present": true,
     "episodes_vectors": {
       "vectors_type": true,
       "vectors_not_empty": true,
       "vector_dimension": true,
-      "no_nan": false,
+      "no_nan": true,
       "no_inf": true
     },
     "episodes_metadata": {
@@ -19,10 +19,7 @@
     "row_count_match": true
   },
   "warnings": [],
-  "errors": [
-    "Missing required inputs: ['date']",
-    "episodes_vectors contains 53 NaN values"
-  ],
-  "passed": false,
+  "errors": [],
+  "passed": true,
   "date": "2025-12-16"
 }

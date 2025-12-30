@@ -57,10 +57,10 @@ This specification defines a similarity retrieval system for level-interaction t
 - Checks for REJECT outcomes, ATR-normalized excursions
 - Usage: `uv run python backend/scripts/validate_es_pipeline.py --date 2024-12-20`
 
-**Stage Validators** (filenames use 1-based, code uses 0-based indices):
+**Stage Validators** (0-indexed stage indices, consistent with `es_pipeline.py`):
 - **Stage 14** (`validate_stage_14_label_outcomes.py`) - First-crossing labels
 - **Stage 16** (`validate_stage_16_materialize_state_table.py`) - 30s state table
-- **Stage 17** (`validate_stage_18_construct_episodes.py`) - 144-dim vectors, 5 time buckets
+- **Stage 17** (`validate_stage_17_construct_episodes.py`) - 144-dim vectors, 5 time buckets
 
 **How to Run**:
 ```bash
@@ -71,7 +71,7 @@ uv run python backend/scripts/validate_stage_14_label_outcomes.py --date 2024-12
 uv run python backend/scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
 
 # Stage 17 (Episode Vectors, 144D)
-uv run python backend/scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
+uv run python backend/scripts/validate_stage_17_construct_episodes.py --date 2024-12-20
 ```
 
 All validators create JSON output in `backend/logs/` and return exit code 0 (pass) or 1 (fail).
@@ -1338,26 +1338,26 @@ STAGE 16: State Table Materialization
     
     │
     ▼
-STAGE 17: Normalization Statistics (Daily, expanding window)
+OFFLINE: Normalization Statistics (Daily, expanding window)
     │
     └──► gold/normalization/stats_v{N}.json
     
     │
     ▼
-STAGE 18: Episode Vector Construction
+STAGE 17: Episode Vector Construction
     │
     └──► gold/episodes/es_level_episodes/vectors/*.npy
     └──► gold/episodes/es_level_episodes/metadata/*.parquet
     
     │
     ▼
-STAGE 19: Index Building (Daily, after RTH close)
+OFFLINE: Index Building (Daily, after RTH close)
     │
     └──► gold/indices/es_level_indices/{level}/{dir}/{bucket}/*
     
     │
     ▼
-STAGE 20: Validation (Weekly)
+OFFLINE: Validation (Weekly)
     │
     └──► gold/validation/calibration_*.json
     └──► gold/validation/drift_*.json

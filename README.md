@@ -149,7 +149,7 @@ uv run python scripts/validate_es_pipeline.py --date 2024-12-20
 # Validate specific stages
 uv run python scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
 uv run python scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
-uv run python scripts/validate_stage_18_construct_episodes.py --date 2024-12-20
+uv run python scripts/validate_stage_17_construct_episodes.py --date 2024-12-20
 
 # Batch validation
 uv run python scripts/validate_es_pipeline.py --start 2024-12-01 --end 2024-12-31

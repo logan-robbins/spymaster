@@ -260,7 +260,7 @@ class CheckpointManager:
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         
-        logger.info(f"Loading checkpoint from stage {stage_idx}: {metadata['stage_name']}")
+        logger.info(f"Loading checkpoint from stage_idx {stage_idx}: {metadata['stage_name']}")
         
         # Deserialize context data
         ctx_data = {}
@@ -271,6 +271,12 @@ class CheckpointManager:
             except Exception as e:
                 logger.error(f"  Failed to deserialize '{key}': {e}")
                 raise
+        
+        if 'date' in ctx_data and str(ctx_data['date']) != date:
+            raise ValueError(
+                f"Checkpoint date mismatch: {ctx_data['date']} != {date}"
+            )
+        ctx_data['date'] = date
         
         # Create context
         ctx = StageContext(
@@ -327,4 +333,3 @@ class CheckpointManager:
         if base_dir.exists():
             shutil.rmtree(base_dir)
             logger.info(f"Cleared checkpoints: {base_dir}")
-
