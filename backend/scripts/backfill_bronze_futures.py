@@ -16,8 +16,8 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from src.ingestor.dbn_ingestor import DBNIngestor
-from src.lake.bronze_writer import BronzeWriter, dataclass_to_dict, _flatten_mbp10_event
+from src.ingestion.databento.dbn_reader import DBNIngestor
+from src.io.bronze import BronzeWriter, dataclass_to_dict, _flatten_mbp10_event
 
 
 def _resolve_data_root() -> Path:

@@ -54,7 +54,7 @@ src/pipeline/
 
 **Via SilverFeatureBuilder** (recommended):
 ```python
-from src.lake.silver_feature_builder import SilverFeatureBuilder
+from src.io.silver import SilverFeatureBuilder
 
 builder = SilverFeatureBuilder()
 builder.build_feature_set(

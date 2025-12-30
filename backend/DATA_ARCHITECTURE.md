@@ -72,7 +72,7 @@ Databento GLBX.MDP3 (CME Globex)
     ├─→ ES Futures (trades + MBP-10)
     └─→ ES Options (trades)
             ↓
-    [download_es_options.py + DBNIngestor]
+    [download_es_options.py + DBNReader]
             ↓
     Front-Month Filtering:
     - ES futures: Volume-dominant contract selection (ContractSelector)
@@ -199,8 +199,8 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 
 **Critical Invariant**: ES futures AND ES options must use THE SAME contract to avoid roll-period contamination.
 
-**Writer**: `scripts/download_es_options.py` (batch) + `src/lake/bronze_writer.py` (streaming)  
-**Reader**: `src/lake/bronze_writer.py` (BronzeReader) and `src/pipeline/utils/duckdb_reader.py` (with `front_month_only=True`)
+**Writer**: `scripts/download_es_options.py` (batch) + `src/io/bronze.py` (streaming)  
+**Reader**: `src/io/bronze.py` (BronzeReader) and `src/pipeline/utils/duckdb_reader.py` (with `front_month_only=True`)
 
 ### Silver (Stage 2)
 
@@ -243,7 +243,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - Multi-window features (1-20min lookback) for kNN retrieval
 - Episode-based labeling prevents label leakage
 
-**Implementation**: `SilverFeatureBuilder` class (`src/lake/silver_feature_builder.py`) + `src/pipeline/pipelines/es_pipeline.py`
+**Implementation**: `SilverFeatureBuilder` class (`src/io/silver.py`) + `src/pipeline/pipelines/es_pipeline.py`
 
 ### Gold (Stage 3)
 
@@ -272,7 +272,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - `gold/streaming/`: Real-time signals from Core Service (event-driven inference)
 - `gold/evaluation/`: Backtest and validation results
 
-**Implementation**: `GoldCurator` class (`src/lake/gold_curator.py`)
+**Implementation**: `GoldCurator` class (`src/io/gold.py`)
 
 ---
 
@@ -551,12 +551,12 @@ Why v1 uses first 4 hours only?
 ## Component Reference
 
 ### SilverFeatureBuilder
-**File**: `src/lake/silver_feature_builder.py`  
+**File**: `src/io/silver.py`  
 **Purpose**: Build versioned Silver feature sets from Bronze  
 **Key Methods**: `build_feature_set()`, `list_versions()`, `load_features()`, `register_experiment()`
 
 ### GoldCurator
-**File**: `src/lake/gold_curator.py`  
+**File**: `src/io/gold.py`  
 **Purpose**: Promote best Silver experiments to Gold production  
 **Key Methods**: `promote_to_training()`, `validate_dataset()`, `list_datasets()`
 
@@ -571,7 +571,7 @@ Why v1 uses first 4 hours only?
 **Key Methods**: `get_pipeline_for_version()`, `list_available_versions()`
 
 ### BronzeWriter / BronzeReader
-**File**: `src/lake/bronze_writer.py`  
+**File**: `src/io/bronze.py`  
 **Purpose**: Write/read Bronze Parquet files from NATS streams  
 **Note**: BronzeWriter subscribes to NATS; BronzeReader uses DuckDB for efficient queries
 

@@ -1,6 +1,6 @@
 import pytest
 
-from src.lake.bronze_writer import BronzeReader
+from src.io.bronze import BronzeReader
 
 
 def test_bronze_option_trades_available():

@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from src.common.config import CONFIG
-from src.ingestor.dbn_ingestor import DBNIngestor
+from src.ingestion.databento.dbn_reader import DBNIngestor
 from src.ml.data_filters import filter_rth_signals
 from src.pipeline.stages.build_ohlcv import build_ohlcv
 

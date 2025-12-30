@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 import pandas as pd
 
-from src.lake.bronze_writer import BronzeReader
+from src.io.bronze import BronzeReader
 from src.common.config import CONFIG
 
 

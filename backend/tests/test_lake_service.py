@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 import pandas as pd
 
-from src.lake.bronze_writer import BronzeWriter, dataclass_to_dict
-from src.lake.gold_writer import GoldWriter
+from src.io.bronze import BronzeWriter, dataclass_to_dict
+from src.io.gold import GoldWriter
 from src.common.event_types import StockTrade, StockQuote, EventSource, Aggressor
 
 

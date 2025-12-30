@@ -22,7 +22,7 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 
 **Access**:
 ```python
-from src.lake.silver_feature_builder import SilverFeatureBuilder
+from src.io.silver import SilverFeatureBuilder
 
 builder = SilverFeatureBuilder()
 df = builder.load_features('v2.0_full_ensemble')
@@ -467,5 +467,5 @@ X_val = X[val_mask]
 - Feature sets: `backend/src/ml/feature_sets.py`
 - Training scripts: `backend/src/ml/boosted_tree_train.py`, `backend/src/ml/patchtst_train.py`
 - Inference: `backend/src/ml/tree_inference.py`, `backend/src/ml/retrieval_engine.py`
-- Silver builder: `backend/src/lake/silver_feature_builder.py`
-- Gold curator: `backend/src/lake/gold_curator.py`
+- Silver builder: `backend/src/io/silver_feature_builder.py`
+- Gold curator: `backend/src/io/gold_curator.py`

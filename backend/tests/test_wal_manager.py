@@ -19,7 +19,7 @@ import pytest
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from src.lake.wal_manager import WALManager
+from src.io.wal import WALManager
 from src.common.event_types import (
     FuturesTrade, MBP10, OptionTrade, StockTrade, StockQuote,
     EventSource, Aggressor, BidAskLevel

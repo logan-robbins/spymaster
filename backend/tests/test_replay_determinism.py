@@ -20,8 +20,8 @@ from src.core.tape_engine import TapeEngine
 from src.core.fuel_engine import FuelEngine
 from src.core.score_engine import ScoreEngine
 from src.core.level_signal_service import LevelSignalService
-from src.lake.bronze_writer import BronzeWriter, BronzeReader
-from src.lake.gold_writer import GoldWriter, GoldReader
+from src.io.bronze import BronzeWriter, BronzeReader
+from src.io.gold import GoldWriter, GoldReader
 from src.common.config import CONFIG
 
 

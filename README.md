@@ -123,10 +123,10 @@ print(f'Built {result[\"n_partitions_built\"]} indices')
 # Terminal 1: NATS infrastructure
 docker-compose up nats -d
 
-# Terminal 2: Ingestor (replay mode for testing)
+# Terminal 2: Ingestion (replay mode for testing)
 cd backend
 export REPLAY_DATE=2024-12-16
-uv run python -m src.ingestor.replay_publisher
+uv run python -m src.ingestion.databento.replay
 
 # Terminal 3: Core service (with retrieval engine)
 uv run python -m src.core.main
