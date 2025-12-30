@@ -1005,25 +1005,36 @@ Main service coordinating live episode building, querying, and caching.
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py`
 
-Outcome aggregation converts retrieved neighbors into probabilistic outcome distributions and reliability metrics.
+Outcome aggregation converts retrieved neighbors into probabilistic outcome distributions and reliability metrics using neighbor weighting and Bayesian smoothing.
+
+**Neighbor Weighting**:
+- **Power Transform**: `similarity^4` (emphasizes high-quality matches)
+- **Recency Decay**: `exp(-age_days / 60)` (60-day halflife)
+- **Combined**: `weight = (similarity^4) × exp(-age_days / 60)`, normalized to sum to 1
 
 **Functions**:
-- `compute_outcome_distribution()`: Similarity-weighted probabilities
+- `compute_neighbor_weights()`: Power transform + recency decay
+- `compute_outcome_distribution()`: Weighted probabilities with Dirichlet posterior
 - `compute_expected_excursions()`: Expected favorable/adverse excursions
 - `compute_conditional_excursions()`: Excursions conditional on outcome
 - `compute_multi_horizon_distribution()`: Outcomes for 2min/4min/8min
 - `compute_bootstrap_ci()`: Bootstrap confidence intervals (1000 samples)
 - `compute_reliability()`: Effective N, entropy, similarity stats
 
-### 10.1 Similarity-Weighted Distribution
+### 10.1 Weighted Distribution with Dirichlet Posterior
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_outcome_distribution)
 
 **Algorithm**:
-1. Normalize similarity scores to sum to 1 (similarity weights)
-2. For each outcome {BREAK, REJECT, CHOP}:
-   - Sum weights where `outcome_4min == outcome`
-3. Return probability distribution with sample count and average similarity
+1. Apply power transform: `weight = similarity^4`
+2. Apply recency decay: `weight *= exp(-age_days / 60)`
+3. Normalize weights to sum to 1
+4. Apply Dirichlet prior for Bayesian smoothing:
+   - Priors: `{BREAK: 1.0, REJECT: 1.0, CHOP: 0.5}`
+   - Posterior: `P(outcome) = (weighted_count + prior) / (total_weight + sum_priors)`
+5. Return probability distribution with sample count and average similarity
+
+**Dirichlet Smoothing**: Prevents extreme probabilities (0% or 100%) when sample size is small. The symmetric priors for BREAK/REJECT reflect no directional bias, while the lower CHOP prior reflects its rarity as a decisive outcome.
 
 **Result**: `{probabilities: {BREAK: p1, REJECT: p2, CHOP: p3}, n_samples: N, avg_similarity: s}`
 
@@ -1031,7 +1042,7 @@ Outcome aggregation converts retrieved neighbors into probabilistic outcome dist
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_expected_excursions)
 
-Computes similarity-weighted expected values of favorable and adverse excursions (in ATR units).
+Computes weighted expected values of favorable and adverse excursions (in ATR units) using power transform and recency decay.
 
 **Result**: `{expected_excursion_favorable, expected_excursion_adverse, excursion_ratio}`
 
@@ -1039,7 +1050,7 @@ Computes similarity-weighted expected values of favorable and adverse excursions
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_conditional_excursions)
 
-For each outcome (BREAK, REJECT), compute weighted excursion statistics within that outcome subset.
+For each outcome (BREAK, REJECT), compute weighted excursion statistics within that outcome subset using power transform and recency decay.
 
 **Result**: `{BREAK: {expected_favorable, expected_adverse, mean_strength, n_samples}, REJECT: {...}}`
 
@@ -1047,7 +1058,7 @@ For each outcome (BREAK, REJECT), compute weighted excursion statistics within t
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_multi_horizon_distribution)
 
-Computes outcome distributions independently for 2min, 4min, and 8min horizons using similarity-weighted aggregation.
+Computes outcome distributions independently for 2min, 4min, and 8min horizons using power transform, recency decay, and Dirichlet smoothing.
 
 **Result**: `{2min: {probabilities: {...}, n_valid}, 4min: {...}, 8min: {...}}`
 
@@ -1055,12 +1066,13 @@ Computes outcome distributions independently for 2min, 4min, and 8min horizons u
 
 **Implementation**: `backend/src/ml/outcome_aggregation.py` (compute_bootstrap_ci)
 
-Uses weighted bootstrap resampling (n=1000) to estimate uncertainty in outcome probabilities.
+Uses weighted bootstrap resampling (n=1000) with power transform and recency decay to estimate uncertainty in outcome probabilities.
 
 **Process**:
-1. Resample outcomes with replacement, weighted by similarity
-2. Compute proportions for each bootstrap sample
-3. Calculate 95% confidence intervals from bootstrap distribution
+1. Compute weights: `(similarity^4) × exp(-age_days / 60)`
+2. Resample outcomes with replacement using computed weights
+3. Compute proportions for each bootstrap sample
+4. Calculate 95% confidence intervals from bootstrap distribution
 
 **Result**: `{BREAK: {mean, ci_low, ci_high, std}, REJECT: {...}, CHOP: {...}}`
 
@@ -1771,10 +1783,13 @@ PRIMARY_HORIZON = '4min'
 
 1. **144 dimensions**: Optimal for ANN search while capturing full approach dynamics
 2. **DCT trajectory basis**: Frequency-domain encoding of 20-minute approach shape
-3. **Log transforms**: Stabilize heavy-tailed barrier/liquidity features
-4. **5 time buckets**: Finer resolution in first 30 min when OR is forming
-5. **60 partitions**: Ensures regime-comparable neighbors (same level, direction, session phase)
+3. **Log transforms**: Stabilize heavy-tailed barrier/liquidity features (barrier_delta_liq_log, wall_ratio_log)
+4. **5 time buckets**: Finer resolution in first 30 min when OR is forming (T0_15, T15_30, T30_60, T60_120, T120_180)
+5. **60 partitions**: Ensures regime-comparable neighbors (6 levels × 2 directions × 5 time buckets)
 6. **2.0 ATR zone**: Tighter threshold for higher-quality anchors
+7. **Deduplication**: Retrieve 500 candidates, apply constraints (max 2/day, 1/episode), return top 50
+8. **Neighbor weighting**: Power transform (similarity^4) + recency decay (exp(-age/60)) for quality emphasis
+9. **Dirichlet posterior**: Bayesian smoothing prevents extreme probabilities with small samples
 
 **Critical Invariants:**
 
@@ -1784,3 +1799,4 @@ PRIMARY_HORIZON = '4min'
 - Temporal CV prevents any data leakage
 - Index partitioning ensures regime-comparable neighbors
 - DCT coefficients computed only from historical trajectory window
+- Neighbor weights combine similarity quality and temporal relevance

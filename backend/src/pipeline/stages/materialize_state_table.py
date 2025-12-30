@@ -15,6 +15,16 @@ STATE_CADENCE_SECONDS = 30
 RTH_START = time(9, 30, 0)  # 09:30:00 ET
 RTH_END = time(12, 30, 0)   # 12:30:00 ET
 
+# Level kind integer encoding (from generate_levels.py)
+LEVEL_KIND_DECODE = {
+    0: 'PM_HIGH',
+    1: 'PM_LOW',
+    2: 'OR_HIGH',
+    3: 'OR_LOW',
+    6: 'SMA_200',
+    12: 'SMA_400'
+}
+
 
 def materialize_state_table(
     signals_df: pd.DataFrame,
@@ -44,6 +54,7 @@ def materialize_state_table(
         return pd.DataFrame()
     
     logger.info(f"  Materializing state table (30s cadence) for {date.date()}...")
+    logger.info(f"    Input signals_df shape: {signals_df.shape}")
     
     # Generate timestamp grid: 09:30 to 12:30 ET at 30s intervals
     date_str = date.strftime('%Y-%m-%d')
@@ -56,10 +67,31 @@ def materialize_state_table(
         freq=f'{cadence_seconds}s'
     )
     
-    logger.debug(f"    Generated {len(timestamp_grid)} timestamps (09:30-12:30 ET @ {cadence_seconds}s)")
+    logger.info(f"    Generated {len(timestamp_grid)} timestamps (09:30-12:30 ET @ {cadence_seconds}s)")
+    logger.info(f"    Grid range: {timestamp_grid[0]} to {timestamp_grid[-1]}")
     
     # Prepare signals_df for efficient lookup
     signals_sorted = signals_df.sort_values('timestamp').copy()
+    
+    logger.info(f"    Signals timestamp dtype before TZ: {signals_sorted['timestamp'].dtype}")
+    logger.info(f"    Signals timestamp tz before: {signals_sorted['timestamp'].dt.tz}")
+    logger.info(f"    Signals timestamp range before TZ: {signals_sorted['timestamp'].min()} to {signals_sorted['timestamp'].max()}")
+    
+    # Ensure timestamps are timezone-aware (convert UTC to ET)
+    if signals_sorted['timestamp'].dt.tz is None:
+        signals_sorted['timestamp'] = signals_sorted['timestamp'].dt.tz_localize('UTC').dt.tz_convert('America/New_York')
+    elif str(signals_sorted['timestamp'].dt.tz) == 'UTC':
+        signals_sorted['timestamp'] = signals_sorted['timestamp'].dt.tz_convert('America/New_York')
+    
+    logger.info(f"    Signals timestamp range after TZ: {signals_sorted['timestamp'].min()} to {signals_sorted['timestamp'].max()}")
+    logger.info(f"    Number of signals in RTH window: {((signals_sorted['timestamp'] >= start_ts) & (signals_sorted['timestamp'] <= end_ts)).sum()}")
+    
+    logger.info(f"    Level kind distribution (raw): {signals_sorted['level_kind'].value_counts().to_dict()}")
+    
+    # Decode level_kind from integer to string (if needed)
+    if signals_sorted['level_kind'].dtype in [np.int8, np.int16, np.int32, np.int64, int]:
+        signals_sorted['level_kind'] = signals_sorted['level_kind'].map(LEVEL_KIND_DECODE).fillna('UNKNOWN')
+        logger.info(f"    Level kind distribution (decoded): {signals_sorted['level_kind'].value_counts().to_dict()}")
     
     # Extract level prices from signals_df
     # PM and OR levels are static after establishment
@@ -82,17 +114,18 @@ def materialize_state_table(
         if not level_rows.empty:
             level_prices[level_kind] = level_rows['level_price'].iloc[0]
     
+    logger.info(f"    Static level_prices extracted: {list(level_prices.keys())}")
+    
     # Compute SMAs for each timestamp from ohlcv_2min
     sma_200_series = {}
     sma_400_series = {}
     if not ohlcv_2min.empty:
-        ohlcv_2min_sorted = ohlcv_2min.sort_values('timestamp').copy()
+        ohlcv_2min_sorted = ohlcv_2min.sort_index().copy()
         ohlcv_2min_sorted['sma_200'] = ohlcv_2min_sorted['close'].rolling(window=200, min_periods=200).mean()
         ohlcv_2min_sorted['sma_400'] = ohlcv_2min_sorted['close'].rolling(window=400, min_periods=400).mean()
         
-        # Create lookup dict by timestamp
-        for _, row in ohlcv_2min_sorted.iterrows():
-            ts = row['timestamp']
+        # Create lookup dict by timestamp (index is timestamp)
+        for ts, row in ohlcv_2min_sorted.iterrows():
             if pd.notna(row['sma_200']):
                 sma_200_series[ts] = row['sma_200']
             if pd.notna(row['sma_400']):
@@ -100,8 +133,9 @@ def materialize_state_table(
     
     # Build state table rows
     state_rows = []
+    rows_added_per_timestamp = []
     
-    for ts in timestamp_grid:
+    for ts_idx, ts in enumerate(timestamp_grid):
         ts_ns = ts.value
         minutes_since_open = (ts - start_ts).total_seconds() / 60.0
         bars_since_open = int(minutes_since_open / 2)  # 2-minute bars
@@ -111,7 +145,11 @@ def materialize_state_table(
         recent_signals = signals_sorted[signals_sorted['timestamp'] <= ts]
         
         if recent_signals.empty:
+            if ts_idx < 5:  # Log first few empty cases
+                logger.info(f"      ts={ts}: no recent signals yet")
             continue
+        
+        rows_before = len(state_rows)
         
         # For each level kind, create a state row
         for level_kind in LEVEL_KINDS:
@@ -214,6 +252,14 @@ def materialize_state_table(
                     state_row[col] = None
             
             state_rows.append(state_row)
+        
+        rows_added = len(state_rows) - rows_before
+        if ts_idx < 5 or rows_added > 0:  # Log first few or when rows are added
+            logger.info(f"      ts={ts} ({minutes_since_open:.1f}min): added {rows_added} rows (total: {len(state_rows)})")
+        rows_added_per_timestamp.append(rows_added)
+    
+    logger.info(f"    Total rows added across {len(timestamp_grid)} timestamps: {sum(rows_added_per_timestamp)}")
+    logger.info(f"    Timestamps with >0 rows: {sum(1 for x in rows_added_per_timestamp if x > 0)}")
     
     state_df = pd.DataFrame(state_rows)
     
@@ -241,12 +287,12 @@ class MaterializeStateTableStage(BaseStage):
     
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'ohlcv_2min', 'date']
+        return ['signals_df', 'ohlcv_2min']
     
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
         ohlcv_2min = ctx.data['ohlcv_2min']
-        date = ctx.data.get('date', pd.Timestamp.now())
+        date = pd.Timestamp(ctx.date)
         
         state_df = materialize_state_table(
             signals_df=signals_df,

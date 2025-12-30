@@ -3,10 +3,11 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from collections import deque
+from collections import deque, Counter
 import numpy as np
 import pandas as pd
 
+from src.ml.constants import M_CANDIDATES, K_NEIGHBORS, MAX_PER_DAY, MAX_PER_EPISODE
 from src.ml.episode_vector import (
     construct_episode_vector,
     get_feature_names,
@@ -339,7 +340,9 @@ class SimilarityQueryEngine:
     
     Per IMPLEMENTATION_READY.md Section 9.2:
     - Query appropriate partition
-    - Apply filters
+    - Retrieve M_CANDIDATES (500) from FAISS
+    - Apply deduplication (max 2/day, max 1/episode)
+    - Return top K_NEIGHBORS (50)
     - Compute outcome distributions
     - Return QueryResult
     """
@@ -347,20 +350,26 @@ class SimilarityQueryEngine:
     def __init__(
         self,
         index_manager: IndexManager,
-        k_retrieve: int = 100,
-        k_return: int = 50
+        m_candidates: int = M_CANDIDATES,
+        k_neighbors: int = K_NEIGHBORS,
+        max_per_day: int = MAX_PER_DAY,
+        max_per_episode: int = MAX_PER_EPISODE
     ):
         """
         Initialize query engine.
         
         Args:
             index_manager: IndexManager instance
-            k_retrieve: Number to retrieve from FAISS (over-fetch)
-            k_return: Final number of neighbors to return
+            m_candidates: Number to retrieve from FAISS (over-fetch for dedup)
+            k_neighbors: Final number of neighbors to return after dedup
+            max_per_day: Maximum neighbors from same date
+            max_per_episode: Maximum neighbors from same episode_id
         """
         self.index_manager = index_manager
-        self.k_retrieve = k_retrieve
-        self.k_return = k_return
+        self.m_candidates = m_candidates
+        self.k_neighbors = k_neighbors
+        self.max_per_day = max_per_day
+        self.max_per_episode = max_per_episode
 
     def query(
         self,
@@ -368,9 +377,13 @@ class SimilarityQueryEngine:
         filters: Optional[Dict[str, Any]] = None
     ) -> QueryResult:
         """
-        Execute similarity query.
+        Execute similarity query with deduplication.
         
-        Per IMPLEMENTATION_READY.md Section 9.2
+        Per IMPLEMENTATION_READY.md Section 9.2:
+        - Retrieve M_CANDIDATES (500) from FAISS
+        - Apply deduplication constraints (max 2/day, 1/episode)
+        - Apply optional filters
+        - Return top K_NEIGHBORS (50)
         
         Args:
             episode_query: Episode query structure
@@ -379,13 +392,13 @@ class SimilarityQueryEngine:
         Returns:
             QueryResult with outcome distributions and neighbors
         """
-        # Retrieve from appropriate partition
+        # Retrieve M_CANDIDATES from appropriate partition
         result = self.index_manager.query(
             level_kind=episode_query.level_kind,
             direction=episode_query.direction,
             time_bucket=episode_query.time_bucket,
             query_vector=episode_query.vector,
-            k=self.k_retrieve
+            k=self.m_candidates
         )
         
         retrieved_metadata = result['metadata']
@@ -394,7 +407,17 @@ class SimilarityQueryEngine:
         if len(retrieved_metadata) == 0:
             return self._empty_result(episode_query)
         
-        # Apply filters
+        # Apply deduplication constraints
+        retrieved_metadata = self._apply_deduplication(retrieved_metadata)
+        
+        if retrieved_vectors is not None and len(retrieved_metadata) < len(result['metadata']):
+            # Update vectors to match deduplicated metadata
+            dedup_indices = retrieved_metadata.index.tolist()
+            original_indices = result['metadata'].index.tolist()
+            mask = [i for i, idx in enumerate(original_indices) if idx in dedup_indices]
+            retrieved_vectors = retrieved_vectors[mask]
+        
+        # Apply optional filters
         if filters:
             mask = np.ones(len(retrieved_metadata), dtype=bool)
             for key, value in filters.items():
@@ -404,17 +427,18 @@ class SimilarityQueryEngine:
             if retrieved_vectors is not None:
                 retrieved_vectors = retrieved_vectors[mask]
         
-        # Take top k_return
-        retrieved_metadata = retrieved_metadata.head(self.k_return)
+        # Take top K_NEIGHBORS
+        retrieved_metadata = retrieved_metadata.head(self.k_neighbors)
         if retrieved_vectors is not None:
-            retrieved_vectors = retrieved_vectors[:self.k_return]
+            retrieved_vectors = retrieved_vectors[:self.k_neighbors]
         
         if len(retrieved_metadata) == 0:
             return self._empty_result(episode_query)
         
-        # Compute outcome aggregations (Section 10)
+        # Compute outcome aggregations (Section 10) with query_date for recency weighting
         aggregated = aggregate_query_results(
             retrieved_metadata=retrieved_metadata,
+            query_date=episode_query.timestamp,
             compute_ci=True,
             n_bootstrap=1000
         )
@@ -445,6 +469,49 @@ class SimilarityQueryEngine:
                 'emission_weight': episode_query.emission_weight
             }
         )
+    
+    def _apply_deduplication(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply deduplication constraints to retrieved neighbors.
+        
+        Per IMPLEMENTATION_READY.md Section 9.2:
+        - Maximum MAX_PER_DAY (2) neighbors from same date
+        - Maximum MAX_PER_EPISODE (1) neighbor from same episode
+        - Preserves similarity ordering
+        
+        Args:
+            metadata: Retrieved metadata DataFrame (sorted by similarity desc)
+        
+        Returns:
+            Deduplicated DataFrame
+        """
+        if len(metadata) == 0:
+            return metadata
+        
+        date_counts = Counter()
+        episode_counts = Counter()
+        keep_indices = []
+        
+        for idx, row in metadata.iterrows():
+            date = row.get('date')
+            event_id = row.get('event_id')
+            
+            # Extract episode_id from event_id (format: "date_level_dir_attempt")
+            # Or use event_id directly if no episode grouping exists
+            episode_id = event_id
+            
+            # Check constraints
+            date_ok = (date is None) or (date_counts[date] < self.max_per_day)
+            episode_ok = (episode_id is None) or (episode_counts[episode_id] < self.max_per_episode)
+            
+            if date_ok and episode_ok:
+                keep_indices.append(idx)
+                if date is not None:
+                    date_counts[date] += 1
+                if episode_id is not None:
+                    episode_counts[episode_id] += 1
+        
+        return metadata.loc[keep_indices]
     
     def _empty_result(self, episode_query: EpisodeQuery) -> QueryResult:
         """Return empty result structure."""

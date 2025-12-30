@@ -79,5 +79,8 @@ class FilterRTHStage(BaseStage):
             logger.warning(f"  ⚠️  Schema validation failed: {e}")
             # Log but don't fail - this is informational during development
         
-        # Return as 'signals' for Pipeline.run() to extract
-        return {'signals': signals_df}
+        # Return as both 'signals' (for Pipeline.run()) and 'signals_df' (for downstream stages)
+        return {
+            'signals': signals_df,
+            'signals_df': signals_df
+        }

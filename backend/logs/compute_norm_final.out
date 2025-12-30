@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "<stdin>", line 10, in <module>
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/src/ml/normalization.py", line 428, in execute
+    raise ValueError(f"No state table data found in {self.state_table_dir}")
+ValueError: No state table data found in data/lake/silver/state/es_level_state

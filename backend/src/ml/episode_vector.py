@@ -138,7 +138,11 @@ def construct_episode_vector(
     idx += 1
     vector[idx] = current_bar.get('attempt_index', 0)
     idx += 1
-    vector[idx] = current_bar.get('time_since_last_touch', 0.0)  # Analyst: use seconds, not cluster_id
+    # Handle time_since_last_touch (may be null in state table)
+    time_since_last = current_bar.get('time_since_last_touch', 0.0)
+    if time_since_last is None or (isinstance(time_since_last, float) and np.isnan(time_since_last)):
+        time_since_last = 0.0  # Default: no prior touch (or very first touch)
+    vector[idx] = float(time_since_last)
     idx += 1
     
     # GEX features (8)
@@ -497,12 +501,31 @@ def construct_episodes_from_events(
     # Sort state table by timestamp and level_kind for efficient lookup
     state_sorted = state_df.sort_values(['level_kind', 'timestamp']).copy()
     
+    # Ensure events_df timestamps are timezone-aware (match state_df)
+    events_sorted = events_df.copy()
+    if events_sorted['timestamp'].dt.tz is None and state_sorted['timestamp'].dt.tz is not None:
+        # Convert events to match state table timezone
+        events_sorted['timestamp'] = events_sorted['timestamp'].dt.tz_localize('UTC').dt.tz_convert(state_sorted['timestamp'].dt.tz)
+    elif events_sorted['timestamp'].dt.tz != state_sorted['timestamp'].dt.tz:
+        # Convert to state table timezone
+        events_sorted['timestamp'] = events_sorted['timestamp'].dt.tz_convert(state_sorted['timestamp'].dt.tz)
+    
+    # Decode events level_kind if integer (to match state table strings)
+    level_kind_decode = {
+        0: 'PM_HIGH', 1: 'PM_LOW', 2: 'OR_HIGH', 3: 'OR_LOW', 6: 'SMA_200', 12: 'SMA_400'
+    }
+    if events_sorted['level_kind'].dtype in [np.int8, np.int16, np.int32, np.int64, int]:
+        events_sorted['level_kind'] = events_sorted['level_kind'].map(level_kind_decode).fillna('UNKNOWN')
+        logger.info(f"  Decoded event level_kinds: {events_sorted['level_kind'].value_counts().to_dict()}")
+    
     feature_names = get_feature_names()
     
     vectors = []
     metadata_rows = []
     
-    for i, event in events_df.iterrows():
+    skipped_reasons = {'no_history': 0, 'vector_construction_failed': 0, 'normalization_failed': 0}
+    
+    for i, event in events_sorted.iterrows():
         event_ts = event['timestamp']
         level_kind = event['level_kind']
         level_price = event['level_price']
@@ -515,6 +538,9 @@ def construct_episodes_from_events(
         history_states = level_state[level_state['timestamp'] <= event_ts]
         
         if len(history_states) < 1:
+            skipped_reasons['no_history'] += 1
+            if skipped_reasons['no_history'] <= 3:  # Log first few
+                logger.info(f"  Event {i}: no state history for {level_kind} at {event_ts}")
             continue
         
         # Micro-history: Take last 5 state samples (2.5 minutes)
@@ -539,7 +565,9 @@ def construct_episodes_from_events(
                 level_price=level_price
             )
         except Exception as e:
-            logger.warning(f"Failed to construct vector for event {event.get('event_id', i)}: {e}")
+            skipped_reasons['vector_construction_failed'] += 1
+            if skipped_reasons['vector_construction_failed'] <= 3:
+                logger.warning(f"  Event {i}: vector construction failed: {e}")
             continue
         
         # Normalize vector
@@ -597,6 +625,7 @@ def construct_episodes_from_events(
     metadata_df = pd.DataFrame(metadata_rows)
     
     logger.info(f"  Constructed {len(vectors_array):,} episode vectors (144 dims)")
+    logger.info(f"  Skipped: no_history={skipped_reasons['no_history']}, vector_failed={skipped_reasons['vector_construction_failed']}, norm_failed={skipped_reasons['normalization_failed']}")
     
     return vectors_array, metadata_df
 

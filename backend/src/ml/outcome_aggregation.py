@@ -4,20 +4,79 @@ from typing import Dict, Any
 import numpy as np
 import pandas as pd
 
+from src.ml.constants import SIM_POWER, RECENCY_HALFLIFE_DAYS
+
 logger = logging.getLogger(__name__)
 
 
-def compute_outcome_distribution(retrieved_metadata: pd.DataFrame) -> Dict[str, Any]:
+def compute_neighbor_weights(
+    similarities: np.ndarray,
+    dates: pd.Series,
+    query_date: pd.Timestamp = None,
+    sim_power: float = SIM_POWER,
+    recency_halflife: float = RECENCY_HALFLIFE_DAYS
+) -> np.ndarray:
     """
-    Compute outcome probabilities weighted by similarity.
+    Compute neighbor weights with similarity power transform and recency decay.
+    
+    Per IMPLEMENTATION_READY.md Section 9.2:
+    - Apply power transform: similarity^sim_power (default 4.0)
+    - Apply recency decay: exp(-age_days / halflife) (default 60 days)
+    - Normalize to sum to 1
+    
+    Args:
+        similarities: Similarity scores
+        dates: Neighbor dates
+        query_date: Query date (for recency calculation)
+        sim_power: Power for similarity transform
+        recency_halflife: Halflife for exponential decay (days)
+    
+    Returns:
+        Normalized weights array
+    """
+    # Power transform on similarity
+    weights = np.power(similarities, sim_power)
+    
+    # Recency decay (if query_date provided)
+    if query_date is not None and dates is not None:
+        try:
+            age_days = (query_date - pd.to_datetime(dates)).dt.days.values
+            recency_weights = np.exp(-age_days / recency_halflife)
+            weights = weights * recency_weights
+        except Exception:
+            # Skip recency weighting if date parsing fails
+            pass
+    
+    # Normalize
+    if weights.sum() > 0:
+        weights = weights / weights.sum()
+    else:
+        weights = np.ones_like(weights) / len(weights)
+    
+    return weights
+
+
+def compute_outcome_distribution(
+    retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None,
+    use_dirichlet: bool = True,
+    priors: Dict[str, float] = None
+) -> Dict[str, Any]:
+    """
+    Compute outcome probabilities with neighbor weighting and Dirichlet posterior.
     
     Per IMPLEMENTATION_READY.md Section 10.1:
-    - Weight by similarity scores
+    - Apply power transform: similarity^4
+    - Apply recency decay: exp(-age_days / 60)
     - Normalize weights to sum to 1
+    - Apply Dirichlet prior for smoothing (Bayesian posterior)
     - Compute probabilities for BREAK, REJECT, CHOP
     
     Args:
-        retrieved_metadata: DataFrame with 'similarity' and 'outcome_4min' columns
+        retrieved_metadata: DataFrame with 'similarity', 'date', and 'outcome_4min' columns
+        query_date: Query date for recency weighting
+        use_dirichlet: Whether to apply Dirichlet prior (default True)
+        priors: Prior pseudo-counts per outcome (default: {BREAK: 1, REJECT: 1, CHOP: 0.5})
     
     Returns:
         Dict with probabilities and metadata
@@ -25,13 +84,36 @@ def compute_outcome_distribution(retrieved_metadata: pd.DataFrame) -> Dict[str, 
     if len(retrieved_metadata) == 0:
         return {'probabilities': {'BREAK': 0, 'REJECT': 0, 'CHOP': 0}, 'n_samples': 0, 'avg_similarity': 0}
     
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()  # Normalize to sum to 1
+    # Default priors: symmetric for BREAK/REJECT, lower for CHOP
+    if priors is None:
+        priors = {'BREAK': 1.0, 'REJECT': 1.0, 'CHOP': 0.5}
     
-    probs = {}
-    for outcome in ['BREAK', 'REJECT', 'CHOP']:
-        mask = retrieved_metadata['outcome_4min'] == outcome
-        probs[outcome] = float(weights[mask].sum())
+    # Compute weighted scores
+    weights = compute_neighbor_weights(
+        similarities=retrieved_metadata['similarity'].values,
+        dates=retrieved_metadata.get('date'),
+        query_date=query_date
+    )
+    
+    if use_dirichlet:
+        # Dirichlet posterior: (weighted_counts + priors) / (total_weight + sum(priors))
+        weighted_counts = {}
+        for outcome in ['BREAK', 'REJECT', 'CHOP']:
+            mask = retrieved_metadata['outcome_4min'] == outcome
+            weighted_counts[outcome] = weights[mask].sum()
+        
+        total_weight = sum(weighted_counts.values())
+        total_prior = sum(priors.values())
+        
+        probs = {}
+        for outcome in ['BREAK', 'REJECT', 'CHOP']:
+            probs[outcome] = float((weighted_counts[outcome] + priors[outcome]) / (total_weight + total_prior))
+    else:
+        # Simple weighted probabilities
+        probs = {}
+        for outcome in ['BREAK', 'REJECT', 'CHOP']:
+            mask = retrieved_metadata['outcome_4min'] == outcome
+            probs[outcome] = float(weights[mask].sum())
     
     return {
         'probabilities': probs,
@@ -40,16 +122,20 @@ def compute_outcome_distribution(retrieved_metadata: pd.DataFrame) -> Dict[str, 
     }
 
 
-def compute_expected_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str, float]:
+def compute_expected_excursions(
+    retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None
+) -> Dict[str, float]:
     """
-    Compute expected favorable and adverse excursions.
+    Compute expected favorable and adverse excursions with neighbor weighting.
     
     Per IMPLEMENTATION_READY.md Section 10.2:
-    - Weight by similarity
-    - Compute expected excursions (ATR-normalized)
+    - Apply power transform and recency decay
+    - Compute weighted expected excursions (ATR-normalized)
     
     Args:
-        retrieved_metadata: DataFrame with similarity and excursion columns
+        retrieved_metadata: DataFrame with similarity, date, and excursion columns
+        query_date: Query date for recency weighting
     
     Returns:
         Dict with expected excursions and ratio
@@ -61,8 +147,11 @@ def compute_expected_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str, f
             'excursion_ratio': 0.0
         }
     
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
+    weights = compute_neighbor_weights(
+        similarities=retrieved_metadata['similarity'].values,
+        dates=retrieved_metadata.get('date'),
+        query_date=query_date
+    )
     
     expected_favorable = float((weights * retrieved_metadata['excursion_favorable']).sum())
     expected_adverse = float((weights * retrieved_metadata['excursion_adverse']).sum())
@@ -74,22 +163,25 @@ def compute_expected_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str, f
     }
 
 
-def compute_conditional_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+def compute_conditional_excursions(
+    retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None
+) -> Dict[str, Dict[str, Any]]:
     """
-    Compute expected excursions conditional on outcome.
+    Compute expected excursions conditional on outcome with neighbor weighting.
     
     Per IMPLEMENTATION_READY.md Section 10.3:
     - Separate by BREAK vs REJECT
+    - Apply power transform and recency decay within each subset
     - Compute weighted expectations within each outcome
     
     Args:
-        retrieved_metadata: DataFrame with outcomes and excursions
+        retrieved_metadata: DataFrame with outcomes, excursions, similarity, and date
+        query_date: Query date for recency weighting
     
     Returns:
         Dict with conditional expectations per outcome
     """
-    weights = retrieved_metadata['similarity'].values
-    
     conditional = {}
     
     for outcome in ['BREAK', 'REJECT']:
@@ -97,8 +189,11 @@ def compute_conditional_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str
         
         if mask.sum() > 0:
             subset = retrieved_metadata[mask]
-            subset_weights = weights[mask]
-            subset_weights = subset_weights / subset_weights.sum()
+            subset_weights = compute_neighbor_weights(
+                similarities=subset['similarity'].values,
+                dates=subset.get('date'),
+                query_date=query_date
+            )
             
             conditional[outcome] = {
                 'expected_favorable': float((subset_weights * subset['excursion_favorable']).sum()),
@@ -110,20 +205,29 @@ def compute_conditional_excursions(retrieved_metadata: pd.DataFrame) -> Dict[str
     return conditional
 
 
-def compute_multi_horizon_distribution(retrieved_metadata: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+def compute_multi_horizon_distribution(
+    retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None
+) -> Dict[str, Dict[str, Any]]:
     """
-    Compute outcome distributions for all horizons (2min, 4min, 8min).
+    Compute outcome distributions for all horizons with neighbor weighting.
     
-    Per IMPLEMENTATION_READY.md Section 10.4
+    Per IMPLEMENTATION_READY.md Section 10.4:
+    - Apply power transform and recency decay
+    - Compute for 2min, 4min, 8min horizons
     
     Args:
         retrieved_metadata: DataFrame with outcome columns for all horizons
+        query_date: Query date for recency weighting
     
     Returns:
         Dict with probabilities per horizon
     """
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
+    weights = compute_neighbor_weights(
+        similarities=retrieved_metadata['similarity'].values,
+        dates=retrieved_metadata.get('date'),
+        query_date=query_date
+    )
     
     horizons = {
         '2min': 'outcome_2min',
@@ -152,18 +256,21 @@ def compute_multi_horizon_distribution(retrieved_metadata: pd.DataFrame) -> Dict
 
 def compute_bootstrap_ci(
     retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None,
     n_bootstrap: int = 1000,
     alpha: float = 0.05
 ) -> Dict[str, Dict[str, float]]:
     """
-    Compute bootstrap confidence intervals for outcome probabilities.
+    Compute bootstrap confidence intervals with neighbor weighting.
     
     Per IMPLEMENTATION_READY.md Section 10.5:
+    - Apply power transform and recency decay
     - Weighted bootstrap resampling
     - Compute confidence intervals for each outcome
     
     Args:
-        retrieved_metadata: DataFrame with outcomes and similarities
+        retrieved_metadata: DataFrame with outcomes, similarities, and dates
+        query_date: Query date for recency weighting
         n_bootstrap: Number of bootstrap samples
         alpha: Confidence level (0.05 = 95% CI)
     
@@ -176,8 +283,11 @@ def compute_bootstrap_ci(
             for outcome in ['BREAK', 'REJECT', 'CHOP']
         }
     
-    weights = retrieved_metadata['similarity'].values
-    weights = weights / weights.sum()
+    weights = compute_neighbor_weights(
+        similarities=retrieved_metadata['similarity'].values,
+        dates=retrieved_metadata.get('date'),
+        query_date=query_date
+    )
     outcomes = retrieved_metadata['outcome_4min'].values
     
     boot_probs = {'BREAK': [], 'REJECT': [], 'CHOP': []}
@@ -258,16 +368,20 @@ def compute_reliability(retrieved_metadata: pd.DataFrame) -> Dict[str, float]:
 
 def aggregate_query_results(
     retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None,
     compute_ci: bool = True,
     n_bootstrap: int = 1000
 ) -> Dict[str, Any]:
     """
-    Aggregate all outcome metrics from retrieved neighbors.
+    Aggregate all outcome metrics from retrieved neighbors with weighting.
     
-    Convenience function that calls all aggregation functions.
+    Convenience function that calls all aggregation functions with neighbor weighting:
+    - Power transform: similarity^4
+    - Recency decay: exp(-age_days / 60)
     
     Args:
         retrieved_metadata: DataFrame with retrieved neighbors
+        query_date: Query date for recency weighting
         compute_ci: Whether to compute bootstrap CIs (expensive)
         n_bootstrap: Number of bootstrap samples if compute_ci=True
     
@@ -285,16 +399,17 @@ def aggregate_query_results(
         }
     
     results = {
-        'outcome_probabilities': compute_outcome_distribution(retrieved_metadata),
-        'expected_excursions': compute_expected_excursions(retrieved_metadata),
-        'conditional_excursions': compute_conditional_excursions(retrieved_metadata),
-        'multi_horizon': compute_multi_horizon_distribution(retrieved_metadata),
+        'outcome_probabilities': compute_outcome_distribution(retrieved_metadata, query_date),
+        'expected_excursions': compute_expected_excursions(retrieved_metadata, query_date),
+        'conditional_excursions': compute_conditional_excursions(retrieved_metadata, query_date),
+        'multi_horizon': compute_multi_horizon_distribution(retrieved_metadata, query_date),
         'reliability': compute_reliability(retrieved_metadata)
     }
     
     if compute_ci:
         results['confidence_intervals'] = compute_bootstrap_ci(
             retrieved_metadata,
+            query_date=query_date,
             n_bootstrap=n_bootstrap
         )
     else:
