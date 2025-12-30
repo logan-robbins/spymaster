@@ -1,7 +1,7 @@
 # Silver Layer Schema
 
 ## ES Pipeline Features (v3.0.0 - December 2025)
-**Path**: `silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet`
+**Path**: `silver/features/es_pipeline/version={canonical_version}/date=YYYY-MM-DD/*.parquet`
 
 **⚠️ IMPORTANT SCHEMA UPDATE (v3.0.0)**:
 - **Outcome Labels Changed**: Now using **REJECT** instead of **BOUNCE**

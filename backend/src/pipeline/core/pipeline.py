@@ -52,7 +52,12 @@ class Pipeline:
         log_level: Optional[int] = None,
         checkpoint_dir: Optional[str] = None,
         resume_from_stage: Optional[int] = None,
-        stop_at_stage: Optional[int] = None
+        stop_at_stage: Optional[int] = None,
+        *,
+        canonical_version: Optional[str] = None,
+        data_root: Optional[str] = None,
+        write_outputs: bool = False,
+        overwrite_partitions: bool = True
     ) -> pd.DataFrame:
         """Execute all stages in sequence with optional checkpointing.
 
@@ -75,10 +80,23 @@ class Pipeline:
             force=True
         )
 
+        # Build per-run config snapshot (used by stages and checkpoint hash).
+        run_config = vars(CONFIG).copy()
+        if data_root:
+            run_config["DATA_ROOT"] = data_root
+        run_config["PIPELINE_CANONICAL_VERSION"] = canonical_version or self.version
+        run_config["PIPELINE_WRITE_SIGNALS"] = write_outputs
+        run_config["PIPELINE_WRITE_STATE_TABLE"] = write_outputs
+        run_config["PIPELINE_WRITE_EPISODES"] = write_outputs
+        run_config["PIPELINE_OVERWRITE_PARTITIONS"] = overwrite_partitions
+
         total_start = time.time()
         logger.info(f"[{self.version}] Starting pipeline: {self.name}")
         logger.info(f"[{self.version}] Date: {date}")
         logger.info(f"[{self.version}] Stages: {len(self.stages)}")
+        logger.info(f"[{self.version}] Canonical version: {run_config['PIPELINE_CANONICAL_VERSION']}")
+        if run_config.get("DATA_ROOT"):
+            logger.info(f"[{self.version}] DATA_ROOT: {run_config['DATA_ROOT']}")
         
         # Initialize checkpoint manager if requested
         checkpoint_manager = None
@@ -110,7 +128,7 @@ class Pipeline:
                     raise ValueError(f"Checkpoint not found for stage {resume_from_stage-1}")
                 
                 # Update config
-                ctx.config = vars(CONFIG).copy()
+                ctx.config = run_config.copy()
                 start_stage_idx = resume_from_stage
             else:
                 logger.info(f"[{self.version}] Starting from beginning (resume_from_stage(stage_idx)=0)")
@@ -120,7 +138,7 @@ class Pipeline:
             ctx = StageContext(
                 date=date,
                 data={'date': date},
-                config=vars(CONFIG).copy()
+                config=run_config.copy()
             )
         else:
             ctx.data.setdefault('date', date)

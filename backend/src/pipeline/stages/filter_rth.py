@@ -1,12 +1,14 @@
 """Filter to regular trading hours stage."""
+import logging
+import shutil
+from pathlib import Path
 from typing import Any, Dict, List
 import pandas as pd
-import pyarrow as pa
-import logging
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.config import CONFIG
-from src.common.schemas.silver_features import SilverFeaturesESPipelineV1, validate_silver_features
+from src.common.schemas.silver_features import validate_silver_features
+from src.common.lake_paths import canonical_signals_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +80,34 @@ class FilterRTHStage(BaseStage):
         except ValueError as e:
             logger.warning(f"  ⚠️  Schema validation failed: {e}")
             # Log but don't fail - this is informational during development
+
+        # Optional: persist canonical Silver event table for this pipeline run
+        signals_output_path: Path | None = None
+        if ctx.config.get("PIPELINE_WRITE_SIGNALS"):
+            data_root = ctx.config.get("DATA_ROOT")
+            canonical_version = ctx.config.get("PIPELINE_CANONICAL_VERSION")
+            if not data_root or not canonical_version:
+                logger.warning("  Skipping signals write: missing DATA_ROOT or PIPELINE_CANONICAL_VERSION")
+            else:
+                base_dir = canonical_signals_dir(data_root, dataset="es_pipeline", version=canonical_version)
+                date_dir = base_dir / date_partition(ctx.date)
+
+                if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True) and date_dir.exists():
+                    shutil.rmtree(date_dir)
+                date_dir.mkdir(parents=True, exist_ok=True)
+
+                signals_output_path = date_dir / "signals.parquet"
+                signals_df.to_parquet(
+                    signals_output_path,
+                    engine="pyarrow",
+                    compression="zstd",
+                    index=False,
+                )
+                logger.info(f"  Wrote Silver signals: {signals_output_path}")
         
         # Return as both 'signals' (for Pipeline.run()) and 'signals_df' (for downstream stages)
         return {
             'signals': signals_df,
-            'signals_df': signals_df
+            'signals_df': signals_df,
+            'signals_output_path': str(signals_output_path) if signals_output_path else None,
         }

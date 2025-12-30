@@ -154,8 +154,11 @@ Dynamic series (context-only) include session highs/lows, VWAP, and call/put wal
 
 ## Output
 
-Final output is written by SilverFeatureBuilder to:
-`silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet`
+Canonical pipeline runs write to:
+`silver/features/es_pipeline/version={canonical_version}/date=YYYY-MM-DD/*.parquet`
+
+Silver feature experiments (via `SilverFeatureBuilder`) write to:
+`silver/features/{manifest.version}/date=YYYY-MM-DD/*.parquet`
 
 Schema reference:
 - [../../SILVER_SCHEMA.md](../../SILVER_SCHEMA.md)

@@ -53,7 +53,9 @@ This specification defines a similarity retrieval system for level-interaction t
 **Canonical Pipeline Runner**: `backend/scripts/run_pipeline.py`
 - Runs `build_es_pipeline()` for a single date or date range
 - Optional checkpointing/incremental mode via `--checkpoint-dir` (plus resume/inspect flags)
-- Usage (from `backend/`): `uv run python -m scripts.run_pipeline --date YYYY-MM-DD`
+- Canonical versioning via `--canonical-version` (writes outputs under `version={canonical_version}/...`)
+- Rerun semantics: date partitions are overwritten by default (`--overwrite-partitions`, enabled by default)
+- Usage (from `backend/`): `uv run python -m scripts.run_pipeline --date YYYY-MM-DD --canonical-version 3.1.0`
 
 ### Validation Scripts
 
@@ -162,7 +164,7 @@ direction = 'DOWN' → approaching level from ABOVE (spot > level, expecting to 
 
 ### 2.1 Input: Silver Layer Event Table
 
-**Location**: `silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet`
+**Location**: `silver/features/es_pipeline/version={canonical_version}/date=YYYY-MM-DD/*.parquet`
 
 This table contains event records triggered at level interactions. Each row represents one interaction event.
 
@@ -198,10 +200,10 @@ Outcome Fields (used for labeling only, never in features):
 
 ### 2.2 Output: Gold Layer Episode Corpus
 
-**Location**: `gold/episodes/es_level_episodes/`
+**Location**: `gold/episodes/es_level_episodes/version={canonical_version}/`
 
 ```
-gold/episodes/es_level_episodes/
+gold/episodes/es_level_episodes/version={canonical_version}/
 ├── vectors/
 │   └── date=YYYY-MM-DD/
 │       └── episodes.npy          # [N_episodes × 111] float32
@@ -250,10 +252,10 @@ Attempt Context:
 
 ### 2.3 Output: FAISS Index Structure
 
-**Location**: `gold/indices/es_level_indices/`
+**Location**: `gold/indices/es_level_indices/version={canonical_version}/`
 
 ```
-gold/indices/es_level_indices/
+gold/indices/es_level_indices/version={canonical_version}/
 ├── PM_HIGH/
 │   ├── UP/
 │   │   ├── T0_30/
@@ -357,7 +359,7 @@ The state table provides time-sampled market state at fixed cadence, enabling:
 
 ### 4.2 Specification
 
-**Location**: `silver/state/es_level_state/date=YYYY-MM-DD/*.parquet`
+**Location**: `silver/state/es_level_state/version={canonical_version}/date=YYYY-MM-DD/*.parquet`
 
 **Cadence**: 30 seconds
 
@@ -896,7 +898,7 @@ For each of 60 partitions (level_kind × direction × time_bucket):
    - `vectors.npy` - Raw vectors for attribution
    - `metadata.parquet` - Episode metadata with labels
 
-**Output**: 60 partition directories under `gold/indices/es_level_indices/{level}/{dir}/{bucket}/` plus `config.json` with build metadata.
+**Output**: 60 partition directories under `gold/indices/es_level_indices/version={canonical_version}/{level}/{dir}/{bucket}/` plus `config.json` with build metadata.
 
 ### 8.5 Index Manager
 
@@ -1334,12 +1336,12 @@ BRONZE LAYER (Raw Databento, 250ms)
     ▼
 SILVER LAYER (Existing es_pipeline, 15 stages)
     │
-    ├──► silver/features/es_pipeline/*.parquet  [Event records]
+    ├──► silver/features/es_pipeline/version={canonical_version}/date=*/signals.parquet  [Event records]
     │
     ▼
 STAGE 16: State Table Materialization
     │
-    └──► silver/state/es_level_state/*.parquet  [30s cadence state]
+    └──► silver/state/es_level_state/version={canonical_version}/date=*/state.parquet  [30s cadence state]
     
     │
     ▼
@@ -1351,14 +1353,14 @@ OFFLINE: Normalization Statistics (Daily, expanding window)
     ▼
 STAGE 17: Episode Vector Construction
     │
-    └──► gold/episodes/es_level_episodes/vectors/*.npy
-    └──► gold/episodes/es_level_episodes/metadata/*.parquet
+    └──► gold/episodes/es_level_episodes/version={canonical_version}/vectors/*.npy
+    └──► gold/episodes/es_level_episodes/version={canonical_version}/metadata/*.parquet
     
     │
     ▼
 OFFLINE: Index Building (Daily, after RTH close)
     │
-    └──► gold/indices/es_level_indices/{level}/{dir}/{bucket}/*
+    └──► gold/indices/es_level_indices/version={canonical_version}/{level}/{dir}/{bucket}/*
     
     │
     ▼
@@ -1373,9 +1375,9 @@ OFFLINE: Validation (Weekly)
 **Stage 16: State Table Materialization**
 
 ```
-Input:  silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet
+Input:  silver/features/es_pipeline/version={canonical_version}/date=YYYY-MM-DD/*.parquet
         + raw price data at 30s intervals
-Output: silver/state/es_level_state/date=YYYY-MM-DD/*.parquet
+Output: silver/state/es_level_state/version={canonical_version}/date=YYYY-MM-DD/*.parquet
 
 Logic:
 1. Generate timestamps at 30s intervals from 09:30 to 12:30 ET
@@ -1394,7 +1396,7 @@ Constraints:
 **Normalization Statistics Computation**
 
 ```
-Input:  silver/state/es_level_state/ (last 60 days)
+Input:  silver/state/es_level_state/version={canonical_version}/ (last 60 days)
 Output: gold/normalization/stats_v{N}.json
 
 Logic:
@@ -1408,11 +1410,11 @@ Schedule: Daily at 05:00 ET (before market open)
 **Stage 17: Episode Vector Construction**
 
 ```
-Input:  silver/features/es_pipeline/date=YYYY-MM-DD/*.parquet (event anchors)
-        silver/state/es_level_state/date=YYYY-MM-DD/*.parquet (state for windows)
+Input:  silver/features/es_pipeline/version={canonical_version}/date=YYYY-MM-DD/*.parquet (event anchors)
+        silver/state/es_level_state/version={canonical_version}/date=YYYY-MM-DD/*.parquet (state for windows)
         gold/normalization/stats_v{N}.json
-Output: gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy [N × 144]
-        gold/episodes/es_level_episodes/metadata/date=YYYY-MM-DD/metadata.parquet
+Output: gold/episodes/es_level_episodes/version={canonical_version}/vectors/date=YYYY-MM-DD/episodes.npy [N × 144]
+        gold/episodes/es_level_episodes/version={canonical_version}/metadata/date=YYYY-MM-DD/metadata.parquet
 
 Logic:
 1. For each event (anchor) in event table:
@@ -1433,8 +1435,8 @@ Schedule: Daily, after RTH close (16:15 ET)
 **Index Building (Offline)**
 
 ```
-Input:  gold/episodes/es_level_episodes/ (all dates)
-Output: gold/indices/es_level_indices/{level}/{dir}/{bucket}/
+Input:  gold/episodes/es_level_episodes/version={canonical_version}/ (all dates)
+Output: gold/indices/es_level_indices/version={canonical_version}/{level}/{dir}/{bucket}/
 
 Logic:
 1. Load all episode vectors and metadata
@@ -1451,8 +1453,8 @@ Schedule: Daily at 17:00 ET (or incremental with weekly full rebuild)
 **Validation (Offline)**
 
 ```
-Input:  gold/episodes/ (all)
-        gold/indices/ (current)
+Input:  gold/episodes/*/version={canonical_version}/ (all)
+        gold/indices/*/version={canonical_version}/ (current)
 Output: gold/validation/calibration_YYYY-MM-DD.json
         gold/validation/drift_YYYY-MM-DD.json
         gold/validation/sanity_YYYY-MM-DD.json

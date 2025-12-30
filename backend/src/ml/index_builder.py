@@ -1,6 +1,7 @@
 """Index building for similarity search - IMPLEMENTATION_READY.md Section 8."""
 import logging
 import json
+import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Any
 from datetime import datetime
@@ -188,7 +189,8 @@ def build_all_indices(
     episodes_dir: Path,
     output_dir: Path,
     date_filter: List[str] = None,
-    min_partition_size: int = MIN_PARTITION_SIZE
+    min_partition_size: int = MIN_PARTITION_SIZE,
+    overwrite_output_dir: bool = True
 ) -> Dict[str, Any]:
     """
     Build FAISS indices for all 48 partitions.
@@ -212,6 +214,8 @@ def build_all_indices(
         raise ImportError("FAISS not installed. Run: uv add faiss-cpu")
     
     output_dir = Path(output_dir)
+    if overwrite_output_dir and output_dir.exists():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info("Building FAISS indices for all partitions...")
@@ -323,7 +327,7 @@ class BuildIndicesStage:
         self.output_dir = Path(output_dir)
         self.min_partition_size = min_partition_size
     
-    def execute(self, date_filter: List[str] = None) -> Dict[str, Any]:
+    def execute(self, date_filter: List[str] = None, overwrite_output_dir: bool = True) -> Dict[str, Any]:
         """
         Execute index building.
         
@@ -337,6 +341,6 @@ class BuildIndicesStage:
             episodes_dir=self.episodes_dir,
             output_dir=self.output_dir,
             date_filter=date_filter,
-            min_partition_size=self.min_partition_size
+            min_partition_size=self.min_partition_size,
+            overwrite_output_dir=overwrite_output_dir,
         )
-
