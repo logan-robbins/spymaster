@@ -212,9 +212,9 @@ def main():
     if args.checkpoint_dir:
         print(f"Checkpoints: {args.checkpoint_dir}")
     if args.resume_from_stage is not None:
-        print(f"Resuming from stage: {args.resume_from_stage}")
+        print(f"Resuming from stage_idx: {args.resume_from_stage}")
     if args.stop_at_stage is not None:
-        print(f"Stopping at stage: {args.stop_at_stage}")
+        print(f"Stopping at stage_idx: {args.stop_at_stage}")
     print()
     
     pipeline = build_es_pipeline()
@@ -241,4 +241,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

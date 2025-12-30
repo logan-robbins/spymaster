@@ -60,8 +60,8 @@ class Pipeline:
             date: YYYY-MM-DD date string
             log_level: Optional logging level (default: INFO)
             checkpoint_dir: Directory for checkpoints (enables checkpointing if provided)
-            resume_from_stage: Resume from stage N (0-based, loads stage N-1 checkpoint)
-            stop_at_stage: Stop after stage N (0-based, for debugging)
+            resume_from_stage: Resume from stage_idx N (0-based, loads stage_idx N-1 checkpoint)
+            stop_at_stage: Stop after stage_idx N (0-based, for debugging)
 
         Returns:
             Final signals DataFrame
@@ -95,11 +95,11 @@ class Pipeline:
                 raise ValueError("Cannot resume without checkpoint_dir")
             
             if resume_from_stage < 0 or resume_from_stage >= len(self.stages):
-                raise ValueError(f"Invalid resume_from_stage={resume_from_stage}, must be 0-{len(self.stages)-1}")
+                raise ValueError(f"Invalid resume_from_stage(stage_idx)={resume_from_stage}, must be 0-{len(self.stages)-1}")
             
             # Load checkpoint from previous stage
             if resume_from_stage > 0:
-                logger.info(f"[{self.version}] Resuming from stage {resume_from_stage}")
+                logger.info(f"[{self.version}] Resuming from stage_idx {resume_from_stage} (step {resume_from_stage + 1}/{len(self.stages)})")
                 ctx = checkpoint_manager.load_checkpoint(
                     pipeline_name=self.name,
                     date=date,
@@ -113,29 +113,31 @@ class Pipeline:
                 ctx.config = vars(CONFIG).copy()
                 start_stage_idx = resume_from_stage
             else:
-                logger.info(f"[{self.version}] Starting from beginning (resume_from_stage=0)")
+                logger.info(f"[{self.version}] Starting from beginning (resume_from_stage(stage_idx)=0)")
         
         # Initialize context if not resumed
         if ctx is None:
             ctx = StageContext(
                 date=date,
-                data={},
+                data={'date': date},
                 config=vars(CONFIG).copy()
             )
+        else:
+            ctx.data.setdefault('date', date)
 
         # Determine end stage
         end_stage_idx = len(self.stages)
         if stop_at_stage is not None:
             if stop_at_stage < 0 or stop_at_stage >= len(self.stages):
-                raise ValueError(f"Invalid stop_at_stage={stop_at_stage}, must be 0-{len(self.stages)-1}")
+                raise ValueError(f"Invalid stop_at_stage(stage_idx)={stop_at_stage}, must be 0-{len(self.stages)-1}")
             end_stage_idx = stop_at_stage + 1
-            logger.info(f"[{self.version}] Will stop after stage {stop_at_stage}")
+            logger.info(f"[{self.version}] Will stop after stage_idx {stop_at_stage} (step {stop_at_stage + 1}/{len(self.stages)})")
 
         # Execute stages
         for idx in range(start_stage_idx, end_stage_idx):
             stage = self.stages[idx]
             stage_start = time.time()
-            logger.info(f"[{self.version}] ({idx+1}/{len(self.stages)}) Running: {stage.name}")
+            logger.info(f"[{self.version}] (stage_idx={idx}, step {idx+1}/{len(self.stages)}) Running: {stage.name}")
 
             try:
                 ctx = stage.run(ctx)

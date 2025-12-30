@@ -1,5 +1,5 @@
 """
-Validate Stage 17: ConstructEpisodes (index 17, was called "Stage 18" in 1-based docs)
+Validate Stage 17: ConstructEpisodes (stage_idx=17)
 
 UPDATED Dec 2025: Now validates 144D vectors with DCT trajectory basis
 
@@ -411,7 +411,3 @@ def main():
 if __name__ == "__main__":
     import sys
     sys.exit(main())
-
-# Note: This file is validate_stage_18_construct_episodes.py but validates index 17
-# (kept filename for consistency with 1-based documentation naming)
-

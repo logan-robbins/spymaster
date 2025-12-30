@@ -64,6 +64,24 @@ MINMAX_FEATURES = {
     'attempt_cluster_id_mod', 'time_since_last_touch_sec'
 }
 
+CANONICAL_MINMAX_RANGES = {
+    'minutes_since_open': (0.0, 180.0),
+    'bars_since_open': (0.0, 90.0),
+    'level_stacking_2pt': (0.0, 6.0),
+    'level_stacking_5pt': (0.0, 6.0),
+    'level_stacking_10pt': (0.0, 6.0),
+    'prior_touches': (0.0, 10.0),
+    'attempt_index': (0.0, 10.0),
+    'approach_bars': (0.0, 40.0),
+}
+
+_CANONICAL_MINMAX_TOL = 1e-6
+
+_STATE_SCALE_SENTINELS = {
+    'minutes_since_open': 180.0,
+    'bars_since_open': 90.0,
+}
+
 
 def classify_feature_method(feature_name: str) -> str:
     """
@@ -97,6 +115,55 @@ def classify_feature_method(feature_name: str) -> str:
     else:
         # Default to robust for unknown features
         return 'robust'
+
+
+def validate_state_data_for_normalization(state_data: pd.DataFrame) -> None:
+    """Fail fast if state data looks pre-normalized or missing sentinel features."""
+    missing = [feature for feature in _STATE_SCALE_SENTINELS if feature not in state_data.columns]
+    if missing:
+        raise ValueError(
+            f"Normalization stats require state columns: {missing}"
+        )
+
+    for feature, expected_max in _STATE_SCALE_SENTINELS.items():
+        max_val = float(state_data[feature].max())
+        if max_val < expected_max * 0.5:
+            raise ValueError(
+                f"Normalization stats must be computed from raw state data; "
+                f"{feature} max {max_val:.2f} is too small (expected near {expected_max})."
+            )
+
+
+def validate_normalization_stats(stats: Dict[str, Any]) -> None:
+    """Validate stats consistency with canonical min-max ranges."""
+    features = stats.get('features')
+    if not isinstance(features, dict):
+        raise ValueError("Normalization stats missing 'features' dictionary.")
+
+    missing = [feature for feature in CANONICAL_MINMAX_RANGES if feature not in features]
+    if missing:
+        raise ValueError(
+            f"Normalization stats missing canonical min-max features: {missing}. "
+            "Recompute stats from raw state table data."
+        )
+
+    for feature, (min_expected, max_expected) in CANONICAL_MINMAX_RANGES.items():
+        cfg = features.get(feature, {})
+        if cfg.get('method') != 'minmax':
+            raise ValueError(
+                f"Normalization stats for {feature} must use minmax; got {cfg.get('method')}."
+            )
+        min_val = cfg.get('min')
+        max_val = cfg.get('max')
+        if min_val is None or max_val is None:
+            raise ValueError(
+                f"Normalization stats for {feature} missing min/max values."
+            )
+        if abs(float(min_val) - min_expected) > _CANONICAL_MINMAX_TOL or abs(float(max_val) - max_expected) > _CANONICAL_MINMAX_TOL:
+            raise ValueError(
+                f"Normalization stats for {feature} must be min={min_expected}, max={max_expected}; "
+                f"got min={min_val}, max={max_val}."
+            )
 
 
 def compute_normalization_stats(
@@ -176,14 +243,18 @@ def compute_normalization_stats(
             }
         
         elif method == 'minmax':
-            # MinMax normalization: (x - min) / (max - min)
-            min_val = float(values.min())
-            max_val = float(values.max())
+            if feature in CANONICAL_MINMAX_RANGES:
+                min_val, max_val = CANONICAL_MINMAX_RANGES[feature]
+            else:
+                min_val = float(values.min())
+                max_val = float(values.max())
+                if max_val <= min_val:
+                    max_val = min_val + 1.0
             
             stats['features'][feature] = {
                 'method': 'minmax',
                 'min': min_val,
-                'max': max_val if max_val > min_val else min_val + 1.0
+                'max': max_val
             }
         
         else:
@@ -362,6 +433,8 @@ def load_normalization_stats(stats_path: Path) -> Dict[str, Any]:
     with open(stats_path, 'r') as f:
         stats = json.load(f)
     
+    validate_normalization_stats(stats)
+    
     logger.info(f"Loaded normalization stats v{stats['version']} from {stats_path}")
     logger.info(f"  Computed: {stats['computed_date']}, Lookback: {stats['lookback_days']} days, Samples: {stats['n_samples']:,}")
     
@@ -429,33 +502,26 @@ class ComputeNormalizationStage:
         
         state_data = pd.concat(state_dfs, ignore_index=True)
         logger.info(f"  Loaded {len(state_data):,} state samples from {len(state_dfs)} files")
+        validate_state_data_for_normalization(state_data)
         
-        # Get all numeric feature columns (exclude identifiers and labels)
-        exclude_cols = {
-            'timestamp', 'ts_ns', 'date', 'event_id', 'level_price', 'level_active',
-            'spot', 'entry_price',  # Exclude raw prices
-            # Exclude all outcome/label columns
-            'outcome', 'outcome_2min', 'outcome_4min', 'outcome_8min',
-            'time_to_break_1', 'time_to_bounce_1',
-            'time_to_break_1_2min', 'time_to_bounce_1_2min',
-            'time_to_break_1_4min', 'time_to_bounce_1_4min',
-            'time_to_break_1_8min', 'time_to_bounce_1_8min',
-            'excursion_max', 'excursion_min', 'excursion_favorable', 'excursion_adverse',
-            'strength_signed', 'strength_abs',
-            'future_price', 'tradeable_1', 'tradeable_2'
-        }
-        
-        feature_list = [
-            col for col in state_data.columns
-            if col not in exclude_cols and pd.api.types.is_numeric_dtype(state_data[col])
-        ]
-        
-        logger.info(f"  Computing stats for {len(feature_list)} features...")
-        
-        # Compute statistics
+        from src.ml.episode_vector import build_raw_vectors_from_state, get_feature_names
+
+        raw_vectors = build_raw_vectors_from_state(state_data)
+        if raw_vectors.size == 0:
+            raise ValueError("No raw vectors generated from state table data.")
+
+        feature_names = get_feature_names()
+        if raw_vectors.shape[1] != len(feature_names):
+            raise ValueError(
+                f"Vector dimension mismatch: {raw_vectors.shape[1]} vs {len(feature_names)}"
+            )
+
+        vector_df = pd.DataFrame(raw_vectors, columns=feature_names)
+        logger.info(f"  Computing stats for {len(feature_names)} features from {len(vector_df):,} vectors...")
+
         stats = compute_normalization_stats(
-            state_data=state_data,
-            feature_list=feature_list,
+            state_data=vector_df,
+            feature_list=feature_names,
             lookback_days=self.lookback_days
         )
         
@@ -472,4 +538,3 @@ class ComputeNormalizationStage:
             'n_features': len(stats['features']),
             'n_samples': stats['n_samples']
         }
-

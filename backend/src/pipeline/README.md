@@ -80,7 +80,7 @@ signals_df = pipeline.run("2025-12-16")
 
 ## ES Pipeline v3.0.0 (18 stages, 0-indexed: 0-17)
 
-**Note**: Stage indices are 0-based in code. Documentation may use 1-based for readability.
+**Note**: All pipeline stage references are `stage_idx` (0-based). Checkpoints are stored under `data/checkpoints/.../stage_{stage_idx:02d}/`.
 
 0. LoadBronze  
 1. BuildOHLCV (1min)  
@@ -99,7 +99,7 @@ signals_df = pipeline.run("2025-12-16")
 14. LabelOutcomes (v3.0.0: first-crossing, BREAK/REJECT/CHOP)  
 15. FilterRTH  
 16. MaterializeStateTable (v3.0.0: NEW - 30s state cadence)  
-17. ConstructEpisodes (v3.0.0: NEW - 111-dim episode vectors)
+17. ConstructEpisodes (v3.0.0: NEW - 144-dim episode vectors)
 
 ---
 

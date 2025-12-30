@@ -467,6 +467,57 @@ def compute_emission_weight(
     return float(proximity_w * velocity_w * ofi_w)
 
 
+def build_raw_vectors_from_state(
+    state_df: pd.DataFrame,
+    history_length: int = 5,
+    trajectory_length: int = 40
+) -> np.ndarray:
+    """
+    Build raw (unnormalized) episode vectors from state table rows.
+
+    Uses each state row as an anchor and derives micro-history/trajectory windows
+    within the same date and level_kind.
+    """
+    if state_df.empty:
+        return np.array([])
+
+    required_cols = {'date', 'timestamp', 'level_kind', 'level_price'}
+    missing = required_cols - set(state_df.columns)
+    if missing:
+        raise ValueError(f"state_df missing required columns: {sorted(missing)}")
+
+    state_sorted = state_df.sort_values(['date', 'level_kind', 'timestamp']).copy()
+
+    vectors = []
+    grouped = state_sorted.groupby(['date', 'level_kind'], sort=False)
+    for _, group in grouped:
+        records = group.to_dict('records')
+        for idx, row in enumerate(records):
+            if row.get('level_active') is False:
+                continue
+            level_price = row.get('level_price')
+            if level_price is None or (isinstance(level_price, float) and np.isnan(level_price)):
+                continue
+
+            history_buffer = records[max(0, idx - (history_length - 1)):idx + 1]
+            trajectory_window = records[max(0, idx - (trajectory_length - 1)):idx + 1]
+
+            while len(history_buffer) < history_length:
+                history_buffer.insert(0, history_buffer[0] if history_buffer else row)
+            while len(trajectory_window) < trajectory_length:
+                trajectory_window.insert(0, trajectory_window[0] if trajectory_window else row)
+
+            vector = construct_episode_vector(
+                current_bar=row,
+                history_buffer=history_buffer,
+                trajectory_window=trajectory_window,
+                level_price=level_price
+            )
+            vectors.append(vector)
+
+    return np.array(vectors, dtype=np.float32)
+
+
 def construct_episodes_from_events(
     events_df: pd.DataFrame,
     state_df: pd.DataFrame,
@@ -679,4 +730,3 @@ def save_episodes(
         'vectors': vectors_path,
         'metadata': metadata_path
     }
-

@@ -1,4 +1,4 @@
-"""Construct episode vectors - IMPLEMENTATION_READY.md Section 6 (Stage 18)."""
+"""Construct episode vectors - IMPLEMENTATION_READY.md Section 6 (Stage 17)."""
 import logging
 from typing import Any, Dict, List
 from pathlib import Path
@@ -110,4 +110,3 @@ class ConstructEpisodesStage(BaseStage):
             'episodes_vectors': vectors,
             'episodes_metadata': metadata
         }
-
