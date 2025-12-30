@@ -57,11 +57,11 @@ uv run python scripts/backfill_bronze_futures.py --all
 ```bash
 cd backend
 
-# Run pipeline (18 stages: bronze → features → episodes)
-uv run python -m src.lake.silver_feature_builder \
-  --pipeline es_pipeline \
-  --start-date 2024-11-01 \
-  --end-date 2024-12-31
+# Run pipeline (18 stages)
+uv run python -m scripts.run_pipeline --start 2024-11-01 --end 2024-12-31
+
+# Optional: enable incremental checkpointing / resume support
+uv run python -m scripts.run_pipeline --date 2024-12-20 --checkpoint-dir data/checkpoints
 
 # Validate pipeline output
 uv run python scripts/validate_es_pipeline.py --date 2024-12-20

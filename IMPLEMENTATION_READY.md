@@ -50,6 +50,11 @@ This specification defines a similarity retrieval system for level-interaction t
 **Pipeline Integration**:
 - `backend/src/pipeline/pipelines/es_pipeline.py` - 18-stage pipeline
 
+**Canonical Pipeline Runner**: `backend/scripts/run_pipeline.py`
+- Runs `build_es_pipeline()` for a single date or date range
+- Optional checkpointing/incremental mode via `--checkpoint-dir` (plus resume/inspect flags)
+- Usage (from `backend/`): `uv run python -m scripts.run_pipeline --date YYYY-MM-DD`
+
 ### Validation Scripts
 
 **Main Pipeline Validator**: `backend/scripts/validate_es_pipeline.py`
