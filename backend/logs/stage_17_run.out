@@ -1,0 +1,25 @@
+2025-12-29 19:11:05,238 - [3.0.0] Starting pipeline: es_pipeline
+2025-12-29 19:11:05,238 - [3.0.0] Date: 2025-12-16
+2025-12-29 19:11:05,238 - [3.0.0] Stages: 18
+2025-12-29 19:11:05,238 - [3.0.0] Checkpointing enabled: data/checkpoints
+2025-12-29 19:11:05,238 - [3.0.0] Resuming from stage 17
+2025-12-29 19:11:05,238 - Loading checkpoint from stage 16: materialize_state_table
+2025-12-29 19:11:06,676 - [3.0.0] Will stop after stage 17
+2025-12-29 19:11:06,676 - [3.0.0] (18/18) Running: construct_episodes
+2025-12-29 19:11:06,676 -   Constructing episode vectors from 53 events...
+2025-12-29 19:11:06,676 -   Normalization stats not found, skipping episode construction
+2025-12-29 19:11:06,676 -   Run normalization computation first (Stage 17)
+2025-12-29 19:11:06,676 - [3.0.0]   Completed in 0.00s
+2025-12-29 19:11:08,987 - [3.0.0] ==================================================
+2025-12-29 19:11:08,987 - [3.0.0] PIPELINE COMPLETE in 3.75s
+2025-12-29 19:11:08,987 - [3.0.0] Total signals: 53
+2025-12-29 19:11:08,987 - [3.0.0] Throughput: 14 signals/sec
+2025-12-29 19:11:08,987 - [3.0.0] ==================================================
+Running ES pipeline for 2025-12-16
+Checkpoints: data/checkpoints
+Resuming from stage: 17
+Stopping at stage: 17
+
+
+Pipeline completed successfully
+Final signals: 53 rows

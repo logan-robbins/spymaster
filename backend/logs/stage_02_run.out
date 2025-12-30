@@ -1,0 +1,24 @@
+2025-12-29 16:01:05,375 - [3.0.0] Starting pipeline: es_pipeline
+2025-12-29 16:01:05,375 - [3.0.0] Date: 2025-12-16
+2025-12-29 16:01:05,375 - [3.0.0] Stages: 18
+2025-12-29 16:01:05,375 - [3.0.0] Checkpointing enabled: data/checkpoints
+2025-12-29 16:01:05,375 - [3.0.0] Resuming from stage 2
+2025-12-29 16:01:05,375 - Loading checkpoint from stage 1: build_ohlcv_1min
+2025-12-29 16:01:06,221 - [3.0.0] Will stop after stage 2
+2025-12-29 16:01:06,221 - [3.0.0] (3/18) Running: build_ohlcv_2min
+2025-12-29 16:01:06,331 -     Warmup: loading 3 dates: ['2025-12-11', '2025-12-12', '2025-12-15']
+2025-12-29 16:01:07,627 -     Warmup: loaded 690 bars from 2025-12-11
+2025-12-29 16:01:08,958 -     Warmup: loaded 660 bars from 2025-12-12
+2025-12-29 16:01:09,540 -     Warmup: loaded 690 bars from 2025-12-15
+2025-12-29 16:01:09,540 -     Warmup: 2040 total warmup bars
+2025-12-29 16:01:09,540 -     Warmup: final 2min OHLCV has 2730 bars
+2025-12-29 16:01:09,564 - [3.0.0]   Completed in 3.34s
+2025-12-29 16:01:10,659 - [3.0.0] No 'signals' in context, returning empty DataFrame
+Running ES pipeline for 2025-12-16
+Checkpoints: data/checkpoints
+Resuming from stage: 2
+Stopping at stage: 2
+
+
+Pipeline completed successfully
+Final signals: 0 rows

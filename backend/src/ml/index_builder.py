@@ -19,7 +19,7 @@ except ImportError:
 # Constants per IMPLEMENTATION_READY.md Section 8
 LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
 DIRECTIONS = ['UP', 'DOWN']
-TIME_BUCKETS = ['T0_30', 'T30_60', 'T60_120', 'T120_180']
+TIME_BUCKETS = ['T0_15', 'T15_30', 'T30_60', 'T60_120', 'T120_180']
 MIN_PARTITION_SIZE = 100  # Don't create index for tiny partitions
 
 

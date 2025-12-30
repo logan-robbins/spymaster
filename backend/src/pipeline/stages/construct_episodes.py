@@ -52,12 +52,12 @@ class ConstructEpisodesStage(BaseStage):
     
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'state_df', 'date']
+        return ['signals_df', 'state_df']
     
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
         state_df = ctx.data['state_df']
-        date = ctx.data.get('date', pd.Timestamp.now())
+        date = pd.Timestamp(ctx.date)
         
         n_events = len(signals_df)
         logger.info(f"  Constructing episode vectors from {n_events:,} events...")
