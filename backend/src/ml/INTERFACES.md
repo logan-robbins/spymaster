@@ -18,7 +18,7 @@ Trains boosted-tree multi-head models for tradeability, direction, strength, and
 
 **Source**: Silver feature datasets (versioned experiments from Bronze)
 
-**Location**: `data/lake/silver/features/{version}/date=YYYY-MM-DD/*.parquet`
+**Location**: `data/silver/features/{version}/date=YYYY-MM-DD/*.parquet`
 
 **Access**:
 ```python
@@ -41,7 +41,7 @@ df = builder.load_features('v2.0_full_ensemble')
 - Labels: `tradeable_2`, `strength_signed`, `t1_60`, `t1_120`, `t2_60`, `t2_120`, `t1_break_60`, `t1_bounce_60`, `t2_break_60`, `t2_bounce_60`
 
 **Gold Production Data** (optional, after promotion):
-- Location: `data/lake/gold/training/signals_production.parquet`
+- Location: `data/gold/training/signals_production.parquet`
 - Same schema as Silver, curated from best experiment
 
 ---
@@ -102,7 +102,7 @@ uv run python -m src.ml.boosted_tree_train \
 
 # Override dataset path (Gold or Silver parquet)
 uv run python -m src.ml.boosted_tree_train \
-  --data-path data/lake/gold/training/signals_production.parquet \
+  --data-path data/gold/training/signals_production.parquet \
   --stage stage_b \
   --ablation full
 ```

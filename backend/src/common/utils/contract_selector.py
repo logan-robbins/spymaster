@@ -43,7 +43,7 @@ class ContractSelector:
     creates phantom liquidity ("ghost walls") and corrupts physics features.
     
     Usage:
-        selector = ContractSelector(bronze_root="/path/to/data/lake/bronze")
+        selector = ContractSelector(bronze_root="/path/to/data/bronze")
         selection = selector.select_front_month(date="2025-12-16")
         if selection.roll_contaminated:
             logger.warning(f"{date}: Roll contamination detected")
@@ -59,7 +59,7 @@ class ContractSelector:
         Initialize contract selector.
         
         Args:
-            bronze_root: Path to Bronze layer root (e.g., backend/data/lake/bronze)
+            bronze_root: Path to Bronze layer root (e.g., backend/data/bronze)
             dominance_threshold: Minimum volume fraction to pass quality gate (default 0.60)
             rth_only: Count only RTH trades (09:30-13:30 ET) for selection (default True)
         """

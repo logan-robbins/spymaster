@@ -487,12 +487,9 @@ class BronzeReader:
         Args:
             data_root: Root directory for data lake
         """
-        # Go up from src/lake -> src -> backend to find data/lake
-        self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            'data',
-            'lake'
-        )
+        # Use CONFIG.DATA_ROOT which points to backend/data
+        from src.common.config import CONFIG
+        self.data_root = data_root or CONFIG.DATA_ROOT
         self.bronze_root = os.path.join(self.data_root, 'bronze')
 
         # Lazy import to avoid startup cost
