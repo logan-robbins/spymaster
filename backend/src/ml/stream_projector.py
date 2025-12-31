@@ -23,6 +23,39 @@ import joblib
 logger = logging.getLogger(__name__)
 
 
+class MultiCoefficientPredictor:
+    """
+    Wrapper for 3 separate quantile regression models (a1, a2, a3).
+    
+    Provides sklearn-like interface but internally uses 3 models.
+    This is needed because MultiOutputRegressor doesn't properly handle
+    quantile loss with different quantile parameters.
+    """
+    
+    def __init__(self, models: Dict[str, HistGradientBoostingRegressor]):
+        """
+        Args:
+            models: {'a1': model, 'a2': model, 'a3': model}
+        """
+        self.models = models
+    
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """
+        Predict all 3 coefficients.
+        
+        Args:
+            X: Feature matrix [N, F]
+        
+        Returns:
+            Coefficient matrix [N, 3] where columns are [a1, a2, a3]
+        """
+        a1_pred = self.models['a1'].predict(X)
+        a2_pred = self.models['a2'].predict(X)
+        a3_pred = self.models['a3'].predict(X)
+        
+        return np.column_stack([a1_pred, a2_pred, a3_pred])
+
+
 @dataclass
 class ProjectionConfig:
     """Configuration for stream projection models."""
@@ -291,7 +324,9 @@ class StreamProjector:
         
         # Build feature matrix and target coefficients
         X_list = []
-        y_coeffs = {q: [] for q in self.config.quantiles}
+        y_coeffs_a1 = []
+        y_coeffs_a2 = []
+        y_coeffs_a3 = []
         sample_weights = []
         
         for sample in training_samples:
@@ -304,67 +339,75 @@ class StreamProjector:
             )
             X_list.append(X)
             
-            # Fit polynomial to each quantile of future trajectory
+            # Fit polynomial to actual future trajectory
+            # All quantiles will be trained on the same targets, 
+            # but with quantile loss they'll learn different predictions
             future_target = sample['future_target']  # [H]
             current_value = sample['current_value']
             
-            for q in self.config.quantiles:
-                # For quantile q, use quantile of future values at each horizon
-                # Simplified: fit polynomial to actual future, then perturb by quantile
-                # (In production, would use quantile-specific targets or pinball loss)
-                coeffs = fit_polynomial_coefficients(
-                    future_values=future_target,
-                    current_value=current_value,
-                    horizon_bars=self.config.horizon_bars
-                )
-                # Convert to array: [a1, a2, a3]
-                y_coeffs[q].append([coeffs['a1'], coeffs['a2'], coeffs['a3']])
+            coeffs = fit_polynomial_coefficients(
+                future_values=future_target,
+                current_value=current_value,
+                horizon_bars=self.config.horizon_bars
+            )
+            
+            # Store coefficients separately (for 3 separate quantile models)
+            y_coeffs_a1.append(coeffs['a1'])
+            y_coeffs_a2.append(coeffs['a2'])
+            y_coeffs_a3.append(coeffs['a3'])
             
             # Sample weight (from setup quality)
             setup_weight = sample.get('setup_weight', 1.0)
             sample_weights.append(setup_weight)
         
         X = np.vstack(X_list)
+        y_a1 = np.array(y_coeffs_a1)
+        y_a2 = np.array(y_coeffs_a2)
+        y_a3 = np.array(y_coeffs_a3)
         sample_weights = np.array(sample_weights)
         
         # Store feature names (for diagnostics)
         self.feature_names = [f"feature_{i}" for i in range(X.shape[1])]
         
-        # Train one model per quantile
+        # Train 3 models per quantile (one for each coefficient)
+        # Each uses quantile-specific loss function
         metrics = {}
+        
         for q in self.config.quantiles:
             q_str = f"q{int(q*100):02d}"
-            logger.info(f"  Training {q_str} model...")
+            logger.info(f"  Training {q_str} model (quantile={q})...")
             
-            y = np.vstack(y_coeffs[q])  # [N, 3]
-            
-            # Use HistGradientBoostingRegressor with quantile loss
-            # MultiOutput wraps to predict 3 coefficients simultaneously
-            base_model = HistGradientBoostingRegressor(
-                loss='squared_error',  # Use quantile loss if available
-                max_iter=max_iter,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                random_state=42
-            )
-            
-            model = MultiOutputRegressor(base_model)
-            model.fit(X, y, sample_weight=sample_weights)
-            
-            self.models[q_str] = model
-            
-            # Compute training R^2 for diagnostics
-            y_pred = model.predict(X)
+            # Train 3 separate models: one for a1, one for a2, one for a3
+            # Each with quantile loss
+            models_for_quantile = {}
             r2_scores = []
-            for i in range(3):  # a1, a2, a3
-                ss_res = np.sum((y[:, i] - y_pred[:, i])**2)
-                ss_tot = np.sum((y[:, i] - np.mean(y[:, i]))**2)
+            
+            for coeff_idx, (coeff_name, y_target) in enumerate([('a1', y_a1), ('a2', y_a2), ('a3', y_a3)]):
+                # Use quantile regression
+                model = HistGradientBoostingRegressor(
+                    loss='quantile',
+                    quantile=q,
+                    max_iter=max_iter,
+                    learning_rate=learning_rate,
+                    max_depth=max_depth,
+                    random_state=42
+                )
+                
+                model.fit(X, y_target, sample_weight=sample_weights)
+                models_for_quantile[coeff_name] = model
+                
+                # Compute training R^2
+                y_pred = model.predict(X)
+                ss_res = np.sum((y_target - y_pred)**2)
+                ss_tot = np.sum((y_target - np.mean(y_target))**2)
                 r2 = 1 - ss_res / (ss_tot + 1e-8)
                 r2_scores.append(r2)
+                
+                metrics[f'{q_str}_r2_{coeff_name}'] = float(r2)
             
-            metrics[f'{q_str}_r2_a1'] = r2_scores[0]
-            metrics[f'{q_str}_r2_a2'] = r2_scores[1]
-            metrics[f'{q_str}_r2_a3'] = r2_scores[2]
+            # Wrap models in a MultiCoefficientPredictor for interface compatibility
+            self.models[q_str] = MultiCoefficientPredictor(models_for_quantile)
+            
             metrics[f'{q_str}_r2_mean'] = np.mean(r2_scores)
             
             logger.info(f"    R^2 scores: a1={r2_scores[0]:.3f}, a2={r2_scores[1]:.3f}, a3={r2_scores[2]:.3f}")

@@ -48,22 +48,55 @@ def pentaview_websocket(ws):
     """
     import asyncio
     import websockets
+    import threading
+    
+    stop_event = threading.Event()
     
     async def forward_messages():
         try:
             async with websockets.connect(GATEWAY_WS_URL) as gateway_ws:
                 logger.info(f"Connected to Gateway: {GATEWAY_WS_URL}")
                 
-                async for message in gateway_ws:
-                    # Forward raw message to frontend
-                    ws.send(message)
+                while not stop_event.is_set():
+                    try:
+                        # Receive with timeout to check stop_event periodically
+                        message = await asyncio.wait_for(gateway_ws.recv(), timeout=1.0)
+                        # Forward raw message to frontend
+                        ws.send(message)
+                    except asyncio.TimeoutError:
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error receiving message: {e}")
+                        break
                     
         except Exception as e:
             logger.error(f"Gateway connection error: {e}")
-            ws.send(json.dumps({'error': str(e)}))
+            try:
+                ws.send(json.dumps({'error': str(e)}))
+            except:
+                pass
     
-    # Run async loop
-    asyncio.run(forward_messages())
+    # Run async forwarding in a thread
+    def run_async():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(forward_messages())
+    
+    thread = threading.Thread(target=run_async, daemon=True)
+    thread.start()
+    
+    # Keep connection alive and handle disconnects
+    try:
+        while True:
+            # Receive from frontend (mainly to detect disconnects)
+            data = ws.receive()
+            if data is None:
+                break
+    except Exception as e:
+        logger.info(f"Frontend disconnected: {e}")
+    finally:
+        stop_event.set()
+        thread.join(timeout=2)
 
 if __name__ == '__main__':
     logger.info("Starting Pentaview Stream Viewer...")

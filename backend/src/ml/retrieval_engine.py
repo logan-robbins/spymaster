@@ -40,10 +40,12 @@ class EpisodeQuery:
     metadata: Dict[str, Any]
 
 
+
 @dataclass
 class QueryResult:
     """Result structure from similarity query."""
     outcome_probabilities: Dict[str, Any]
+    context_metrics: Dict[str, Any]  # [NEW] Glass Box Metrics
     confidence_intervals: Dict[str, Any]
     multi_horizon: Dict[str, Any]
     attribution: Dict[str, Any]
@@ -456,6 +458,7 @@ class SimilarityQueryEngine:
         
         return QueryResult(
             outcome_probabilities=aggregated['outcome_probabilities'],
+            context_metrics=aggregated.get('context_metrics', {}),
             confidence_intervals=aggregated['confidence_intervals'],
             multi_horizon=aggregated['multi_horizon'],
             attribution=attribution,
@@ -517,6 +520,7 @@ class SimilarityQueryEngine:
         """Return empty result structure."""
         return QueryResult(
             outcome_probabilities={'probabilities': {}, 'n_samples': 0},
+            context_metrics={},
             confidence_intervals={},
             multi_horizon={},
             attribution={},

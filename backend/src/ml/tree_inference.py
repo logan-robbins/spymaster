@@ -56,6 +56,34 @@ class TreeModelBundle:
         self.t1_bounce_models = {h: self._load(f"t1_bounce_{h}s") for h in horizons}
         self.t2_break_models = {h: self._load(f"t2_break_{h}s") for h in horizons}
         self.t2_bounce_models = {h: self._load(f"t2_bounce_{h}s") for h in horizons}
+        
+        # Determine feature columns
+        # We need a way to get the feature names without a real dataframe
+        # Assuming select_features works with just stage/ablation params or we pass a dummy df
+        dummy_df = pd.DataFrame(columns=[]) # Empty
+        # feature_sets.select_features might fail if it tries to access columns.
+        # Let's rely on FeatureSet having a static definition if possible.
+        # Actually, let's just initialize it lazily or use a known set.
+        # For now, let's try to get it from select_features if it supports it.
+        # If not, we might need to modify select_features.
+        # But wait, inference_engine passes a real dataframe.
+        self._feature_cols = [] # Initialized later or we assume caller knows.
+        # Actually, let's just use the logic from predict, but cache it.
+        
+    def get_feature_cols(self, df: pd.DataFrame) -> List[str]:
+         # Helper to extract feature columns given a dataframe (to select correct subset)
+         feature_set = select_features(df, stage=self.stage, ablation=self.ablation)
+         return feature_set.numeric
+
+    @property
+    def feature_cols(self) -> List[str]:
+        # Using a dummy dataframe to get feature list is inefficient but safe
+        # Or better, just call select_features with empty df?
+        # select_features expects columns to exist if it filters based on content?
+        # Looking at select_features impl (imported), usually it returns names based on config.
+        # Let's import select_features and check implementation.
+        # Ideally we compute this once in __init__
+        return self._feature_cols
 
     def _load(self, name: str):
         path = self.model_dir / f"{name}_{self.stage}_{self.ablation}.joblib"

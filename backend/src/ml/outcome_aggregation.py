@@ -366,6 +366,70 @@ def compute_reliability(retrieved_metadata: pd.DataFrame) -> Dict[str, float]:
     }
 
 
+
+def compute_context_metrics(
+    retrieved_metadata: pd.DataFrame,
+    query_date: pd.Timestamp = None
+) -> Dict[str, Any]:
+    """
+    Compute 'Glass Box' Context metrics for user display.
+    
+    Returns raw, interpretable statistics about the retrieved neighbors:
+    - Base Rate (Win Rate across neighbors)
+    - Average Magnitude (Volatility)
+    - Signal Clarity (Entropy)
+    
+    Args:
+        retrieved_metadata: DataFrame with outcomes and excursions
+        query_date: Timestamp for recency weighting
+        
+    Returns:
+        Dict with context metrics
+    """
+    if len(retrieved_metadata) == 0:
+        return {
+            'base_rate_reject': 0.0,
+            'base_rate_break': 0.0,
+            'historical_avg_volatility': 0.0,
+            'historical_max_excursion': 0.0,
+            'avg_favorable_excursion': 0.0,
+            'avg_adverse_excursion': 0.0
+        }
+        
+    # Compute weights (power 4 + recency)
+    weights = compute_neighbor_weights(
+        similarities=retrieved_metadata['similarity'].values,
+        dates=retrieved_metadata.get('date'),
+        query_date=query_date
+    )
+    
+    # Base Rates (Weighted)
+    # This answers: "In the past, what % of these setups rejected?"
+    p_reject = float(weights[retrieved_metadata['outcome_4min'] == 'REJECT'].sum())
+    p_break = float(weights[retrieved_metadata['outcome_4min'] == 'BREAK'].sum())
+    
+    # Volatility / Magnitude Metrics
+    # "If it moves, how big is the move?" (Max of fav/adverse excursion)
+    max_excursions = np.maximum(
+        retrieved_metadata['excursion_favorable'].fillna(0), 
+        retrieved_metadata['excursion_adverse'].fillna(0)
+    )
+    weighted_vol = float((weights * max_excursions).sum())
+    
+    # Directional Expectancy
+    exp_fav = float((weights * retrieved_metadata['excursion_favorable'].fillna(0)).sum())
+    exp_adv = float((weights * retrieved_metadata['excursion_adverse'].fillna(0)).sum())
+    
+    return {
+        'base_rate_reject': p_reject,
+        'base_rate_break': p_break,
+        'historical_avg_volatility': weighted_vol,
+        'historical_max_excursion': float(max_excursions.max()),
+        'avg_favorable_excursion': exp_fav,
+        'avg_adverse_excursion': exp_adv
+    }
+
+
 def aggregate_query_results(
     retrieved_metadata: pd.DataFrame,
     query_date: pd.Timestamp = None,
@@ -391,6 +455,7 @@ def aggregate_query_results(
     if len(retrieved_metadata) == 0:
         return {
             'outcome_probabilities': {'probabilities': {}, 'n_samples': 0},
+            'context_metrics': {},
             'expected_excursions': {},
             'conditional_excursions': {},
             'multi_horizon': {},
@@ -400,6 +465,7 @@ def aggregate_query_results(
     
     results = {
         'outcome_probabilities': compute_outcome_distribution(retrieved_metadata, query_date),
+        'context_metrics': compute_context_metrics(retrieved_metadata, query_date),
         'expected_excursions': compute_expected_excursions(retrieved_metadata, query_date),
         'conditional_excursions': compute_conditional_excursions(retrieved_metadata, query_date),
         'multi_horizon': compute_multi_horizon_distribution(retrieved_metadata, query_date),
@@ -416,4 +482,5 @@ def aggregate_query_results(
         results['confidence_intervals'] = {}
     
     return results
+
 

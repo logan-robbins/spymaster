@@ -49,7 +49,8 @@ def select_index_type(n_vectors: int) -> str:
 
 def build_faiss_index(
     vectors: np.ndarray,
-    index_type: str = None
+    index_type: str = None,
+    feature_indices: List[int] = None
 ) -> 'faiss.Index':
     """
     Build FAISS index from vectors using cosine similarity.
@@ -63,12 +64,17 @@ def build_faiss_index(
     Args:
         vectors: Episode vectors [N × D]
         index_type: 'Flat', 'IVF', or 'IVFPQ' (auto-selected if None)
+        feature_indices: Optional list of indices to keep (dimensionality reduction)
     
     Returns:
         FAISS index (trained and populated)
     """
     if faiss is None:
         raise ImportError("FAISS not installed. Run: uv add faiss-cpu")
+    
+    # helper to slice vectors if needed
+    if feature_indices is not None:
+        vectors = vectors[:, feature_indices]
     
     N, D = vectors.shape
     
@@ -190,7 +196,8 @@ def build_all_indices(
     output_dir: Path,
     date_filter: List[str] = None,
     min_partition_size: int = MIN_PARTITION_SIZE,
-    overwrite_output_dir: bool = True
+    overwrite_output_dir: bool = True,
+    feature_indices: List[int] = None
 ) -> Dict[str, Any]:
     """
     Build FAISS indices for all 48 partitions.
@@ -256,6 +263,11 @@ def build_all_indices(
                     build_stats['n_partitions_skipped'] += 1
                     continue
                 
+                # Slice vectors if masking is requested (Phase 2 Ablation)
+                vectors_to_build = partition_vectors
+                if feature_indices is not None:
+                    vectors_to_build = partition_vectors[:, feature_indices]
+                
                 logger.info(f"  Building {partition_key}: {n_partition:,} vectors")
                 
                 # Create partition directory
@@ -264,15 +276,15 @@ def build_all_indices(
                 
                 # Build index
                 try:
-                    index = build_faiss_index(partition_vectors)
+                    index = build_faiss_index(vectors_to_build, feature_indices=None)
                     
                     # Save index
                     index_file = partition_dir / 'index.faiss'
                     faiss.write_index(index, str(index_file))
                     
-                    # Save vectors
+                    # Save vectors (important: save the sliced vectors if masked)
                     vectors_file = partition_dir / 'vectors.npy'
-                    np.save(vectors_file, partition_vectors)
+                    np.save(vectors_file, vectors_to_build)
                     
                     # Save metadata
                     metadata_file = partition_dir / 'metadata.parquet'

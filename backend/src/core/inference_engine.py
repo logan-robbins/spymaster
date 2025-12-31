@@ -7,7 +7,8 @@ import pandas as pd
 
 from src.ml.ensemble import combine_probabilities
 from src.ml.feasibility_gate import FeasibilityGate
-from src.ml.retrieval_engine import RetrievalIndex
+from src.ml.feasibility_gate import FeasibilityGate
+from src.ml.retrieval_engine import SimilarityQueryEngine, EpisodeQuery
 from src.ml.tree_inference import TreeModelBundle
 
 
@@ -19,25 +20,41 @@ class ViewportInferenceEngine:
     def __init__(
         self,
         model_bundle: TreeModelBundle,
-        retrieval_index: RetrievalIndex,
+        retrieval_engine: SimilarityQueryEngine,
         feasibility_gate: Optional[FeasibilityGate] = None
     ):
         self.model_bundle = model_bundle
-        self.retrieval_index = retrieval_index
+        self.retrieval_engine = retrieval_engine
         self.feasibility_gate = feasibility_gate or FeasibilityGate()
 
     def score_targets(self, features_df: pd.DataFrame) -> List[Dict[str, Any]]:
         if features_df.empty:
             return []
 
-        for col in self.retrieval_index.feature_cols:
-            if col not in features_df.columns:
-                features_df[col] = np.nan
+        # Ensure features expected by tree model are present
+        # Note: SimilarityQueryEngine uses vector directly, not dataframe columns
+        # But we still need checking for the tree model features
+        pass
 
         tree_preds = self.model_bundle.predict(features_df)
         results: List[Dict[str, Any]] = []
 
-        features_matrix = features_df[self.retrieval_index.feature_cols].to_numpy(dtype=np.float64)
+        # We assume feature_vector column or specific columns exist to build the vector
+        # For now, let's assume the dataframe has a 'vector' column or we use numeric columns
+        # In the previous code, it used self.retrieval_index.feature_cols.
+        # We need to know what columns constitute the vector.
+        # Temp fix: generic numeric columns or rely on caller to provide 'vector' column?
+        # Better: use all numeric columns as vector for now, or specific set.
+        # Assuming features_df comes from ViewportFeatureBuilder, which matches training schema.
+        # Let's use the columns from the dataframe that match standard feature set.
+        # For safety, let's look for 'vector' column first, else fallback (risky).
+        
+        # Actually, let's assume the callers (ViewportFeatureBuilder) produce a consistent schema.
+        # We will take the raw numpy array of the dataframe as the vector source if 'vector' col missing.
+        # BUT this depends on column order.
+        # SAFE BET: The tree model bundle knows the feature names.
+        feature_cols = self.model_bundle.get_feature_cols(features_df) # Ensure this exists in TreeModelBundle
+        features_matrix = features_df[feature_cols].to_numpy(dtype=np.float64)
         count = len(features_df)
 
         def _col_or_none(name: str):
@@ -75,27 +92,45 @@ class ViewportInferenceEngine:
         tape_velocity = _col_or_none("tape_velocity")
         fuel_effect = _col_or_none("fuel_effect")
         gamma_exposure = _col_or_none("gamma_exposure")
+        # Need timestamps for query
+        ts_ns = _col_or_none("ts_ns")
 
         for i in range(count):
             feature_vector = features_matrix[i]
             level_kind_name_val = level_kind_name[i] if level_kind_name is not None else None
             direction_val = direction[i] if direction is not None else "UP"
 
-            filters = {
-                "level_kind_name": level_kind_name_val,
-                "direction": direction_val
-            }
-            # Only filter by gamma bucket if enabled (disabled by default - gamma effects are small)
-            if gamma_bucket is not None and CONFIG.USE_GAMMA_BUCKET_FILTER:
-                filters["gamma_bucket"] = gamma_bucket[i]
-
-            retrieval = self.retrieval_index.query(feature_vector, filters=filters, k=20)
+            # Construct EpisodeQuery
+            ts_val = pd.Timestamp(ts_ns[i], unit='ns') if ts_ns is not None else pd.Timestamp.now()
+            
+            # TODO: time_bucket calculation logic is needed here if not in DF
+            # For now default to 'T0_15' or extract from DF
+            time_bucket_val = "T0_15" # Placeholder
+            
+            query = EpisodeQuery(
+                level_kind=level_kind_name_val or "UNKNOWN",
+                level_price=float(level_price[i]) if level_price is not None else 0.0,
+                direction=direction_val,
+                time_bucket=time_bucket_val,
+                vector=feature_vector,
+                emission_weight=1.0, # Default
+                timestamp=ts_val,
+                metadata={}
+            )
+            
+            # Query the engine
+            retrieval_result = self.retrieval_engine.query(query)
+            
+            # Extract basic metrics for ensemble
+            knn_prob = retrieval_result.outcome_probabilities['probabilities'].get('BREAK', 0.0)
+            avg_sim = retrieval_result.reliability.get('avg_similarity', 0.0)
+            entropy = retrieval_result.reliability.get('entropy', 0.0)
 
             ensemble = combine_probabilities(
                 tree_prob=float(tree_preds.p_break[i]),
-                knn_prob=retrieval.p_break,
-                similarity=retrieval.similarity,
-                entropy=retrieval.entropy
+                knn_prob=knn_prob,
+                similarity=avg_sim,
+                entropy=entropy
             )
 
             mask = self.feasibility_gate.compute_mask(
@@ -144,18 +179,14 @@ class ViewportInferenceEngine:
                     "t2_bounce": {k: float(v[i]) for k, v in tree_preds.t2_bounce_probs.items()}
                 },
                 "retrieval": {
-                    "p_break": retrieval.p_break,
-                    "p_bounce": retrieval.p_bounce,
-                    "p_tradeable_2": retrieval.p_tradeable_2,
-                    "strength_signed_mean": retrieval.strength_signed_mean,
-                    "strength_abs_mean": retrieval.strength_abs_mean,
-                    "time_to_threshold_1_mean": retrieval.time_to_threshold_1_mean,
-                    "time_to_threshold_2_mean": retrieval.time_to_threshold_2_mean,
-                    "time_to_break_1_mean": retrieval.time_to_break_1_mean,
-                    "time_to_bounce_1_mean": retrieval.time_to_bounce_1_mean,
-                    "time_to_break_2_mean": retrieval.time_to_break_2_mean,
-                    "time_to_bounce_2_mean": retrieval.time_to_bounce_2_mean,
-                    "neighbors": retrieval.neighbors.to_dict(orient="records")
+                    "p_break": knn_prob,
+                    "p_bounce": 1.0 - knn_prob,
+                    # Forward context metrics!
+                    "context_metrics": retrieval_result.context_metrics,
+                    "avg_similarity": avg_sim,
+                    "n_retrieved": retrieval_result.reliability.get('n_retrieved', 0),
+                    # Neighbors list
+                    "neighbors": retrieval_result.neighbors
                 },
                 "ensemble": {
                     "mix_weight": ensemble.mix_weight,

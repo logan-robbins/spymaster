@@ -99,40 +99,24 @@ class CoreService:
             from src.core.viewport_scoring_service import ViewportScoringService
             from src.core.inference_engine import ViewportInferenceEngine
             from src.ml.tree_inference import TreeModelBundle
-            from src.ml.retrieval_engine import RetrievalIndex
+            from src.ml.tree_inference import TreeModelBundle
+            from src.ml.retrieval_engine import IndexManager, SimilarityQueryEngine
 
             model_dir = Path(os.getenv("VIEWPORT_MODEL_DIR", "data/ml/boosted_trees"))
-            retrieval_path = Path(os.getenv("VIEWPORT_RETRIEVAL_INDEX", "data/ml/retrieval_index.joblib"))
-            ablation = os.getenv("VIEWPORT_ABLATION", "full")
-            horizons_env = os.getenv("VIEWPORT_HORIZONS", "")
-            horizons = [int(h) for h in horizons_env.split(",") if h.strip()] or [60, 120, 180, 300]
-            timeframe = os.getenv("VIEWPORT_TIMEFRAME", "").strip() or None
-
-            if not model_dir.exists():
-                raise FileNotFoundError(f"Viewport model dir missing: {model_dir}")
-            if not retrieval_path.exists():
-                raise FileNotFoundError(f"Viewport retrieval index missing: {retrieval_path}")
-
-            retrieval_index = joblib.load(retrieval_path)
-            if not isinstance(retrieval_index, RetrievalIndex):
-                raise ValueError("Viewport retrieval index is not a RetrievalIndex instance.")
-
-            stage_a_bundle = TreeModelBundle(
-                model_dir=model_dir,
-                stage="stage_a",
-                ablation=ablation,
-                horizons=horizons,
-                timeframe=timeframe
-            )
-            stage_b_bundle = TreeModelBundle(
-                model_dir=model_dir,
-                stage="stage_b",
-                ablation=ablation,
-                horizons=horizons,
-                timeframe=timeframe
-            )
-            stage_a_engine = ViewportInferenceEngine(stage_a_bundle, retrieval_index)
-            stage_b_engine = ViewportInferenceEngine(stage_b_bundle, retrieval_index)
+            # Retrieve indices from directory (no longer a single joblib file)
+            # Default to gold/indices/es_level_indices based on typical pipeline
+            indices_dir = Path(os.getenv("VIEWPORT_INDICES_DIR", "data/gold/indices/es_level_indices"))
+            
+            if not indices_dir.exists():
+                print(f"⚠️  Indices dir not found: {indices_dir}. Retrieval will be empty.")
+                # We can still start, but IndexManager will return empty results
+                
+            index_manager = IndexManager(indices_dir)
+            retrieval_engine = SimilarityQueryEngine(index_manager)
+            
+            # stage_a_engine and stage_b_engine now take retrieval_engine
+            stage_a_engine = ViewportInferenceEngine(stage_a_bundle, retrieval_engine)
+            stage_b_engine = ViewportInferenceEngine(stage_b_bundle, retrieval_engine)
 
             viewport_manager = ViewportManager(
                 fuel_engine=self.level_signal_service.fuel_engine,
