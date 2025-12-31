@@ -1,187 +1,225 @@
-# TradingView Forward Projection Demo - Replay Mode
+# Pentaview Stream Viewer
 
-This demo showcases a chart with forward projection bands that accumulate throughout a trading day replay.
+Real-time visualization of Pentaview projection models with TradingView Lightweight Charts.
 
 ## Features
 
-### Replay Mode (Default)
-- **Trading Day Replay**: Watch a full 6.5-hour trading day (9:30 AM - 4:00 PM EST) unfold at 16x speed
-- **Progressive Bar Display**: 195 two-minute bars appear every 7.5 seconds
-- **2-Overlay System**: Clean visualization with only two projection overlays:
-  - **Forward Projection** (bright orange/peach): Current prediction extending into future
-  - **Historical Accumulation** (faded orange/peach): Continuous band showing all past predictions
-- **Early Projections**: First projection appears after just 3 bars (minimum lookback requirement)
-- **Auto-Updating Projections**: Forward projection updates automatically at each bar close for next P bars
-- **Smooth Historical Band**: As each projection completes, it extends the historical band smoothly (no jagged overlaps)
-- **Future Time Axis**: Chart shows at least 1 hour of timestamps into the future
-- **Replay Controls**: Start, Pause, and Reset buttons for full control
-- **Complete in ~24 minutes**: Watch an entire trading day in under half an hour
+- **2-Minute OHLCV Candles** (left Y-axis): Price action from ES futures
+- **Stream Overlays** (right Y-axis, -1 to +1): Live normalized streams updating every 30 seconds
+  - `sigma_p` (Pressure): Red line
+  - `sigma_m` (Momentum): Blue line  
+  - `sigma_f` (Flow): Green line
+  - `sigma_b` (Barrier): Orange line
+  - `sigma_r` (Structure): Purple line
+- **Projection Bands** (right Y-axis): 5-minute ahead forecasts (10 bars @ 30s cadence)
+  - `q10`: Lower confidence bound (10th percentile)
+  - `q50`: Median forecast (50th percentile)
+  - `q90`: Upper confidence bound (90th percentile)
+- **Real-Time Updates**: WebSocket connection to Gateway for live streaming data
+- **Professional UI**: Dark TradingView theme with live status indicators
 
-### Static Mode (Legacy)
-- **Multi-Timeframe Candlestick Chart**: Displays ES futures data with configurable timeframes
-- **Single Projection Band**: Shows current projection with orange lines and translucent peach fill
-- **Manual Updates**: Update projections on demand
+## Architecture
 
-### Core Features (Both Modes)
-- **Projection Bands**: Upper and lower confidence bounds with orange lines and translucent peach fill
-- **Statistical Confidence**: Uses standard deviation to calculate band width (±1.5σ)
-- **Average Slope Calculation**: Linear regression on the last N bars (default: 10)
-- **Configurable Settings**: Adjust lookback period (2-100 bars) and projection length (1-20 bars)
-- **American Time Format**: 12-hour clock format with AM/PM on axis labels
-- **Real-time Statistics**: Shows progress, slope, band width, current price, and latest projection
+```
+Gateway (ws://localhost:8000/ws/stream)
+    ↓
+Flask WebSocket Proxy (demo/app.py)
+    ↓
+Frontend (demo/templates/index.html)
+    ↓
+TradingView Lightweight Charts
+```
 
-## How It Works
+The Flask app acts as a WebSocket proxy between the Gateway and the browser, forwarding stream data in real-time.
 
-### Replay Mode Workflow
+## Prerequisites
 
-1. **Trading Day Generation**: Creates 195 two-minute bars spanning 9:30 AM - 4:00 PM EST with realistic intraday volatility patterns
-
-2. **Progressive Playback**: Bars appear sequentially at 16x speed (7.5 seconds per bar)
-
-3. **2-Overlay System**: Uses only two projection overlays for clean visualization:
-   - **Forward Projection** (bright): Shows current prediction into future
-   - **Historical Band** (faded): Accumulates all past predictions into one continuous band
-
-4. **Auto-Updating Projections**: At each bar close (starting from bar 3):
-   - Analyzes last N bar closes using linear regression (minimum 3 bars)
-   - Calculates ±1.5σ confidence bands from the trend line
-   - **Extends Historical**: Takes the starting point of the old projection and adds it to the historical accumulator
-   - **Updates Forward**: Replaces forward projection with new P-bar forecast
-   - Result: Smooth, continuous historical band (no jagged overlaps)
-
-5. **Visualization**:
-   - Forward projection is bright orange/peach (shows current expectation)
-   - Historical band is faded orange/peach (shows evolution of predictions)
-   - Time axis extends 1 hour into future to show full forward projection
-   - Only 2 overlays total = clean, readable chart
-
-6. **Result**: By market close, one smooth historical band traces the complete evolution of predictions throughout the day
-
-### Visualization Layers
-
-- **Candlestick Series**: Real OHLCV bars that appear progressively
-- **Forward Projection** (bright overlay):
-  - Bright orange boundary lines (upper and lower)
-  - Translucent peach fill (shows confidence region)
-  - Extends into future (visible on time axis)
-- **Historical Band** (faded overlay):
-  - Faded orange boundary lines
-  - Light peach fill
-  - Continuous accumulation of all past predictions
-  - Shows smooth evolution of market expectations
-- **Time Axis**: Shows at least 1 hour into future to display full projection
-- **Real-time Stats**: Progress, current slope, band width, and forward projection price
-
-## Setup & Run
+### 1. Gateway Service Running
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
+# Gateway must be running on port 8000
+docker ps | grep spymaster-gateway
+# Should show: spymaster-gateway ... Up ... 0.0.0.0:8000->8000/tcp
+```
 
-# Install dependencies
+### 2. Replay Engine Running (for historical playback)
+
+```bash
+cd backend
+REPLAY_SPEED=1.0 REPLAY_DATE=2025-12-18 \
+  REPLAY_USE_BRONZE_FUTURES=true REPLAY_FUTURES_SYMBOL=ES \
+  uv run python -m src.ingestion.databento.replay
+```
+
+### 3. Trained Projection Models
+
+Models should exist at:
+```
+backend/data/ml/projection_models/
+├── projection_sigma_p_v30s_20251115_20251215.joblib
+├── projection_sigma_m_v30s_20251115_20251215.joblib
+├── projection_sigma_f_v30s_20251115_20251215.joblib
+├── projection_sigma_b_v30s_20251115_20251215.joblib
+└── projection_sigma_r_v30s_20251115_20251215.joblib
+```
+
+## Installation
+
+```bash
+cd demo
+
+# Install dependencies (Flask, WebSocket support)
 pip install -r requirements.txt
 
-# Run the application
+# Or using uv
+uv pip install -r requirements.txt
+```
+
+## Usage
+
+### Start the Viewer
+
+```bash
+cd demo
+./run.sh
+```
+
+Or manually:
+```bash
 python app.py
 ```
 
-Then open your browser to: http://localhost:5000
+Then open your browser to: **http://localhost:5000**
 
-## Using Replay Mode
+### Expected Behavior
 
-1. Open the demo in your browser
-2. Ensure "Replay" mode is selected (default)
-3. Adjust **Lookback Bars** (how many bars to analyze) and **Projection Bars** (how far to project)
-4. Click **▶ Start Replay (16x)** to begin
-5. Watch as:
-   - Bars appear every 7.5 seconds at 16x speed
-   - First projection appears after just 3 bars
-   - New projection bands automatically created at each subsequent bar close
-   - All historical projection bands remain visible with fading opacity
-   - Progress indicator shows current position (e.g., "75/195 (38.5%)")
-6. Click **⏸ Pause** to pause playback (resume with Start)
-7. Click **↻ Reset** to clear all data and start over
-8. Switch to **Static** mode for traditional manual projection updates
+1. **Connection**: Status indicator shows "Connected" (green dot)
+2. **Price Candles**: 2-minute bars appear on the left Y-axis
+3. **Stream Overlays**: 5 colored lines appear on the right Y-axis (-1 to +1 range)
+4. **Projections**: Dashed orange lines extend 5 minutes into the future
+5. **Updates**: Legend values update every 30 seconds as new stream samples arrive
+6. **Stats**: Header shows bar count, update count, and model version
 
-**Full replay completes in approximately 24 minutes** (195 bars × 7.5 seconds)
+### Troubleshooting
 
-## What You'll See
+**"Connecting..." never changes to "Connected"**
+- Check Gateway is running: `curl http://localhost:8000/health`
+- Check WebSocket endpoint: `docker logs -f spymaster-gateway`
+- Verify replay engine is publishing data
 
-### Replay Visualization
+**No candles appearing**
+- Verify replay engine is running and publishing trades
+- Check Core service logs: `docker logs -f spymaster-core`
+- Confirm bronze data exists for replay date
 
-As the replay progresses, you'll observe:
+**Streams show "—" values**
+- Verify Pentaview pipeline is generating streams
+- Check Gateway is emitting stream payloads
+- Inspect browser console for WebSocket messages
 
-1. **Growing Chart**: Candlesticks appear left-to-right at 16x speed, rapidly building the trading day
-2. **Future Time Axis**: Chart automatically shows 1+ hour of timestamps into the future
-3. **Early Projections**: First projection appears after just 3 bars (9:36 AM)
-4. **Two Clean Overlays**:
-   - **Bright Forward Projection**: Updates at each bar close, extending P bars into future
-   - **Faded Historical Band**: Grows smoothly as old projections are added to it
-5. **Smooth Accumulation**: Historical band extends continuously (no jagged overlaps or clutter)
-6. **Clear Visualization**: Only 2 overlays means the chart stays readable throughout the day
-7. **Pattern Recognition**: By end of day, the historical band shows:
-   - Where predictions were consistently accurate (narrow band following price)
-   - Where predictions were volatile (wider band)
-   - How confidence changed throughout the day (band width variations)
-   - Trend changes (band direction shifts)
+**Projections not appearing**
+- Verify projection models are loaded in Core service
+- Check 16-bar minimum history requirement (need 8 minutes of warmup)
+- Confirm inference is running every 30 seconds
 
-### Key Visual Elements
+## Data Flow
 
-- **Green/Red Candlesticks**: Actual price bars (green = up, red = down)
-- **Bright Orange Lines**: Upper and lower bounds of forward projection
-- **Bright Peach Fill**: Confidence region of forward projection
-- **Faded Orange Lines**: Upper and lower bounds of historical band
-- **Faded Peach Fill**: Historical confidence region showing past predictions
-- **Time Axis**: 12-hour format, extends 1+ hour into future to show projections
-- **Only 2 Overlays**: Clean visualization without clutter
+### Expected WebSocket Payload
 
-## API Endpoints
+The Gateway should emit messages with this structure:
 
-### Replay Mode Endpoints
-- `/replay/data` - Get bars up to specified index for progressive playback
-- `/replay/projection` - Calculate projection bands at specific bar index
+```json
+{
+  "candles": [
+    {"time": 1702900800, "open": 4500.0, "high": 4502.5, "low": 4498.0, "close": 4501.0}
+  ],
+  "streams": {
+    "sigma_p": [{"time": 1702900800, "value": 0.45}],
+    "sigma_m": [{"time": 1702900800, "value": -0.12}],
+    "sigma_f": [{"time": 1702900800, "value": 0.23}],
+    "sigma_b": [{"time": 1702900800, "value": 0.67}],
+    "sigma_r": [{"time": 1702900800, "value": 0.34}]
+  },
+  "projections": {
+    "q10": [{"time": 1702900830, "value": 0.40}, {"time": 1702900860, "value": 0.38}],
+    "q50": [{"time": 1702900830, "value": 0.45}, {"time": 1702900860, "value": 0.47}],
+    "q90": [{"time": 1702900830, "value": 0.50}, {"time": 1702900860, "value": 0.56}]
+  }
+}
+```
 
-### Static Mode Endpoints
-- `/` - Main chart interface
-- `/config` - TradingView datafeed configuration
-- `/symbols` - Symbol information
-- `/history` - Historical OHLCV data
-- `/projection` - Calculate forward projection based on slope
+### Integration Notes
+
+**If Gateway doesn't emit this format:**
+
+You'll need to adapt `src/gateway/` to publish Pentaview stream data. See the guide section "Part 4: Projection Inference at 30-Second Cadence" for implementation details.
+
+The Core service should:
+1. Generate stream bars every 30 seconds (from Stage 16 state table)
+2. Compute Pentaview streams (sigma_p, sigma_m, etc.)
+3. Run projection inference when history >= 16 bars
+4. Emit to Gateway via NATS or direct call
+5. Gateway forwards to WebSocket clients
 
 ## Configuration
 
-### Replay Mode Settings
-- **Lookback Bars**: Number of historical bars to analyze for each projection (default: 10, range: 2-100)
-  - Projections start after minimum 3 bars (uses all available data if less than requested lookback)
-  - Auto-updates at every bar close once minimum requirement is met
-- **Projection Bars**: Number of bars to project forward from each point (default: 5, range: 1-20)
-- **Playback Speed**: Fixed at 16x (7.5 seconds per bar, ~24 minutes total)
-- **Mode Switch**: Toggle between Replay and Static modes
+Edit `demo/app.py` to change:
 
-### Static Mode Settings
-- **Resolution**: Choose timeframe (2min, 5min, 15min, 30min, 1hr, 4hr, 8hr)
-- **Lookback Bars**: Same as replay mode
-- **Projection Bars**: Same as replay mode
-- **Manual Update**: Click to refresh single projection band
+```python
+# Gateway WebSocket URL
+GATEWAY_WS_URL = "ws://localhost:8000/ws/stream"
 
-## Technical Details
+# Projection model version
+model_version = "v30s_20251115_20251215"
+```
 
-The projection uses linear regression with confidence bands:
-- **Trend Line**: `y = mx + b` where m is the slope
-- **Confidence Bands**: `upper/lower = trend ± (1.5 × std_deviation)`
-- **Standard Deviation**: Calculated from residuals of the linear fit
-- **Minimum Lookback**: 3 bars (starts projections early)
-- **Adaptive Lookback**: Uses requested lookback or all available bars (whichever is smaller)
-- **Auto-Update**: Projection regenerated at every bar close for next P bars
-- **Time Projection**: `future_time = last_bar_time + (i × resolution × 60 seconds)`
-- **Playback Speed**: 16x (2-minute bar in 7.5 real-time seconds)
-- **Visualization**: Layered area series create the filled band effect, with line series for boundaries
+## Performance
 
-## Chart Library
+- **Update Frequency**: 30 seconds (matches Pentaview inference cadence)
+- **Data Volume**: ~5 KB per update (5 streams + projections)
+- **Latency**: <50ms from Gateway to browser
+- **Memory**: ~20 MB for 6.5 hours of data (390 bars × 30s)
 
-Uses [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) for rendering, which provides:
-- Professional candlestick visualization
-- Smooth zooming and panning
-- Customizable line styles (dotted for projections)
-- Dark theme matching TradingView aesthetic
+## Technical Stack
 
+- **Backend**: Flask 3.0 + Flask-Sock (WebSocket)
+- **Frontend**: Vanilla JavaScript + TradingView Lightweight Charts 4.1
+- **WebSocket**: Real-time bidirectional communication
+- **Chart Library**: Lightweight Charts (60 FPS, smooth zooming/panning)
+
+## Next Steps
+
+### For Development
+
+1. **Add historical mode**: Load and display full day of historical streams
+2. **Add controls**: Pause/resume, speed controls, time scrubbing
+3. **Add metrics panel**: Show projection accuracy, stream statistics
+4. **Add level markers**: Overlay PM_HIGH, OR_HIGH, SMA levels on chart
+
+### For Production
+
+1. **Add authentication**: Secure WebSocket connection
+2. **Add error recovery**: Automatic reconnection with backoff
+3. **Add data buffering**: Handle network interruptions gracefully
+4. **Add performance monitoring**: Track update latency, frame drops
+
+## Related Documentation
+
+- **Training Guide**: `../PENTAVIEW_TRAINING_AND_REPLAY_GUIDE.md`
+- **Pipeline Architecture**: `../backend/DATA_ARCHITECTURE.md`
+- **Frontend Contract**: `../frontend/README.md`
+
+## Support
+
+For issues:
+1. Check Gateway health: `curl http://localhost:8000/health`
+2. Check Docker services: `docker ps | grep spymaster`
+3. Check browser console for errors
+4. Check Flask logs in terminal
+
+---
+
+**Model Version**: v30s_20251115_20251215  
+**Last Updated**: 2025-12-31  
+**Inference Cadence**: Every 30 seconds  
+**Horizon**: 10 bars (5 minutes @ 30s cadence)

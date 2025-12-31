@@ -148,7 +148,7 @@ def build_pentaview_pipeline() -> Pipeline:
             LoadStateTableStage(),
             ComputeStreamsStage(
                 stream_stats_path=None,  # Use default: gold/streams/normalization/current.json
-                bar_freq='2min',
+                bar_freq='30s',
                 lookback_bars=40,  # 20 minutes @ 30s cadence for DCT
                 output_dir='gold/streams/pentaview'
             )
