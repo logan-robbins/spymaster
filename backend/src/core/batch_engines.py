@@ -427,6 +427,7 @@ def compute_barrier_metrics_batch(
     delta_liqs = np.zeros(n, dtype=np.float64)
     wall_ratios = np.zeros(n, dtype=np.float64)
     depth_in_zones = np.zeros(n, dtype=np.int64)
+    replenishment_ratios = np.zeros(n, dtype=np.float64)
 
     # ES tick size
     ES_TICK_SIZE = 0.25
@@ -502,6 +503,61 @@ def compute_barrier_metrics_batch(
         # Compute wall ratio (defending depth vs average)
         avg_depth = (market_data.mbp_bid_sizes.mean() + market_data.mbp_ask_sizes.mean()) / 2
         wall_ratios[i] = depth_end / (avg_depth + 1e-6)
+        
+        # Compute replenishment ratio: added / (canceled + filled + epsilon)
+        # Track depth changes across all snapshots in window
+        added_size = 0.0
+        canceled_size = 0.0
+        
+        for j in range(len(valid_indices) - 1):
+            idx_curr = valid_indices[j]
+            idx_next = valid_indices[j + 1]
+            
+            # Get depth at consecutive snapshots
+            if side == 1:  # bid
+                depth_curr = _compute_depth_in_zone_numba(
+                    market_data.mbp_bid_prices[idx_curr],
+                    market_data.mbp_bid_sizes[idx_curr],
+                    market_data.mbp_ask_prices[idx_curr],
+                    market_data.mbp_ask_sizes[idx_curr],
+                    zone_low, zone_high, side
+                ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[idx_curr].sum()
+                
+                depth_next = _compute_depth_in_zone_numba(
+                    market_data.mbp_bid_prices[idx_next],
+                    market_data.mbp_bid_sizes[idx_next],
+                    market_data.mbp_ask_prices[idx_next],
+                    market_data.mbp_ask_sizes[idx_next],
+                    zone_low, zone_high, side
+                ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[idx_next].sum()
+            else:  # ask
+                depth_curr = _compute_depth_in_zone_numba(
+                    market_data.mbp_bid_prices[idx_curr],
+                    market_data.mbp_bid_sizes[idx_curr],
+                    market_data.mbp_ask_prices[idx_curr],
+                    market_data.mbp_ask_sizes[idx_curr],
+                    zone_low, zone_high, side
+                ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[idx_curr].sum()
+                
+                depth_next = _compute_depth_in_zone_numba(
+                    market_data.mbp_bid_prices[idx_next],
+                    market_data.mbp_bid_sizes[idx_next],
+                    market_data.mbp_ask_prices[idx_next],
+                    market_data.mbp_ask_sizes[idx_next],
+                    zone_low, zone_high, side
+                ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[idx_next].sum()
+            
+            delta_depth = depth_next - depth_curr
+            
+            if delta_depth > 0:
+                added_size += delta_depth
+            elif delta_depth < 0:
+                # Depth decreased - treat as canceled (simplified, no trade matching)
+                canceled_size += abs(delta_depth)
+        
+        # Compute replenishment ratio with epsilon to avoid division by zero
+        epsilon = 1e-6
+        replenishment_ratios[i] = added_size / (canceled_size + epsilon)
 
         # Classify state
         if delta_liq < -100:
@@ -522,6 +578,7 @@ def compute_barrier_metrics_batch(
     return {
         'barrier_state': barrier_states,
         'barrier_delta_liq': delta_liqs,
+        'barrier_replenishment_ratio': replenishment_ratios,
         'wall_ratio': wall_ratios,
         'depth_in_zone': depth_in_zones
     }

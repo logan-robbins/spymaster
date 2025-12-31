@@ -96,7 +96,7 @@ def compute_physics_batch(
             result = touches_df.copy()
             result['barrier_state'] = barrier_metrics['barrier_state']
             result['barrier_delta_liq'] = barrier_metrics['barrier_delta_liq']
-            result['barrier_replenishment_ratio'] = np.zeros(n)
+            result['barrier_replenishment_ratio'] = barrier_metrics['barrier_replenishment_ratio']
             result['wall_ratio'] = barrier_metrics['wall_ratio']
             result['tape_imbalance'] = tape_metrics['tape_imbalance']
             result['tape_buy_vol'] = tape_metrics['tape_buy_vol']

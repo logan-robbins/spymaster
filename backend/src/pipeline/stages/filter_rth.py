@@ -15,12 +15,14 @@ logger = logging.getLogger(__name__)
 
 class FilterRTHStage(BaseStage):
     """
-    Filter signals to v1 scope: first 4 hours only (09:30-13:30 ET).
+    Filter signals to RTH only: first 3 hours (09:30-12:30 ET).
     
-    RTH filtering:
-    - Only create events during 09:30-13:30 ET (first 4 hours)
-    - Use Policy B: keep anchors up to 13:30, allow forward window spillover
-    - Ensures all signals have complete forward window for labeling
+    Training window:
+    - MBP-10 data includes RTH-1 (08:30-09:30 ET) for barrier context
+    - Touch detection only during RTH: 09:30-12:30 ET (first 3 hours)
+    
+    Note: Touch detection (Stage 5) already filters to RTH, so this stage
+    is now redundant but kept for schema validation and canonical Silver output.
     
     Outputs:
         signals: Final filtered DataFrame (key used by Pipeline.run)
@@ -37,15 +39,10 @@ class FilterRTHStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df'].copy()
 
-        # Compute session bounds (v1: first 4 hours only)
-        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
-            hours=CONFIG.RTH_START_HOUR,
-            minutes=CONFIG.RTH_START_MINUTE
-        )
-        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
-            hours=CONFIG.RTH_END_HOUR,
-            minutes=CONFIG.RTH_END_MINUTE
-        )
+        # Compute RTH bounds: first 3 hours only (09:30-12:30 ET)
+        # Note: This should match the filtering done in detect_interaction_zones
+        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
+        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=12, minutes=30)
         session_start_ns = session_start.tz_convert("UTC").value
         session_end_ns = session_end.tz_convert("UTC").value
 
@@ -55,15 +52,15 @@ class FilterRTHStage(BaseStage):
         )
         max_window_ns = int((max_confirm + CONFIG.LOOKFORWARD_MINUTES * 60) * 1e9)
         
-        # Policy B: Keep anchors up to 13:30, allow forward spillover for labeling
-        # This prevents label bias while respecting the first-4-hours constraint
+        # Policy B: Keep anchors up to 12:30, allow forward spillover for labeling
+        # This prevents label bias while respecting the training window constraint
         rth_mask = (
             (signals_df["ts_ns"] >= session_start_ns) &
             (signals_df["ts_ns"] <= session_end_ns)
         )
         
         # Note: We do NOT require (latest_end_ns <= session_end_ns) per Policy B
-        # This allows labels to use data after 13:30 for events that occur at/before 13:30
+        # This allows labels to use data after 12:30 for events that occur at/before 12:30
 
         signals_df = signals_df.loc[rth_mask].copy()
 
