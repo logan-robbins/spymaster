@@ -103,6 +103,88 @@ print(f'Built {result[\"n_partitions_built\"]} indices')
 
 ---
 
+## STREAMS: Normalized Signal Streams + Forward Projections
+
+**Pentaview** transforms the 30-second state table into continuous, interpretable **streams** that emit scalar values in `[-1, +1]` every 2-minute bar. These provide TA-style signals plus 20-minute forward projections.
+
+### What It Does
+
+- **5 Canonical Streams**: Momentum (Σ_M), Flow (Σ_F), Barrier (Σ_B), Dealer (Σ_D), Setup (Σ_S)
+- **Merged Streams**: Pressure (Σ_P = momentum + flow), Structure (Σ_R = barrier + setup)
+- **Derivatives**: Slope/curvature/jerk for acceleration-style TA
+- **Projections**: 20-minute forecasts with uncertainty bands (q10/q50/q90)
+- **Alerts**: 14 pattern types (exhaustion, divergence, reversal risk, etc.)
+- **Exit Scoring**: Position-aware LONG/SHORT recommendations
+
+### Quick Start
+
+```bash
+cd backend
+
+# 1. Compute normalization statistics (60-day lookback)
+uv run python -m scripts.compute_stream_normalization \
+  --lookback-days 60 --end-date 2024-12-31
+
+# 2. Run Pentaview pipeline (compute streams for a date)
+uv run python -m scripts.run_pentaview_pipeline \
+  --date 2024-12-16
+
+# 3. Validate output
+uv run python -m scripts.validate_pentaview --date 2024-12-16
+
+# 4. Build projection training dataset
+uv run python -m scripts.build_projection_dataset \
+  --start 2024-11-01 --end 2024-12-31 \
+  --streams sigma_p,sigma_m,sigma_f,sigma_b,sigma_r
+
+# 5. Train projection models
+uv run python -m scripts.train_projection_models \
+  --stream all --epochs 200
+
+# 6. Demo projection inference
+uv run python -m scripts.demo_projection
+
+# 7. Demo state machine alerts
+uv run python -m scripts.demo_state_machine
+```
+
+### Output
+
+**Stream Bars**: `gold/streams/pentaview/version=3.1.0/date=YYYY-MM-DD/stream_bars.parquet`
+- 32 columns: 5 canonical + 2 merged + 3 composites + derivatives
+- One row per 2-min bar per active level
+- All values bounded in [-1, +1]
+
+**Projection Models**: `data/ml/projection_models/projection_{stream}_{version}.joblib`
+- Quantile polynomial regression (q10/q50/q90)
+- Forecasts 20 minutes ahead (10 bars @ 2-min)
+- Smooth curves with TA interpretation (a1=slope, a2=curvature, a3=jerk)
+
+**Alerts**: Generated on-demand via `detect_alerts(bar)`
+- 14 types: exhaustion, continuation, reversal risk, divergence, barrier phases, quality gates
+- Confidence scores + severity levels
+- Hysteresis prevents flickering
+
+### Testing
+
+```bash
+cd backend
+
+# Test on single date
+uv run python -m scripts.run_pentaview_pipeline --date 2024-12-16
+uv run python -m scripts.validate_pentaview --date 2024-12-16
+
+# Test projection model
+uv run python -m scripts.demo_projection
+
+# Test state machine
+uv run python -m scripts.demo_state_machine
+```
+
+**See [STREAMS.md](STREAMS.md) for complete specification.**
+
+---
+
 ## Documentation
 
 **📘 [IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)**: **CANONICAL SPECIFICATION** - Complete system architecture, data contracts, algorithms, and validation  
