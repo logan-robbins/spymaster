@@ -10,10 +10,21 @@ echo ""
 echo "Starting Flask server on http://localhost:5000"
 echo ""
 
-# Activate virtual environment if it exists
-if [ -d ".venv" ]; then
-    source .venv/bin/activate
+# Ensure we're using Python 3.12 with uv
+if ! command -v uv &> /dev/null; then
+    echo "❌ Error: uv is not installed"
+    echo "Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
 fi
 
-# Run the app
-python app.py
+# Create/sync virtual environment with Python 3.12
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment with Python 3.12..."
+    uv venv --python 3.12
+    echo "Installing dependencies..."
+    uv pip sync
+fi
+
+# Run the app with uv
+echo "Launching viewer..."
+uv run python app.py

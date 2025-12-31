@@ -154,7 +154,13 @@ async def handle_pentaview_update(data):
 
 ```bash
 cd demo
-pip install -r requirements.txt
+
+# Using uv with Python 3.12
+uv venv --python 3.12
+uv pip sync
+
+# Or just run the launch script (handles setup automatically)
+./run.sh
 ```
 
 ### 2. Start the Viewer
