@@ -523,7 +523,7 @@ async def main():
     # Check available data
     available_dates = dbn_ingestor.get_available_dates('trades')
     if not available_dates:
-        print("❌ No DBN data found in dbn-data/ directory")
+        print("❌ No DBN data found in data/raw/ directory")
         sys.exit(1)
     
     print(f"📁 Found {len(available_dates)} days of data:")

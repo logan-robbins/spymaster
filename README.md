@@ -48,7 +48,7 @@ uv run python scripts/download_es_options.py \
   --workers 8
 
 # Backfill ES futures from DBN files → Bronze layer
-# (Requires ES futures DBN files in dbn-data/)
+# (Requires ES futures DBN files in data/raw/)
 uv run python scripts/backfill_bronze_futures.py --all
 ```
 

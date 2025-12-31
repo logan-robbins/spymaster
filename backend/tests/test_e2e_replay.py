@@ -23,7 +23,7 @@ class TestDBNDataAvailability:
 
     def test_dbn_files_exist(self):
         """DBN data directory should contain trades and MBP-10 files."""
-        dbn_root = Path(__file__).parent.parent.parent / 'dbn-data'
+        dbn_root = Path(__file__).parent.parent.parent / 'data/raw'
         assert dbn_root.exists(), f"DBN data root not found: {dbn_root}"
 
         trades_dir = dbn_root / 'trades'

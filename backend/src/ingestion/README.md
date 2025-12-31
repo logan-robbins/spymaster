@@ -87,7 +87,7 @@ uv run python -m src.ingestion.databento.replay
 - ES futures: trades + MBP-10 depth
 - ES options: trades + NBBO
 
-**Location**: `dbn-data/trades/`, `dbn-data/MBP-10/`
+**Location**: `data/raw/trades/`, `data/raw/MBP-10/`
 
 ---
 
