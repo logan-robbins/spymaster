@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import numpy as np
 import pandas as pd
+from src.ml.vector_compressor import VectorCompressor
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,8 @@ def build_all_indices(
     date_filter: List[str] = None,
     min_partition_size: int = MIN_PARTITION_SIZE,
     overwrite_output_dir: bool = True,
-    feature_indices: List[int] = None
+    feature_indices: List[int] = None,
+    compressor: VectorCompressor = None
 ) -> Dict[str, Any]:
     """
     Build FAISS indices for all 48 partitions.
@@ -229,8 +231,18 @@ def build_all_indices(
     logger.info(f"  Output: {output_dir}")
     logger.info(f"  Min partition size: {min_partition_size}")
     
+    
     # Load full corpus
     corpus_vectors, corpus_metadata = load_episode_corpus(episodes_dir, date_filter)
+    
+    # Fit & Save Compressor if provided
+    if compressor is not None:
+        logger.info(f"Fitting Vector Compressor ({compressor.strategy})...")
+        if not compressor.is_fitted:
+            compressor.fit(corpus_vectors)
+        
+        # Save compressor to output dir (so Retrieval Engine can load it)
+        compressor.save(output_dir / 'compressor.pkl')
     
     build_stats = {
         'timestamp': datetime.now().isoformat(),
@@ -263,9 +275,13 @@ def build_all_indices(
                     build_stats['n_partitions_skipped'] += 1
                     continue
                 
-                # Slice vectors if masking is requested (Phase 2 Ablation)
                 vectors_to_build = partition_vectors
-                if feature_indices is not None:
+                
+                # Apply Compression (Phase 4)
+                if compressor is not None:
+                    vectors_to_build = compressor.transform(partition_vectors)
+                # Apply Legacy Slicing (Phase 2)
+                elif feature_indices is not None:
                     vectors_to_build = partition_vectors[:, feature_indices]
                 
                 logger.info(f"  Building {partition_key}: {n_partition:,} vectors")

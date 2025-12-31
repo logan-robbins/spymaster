@@ -17,6 +17,7 @@ from src.ml.episode_vector import (
 from src.ml.normalization import normalize_vector
 from src.ml.outcome_aggregation import aggregate_query_results
 from src.ml.attribution import compute_attribution
+from src.ml.vector_compressor import VectorCompressor
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,16 @@ class IndexManager:
         self.indices = {}      # {partition_key: FAISSIndex}
         self.metadata = {}     # {partition_key: DataFrame}
         self.vectors = {}      # {partition_key: ndarray}
+        self.compressor: Optional[VectorCompressor] = None
+        
+        # Load compressor if available
+        compressor_path = self.index_dir / 'compressor.pkl'
+        if compressor_path.exists():
+            try:
+                self.compressor = VectorCompressor.load(compressor_path)
+                logger.info(f"Loaded Vector Compressor: {self.compressor.strategy}")
+            except Exception as e:
+                logger.error(f"Failed to load compressor: {e}")
     
     def load_partition(
         self,
@@ -394,12 +405,19 @@ class SimilarityQueryEngine:
         Returns:
             QueryResult with outcome distributions and neighbors
         """
+        # Apply Vector Compression if configured (Phase 4)
+        query_vector = episode_query.vector
+        if self.index_manager.compressor:
+            # Transform expects 2D array (samples, features)
+            q_reshaped = query_vector.reshape(1, -1)
+            query_vector = self.index_manager.compressor.transform(q_reshaped).flatten()
+
         # Retrieve M_CANDIDATES from appropriate partition
         result = self.index_manager.query(
             level_kind=episode_query.level_kind,
             direction=episode_query.direction,
             time_bucket=episode_query.time_bucket,
-            query_vector=episode_query.vector,
+            query_vector=query_vector,
             k=self.m_candidates
         )
         
