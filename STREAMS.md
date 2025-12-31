@@ -1,6 +1,6 @@
 # STREAMS: Normalized Signal Streams + Forward Projections (2-minute bars)
 
-> **IMPLEMENTATION STATUS**: Sections 1-5, 7.1-7.2, 8-9 are **COMPLETE**. Sections 6, 7.3-7.4, 10-12 remain **TODO**.
+> **IMPLEMENTATION STATUS**: Sections 1-5, 6, 7.1-7.2, 8-10 are **COMPLETE**. Sections 7.3-7.4, 11-12 remain **TODO**.
 
 ---
 
@@ -11,11 +11,11 @@
 **CURRENT STATE (December 30, 2025)**:
 - ✅ **Streams computation is LIVE** - 5 canonical streams + derivatives working
 - ✅ **Tested successfully** on 2025-12-16: 437 bars, all validation checks passed
-- ❌ **Projection models NOT TRAINED** - This is the critical missing piece
-- ❌ **State machine rules NOT IMPLEMENTED** - Alert generation not available
+- ✅ **Projection models COMPLETE** - Quantile polynomial forecasting (20-min ahead)
+- ✅ **State machine rules COMPLETE** - 14 alert types with hysteresis
 - ❌ **UI integration NOT COMPLETE** - Angular components not built
 
-**IMMEDIATE NEXT TASK**: Implement Section 6 (Projection Model Training) - see detailed roadmap below.
+**IMMEDIATE NEXT TASK**: Implement Section 7.4 (Real-Time API) or Section 12 (UI Integration) - see roadmap below.
 
 **QUICK START (for testing existing implementation)**:
 ```bash
@@ -69,8 +69,8 @@ Gold Layer: gold/streams/pentaview/version=3.1.0/
 | `backend/src/pipeline/pipelines/pentaview_pipeline.py` | Pipeline orchestration | ✅ COMPLETE |
 | `backend/scripts/compute_stream_normalization.py` | Compute norm stats from state table | ✅ COMPLETE |
 | `backend/scripts/run_pentaview_pipeline.py` | Run pipeline for date/range | ✅ COMPLETE |
-| `backend/src/ml/stream_projector.py` | Quantile polynomial projection models | ❌ TODO |
-| `backend/src/ml/stream_state_machine.py` | TA-style rule engine (exhaustion/divergence) | ❌ TODO |
+| `backend/src/ml/stream_projector.py` | Quantile polynomial projection models | ✅ COMPLETE |
+| `backend/src/ml/stream_state_machine.py` | TA-style rule engine (exhaustion/divergence) | ✅ COMPLETE |
 
 ### Critical Design Decisions
 
@@ -149,17 +149,11 @@ uv run python -m scripts.validate_pentaview --date 2024-12-16 --data-root data
 
 ### What's Left to Implement
 
-**HIGH PRIORITY:**
-1. **Section 6: Projection Model** - Train quantile polynomial models to forecast stream values 20 minutes ahead. This is the **key differentiator** - transforms historical streams into forward-looking guidance.
-   - **Complexity**: HIGH (requires training pipeline, model architecture, inference system)
-   - **Estimated effort**: 4-6 hours
-   - **Dependencies**: Current stream bars output (already available)
-
 **MEDIUM PRIORITY:**
-2. **Section 10: State Machine** - Rule-based interpretation layer (exhaustion/continuation/reversal detection, divergence alerts, exit scoring).
-   - **Complexity**: MEDIUM (rule engine, pattern matching)
+1. **Section 7.4: Real-Time API** - WebSocket inference schemas for projection + alert broadcasting.
+   - **Complexity**: MEDIUM (API design, integration with core service)
    - **Estimated effort**: 2-3 hours
-   - **Dependencies**: Stream bars with derivatives (already available)
+   - **Dependencies**: Sections 6 & 10 (NOW COMPLETE)
 
 **LOW PRIORITY:**
 3. **Section 12: UI Encoding** - Angular/frontend visualization rules (color hue, intensity, arrow glyphs).
@@ -175,10 +169,12 @@ uv run python -m scripts.validate_pentaview --date 2024-12-16 --data-root data
 - Calculate derivatives (slope, curvature, jerk) for all directional streams
 - Run batch processing for date ranges
 - Output normalized, bounded streams in [-1, +1] with clear sign semantics
+- **Forecast future stream values** - 20-minute quantile projections (q10/q50/q90)
+- **Generate rule-based alerts** - 14 alert types with hysteresis (exhaustion, divergence, etc.)
+- **Position-aware exit scoring** - LONG/SHORT recommendations (HOLD/REDUCE/EXIT)
 
 **❌ You cannot yet:**
-- Forecast future stream values (no projection models trained)
-- Generate rule-based alerts (no state machine)
+- Broadcast projections + alerts in real-time (no WebSocket API integration)
 - Visualize streams in UI (no Angular components)
 
 ---
@@ -683,11 +679,11 @@ Interpretation:
 
 ---
 
-## 6) Projection model (2-min cadence, smooth curves, quantiles) ❌ **TODO - CRITICAL**
+## 6) Projection model (2-min cadence, smooth curves, quantiles) ✅ **COMPLETE**
 
-**Status**: NOT IMPLEMENTED - This is the **key differentiator** that transforms historical streams into forward-looking guidance.
+**Status**: IMPLEMENTED (December 30, 2025) - Transforms historical streams into forward-looking guidance.
 
-**What to Build**: Train quantile regression models that output polynomial coefficients `{a1, a2, a3}` for smooth 20-minute forecasts.
+**Implementation**: `backend/src/ml/stream_projector.py` + training pipeline scripts.
 
 **Recommended Approach**:
 1. **Create training dataset** from historical stream bars (Section 7.3 schema):
@@ -1244,19 +1240,19 @@ function compute_streams(bar_row, stats):
 ---
 
 
-## 10) TA-style state machine (optional but recommended) ❌ **TODO - MEDIUM PRIORITY**
+## 10) TA-style state machine (optional but recommended) ✅ **COMPLETE**
 
-**Status**: NOT IMPLEMENTED - Rule-based interpretation layer for discretionary trading
+**Status**: IMPLEMENTED (December 30, 2025) - Rule-based interpretation layer for discretionary trading
 
-**What to Build**: Create `backend/src/ml/stream_state_machine.py` with rule functions:
-- `detect_exhaustion()` - P > 0.35 and slope_P < 0 for n_bars
-- `detect_continuation()` - P > 0.35 and slope_P > 0.05
-- `detect_reversal_risk()` - Exhaustion + P2 < 0 and |P3| > thresh
-- `detect_flow_divergence()` - sign(Σ̄_F) ≠ sign(Σ̄_M) and both |·| > 0.30
-- `detect_barrier_support()` - sign(Σ̄_B) == sign(Σ̄_P) and |Σ̄_B| > 0.30
-- `compute_exit_score()` - Position-aware hold/reduce/exit scoring (Section 10.6)
+**Implementation**: `backend/src/ml/stream_state_machine.py` with functions:
+- `detect_exhaustion_continuation()` - Buying/selling pressure patterns
+- `detect_flow_divergence()` - Flow-momentum mismatch detection
+- `detect_barrier_phase()` - Barrier support/opposition/weakening
+- `detect_quality_gates()` - Setup quality and dealer regime gates
+- `compute_exit_score()` - Position-aware hold/reduce/exit scoring
+- `StreamStateMachine` - Hysteresis to prevent alert flickering
 
-**Use Case**: Generate alerts for UI: "EXHAUSTION_UP detected", "FLOW_DIVERGENCE warning", etc.
+**Features**: 14 alert types, confidence scores, sustained alerts (>5s), LONG/SHORT position awareness.
 
 These are **interpretation layers** for UI + discretionary execution. They are derived purely from streams + derivatives.
 
@@ -1373,16 +1369,17 @@ E_exit = tanh(
 
 ---
 
-## 11) Projection inference pseudocode (Quantile Polynomial Projection) ❌ **TODO - CRITICAL**
+## 11) Projection inference pseudocode (Quantile Polynomial Projection) ✅ **COMPLETE**
 
-**Status**: NOT IMPLEMENTED - Depends on Section 6 projection models being trained
+**Status**: IMPLEMENTED (December 30, 2025) - Part of Section 6 implementation
 
-**What to Build**: Add to `backend/src/ml/stream_projector.py`:
-- `build_curve()` - Generate 11-point smooth curve from polynomial coefficients
-- `project_derivatives()` - Compute projected slope/curvature at horizon h
-- `project_alignment()` - Compute projected consensus from {Σ̂_M, Σ̂_F, Σ̂_B}
+**Implementation**: Built into `backend/src/ml/stream_projector.py`:
+- `build_polynomial_path()` - Generate 11-point smooth curve from polynomial coefficients
+- `compute_projected_slope()` - Compute projected slope at horizon h
+- `compute_projected_curvature()` - Compute projected curvature at horizon h
+- `project_stream_curves()` - Main inference function with uncertainty bands
 
-**Use Case**: Real-time inference - given current bar, output 20-minute projection curves with uncertainty bands.
+**Usage**: Real-time inference generates 20-minute projection curves (q10/q50/q90) from current bar.
 
 ### 11.1 Model outputs
 
