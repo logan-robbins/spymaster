@@ -211,7 +211,17 @@ class DetectInteractionZonesStage(BaseStage):
         level_info = ctx.data['level_info']
         atr = ctx.data.get('atr')
         
-        # Detect interaction zone entries
+        # Filter to RTH only: 09:30-12:30 ET (first 3 hours)
+        # Note: MBP-10 includes RTH-1 (08:30-09:30) for barrier context, but we only detect touches during RTH
+        window_start = pd.Timestamp(ctx.date, tz='America/New_York') + pd.Timedelta(hours=9, minutes=30)
+        window_end = pd.Timestamp(ctx.date, tz='America/New_York') + pd.Timedelta(hours=12, minutes=30)
+        
+        # Filter OHLCV to training window
+        if isinstance(ohlcv_df.index, pd.DatetimeIndex):
+            mask = (ohlcv_df.index >= window_start) & (ohlcv_df.index <= window_end)
+            ohlcv_df = ohlcv_df[mask]
+        
+        # Detect interaction zone entries (only within training window)
         events_df = detect_interaction_zone_entries(
             ohlcv_df=ohlcv_df,
             level_prices=level_info.prices,

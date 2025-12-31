@@ -141,12 +141,15 @@ class LoadBronzeStage(BaseStage):
         logger.info(f"    ES trades: {len(trades):,} records")
 
         # Compute session bounds for MBP-10 loading
-        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
-        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=16)
+        # Include RTH-1 (08:30-09:30 ET) for barrier context + first 3 hours RTH (09:30-12:30 ET)
+        # Total MBP-10 window: 08:30-12:30 ET (4 hours)
+        # Touch detection window: 09:30-12:30 ET (3 hours, RTH only)
+        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=8, minutes=30)
+        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=12, minutes=30)
         session_start_ns = int(session_start.tz_convert("UTC").value)
         session_end_ns = int(session_end.tz_convert("UTC").value)
 
-        # Add buffer for barrier window lookback
+        # Add buffer for barrier window lookback (CONFIG.W_b seconds before/after)
         buffer_ns = int(CONFIG.W_b * 1e9)
         ts_start = session_start_ns - buffer_ns
         ts_end = session_end_ns + buffer_ns
