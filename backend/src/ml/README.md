@@ -84,7 +84,7 @@ uv run python -m src.ml.boosted_tree_train \
 
 # Override dataset path (Gold or Silver parquet)
 uv run python -m src.ml.boosted_tree_train \
-  --data-path data/lake/gold/training/signals_production.parquet \
+  --data-path data/gold/training/signals_production.parquet \
   --stage stage_b \
   --ablation full
 ```

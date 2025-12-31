@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-_DEFAULT_DATA_ROOT = os.path.join(_BASE_DIR, "data", "lake")
+_DEFAULT_DATA_ROOT = os.path.join(_BASE_DIR, "data")
 
 
 @dataclass
