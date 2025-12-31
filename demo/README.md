@@ -68,11 +68,17 @@ backend/data/ml/projection_models/
 ```bash
 cd demo
 
-# Install dependencies (Flask, WebSocket support)
-pip install -r requirements.txt
+# Using uv (Python 3.12)
+uv venv --python 3.12
+uv pip sync
 
-# Or using uv
-uv pip install -r requirements.txt
+# Dependencies are managed via pyproject.toml
+```
+
+**Note**: This project uses `uv` for dependency management with Python 3.12. If you don't have `uv` installed:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ## Usage
@@ -86,7 +92,7 @@ cd demo
 
 Or manually:
 ```bash
-python app.py
+uv run python app.py
 ```
 
 Then open your browser to: **http://localhost:5000**
@@ -182,10 +188,12 @@ model_version = "v30s_20251115_20251215"
 
 ## Technical Stack
 
+- **Python**: 3.12 (managed via `uv`)
 - **Backend**: Flask 3.0 + Flask-Sock (WebSocket)
 - **Frontend**: Vanilla JavaScript + TradingView Lightweight Charts 4.1
 - **WebSocket**: Real-time bidirectional communication
 - **Chart Library**: Lightweight Charts (60 FPS, smooth zooming/panning)
+- **Package Manager**: `uv` (fast, deterministic Python package installer)
 
 ## Next Steps
 
