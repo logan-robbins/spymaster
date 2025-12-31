@@ -1,19 +1,19 @@
 #!/bin/bash
-# TradingView Chart Demo Startup Script
+# Pentaview Stream Viewer - Launch Script
 
-cd "$(dirname "$0")"
-
-echo "Starting TradingView Forward Projection Chart Demo..."
+echo "🚀 Starting Pentaview Stream Viewer..."
 echo ""
-echo "📊 Chart will be available at: http://localhost:5000"
+echo "Prerequisites:"
+echo "  ✓ Gateway running on ws://localhost:8000/ws/stream"
+echo "  ✓ Replay engine publishing stream data"
 echo ""
-echo "Features:"
-echo "  • 2-minute candlestick chart"
-echo "  • Purple dotted projection line (5 bars ahead)"
-echo "  • Based on average slope of last 10 bars"
-echo "  • Interactive controls to adjust parameters"
+echo "Starting Flask server on http://localhost:5000"
 echo ""
 
-source .venv/bin/activate
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
+
+# Run the app
 python app.py
-
