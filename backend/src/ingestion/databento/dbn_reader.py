@@ -1,7 +1,7 @@
 """
 Databento DBN file reader for ES futures data.
 
-Reads DBN files from dbn-data/ directory and converts to our event types:
+Reads DBN files from data/raw/ directory and converts to our event types:
 - trades schema -> FuturesTrade events
 - mbp-10 schema -> MBP10 events
 
@@ -65,14 +65,14 @@ class DBNReader:
 
         Args:
             dbn_data_root: Root directory containing DBN files
-                          (defaults to dbn-data/ in project root)
+                          (defaults to backend/data/raw/)
         """
         if dbn_data_root:
             self.dbn_root = Path(dbn_data_root)
         else:
-            # Default to dbn-data/ in project root
-            # backend/src/ingestion/databento/dbn_reader.py -> project_root/dbn-data
-            self.dbn_root = Path(__file__).parent.parent.parent.parent.parent / 'dbn-data'
+            # Default to backend/data/raw/
+            # backend/src/ingestion/databento/dbn_reader.py -> backend/data/raw
+            self.dbn_root = Path(__file__).parent.parent.parent.parent / 'data' / 'raw'
 
         self._symbology_cache: Dict[str, Dict[int, str]] = {}
 
