@@ -29,6 +29,7 @@ class SocketBroadcaster:
         self._latest_levels: Optional[Dict[str, Any]] = None
         self._latest_flow: Optional[Dict[str, Any]] = None
         self._latest_viewport: Optional[Dict[str, Any]] = None
+        self._latest_pentaview: Optional[Dict[str, Any]] = None
 
     async def start(self):
         """Initialize NATS connection and subscribe to signals."""
@@ -48,6 +49,13 @@ class SocketBroadcaster:
             subject="market.flow",
             callback=self._on_flow_snapshot,
             durable_name="gateway_flow"
+        )
+        
+        # Subscribe to Pentaview streams (candles + streams + projections)
+        await self.bus.subscribe(
+            subject="pentaview.streams",
+            callback=self._on_pentaview_stream,
+            durable_name="gateway_pentaview"
         )
         
         print("✅ Gateway subscribed to NATS subjects")
@@ -72,6 +80,12 @@ class SocketBroadcaster:
         """Callback for NATS messages on `market.flow`."""
         self._latest_flow = data
         await self.broadcast(self._build_payload())
+    
+    async def _on_pentaview_stream(self, data: Dict[str, Any]):
+        """Callback for NATS messages on `pentaview.streams`."""
+        self._latest_pentaview = data
+        await self.broadcast(self._build_payload())
+        print(f"📡 Broadcasted Pentaview data to {len(self.active_connections)} clients")
 
     async def connect(self, websocket: WebSocket):
         """Accept new WebSocket connection and send cached state if available."""
@@ -126,6 +140,9 @@ class SocketBroadcaster:
             payload["levels"] = self._latest_levels
         if self._latest_viewport is not None:
             payload["viewport"] = self._latest_viewport
+        if self._latest_pentaview is not None:
+            # Include Pentaview data (candles, streams, projections)
+            payload["pentaview"] = self._latest_pentaview
         return payload
 
     def _normalize_levels_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:

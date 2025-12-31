@@ -59,6 +59,13 @@ class NATSBus:
                 retention=RetentionPolicy.LIMITS,
                 max_age=24 * 60 * 60,
                 storage="file"
+            ),
+            StreamConfig(
+                name="PENTAVIEW_STREAMS",
+                subjects=["pentaview.*"],
+                retention=RetentionPolicy.LIMITS,
+                max_age=24 * 60 * 60,
+                storage="file"
             )
         ]
 

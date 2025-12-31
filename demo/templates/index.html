@@ -207,9 +207,7 @@
                 visible: true,
                 borderColor: '#2A2E39',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
-                autoScale: false,
-                minValue: -1.0,
-                maxValue: 1.0,
+                autoScale: true,
             },
             timeScale: {
                 borderColor: '#2A2E39',
@@ -254,6 +252,21 @@
         let ws = null;
         let updateCount = 0;
         let barCount = 0;
+        
+        // Accumulate data points for each series
+        const streamData = {
+            sigma_p: [],
+            sigma_m: [],
+            sigma_f: [],
+            sigma_b: [],
+            sigma_r: []
+        };
+        const candleData = [];
+        const projectionData = {
+            q10: [],
+            q50: [],
+            q90: []
+        };
 
         function connect() {
             setStatus('connecting', 'Connecting to Gateway...');
@@ -275,17 +288,20 @@
                         return;
                     }
                     
+                    // Extract Pentaview data (wrapped in 'pentaview' key from Gateway)
+                    const pentaview = data.pentaview || data;
+                    
                     // Handle different message types
-                    if (data.candles) {
-                        updateCandles(data.candles);
+                    if (pentaview.candles) {
+                        updateCandles(pentaview.candles);
                     }
                     
-                    if (data.streams) {
-                        updateStreams(data.streams);
+                    if (pentaview.streams) {
+                        updateStreams(pentaview.streams);
                     }
                     
-                    if (data.projections) {
-                        updateProjections(data.projections);
+                    if (pentaview.projections) {
+                        updateProjections(pentaview.projections);
                     }
                     
                     updateCount++;
@@ -316,13 +332,22 @@
             statusText.textContent = text;
         }
 
-        function updateCandles(candles) {
-            candleSeries.setData(candles);
-            barCount = candles.length;
+        function updateCandles(newCandles) {
+            // Append new candles
+            for (const candle of newCandles) {
+                const exists = candleData.some(c => c.time === candle.time);
+                if (!exists) {
+                    candleData.push(candle);
+                }
+            }
+            
+            candleData.sort((a, b) => a.time - b.time);
+            candleSeries.setData(candleData);
+            barCount = candleData.length;
             document.getElementById('stat-bars').textContent = `Bars: ${barCount}`;
             
             // Update price legend
-            const lastCandle = candles[candles.length - 1];
+            const lastCandle = candleData[candleData.length - 1];
             if (lastCandle) {
                 document.getElementById('legend-price').textContent = lastCandle.close.toFixed(2);
             }
@@ -330,12 +355,23 @@
 
         function updateStreams(streams) {
             // streams = { sigma_p: [{time, value}], sigma_m: [...], ... }
-            for (const [streamName, data] of Object.entries(streams)) {
-                if (streamSeries[streamName]) {
-                    streamSeries[streamName].setData(data);
+            for (const [streamName, newPoints] of Object.entries(streams)) {
+                if (streamSeries[streamName] && streamData[streamName]) {
+                    // Append new points to accumulated data
+                    for (const point of newPoints) {
+                        // Avoid duplicates by checking if time already exists
+                        const exists = streamData[streamName].some(p => p.time === point.time);
+                        if (!exists) {
+                            streamData[streamName].push(point);
+                        }
+                    }
                     
-                    // Update legend
-                    const lastPoint = data[data.length - 1];
+                    // Sort by time and set all data
+                    streamData[streamName].sort((a, b) => a.time - b.time);
+                    streamSeries[streamName].setData(streamData[streamName]);
+                    
+                    // Update legend with latest value
+                    const lastPoint = streamData[streamName][streamData[streamName].length - 1];
                     if (lastPoint) {
                         const legendId = `legend-${streamName.replace('_', '-')}`;
                         const element = document.getElementById(legendId);
@@ -349,6 +385,7 @@
 
         function updateProjections(projections) {
             // projections = { q10: [{time, value}], q50: [...], q90: [...] }
+            // Note: Projections are forward-looking and should replace, not accumulate
             for (const [quantile, data] of Object.entries(projections)) {
                 if (projectionSeries[quantile]) {
                     projectionSeries[quantile].setData(data);
