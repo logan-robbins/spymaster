@@ -12,6 +12,7 @@ import os
 sys.path.append(os.getcwd())
 
 from src.ml.index_builder import build_all_indices
+from src.ml.vector_compressor import VectorCompressor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +32,7 @@ def main():
     print(f"------------------------")
     print(f"Input:  {episodes_dir}")
     print(f"Output: {output_dir}")
+    print(f"Strategy: Phase 4 Optimization (Geometry Only)")
     
     if not episodes_dir.exists():
         print(f"❌ Error: Episodes directory not found at {episodes_dir}")
@@ -39,11 +41,15 @@ def main():
         
     print("\nStarting build process...")
     
+    # Phase 4: Use 'geometry_only' Strategy (ECE=2.4%)
+    compressor = VectorCompressor(strategy='geometry_only')
+    
     stats = build_all_indices(
         episodes_dir=episodes_dir,
         output_dir=output_dir,
-        min_partition_size=50, # Lower threshold to ensure we get indices even for small days
-        overwrite_output_dir=True
+        min_partition_size=50, 
+        overwrite_output_dir=True,
+        compressor=compressor
     )
     
     print("\n✅ Build complete!")
