@@ -30,7 +30,7 @@ def generate_level_universe(
     Level types:
     - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
     - OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET) high/low
-    - SMA_200/SMA_400: Moving averages on 2-min bars
+    - SMA_90/EMA_20: Moving averages on 2-min bars
     
     Returns:
         LevelInfo with arrays for processing
@@ -87,7 +87,7 @@ def generate_level_universe(
     # 3. SESSION HIGH/LOW (running) - REMOVED FOR V1
     # Too noisy, constantly changing - not useful for retrieval-based attribution
 
-    # 4. SMA-200 / SMA-400 on 2-min bars
+    # 4. SMA-90 / EMA-20 on 2-min bars
     if ohlcv_2min is None:
         df_2min = df.set_index('timestamp').resample('2min').agg({
             'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
@@ -104,19 +104,20 @@ def generate_level_universe(
     if not df_2min.empty and 'timestamp' in df_2min.columns:
         df_2min = df_2min.sort_values('timestamp')
 
-    if len(df_2min) >= 200:
-        sma_200 = df_2min['close'].rolling(200).mean().iloc[-1]
-        if pd.notna(sma_200):
-            levels.append(sma_200)
-            kinds.append(6)  # SMA_200=6
-            kind_names.append('SMA_200')
+    if len(df_2min) >= 90:
+        sma_90 = df_2min['close'].rolling(90).mean().iloc[-1]
+        if pd.notna(sma_90):
+            levels.append(sma_90)
+            kinds.append(6)  # SMA_90 = re-coded to 6
+            kind_names.append('SMA_90')
 
-    if len(df_2min) >= 400:
-        sma_400 = df_2min['close'].rolling(400).mean().iloc[-1]
-        if pd.notna(sma_400):
-            levels.append(sma_400)
-            kinds.append(12)  # SMA_400=12
-            kind_names.append('SMA_400')
+    # EMA 20
+    if len(df_2min) >= 20:
+        ema_20 = df_2min['close'].ewm(span=20, adjust=False).mean().iloc[-1]
+        if pd.notna(ema_20):
+            levels.append(ema_20)
+            kinds.append(12)  # EMA_20 = re-coded to 12
+            kind_names.append('EMA_20')
 
     # 5. VWAP - REMOVED FOR V1
     # Lagging indicator, less useful for physics-based attribution
@@ -294,12 +295,12 @@ def compute_dynamic_level_series(
     
     df_2min = df_2min.sort_values('timestamp')
     df_2min['timestamp'] = pd.to_datetime(df_2min['timestamp'], utc=True)
-    sma_200_series = df_2min['close'].rolling(200).mean()
-    sma_400_series = df_2min['close'].rolling(400).mean()
+    sma_90_series = df_2min['close'].rolling(90).mean()
+    ema_20_series = df_2min['close'].ewm(span=20, adjust=False).mean()
     sma_df = pd.DataFrame({
         'timestamp': df_2min['timestamp'],
-        'sma_200': sma_200_series,
-        'sma_400': sma_400_series
+        'sma_90': sma_90_series,
+        'ema_20': ema_20_series
     })
     sma_aligned = pd.merge_asof(
         df[['timestamp']],
@@ -318,8 +319,9 @@ def compute_dynamic_level_series(
         'SESSION_HIGH': session_high_series,
         'SESSION_LOW': session_low_series,
         'VWAP': vwap_series,
-        'SMA_200': sma_aligned['sma_200'],
-        'SMA_400': sma_aligned['sma_400'],
+        'VWAP': vwap_series,
+        'SMA_90': sma_aligned['sma_90'],
+        'EMA_20': sma_aligned['ema_20'],
         'CALL_WALL': call_wall_series,
         'PUT_WALL': put_wall_series
     }
@@ -331,7 +333,7 @@ class GenerateLevelsStage(BaseStage):
     Generates:
     - Static levels: ROUND, STRIKE
     - Dynamic levels: PM_HIGH/LOW, OR_HIGH/LOW, SESSION_HIGH/LOW,
-                      SMA_200/400, VWAP, CALL_WALL/PUT_WALL
+                      SMA_90/EMA_20, VWAP, CALL_WALL/PUT_WALL
 
     Outputs:
         level_info: LevelInfo with all levels

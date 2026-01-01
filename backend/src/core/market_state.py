@@ -65,14 +65,15 @@ class MinuteBar:
 
 
 @dataclass
+@dataclass
 class SmaContext:
     """SMA context metrics computed from 2-minute closes."""
-    sma_200: Optional[float]
-    sma_400: Optional[float]
-    sma_200_slope: Optional[float]
-    sma_400_slope: Optional[float]
-    sma_200_slope_5bar: Optional[float]
-    sma_400_slope_5bar: Optional[float]
+    sma_90: Optional[float]
+    ema_20: Optional[float]
+    sma_90_slope: Optional[float]
+    ema_20_slope: Optional[float]
+    sma_90_slope_5bar: Optional[float]
+    ema_20_slope_5bar: Optional[float]
     sma_spread: Optional[float]
 
 
@@ -176,13 +177,16 @@ class MarketState:
         self._current_minute_low_spy: Optional[float] = None
         self._minute_closes: deque[Tuple[int, float]] = deque(maxlen=240)  # 4 hours of 1-min closes
         self._minute_bars: deque[MinuteBar] = deque(maxlen=240)
-
-        # 2-minute closes for SMA (ES points)
+        
+        # 2-minute bars for SMA tracking
         self._current_2m_start_ns: Optional[int] = None
         self._current_2m_close_spy: Optional[float] = None
-        self._two_minute_closes: deque[float] = deque(maxlen=400)  # Enough for SMA_400
-        self._sma_200: Optional[float] = None
-        self._sma_400: Optional[float] = None
+        self._two_minute_closes: deque = deque(maxlen=400) # Keep 400 for safety, though only need 90
+        self._two_minute_ema_20_values: deque = deque(maxlen=400) # For slope calculation
+        
+        # SMA State
+        self._sma_90: Optional[float] = None
+        self._ema_20: Optional[float] = None
 
     # ========== ES MBP-10 updates ==========
 
@@ -358,10 +362,27 @@ class MarketState:
             if self._current_2m_close_spy is not None:
                 self._two_minute_closes.append(self._current_2m_close_spy)
                 closes = list(self._two_minute_closes)
-                if len(closes) >= 200:
-                    self._sma_200 = sum(closes[-200:]) / 200.0
-                if len(closes) >= 400:
-                    self._sma_400 = sum(closes[-400:]) / 400.0
+                
+                # Update SMA 90
+                if len(closes) >= 90:
+                    self._sma_90 = sum(closes[-90:]) / 90.0
+                
+                # Update EMA 20
+                if len(closes) >= 1:
+                     if self._ema_20 is None:
+                         # Seed with SMA if no EMA exists, or just first value
+                         # Better to seed with SMA of first N? Or just close?
+                         # Standard convention: First value is SMA of N, but if streaming...
+                         # Let's seed with first 20 average if available, else close
+                         if len(closes) >= 20:
+                             self._ema_20 = sum(closes[-20:]) / 20.0
+                         else:
+                             self._ema_20 = closes[-1]
+                     else:
+                         alpha = 2.0 / (20.0 + 1.0)
+                         self._ema_20 = (closes[-1] * alpha) + (self._ema_20 * (1 - alpha))
+                     
+                     self._two_minute_ema_20_values.append(self._ema_20)
             self._current_2m_start_ns = two_min_start_ns
             self._current_2m_close_spy = spx_price
 
@@ -458,69 +479,92 @@ class MarketState:
         idx = len(closes) - 1 - offset_bars
         return self._sma_at_index(closes, idx, period)
 
+    def get_ema_20_at_offset(self, offset_bars: int) -> Optional[float]:
+        if not self._two_minute_ema_20_values:
+            return None
+        if offset_bars >= len(self._two_minute_ema_20_values):
+            return None
+        # buffer is append-only, so -1 is latest.
+        # -1 - offset?
+        # Ensure indices match logic.
+        idx = len(self._two_minute_ema_20_values) - 1 - offset_bars
+        if idx < 0:
+            return None
+        return self._two_minute_ema_20_values[idx]
+
     def get_sma_context(self) -> SmaContext:
         """
-        Compute SMA values and slopes from recent 2-minute closes.
+        Compute SMA/EMA values and slopes from recent 2-minute closes.
         """
         closes = self._get_two_minute_closes(include_current=True)
         if not closes:
             return SmaContext(
-                sma_200=None,
-                sma_400=None,
-                sma_200_slope=None,
-                sma_400_slope=None,
-                sma_200_slope_5bar=None,
-                sma_400_slope_5bar=None,
+                sma_90=None, ema_20=None,
+                sma_90_slope=None, ema_20_slope=None,
+                sma_90_slope_5bar=None, ema_20_slope_5bar=None,
                 sma_spread=None
             )
 
         idx_now = len(closes) - 1
-        sma_200 = self._sma_at_index(closes, idx_now, 200)
-        if sma_200 is None:
-            sma_200 = self._sma_200
-        sma_400 = self._sma_at_index(closes, idx_now, 400)
-        if sma_400 is None:
-            sma_400 = self._sma_400
+        
+        # --- SMA 90 ---
+        sma_90 = self._sma_at_index(closes, idx_now, 90)
+        if sma_90 is None:
+            sma_90 = self._sma_90
+            
+        # --- EMA 20 ---
+        # Using stored history if available, else current state
+        # For 'now', if we have history, use the last value
+        ema_20 = None
+        if self._two_minute_ema_20_values:
+            ema_20 = self._two_minute_ema_20_values[-1]
+        if ema_20 is None:
+            ema_20 = self._ema_20
 
         slope_minutes = max(1, CONFIG.SMA_SLOPE_WINDOW_MINUTES)
         slope_bars = max(1, int(round(slope_minutes / 2)))
         idx_prev = idx_now - slope_bars
+        
+        # Previous values
+        sma_90_prev = self._sma_at_index(closes, idx_prev, 90)
+        ema_20_prev = None
+        if len(self._two_minute_ema_20_values) > slope_bars:
+             ema_20_prev = self._two_minute_ema_20_values[-(slope_bars + 1)]
 
-        sma_200_prev = self._sma_at_index(closes, idx_prev, 200)
-        sma_400_prev = self._sma_at_index(closes, idx_prev, 400)
-
-        sma_200_slope = None
-        sma_400_slope = None
-        if sma_200 is not None and sma_200_prev is not None:
-            sma_200_slope = (sma_200 - sma_200_prev) / slope_minutes
-        if sma_400 is not None and sma_400_prev is not None:
-            sma_400_slope = (sma_400 - sma_400_prev) / slope_minutes
+        sma_90_slope = None
+        ema_20_slope = None
+        if sma_90 is not None and sma_90_prev is not None:
+            sma_90_slope = (sma_90 - sma_90_prev) / slope_minutes
+        if ema_20 is not None and ema_20_prev is not None:
+            ema_20_slope = (ema_20 - ema_20_prev) / slope_minutes
 
         slope_short_bars = max(1, CONFIG.SMA_SLOPE_SHORT_BARS)
         slope_short_minutes = slope_short_bars * 2
         idx_prev_short = idx_now - slope_short_bars
+        
+        sma_90_prev_short = self._sma_at_index(closes, idx_prev_short, 90)
+        ema_20_prev_short = None
+        if len(self._two_minute_ema_20_values) > slope_short_bars:
+            ema_20_prev_short = self._two_minute_ema_20_values[-(slope_short_bars + 1)]
 
-        sma_200_prev_short = self._sma_at_index(closes, idx_prev_short, 200)
-        sma_400_prev_short = self._sma_at_index(closes, idx_prev_short, 400)
-
-        sma_200_slope_5bar = None
-        sma_400_slope_5bar = None
-        if sma_200 is not None and sma_200_prev_short is not None:
-            sma_200_slope_5bar = (sma_200 - sma_200_prev_short) / slope_short_minutes
-        if sma_400 is not None and sma_400_prev_short is not None:
-            sma_400_slope_5bar = (sma_400 - sma_400_prev_short) / slope_short_minutes
+        sma_90_slope_5bar = None
+        ema_20_slope_5bar = None
+        if sma_90 is not None and sma_90_prev_short is not None:
+            sma_90_slope_5bar = (sma_90 - sma_90_prev_short) / slope_short_minutes
+        if ema_20 is not None and ema_20_prev_short is not None:
+            ema_20_slope_5bar = (ema_20 - ema_20_prev_short) / slope_short_minutes
 
         sma_spread = None
-        if sma_200 is not None and sma_400 is not None:
-            sma_spread = sma_200 - sma_400
+        if sma_90 is not None and ema_20 is not None:
+            sma_spread = sma_90 - ema_20
 
         return SmaContext(
-            sma_200=sma_200,
-            sma_400=sma_400,
-            sma_200_slope=sma_200_slope,
-            sma_400_slope=sma_400_slope,
-            sma_200_slope_5bar=sma_200_slope_5bar,
-            sma_400_slope_5bar=sma_400_slope_5bar,
+            sma_90=sma_90,
+            ema_20=ema_20,
+            sma_90_slope=sma_90_slope,
+            ema_20_slope=ema_20_slope,
+            sma_90_slope_5bar=sma_90_slope_5bar,
+            ema_20_slope_5bar=ema_20_slope_5bar,
             sma_spread=sma_spread
         )
 
@@ -552,11 +596,11 @@ class MarketState:
     def get_opening_range_low(self) -> Optional[float]:
         return self._opening_range_low
 
-    def get_sma_200(self) -> Optional[float]:
-        return self._sma_200
+    def get_sma_90(self) -> Optional[float]:
+        return self._sma_90
 
-    def get_sma_400(self) -> Optional[float]:
-        return self._sma_400
+    def get_ema_20(self) -> Optional[float]:
+        return self._ema_20
 
     def get_es_trades_in_window(
         self,
@@ -846,5 +890,6 @@ class MarketState:
         self._current_minute_low_spy = None
         self._current_2m_start_ns = None
         self._current_2m_close_spy = None
-        self._sma_200 = None
-        self._sma_400 = None
+        self._sma_90 = None
+        self._ema_20 = None
+        self._two_minute_ema_20_values.clear()

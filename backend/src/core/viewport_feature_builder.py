@@ -86,9 +86,9 @@ class ViewportFeatureBuilder:
         is_first_15m = self._is_first_15m(ts_ns)
         pm_high = market_state.get_premarket_high()
         pm_low = market_state.get_premarket_low()
-        sma_200 = sma_context.sma_200
-        sma_400 = sma_context.sma_400
-
+        sma_90 = market_state.get_sma_90()
+        ema_20 = market_state.get_ema_20()
+        sma_context = market_state.get_sma_context(ts_ns)
         confluence_alignment = self._compute_confluence_alignment(
             level.price,
             direction,
@@ -119,14 +119,14 @@ class ViewportFeatureBuilder:
             "is_first_15m": is_first_15m,
             "dist_to_pm_high": (level.price - pm_high) if pm_high is not None else None,
             "dist_to_pm_low": (level.price - pm_low) if pm_low is not None else None,
-            "sma_200": sma_200,
-            "sma_400": sma_400,
-            "dist_to_sma_200": (level.price - sma_200) if sma_200 is not None else None,
-            "dist_to_sma_400": (level.price - sma_400) if sma_400 is not None else None,
-            "sma_200_slope": sma_context.sma_200_slope,
-            "sma_400_slope": sma_context.sma_400_slope,
-            "sma_200_slope_5bar": sma_context.sma_200_slope_5bar,
-            "sma_400_slope_5bar": sma_context.sma_400_slope_5bar,
+            "sma_90": sma_90,
+            "ema_20": ema_20,
+            "dist_to_sma_90": (level.price - sma_90) if sma_90 is not None else None,
+            "dist_to_ema_20": (level.price - ema_20) if ema_20 is not None else None,
+            "sma_90_slope": sma_context.sma_90_slope,
+            "ema_20_slope": sma_context.ema_20_slope,
+            "sma_90_slope_5bar": sma_context.sma_90_slope_5bar,
+            "ema_20_slope_5bar": sma_context.ema_20_slope_5bar,
             "sma_spread": sma_context.sma_spread,
         }
         # Merge kinematics (Section B)
@@ -141,7 +141,7 @@ class ViewportFeatureBuilder:
             "confluence_weighted_score": confluence["weighted_score"],
             "confluence_min_distance": confluence["min_distance"],
             "confluence_pressure": confluence["pressure"],
-            "confluence_alignment": confluence_alignment,
+            "confluence_alignment_score": confluence_alignment, # Changed key
             "barrier_state": barrier_metrics.state.value,
             "barrier_delta_liq": barrier_metrics.delta_liq,
             "barrier_replenishment_ratio": barrier_metrics.replenishment_ratio,
@@ -204,13 +204,15 @@ class ViewportFeatureBuilder:
             "PM_LOW": 1.0,
             "OR_HIGH": 0.9,
             "OR_LOW": 0.9,
-            "SMA_200": 0.8,
-            "SMA_400": 0.8,
+            "SMA_90": 0.8,
+            "EMA_20": 0.8,
             "VWAP": 0.7,
             "SESSION_HIGH": 0.6,
             "SESSION_LOW": 0.6,
             "CALL_WALL": 1.0,
-            "PUT_WALL": 1.0
+            "PUT_WALL": 1.0,
+            "SMA_200": 0.5, # Added
+            "SMA_400": 0.5  # Added
         }
         band = self.config.CONFLUENCE_BAND
         distances = []
@@ -290,36 +292,38 @@ class ViewportFeatureBuilder:
     ) -> int:
         if sma_context is None:
             return 0
-        sma_200 = sma_context.sma_200
-        sma_400 = sma_context.sma_400
-        sma_200_slope = sma_context.sma_200_slope
-        sma_400_slope = sma_context.sma_400_slope
+        sma_90 = sma_context.sma_90
+        ema_20 = sma_context.ema_20
+        sma_90_slope = sma_context.sma_90_slope
+        ema_20_slope = sma_context.ema_20_slope
 
         if (
-            sma_200 is None
-            or sma_400 is None
-            or sma_200_slope is None
-            or sma_400_slope is None
+            sma_90 is None
+            or ema_20 is None
+            or sma_90_slope is None
+            or ema_20_slope is None
         ):
             return 0
 
-        below_both = level_price < sma_200 and level_price < sma_400
-        above_both = level_price > sma_200 and level_price > sma_400
-        slopes_negative = sma_200_slope < 0 and sma_400_slope < 0
-        slopes_positive = sma_200_slope > 0 and sma_400_slope > 0
-        spread_slope = sma_200_slope - sma_400_slope
-
+        # 1. Level distance from SMAs
+        above_sma_90 = level_price > sma_90
+        above_ema_20 = level_price > ema_20
+        
+        # 2. Slopes
+        sma_90_up = sma_90_slope > 0
+        ema_20_up = ema_20_slope > 0
+        
+        score = 0
         if direction == "UP":
-            if below_both and slopes_negative and spread_slope > 0:
-                return 1
-            if above_both and slopes_positive and spread_slope < 0:
-                return -1
+            # Bullish confluence: Level > SMA (support), SMA slope UP
+            if above_sma_90 and sma_90_up: score += 1
+            if above_ema_20 and ema_20_up: score += 1
         else:
-            if above_both and slopes_positive and spread_slope > 0:
-                return 1
-            if below_both and slopes_negative and spread_slope < 0:
-                return -1
-        return 0
+            # Bearish confluence: Level < SMA (resistance), SMA slope DOWN
+            if not above_sma_90 and not sma_90_up: score += 1
+            if not above_ema_20 and not ema_20_up: score += 1
+            
+        return score
 
     def _compute_mean_reversion_features(
         self,
@@ -335,43 +339,43 @@ class ViewportFeatureBuilder:
                 "mean_reversion_velocity_400": None
             }
 
-        dist_to_sma_200 = None
-        dist_to_sma_400 = None
-        if sma_context.sma_200 is not None:
-            dist_to_sma_200 = level_price - sma_context.sma_200
-        if sma_context.sma_400 is not None:
-            dist_to_sma_400 = level_price - sma_context.sma_400
+        dist_to_sma_90 = None
+        dist_to_ema_20 = None
+        if sma_context.sma_90 is not None:
+            dist_to_sma_90 = level_price - sma_context.sma_90
+        if sma_context.ema_20 is not None:
+            dist_to_ema_20 = level_price - sma_context.ema_20
 
         volatility = self._compute_recent_volatility(market_state)
         eps = 1e-6
-        mean_reversion_pressure_200 = None
-        mean_reversion_pressure_400 = None
+        mean_reversion_pressure_90 = None
+        mean_reversion_pressure_20 = None
         if volatility is not None and volatility > 0:
-            if dist_to_sma_200 is not None:
-                mean_reversion_pressure_200 = dist_to_sma_200 / (volatility + eps)
-            if dist_to_sma_400 is not None:
-                mean_reversion_pressure_400 = dist_to_sma_400 / (volatility + eps)
+            if dist_to_sma_90 is not None:
+                mean_reversion_pressure_90 = dist_to_sma_90 / (volatility + eps)
+            if dist_to_ema_20 is not None:
+                mean_reversion_pressure_20 = dist_to_ema_20 / (volatility + eps)
 
         vel_minutes = max(1, self.config.MEAN_REVERSION_VELOCITY_WINDOW_MINUTES)
         vel_bars = max(1, int(round(vel_minutes / 2)))
 
-        mean_reversion_velocity_200 = None
-        mean_reversion_velocity_400 = None
-        prev_sma_200 = market_state.get_sma_at_offset(200, vel_bars)
-        prev_sma_400 = market_state.get_sma_at_offset(400, vel_bars)
+        mean_reversion_velocity_90 = None
+        mean_reversion_velocity_20 = None
+        prev_sma_90 = market_state.get_sma_at_offset(90, vel_bars)
+        prev_ema_20 = market_state.get_ema_20_at_offset(vel_bars)
 
-        if dist_to_sma_200 is not None and prev_sma_200 is not None:
-            prev_dist_200 = level_price - prev_sma_200
-            mean_reversion_velocity_200 = (dist_to_sma_200 - prev_dist_200) / vel_minutes
-        if dist_to_sma_400 is not None and prev_sma_400 is not None:
-            prev_dist_400 = level_price - prev_sma_400
-            mean_reversion_velocity_400 = (dist_to_sma_400 - prev_dist_400) / vel_minutes
+        if dist_to_sma_90 is not None and prev_sma_90 is not None:
+            prev_dist_90 = level_price - prev_sma_90
+            mean_reversion_velocity_90 = (dist_to_sma_90 - prev_dist_90) / vel_minutes
+        if dist_to_ema_20 is not None and prev_ema_20 is not None:
+            prev_dist_20 = level_price - prev_ema_20
+            mean_reversion_velocity_20 = (dist_to_ema_20 - prev_dist_20) / vel_minutes
 
         return {
-            "mean_reversion_pressure_200": mean_reversion_pressure_200,
-            "mean_reversion_pressure_400": mean_reversion_pressure_400,
-            "mean_reversion_velocity_200": mean_reversion_velocity_200,
-            "mean_reversion_velocity_400": mean_reversion_velocity_400
+            "mean_reversion_pressure_90": mean_reversion_pressure_90,
+            "mean_reversion_pressure_20": mean_reversion_pressure_20,
+            "mean_reversion_velocity_90": mean_reversion_velocity_90,
+            "mean_reversion_velocity_20": mean_reversion_velocity_20,
         }
 
     def _compute_recent_volatility(self, market_state: MarketState) -> Optional[float]:
@@ -411,8 +415,8 @@ class ViewportFeatureBuilder:
             "distance_signed",
             "dist_to_pm_high",
             "dist_to_pm_low",
-            "dist_to_sma_200",
-            "dist_to_sma_400",
+            "dist_to_sma_90",
+            "dist_to_ema_20",
             "confluence_min_distance",
             "approach_distance"
         ]
