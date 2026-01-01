@@ -180,9 +180,9 @@ def main():
     print("       --version-a v1.0_mechanics_only --version-b v2.0_full_ensemble")
     print()
     print("Data locations:")
-    print(f"  Bronze: backend/data/lake/bronze/")
-    print(f"  Silver: backend/data/lake/silver/features/")
-    print(f"  Gold:   backend/data/lake/gold/training/")
+    print(f"  Bronze: backend/data/bronze/")
+    print(f"  Silver: backend/data/silver/features/")
+    print(f"  Gold:   backend/data/gold/training/")
     print()
 
     return 0

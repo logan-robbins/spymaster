@@ -236,7 +236,7 @@ uv run pytest tests/test_ml_data_quality.py -v
    # assert True, "Update this test..."
    
    # With:
-   df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+   df = pd.read_parquet("data/gold/training/signals_production.parquet")
    # ... actual validation logic
    ```
 

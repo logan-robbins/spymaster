@@ -22,7 +22,7 @@ from src.io.bronze import BronzeWriter, dataclass_to_dict, _flatten_mbp10_event
 
 
 def _resolve_data_root() -> Path:
-    return Path(__file__).resolve().parents[1] / "data" / "lake"
+    return Path(__file__).resolve().parents[1] / "data"
 
 
 def _parse_dates(args: argparse.Namespace, available_dates: List[str]) -> List[str]:

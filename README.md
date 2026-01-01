@@ -79,8 +79,8 @@ from pathlib import Path
 from src.ml.normalization import ComputeNormalizationStage
 
 stage = ComputeNormalizationStage(
-    state_table_dir=Path('data/lake/silver/state/es_level_state/version=3.1.0'),
-    output_dir=Path('data/lake/gold/normalization'),
+    state_table_dir=Path('data/silver/state/es_level_state/version=3.1.0'),
+    output_dir=Path('data/gold/normalization'),
     lookback_days=60
 )
 result = stage.execute()
@@ -93,8 +93,8 @@ from pathlib import Path
 from src.ml.index_builder import BuildIndicesStage
 
 stage = BuildIndicesStage(
-    episodes_dir=Path('data/lake/gold/episodes/es_level_episodes/version=3.1.0'),
-    output_dir=Path('data/lake/gold/indices/es_level_indices/version=3.1.0')
+    episodes_dir=Path('data/gold/episodes/es_level_episodes/version=3.1.0'),
+    output_dir=Path('data/gold/indices/es_level_indices/version=3.1.0')
 )
 result = stage.execute()
 print(f'Built {result[\"n_partitions_built\"]} indices')

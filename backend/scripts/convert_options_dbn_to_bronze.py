@@ -77,7 +77,7 @@ def main():
     args = parser.parse_args()
     
     raw_dir = _backend_dir / 'data' / 'raw' / 'es_options'
-    bronze_root = _backend_dir / 'data' / 'lake' / 'bronze' / 'options'
+    bronze_root = _backend_dir / 'data' / 'bronze' / 'options'
     
     # Find DBN files to convert
     if args.all:

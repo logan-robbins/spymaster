@@ -52,7 +52,7 @@ class SPYTradesDownloader:
         if data_root:
             self.data_root = Path(data_root)
         else:
-            self.data_root = _backend_dir / 'data' / 'lake'
+            self.data_root = _backend_dir / 'data'
         
         self.bronze_root = self.data_root / 'bronze'
         self.session = requests.Session()
