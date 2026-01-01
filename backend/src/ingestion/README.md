@@ -42,12 +42,12 @@ reader = DBNReader()
 dates = reader.get_available_dates('trades')
 
 # Stream trades
-for trade in reader.read_trades(date='2024-12-16', symbol_prefix='ES'):
+for trade in reader.read_trades(date='2025-12-16', symbol_prefix='ES'):
     # Process FuturesTrade event
     pass
 
 # Stream MBP-10 depth
-for mbp in reader.read_mbp10(date='2024-12-16', symbol_prefix='ES'):
+for mbp in reader.read_mbp10(date='2025-12-16', symbol_prefix='ES'):
     # Process MBP10 event
     pass
 ```
@@ -65,7 +65,7 @@ Publishes DBN data to NATS at configurable speed for testing/backtesting.
 ```bash
 cd backend
 export REPLAY_SPEED=1.0      # 1x realtime (0=fast, 2=2x speed)
-export REPLAY_DATE=2024-12-16
+export REPLAY_DATE=2025-12-16
 uv run python -m src.ingestion.databento.replay
 ```
 
@@ -144,7 +144,7 @@ print(reader.get_available_dates('trades'))
 "
 
 # Test replay
-export REPLAY_DATE=2024-12-16
+export REPLAY_DATE=2025-12-16
 export REPLAY_SPEED=0.0
 uv run python -m src.ingestion.databento.replay
 ```

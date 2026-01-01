@@ -34,7 +34,7 @@ await writer.start()
 reader = BronzeReader()
 trades_df = reader.read_futures_trades(
     symbol='ES',
-    date='2024-12-16',
+    date='2025-12-16',
     start_ns=start_ns,
     end_ns=end_ns
 )
@@ -62,7 +62,7 @@ builder = SilverFeatureBuilder()
 # Build features for date range
 stats = builder.build_feature_set(
     manifest=manifest,
-    dates=['2024-12-16', '2024-12-17'],
+    dates=['2025-12-16', '2025-12-17'],
     force=False
 )
 
@@ -174,13 +174,13 @@ S3_SECRET_KEY=...
 
 **Bronze/Gold Streaming**:
 ```
-futures/trades/symbol=ES/date=2024-12-16/hour=14/part-143012.parquet
-options/trades/underlying=ES/date=2024-12-16/hour=14/part-143012.parquet
+futures/trades/symbol=ES/date=2025-12-16/hour=14/part-143012.parquet
+options/trades/underlying=ES/date=2025-12-16/hour=14/part-143012.parquet
 ```
 
 **Silver**:
 ```
-features/v3.1.0/date=2024-12-16/signals.parquet
+features/v3.1.0/date=2025-12-16/signals.parquet
 ```
 
 **Gold Training**:

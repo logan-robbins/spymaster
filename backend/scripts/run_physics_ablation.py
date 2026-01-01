@@ -26,8 +26,7 @@ sys.path.insert(0, str(backend_dir))
 from src.ml.index_builder import build_all_indices, load_episode_corpus
 from src.ml.retrieval_engine import IndexManager, EpisodeQuery
 from src.ml.outcome_aggregation import aggregate_query_results
-from src.ml.constants import K_NEIGHBORS, M_CANDIDATES
-from src.ml.tracking import tracking_run, log_metrics, log_artifacts
+from src.ml.constants import K_NEIGHBORS, M_CANDIDATES, VECTOR_SECTIONS, VECTOR_DIMENSION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,12 +35,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Feature Definitions
-# Section B (Dynamics): 25-61 (37 dims)
-# Section D (Physics): 97-107 (11 dims)
-# Section F (Geometry): 112-143 (32 dims)
+# Dynamically loaded from constants to support 147D (or any future version)
+def get_indices(section_name: str) -> List[int]:
+    start, end = VECTOR_SECTIONS[section_name]
+    return list(range(start, end))
 
-PHYSICS_INDICES = list(range(25, 62)) + list(range(97, 108))
-GEOMETRY_INDICES = list(range(112, 144))
+PHYSICS_INDICES = get_indices('multiscale_dynamics') + get_indices('derived_physics')
+GEOMETRY_INDICES = get_indices('trajectory_basis')
 
 def generate_date_range(start_date: str, end_date: str) -> List[str]:
     """Generate list of dates between start and end (inclusive)."""
@@ -151,6 +151,7 @@ def run_ablation_pass(
             'actual_outcome': row.outcome_4min,
             'predicted_outcome': max(probs, key=probs.get) if probs else 'CHOP',
             'avg_similarity': avg_sim,
+            'level_kind': row.level_kind,
             'n_neighbors': len(retrieved_metadata)
         })
         
@@ -160,6 +161,13 @@ def run_ablation_pass(
     valid_df = results_df[results_df['n_neighbors'] > 0]
     accuracy = (valid_df['predicted_outcome'] == valid_df['actual_outcome']).mean()
     
+    # Breakdown by Level Kind
+    level_breakdown = {}
+    for kind in valid_df['level_kind'].unique():
+        subset = valid_df[valid_df['level_kind'] == kind]
+        acc = (subset['predicted_outcome'] == subset['actual_outcome']).mean()
+        level_breakdown[kind] = {'accuracy': acc, 'count': len(subset)}
+
     # Q1 vs Q4
     sim_qs = valid_df['avg_similarity'].quantile([0.25, 0.75])
     q1_acc = (valid_df[valid_df['avg_similarity'] <= sim_qs[0.25]])['predicted_outcome'] == (valid_df[valid_df['avg_similarity'] <= sim_qs[0.25]])['actual_outcome']
@@ -175,7 +183,8 @@ def run_ablation_pass(
         'accuracy': accuracy,
         'q1_accuracy': q1_acc.mean(),
         'q4_accuracy': q4_acc.mean(),
-        'n_features': len(feature_indices)
+        'n_features': len(feature_indices),
+        'level_breakdown': level_breakdown
     }
 
 def main():
@@ -203,6 +212,11 @@ def main():
     results.append(run_ablation_pass(
         "geometry_only", GEOMETRY_INDICES, episodes_dir, test_dates, output_dir, test_vectors, test_metadata
     ))
+    # Pass 3: Combined (All Features)
+    ALL_INDICES = list(range(VECTOR_DIMENSION))
+    results.append(run_ablation_pass(
+        "combined", ALL_INDICES, episodes_dir, test_dates, output_dir, test_vectors, test_metadata
+    ))
     
     # Save Report
     report_file = output_dir / 'comparison_report.json'
@@ -212,6 +226,10 @@ def main():
     logger.info("\n=== Final Comparison ===")
     for r in results:
         logger.info(f"{r['run_name']}: Acc={r['accuracy']:.1%}, Q4 vs Q1 Delta={(r['q4_accuracy'] - r['q1_accuracy']):.1%}")
+        if 'level_breakdown' in r:
+             logger.info("  Level Breakdown:")
+             for kind, metrics in r['level_breakdown'].items():
+                 logger.info(f"    {kind}: Acc={metrics['accuracy']:.1%}")
 
 if __name__ == "__main__":
     main()

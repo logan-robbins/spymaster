@@ -55,7 +55,7 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     elif 'acceleration_1min' in signals_df.columns:
         accel_col = 'acceleration_1min'
     else:
-        raise ValueError("signals_df missing acceleration column (acceleration or acceleration_1min)")
+        raise ValueError("signals_df missing acceleration column (acceleration_1min)")
     
     # Build force proxy (combination of OFI + tape)
     force = np.zeros(len(signals_df), dtype=np.float64)

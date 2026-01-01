@@ -67,7 +67,11 @@ def compute_multiwindow_kinematics(
         raise ValueError("ohlcv_df must have DatetimeIndex or 'timestamp' column")
 
     ohlcv_sorted = ohlcv.sort_values('timestamp')
-    ohlcv_ts = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+    if 'ts_ns' in ohlcv_sorted.columns:
+         ohlcv_ts = ohlcv_sorted['ts_ns'].values.astype(np.int64)
+    else:
+         ohlcv_ts = ohlcv_sorted['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
+         
     ohlcv_close = ohlcv_sorted['close'].values.astype(np.float64)
     
     n = len(signals_df)
@@ -105,36 +109,56 @@ def compute_multiwindow_kinematics(
             window_prices = ohlcv_close[start_idx:end_idx]
             window_times = ohlcv_ts[start_idx:end_idx]
             
-            if len(window_prices) < 3:
+            if len(window_prices) < 2:
+                if i < 5 and window_min == 2:
+                     print(f"DEBUG: wind={window_min}, len={len(window_prices)}, start={start_idx}, end={end_idx}, ts={ts}, start_ts={start_ts}")
                 continue
             
-            # Level-frame position: p(t) = dir_sign × (price - level)
-            # Increasing p = moving toward break, decreasing = toward bounce
+            # Level-frame position: p(t) = dir_sign * (price - level)
             p_series = dir_sign[i] * (window_prices - level)
-            
-            # Velocity: dp/dt (first derivative)
-            dt_series = np.diff(window_times) / 1e9  # seconds
-            if len(dt_series) > 0 and np.all(dt_series > 0):
-                dp_series = np.diff(p_series)
-                v_series = dp_series / dt_series
-                velocity[i] = v_series[-1]  # Latest velocity
-                
-                # Acceleration: dv/dt (second derivative)
-                if len(v_series) > 1:
-                    dv_series = np.diff(v_series)
-                    dt2_series = dt_series[:-1]  # Align with dv
-                    if len(dt2_series) > 0 and np.all(dt2_series > 0):
-                        a_series = dv_series / dt2_series
-                        acceleration[i] = a_series[-1]  # Latest acceleration
-                        
-                        # Jerk: da/dt (third derivative)
-                        if len(a_series) > 1:
-                            da_series = np.diff(a_series)
-                            dt3_series = dt2_series[:-1]
-                            if len(dt3_series) > 0 and np.all(dt3_series > 0):
-                                j_series = da_series / dt3_series
-                                jerk[i] = j_series[-1]
-        
+            t_series = (window_times - window_times[0]) / 1e9  # normalize time to start at 0 (seconds)
+
+            # Robust Velocity: Linear regression slope of position over time
+            # v_window = cov(t, p) / var(t)
+            if len(p_series) >= 2:
+                # Velocity (Slope of position)
+                A = np.vstack([t_series, np.ones(len(t_series))]).T
+                m_v, c_v = np.linalg.lstsq(A, p_series, rcond=None)[0]
+                velocity[i] = m_v
+
+                # Acceleration: Linear regression slope of velocity
+                # We need local velocities to estimate acceleration trend
+                # Split window into smaller chunks or use 2nd order polyfit
+                # Here we use 2nd order polyfit: p(t) = 0.5*a*t^2 + v*t + x0
+                # The 'a' coefficient is acceleration
+                if len(p_series) >= 3:
+                    coeffs = np.polyfit(t_series, p_series, 2)
+                    # p(t) = c[0]*t^2 + c[1]*t + c[2]
+                    # v(t) = 2*c[0]*t + c[1]
+                    # a(t) = 2*c[0]
+                    # Note: We overwrite the linear velocity with the instantaneous velocity 
+                    # from the quadratic fit at the end of the window to allow for curvature
+                    # But for "Average Window Velocity" we should stick to linear slope?
+                    # RESEARCH.md implies we want "Trajectory", so quadratic fit is better
+                    # as it captures the curvature (acceleration).
+                    
+                    # acceleration = 2 * c[0]
+                    acceleration[i] = 2.0 * coeffs[0]
+                    
+                    # Refine velocity to be the velocity at the END of the fitted curve
+                    # velocity[i] = 2 * coeffs[0] * t_series[-1] + coeffs[1] 
+                    # Actually, stick to linear slope for "Velocity" feature to keep it robust
+                    # and use coeffs[0] for "Acceleration".
+                    
+                    # Jerk: Change in acceleration
+                    # Requires 3rd order fit: p(t) = (1/6)j*t^3 + 0.5*a*t^2 + v*t + x0
+                    if len(p_series) >= 4:
+                        coeffs_j = np.polyfit(t_series, p_series, 3)
+                        # p(t) = c[0]t^3 + c[1]t^2 + c[2]t + c[3]
+                        # a(t) = 6*c[0]t + 2*c[1]
+                        # j(t) = 6*c[0]
+                        jerk[i] = 6.0 * coeffs_j[0]
+
         # Add to result with window suffix
         suffix = f'_{window_min}min'
         result[f'velocity{suffix}'] = velocity
@@ -170,17 +194,20 @@ class ComputeMultiWindowKinematicsStage(BaseStage):
     
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'ohlcv_1min']
+        return ['signals_df', 'ohlcv_10s']
     
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
-        ohlcv_df = ctx.data['ohlcv_1min']
+        ohlcv_df = ctx.data['ohlcv_10s']
         
         # Compute multi-window kinematics (up to 20min per user requirement)
+        # Using 10s bars allows high-resolution physics at short windows:
+        # - 1min window = 6 bars (Valid Velocity, Accel, Jerk)
+        # - 2min window = 12 bars (Robust)
         signals_df = compute_multiwindow_kinematics(
             signals_df=signals_df,
             ohlcv_df=ohlcv_df,
-            windows_minutes=[1, 3, 5, 10, 20]
+            windows_minutes=[1, 2, 3, 5, 10, 20]
         )
         
         return {'signals_df': signals_df}

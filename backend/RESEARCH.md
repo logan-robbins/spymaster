@@ -56,6 +56,13 @@
     *   **Geometry Only (32D):** ECE = **2.40%**.
 *   **Outcome:** **Geometry Only** is the Production Standard. We achieved near-perfect calibration for Open Range/Premarket levels (< 1.5% Error).
 
+### Phase 5: Neural Representation (The "Walker" to "Runner" Evolution)
+*   **Goal:** Move from "Rigid Geometry" (DCT) to "Learned Geometry" (Transformer).
+*   **Hypothesis:** A **PatchTST Encoder** can learn non-linear patterns (Double Bottoms, etc.) that DCT misses, provided we have enough data (N > 10,000).
+*   **Status:** **DATA COLLECTION.**
+    *   **Implementation:** See **[TRANSFORMER.md](TRANSFORMER.md)**.
+    *   **Infrastructure:** Pipeline (Stage 17) now saves `sequences.npy` (Raw Time Series) to build the dataset continuously.
+
 ---
 
 ## 3. The Vector Architecture (The "Snapshot")
@@ -65,7 +72,7 @@ The 144-dimensional vector is the core "genetic code" of a market setup. It is d
 | Section | Dims | Purpose | Agent Note |
 |:---|:---|:---|:---|
 | **A: Context** | 25 | Regime (Time of day, active levels, nearby structure) | "Where are we?" |
-| **B: Dynamics** | 37 | **Physics**. Velocity, Acceleration, Jerk, OFI (multi-scale). | "How fast are we moving?" (The noise source) |
+| **B: Dynamics** | 40 | **Physics**. Multi-scale (1, 2, 3, 5, 10, 20min). Validated via 10s High-Res bars. | "How fast are we moving?" |
 | **C: History** | 35 | Micro-history (last 5 bars). Log-transformed Delta Liq. | "What just happened?" |
 | **D: Derived** | 11 | **Force/Mass**. Ratio of Order Flow (Force) to Limit Book (Mass). | "How 'heavy' is the move?" |
 | **E: Trends** | 4 | Online trend slopes. | "Is pressure building?" |
@@ -90,9 +97,13 @@ We are now optimizing the **Quality of the Mirror**.
 *   **Hypothesis:** Retrieval quality decays as the "Approach" gets stale.
 *   **Investigation:** Verify if `MONITOR_BAND` (currently 5.0 pts) is optimal. Should it be dynamic (ATR-based)?
 
-**Q3: Human-AI Alignment**
-*   **Hypothesis:** Users trust "Visual Similarity" (Geometry) over "Invisible Similarity" (OFI).
-*   **Goal:** Ensure the retrieved neighbors *look* like the current chart. If they don't, the user will reject the AI's advice.
+**Q3: Physics vs. Geometry (The Dec 31 Verdict)**
+*   **Experiment:** Comparison of 147D High-Res Physics (10s bars) vs 32D Geometry (DCT).
+*   **Result:**
+    *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
+    *   **Physics:** 69.1% Accuracy, **-17.0% Calibration** (Inverted).
+*   **Conclusion:** Physics features are valid but **Non-Linear**. kNN cannot use them effectively.
+*   **Next Step:** Phase 5 (Transformers) to learn the interaction.
 
 **Q4: The "Unified Field Theory" (Holistic Vector)**
 *   **Hypothesis:** We can reintegrate Physics without the noise. Currently, Physics features (50+ dims) "drown out" Geometry (32 dims).

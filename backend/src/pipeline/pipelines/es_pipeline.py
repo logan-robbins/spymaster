@@ -66,6 +66,7 @@ def build_es_pipeline() -> Pipeline:
         stages=[
             LoadBronzeStage(),
             BuildOHLCVStage(freq='1min', output_key='ohlcv_1min', rth_only=False),
+            BuildOHLCVStage(freq='10s', output_key='ohlcv_10s', rth_only=False),
             BuildOHLCVStage(freq='2min', output_key='ohlcv_2min', include_warmup=True, rth_only=False),
             InitMarketStateStage(),
             GenerateLevelsStage(),

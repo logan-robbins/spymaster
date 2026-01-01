@@ -15,7 +15,7 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
 - **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)
 - **Outcomes**: BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold)
-- **Episode Vectors**: 144 dimensions with DCT trajectory basis
+- **Episode Vectors**: 144 dimensions (Source) → 32 dimensions (Runtime Index/Geometry Only)
 - **Zone Threshold**: 2.0 ATR for approach detection
 - **Retrieval**: FAISS similarity search (60 partitions: 6 levels × 2 directions × 5 time buckets)
 - **Pipeline**: 18 stages (bronze → silver → gold → indices)
