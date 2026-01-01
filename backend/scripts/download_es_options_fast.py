@@ -1,8 +1,8 @@
 """
 Fast ES Options downloader - writes directly to DBN (no DataFrame overhead).
 
-Downloads ES options NBBO directly to DBN format, bypassing slow DataFrame conversion.
-Then converts to Bronze Parquet in a separate step.
+Downloads ES options (trades, NBBO, statistics) directly to DBN format,
+bypassing slow DataFrame conversion. Then converts to Bronze Parquet in a separate step.
 
 Usage:
     cd backend
@@ -125,11 +125,10 @@ def main():
     
     downloader = FastESOptionsDownloader()
     
-    # Download trades
+    # Download all three schemas
     downloader.download_dates(dates, 'trades', args.workers)
-    
-    # Download NBBO (mbp-1)
     downloader.download_dates(dates, 'mbp-1', args.workers)
+    downloader.download_dates(dates, 'statistics', args.workers)
     
     print(f"\n✅ DBN files saved to: {downloader.raw_dir}")
     print(f"\nNext: Convert DBN to Bronze Parquet")

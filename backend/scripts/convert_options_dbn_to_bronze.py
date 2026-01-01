@@ -1,9 +1,12 @@
 """
 Convert ES Options DBN files to Bronze Parquet.
 
+Converts trades, NBBO (mbp-1), and statistics schemas from DBN to Bronze Parquet.
+
 Usage:
     cd backend
     uv run python scripts/convert_options_dbn_to_bronze.py --all
+    uv run python scripts/convert_options_dbn_to_bronze.py --date 2025-06-05
 """
 
 import argparse
@@ -39,7 +42,7 @@ def convert_dbn_to_bronze(dbn_file: Path, output_dir: Path, schema: str, date_st
             'size': df['size'].astype('int64'),
             'seq': df.get('sequence', 0).astype('int64'),
         })
-    else:  # mbp-1
+    elif schema == 'mbp-1':
         df_out = pd.DataFrame({
             'ts_event_ns': df['ts_event'].astype('int64'),
             'ts_recv_ns': df['ts_recv'].astype('int64'),
@@ -52,6 +55,22 @@ def convert_dbn_to_bronze(dbn_file: Path, output_dir: Path, schema: str, date_st
             'ask_sz': df.get('ask_sz_00', 0).astype('int64'),
             'seq': df.get('sequence', 0).astype('int64'),
         })
+    elif schema == 'statistics':
+        # Extract expiration date, strike, and right from instrument_id if available
+        # For simplicity, use raw symbol which contains this info
+        df_out = pd.DataFrame({
+            'ts_event_ns': df['ts_event'].astype('int64'),
+            'ts_recv_ns': df['ts_recv'].astype('int64'),
+            'source': 'DATABENTO_CME',
+            'underlying': 'ES',
+            'option_symbol': df['symbol'].astype(str),
+            'exp_date': df.get('expiration', pd.NaT),
+            'strike': df.get('strike_price', 0).astype('float64'),
+            'right': df.get('instrument_class', '').astype(str),
+            'open_interest': df.get('open_interest', 0).astype('float64'),
+        })
+    else:
+        raise ValueError(f"Unknown schema: {schema}")
     
     # Partition by hour
     df_out['hour'] = pd.to_datetime(df_out['ts_event_ns'], unit='ns', utc=True).dt.hour
@@ -104,7 +123,16 @@ def main():
         date_str = f"{date_compact[:4]}-{date_compact[4:6]}-{date_compact[6:8]}"
         
         # Output directory
-        schema_name = 'trades' if schema == 'trades' else 'nbbo'
+        if schema == 'trades':
+            schema_name = 'trades'
+        elif schema == 'mbp-1':
+            schema_name = 'nbbo'
+        elif schema == 'statistics':
+            schema_name = 'statistics'
+        else:
+            print(f"  ⏭️  Skipping unknown schema: {schema}")
+            continue
+        
         output_dir = bronze_root / schema_name / 'underlying=ES' / f'date={date_str}'
         
         print(f"\n{date_str} {schema_name}:")

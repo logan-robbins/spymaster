@@ -32,20 +32,83 @@ echo "DATABENTO_API_KEY=your_key_here" >> .env
 uv sync
 ```
 
-### 2. Download Data
+### 2. Download & Prepare Data
+
+The pipeline requires both **ES futures** and **ES options** in the Bronze layer:
+
+| Instrument | Schemas Required | Bronze Location |
+|------------|------------------|-----------------|
+| **ES Futures** | trades, mbp-10 (order book) | `data/bronze/futures/{trades,mbp10}/symbol=ES/` |
+| **ES Options** | trades, mbp-1 (NBBO), statistics | `data/bronze/options/{trades,nbbo,statistics}/underlying=ES/` |
+
+**Data Flow Summary:**
+
+```
+ES OPTIONS:
+  Databento API 
+    → download_es_options_fast.py → data/raw/es_options/*.dbn
+    → convert_options_dbn_to_bronze.py → data/bronze/options/{trades,nbbo,statistics}/
+
+ES FUTURES:
+  Databento API (or local DBN files)
+    → download_es_futures_fast.py (optional) → data/raw/{trades,MBP-10}/*.dbn
+    → backfill_bronze_futures.py → data/bronze/futures/{trades,mbp10}/
+```
+
+#### 2a. ES Options: Download → Convert to Bronze
 
 ```bash
 cd backend
 
-# Download ES options (trades + NBBO + Statistics) → Bronze layer
-uv run python scripts/download_es_options.py \
+# Step 1: Download ES options DBN files (trades, NBBO, statistics)
+# Downloads to: data/raw/es_options/
+uv run python scripts/download_es_options_fast.py \
   --start 2024-11-01 \
   --end 2024-12-31 \
   --workers 8
 
-# Backfill ES futures from DBN files → Bronze layer
-# (Requires ES futures DBN files in data/raw/)
-uv run python scripts/backfill_bronze_futures.py --all
+# Step 2: Convert DBN files to Bronze Parquet
+# Writes to: data/bronze/options/{trades,nbbo,statistics}/underlying=ES/
+uv run python scripts/convert_options_dbn_to_bronze.py --all
+```
+
+#### 2b. ES Futures: Backfill to Bronze
+
+```bash
+cd backend
+
+# Backfill ES futures from DBN files to Bronze Parquet
+# Requires: ES futures DBN files in data/raw/trades/ and data/raw/MBP-10/
+# Writes to: data/bronze/futures/{trades,mbp10}/symbol=ES/
+# Use --workers for parallel processing (default: 1, recommended: 3-4)
+uv run python -m scripts.backfill_bronze_futures --all --workers 4
+```
+
+**Note**: If you don't have ES futures DBN files locally, download them first using:
+```bash
+cd backend
+uv run python scripts/download_es_futures_fast.py \
+  --start 2024-11-01 \
+  --end 2024-12-31 \
+  --workers 4
+```
+
+#### 2c. Verify Bronze Data
+
+```bash
+cd backend
+
+# Check ES options bronze data
+ls data/bronze/options/trades/underlying=ES/ | head
+ls data/bronze/options/nbbo/underlying=ES/ | head
+ls data/bronze/options/statistics/underlying=ES/ | head
+
+# Check ES futures bronze data
+ls data/bronze/futures/trades/symbol=ES/ | head
+ls data/bronze/futures/mbp10/symbol=ES/ | head
+
+# Validate a specific date
+uv run python scripts/validate_backfill.py --date 2024-11-01
 ```
 
 ### 3. Run Pipeline
