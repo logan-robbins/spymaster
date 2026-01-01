@@ -24,8 +24,8 @@ LEVEL_KIND_DECODE = {
     1: 'PM_LOW',
     2: 'OR_HIGH',
     3: 'OR_LOW',
-    6: 'SMA_200',
-    12: 'SMA_400'
+    6: 'SMA_90',
+    12: 'EMA_20'
 }
 
 
@@ -119,20 +119,20 @@ def materialize_state_table(
     
     logger.info(f"    Static level_prices extracted: {list(level_prices.keys())}")
     
-    # Compute SMAs for each timestamp from ohlcv_2min
-    sma_200_series = {}
-    sma_400_series = {}
+    # Compute SMAs/EMAs for each timestamp from ohlcv_2min
+    sma_90_series = {}
+    ema_20_series = {}
     if not ohlcv_2min.empty:
         ohlcv_2min_sorted = ohlcv_2min.sort_index().copy()
-        ohlcv_2min_sorted['sma_200'] = ohlcv_2min_sorted['close'].rolling(window=200, min_periods=200).mean()
-        ohlcv_2min_sorted['sma_400'] = ohlcv_2min_sorted['close'].rolling(window=400, min_periods=400).mean()
+        ohlcv_2min_sorted['sma_90'] = ohlcv_2min_sorted['close'].rolling(window=90, min_periods=90).mean()
+        ohlcv_2min_sorted['ema_20'] = ohlcv_2min_sorted['close'].ewm(span=20, adjust=False).mean()
         
         # Create lookup dict by timestamp (index is timestamp)
         for ts, row in ohlcv_2min_sorted.iterrows():
-            if pd.notna(row['sma_200']):
-                sma_200_series[ts] = row['sma_200']
-            if pd.notna(row['sma_400']):
-                sma_400_series[ts] = row['sma_400']
+            if pd.notna(row['sma_90']):
+                sma_90_series[ts] = row['sma_90']
+            if pd.notna(row['ema_20']):
+                ema_20_series[ts] = row['ema_20']
     
     # Build state table rows
     state_rows = []
@@ -171,19 +171,19 @@ def materialize_state_table(
                     level_price = level_prices.get(level_kind)
                     if level_price is None:
                         level_active = False
-            elif level_kind == 'SMA_200':
+            elif level_kind == 'SMA_90':
                 # Find closest SMA value at or before ts
-                sma_times = [t for t in sma_200_series.keys() if t <= ts]
+                sma_times = [t for t in sma_90_series.keys() if t <= ts]
                 if sma_times:
                     closest_time = max(sma_times)
-                    level_price = sma_200_series[closest_time]
+                    level_price = sma_90_series[closest_time]
                 else:
                     level_active = False
-            elif level_kind == 'SMA_400':
-                sma_times = [t for t in sma_400_series.keys() if t <= ts]
-                if sma_times:
-                    closest_time = max(sma_times)
-                    level_price = sma_400_series[closest_time]
+            elif level_kind == 'EMA_20':
+                ema_times = [t for t in ema_20_series.keys() if t <= ts]
+                if ema_times:
+                    closest_time = max(ema_times)
+                    level_price = ema_20_series[closest_time]
                 else:
                     level_active = False
             
@@ -213,7 +213,7 @@ def materialize_state_table(
                 # Distances to all levels
                 'dist_to_pm_high_atr', 'dist_to_pm_low_atr',
                 'dist_to_or_high_atr', 'dist_to_or_low_atr',
-                'dist_to_sma_200_atr', 'dist_to_sma_400_atr',
+                'dist_to_sma_90_atr', 'dist_to_ema_20_atr',
                 # Level stacking
                 'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
                 # Kinematics

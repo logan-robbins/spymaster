@@ -60,7 +60,7 @@ DRIFT_ALERT_MEAN_SHIFT = 2.0
 CALIBRATION_WARNING_ECE = 0.10
 
 # ─── Level Kinds ───
-LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 
 # ─── Horizons ───
 HORIZONS = {

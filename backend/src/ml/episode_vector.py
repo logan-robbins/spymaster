@@ -124,7 +124,7 @@ def construct_episode_vector(
     
     # Distances to all levels (6)
     for f in ['dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr',
-              'dist_to_or_low_atr', 'dist_to_sma_200_atr', 'dist_to_sma_400_atr']:
+              'dist_to_or_low_atr', 'dist_to_sma_90_atr', 'dist_to_ema_20_atr']:
         val = current_bar.get(f, 0.0)
         # Set OR distances to 0 if OR not active
         if 'or_' in f and or_active == 0.0:
@@ -201,11 +201,11 @@ def construct_episode_vector(
         idx += 1
     
     # Approach dynamics (3)
-    vector[idx] = current_bar.get('approach_velocity', 0.0)
+    vector[idx] = current_bar.get('dist_to_or_low_atr', 0.0)
     idx += 1
-    vector[idx] = current_bar.get('approach_bars', 0)
+    vector[idx] = current_bar.get('dist_to_sma_90_atr', 0.0)
     idx += 1
-    vector[idx] = current_bar.get('approach_distance_atr', 0.0)
+    vector[idx] = current_bar.get('dist_to_ema_20_atr', 0.0)
     idx += 1
     
     # ─── SECTION C: Micro-History (35 dims) ───
@@ -365,7 +365,7 @@ def get_feature_names() -> List[str]:
         'minutes_since_open', 'bars_since_open', 'atr', 'or_active',
         'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
         'dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr',
-        'dist_to_or_low_atr', 'dist_to_sma_200_atr', 'dist_to_sma_400_atr',
+        'dist_to_or_low_atr', 'dist_to_sma_90_atr', 'dist_to_ema_20_atr',
         'prior_touches', 'attempt_index', 'time_since_last_touch_sec',
         'gamma_exposure', 'fuel_effect_encoded',
         'gex_ratio', 'gex_asymmetry', 'net_gex_2strike',
@@ -582,7 +582,7 @@ def construct_episodes_from_events(
     
     # Decode events level_kind if integer (to match state table strings)
     level_kind_decode = {
-        0: 'PM_HIGH', 1: 'PM_LOW', 2: 'OR_HIGH', 3: 'OR_LOW', 6: 'SMA_200', 12: 'SMA_400'
+        0: 'PM_HIGH', 1: 'PM_LOW', 2: 'OR_HIGH', 3: 'OR_LOW', 6: 'SMA_90', 12: 'EMA_20'
     }
     if events_sorted['level_kind'].dtype in [np.int8, np.int16, np.int32, np.int64, int]:
         events_sorted['level_kind'] = events_sorted['level_kind'].map(level_kind_decode).fillna('UNKNOWN')
