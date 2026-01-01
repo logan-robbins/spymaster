@@ -71,16 +71,7 @@ class VectorizedMarketData:
     put_gamma: Dict[float, float]
     strike_premium: Dict[float, float]  # Net premium flow by strike
 
-    # Price converter (ES futures = ES options, no conversion)
-    spx_to_es_ratio: float = 1.0  # ES = ES (same underlying)
 
-    def spx_to_es(self, es_price: float) -> float:
-        """Pass-through for ES system (ES options = ES futures)."""
-        return es_price
-
-    def es_to_spx(self, es_price: float) -> float:
-        """Pass-through for ES system (ES options = ES futures)."""
-        return es_price
 
 
 def build_vectorized_market_data(

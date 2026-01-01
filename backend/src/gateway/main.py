@@ -106,7 +106,7 @@ async def health_check():
 
 @app.get("/api/history/candles")
 async def get_candles(
-    symbol: str = Query("SPY", description="Ticker symbol"),
+    symbol: str = Query("ES", description="Ticker symbol"),
     interval: int = Query(2, description="Interval in minutes"),
     days: int = Query(1, description="Days of history to fetch")
 ):

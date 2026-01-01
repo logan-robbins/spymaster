@@ -1,8 +1,7 @@
 """
 Build ES OHLCV series from ES futures trades.
 
-ES futures and ES options are quoted in the same index points.
-No conversion needed.
+ES futures are quoted in index points.
 """
 
 from typing import Any, Dict, List, Optional
@@ -15,7 +14,7 @@ from src.common.config import CONFIG
 from src.common.utils.session_time import filter_rth_only, filter_premarket_only
 
 
-def build_spx_ohlcv_from_es(
+def build_es_ohlcv_from_es(
     trades: List[FuturesTrade],
     date: str,
     freq: str = '1min',
@@ -23,15 +22,15 @@ def build_spx_ohlcv_from_es(
 ) -> pd.DataFrame:
     """
     Build ES OHLCV from ES futures trades.
-    
-    ES futures and ES options use the same units (index points). No conversion needed.
-    
+
+    ES futures are quoted in index points.
+
     Args:
         trades: List of ES FuturesTrade objects
         date: Date string for RTH filtering
         freq: Bar frequency ('1min', '2min')
         rth_only: If True, only include RTH bars (09:30-13:30 ET for v1)
-    
+
     Returns:
         DataFrame with OHLCV columns in ES index points
     """
@@ -155,15 +154,15 @@ def compute_rth_volatility(ohlcv_df: pd.DataFrame, window_minutes: int = 20) -> 
 class BuildOHLCVStage(BaseStage):
     """
     Build ES OHLCV bars from ES futures.
-    
-    ES futures and ES options share the same index points.
-    
+
+    ES futures are quoted in index points.
+
     Args:
         freq: Bar frequency ('1min', '2min')
         output_key: Key for context.data
         include_warmup: Whether to include warmup bars (for SMA)
         rth_only: If True, filter to RTH before resampling (for ATR/vol)
-    
+
     Outputs:
         {output_key}: OHLCV DataFrame
         atr: ATR series (only for 1min bars)
@@ -197,7 +196,7 @@ class BuildOHLCVStage(BaseStage):
         trades = ctx.data['trades']
         
         # Build OHLCV
-        ohlcv_df = build_spx_ohlcv_from_es(
+        ohlcv_df = build_es_ohlcv_from_es(
             trades=trades,
             date=ctx.date,
             freq=self.freq,
@@ -239,7 +238,7 @@ class BuildOHLCVStage(BaseStage):
                         logger.warning(f"    Warmup: failed to convert trades for {warmup_date}")
                         continue
                     
-                    warmup_ohlcv = build_spx_ohlcv_from_es(
+                    warmup_ohlcv = build_es_ohlcv_from_es(
                         warmup_trades,
                         warmup_date,
                         freq=self.freq,

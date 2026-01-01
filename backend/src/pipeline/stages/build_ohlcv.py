@@ -10,7 +10,6 @@ from src.common.config import CONFIG
 
 def build_ohlcv(
     trades: List[FuturesTrade],
-    convert_to_spx: bool = True,
     freq: str = '1min'
 ) -> pd.DataFrame:
     """
@@ -18,12 +17,10 @@ def build_ohlcv(
 
     Args:
         trades: List of FuturesTrade objects
-        convert_to_spx: If True, keep ES prices as-is (ES ≈ SPX, same index points)
-                        If False, keep raw ES prices
         freq: Bar frequency ('1min', '2min', '5min')
 
     Returns:
-        DataFrame with OHLCV columns (in SPX index points if convert_to_spx=True)
+        DataFrame with OHLCV columns in ES index points
     """
     if not trades:
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -68,11 +65,7 @@ def build_ohlcv(
     ohlcv = ohlcv.reset_index()
     ohlcv['ts_ns'] = ohlcv['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
 
-    # ES prices are already in index points; no conversion needed.
-    if convert_to_spx:
-        # Keep as-is (ES prices are already in SPX-equivalent index points)
-        # Small basis spread (1-5 points) handled by PriceConverter if needed
-        pass
+    # ES prices are already in index points; no conversion needed
 
     return ohlcv
 
@@ -136,8 +129,8 @@ class BuildOHLCVStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         trades = ctx.data['trades']
 
-        # Build OHLCV bars (ES → SPX, same index points)
-        ohlcv_df = build_ohlcv(trades, convert_to_spx=True, freq=self.freq)
+        # Build OHLCV bars
+        ohlcv_df = build_ohlcv(trades, freq=self.freq)
 
         result = {self.output_key: ohlcv_df}
 
@@ -180,7 +173,7 @@ class BuildOHLCVStage(BaseStage):
             trades = futures_trades_from_df(trades_df)
             if not trades:
                 continue
-            ohlcv = build_ohlcv(trades, convert_to_spx=True, freq=self.freq)
+            ohlcv = build_ohlcv(trades, freq=self.freq)
             if not ohlcv.empty:
                 frames.append(ohlcv)
 

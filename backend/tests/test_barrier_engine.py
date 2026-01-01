@@ -6,7 +6,7 @@ Verifies:
 - WALL state: liquidity replenished
 - CONSUMED state: filled > canceled
 - ABSORPTION state: consumed but replenished
-- SPY level -> ES conversion for depth queries
+
 """
 
 import pytest
@@ -77,8 +77,6 @@ class TestBarrierEngineVacuum:
         engine = BarrierEngine(config=config)
         market_state = MarketState()
 
-        # SPY level 687.0 -> ES level 6870.0
-        spy_level = 687.0
         es_level = 6870.0
 
         ts_base = _time.time_ns()
@@ -103,7 +101,7 @@ class TestBarrierEngineVacuum:
 
         # Compute barrier state for SUPPORT at 687 (bid is defending)
         metrics = engine.compute_barrier_state(
-            level_price=spy_level,
+            level_price=es_level,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
@@ -121,7 +119,6 @@ class TestBarrierEngineVacuum:
         engine = BarrierEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -143,7 +140,7 @@ class TestBarrierEngineVacuum:
 
         # Compute for RESISTANCE (ask is defending)
         metrics = engine.compute_barrier_state(
-            level_price=spy_level,
+            level_price=es_level,
             direction=Direction.RESISTANCE,
             market_state=market_state
         )
@@ -164,7 +161,6 @@ class TestBarrierEngineWall:
         engine = BarrierEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -195,7 +191,7 @@ class TestBarrierEngineWall:
         market_state.update_es_mbp10(mbp2)
 
         metrics = engine.compute_barrier_state(
-            level_price=spy_level,
+            level_price=es_level,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
@@ -226,7 +222,6 @@ class TestBarrierEngineConsumed:
         engine = BarrierEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -278,7 +273,7 @@ class TestBarrierEngineConsumed:
         market_state.update_es_mbp10(mbp4)
 
         metrics = engine.compute_barrier_state(
-            level_price=spy_level,
+            level_price=es_level,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
@@ -305,7 +300,7 @@ class TestBarrierEngineNeutral:
         market_state = MarketState()
 
         metrics = engine.compute_barrier_state(
-            level_price=687.0,
+            level_price=6870.0,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
@@ -326,7 +321,7 @@ class TestBarrierEngineNeutral:
         market_state.update_es_mbp10(mbp)
 
         metrics = engine.compute_barrier_state(
-            level_price=687.0,
+            level_price=6870.0,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
@@ -334,49 +329,7 @@ class TestBarrierEngineNeutral:
         assert metrics.state == BarrierState.NEUTRAL
 
 
-class TestBarrierEnginePriceConversion:
-    """Tests for SPY -> ES price conversion."""
 
-    def test_spy_level_converted_to_es(self):
-        """SPY level 687.0 should query ES depth at 6870.0."""
-        config = Config()
-        config.W_b = 10.0
-        config.BARRIER_ZONE_ES_TICKS = 1  # ±1 ES tick around strike
-
-        engine = BarrierEngine(config=config)
-        market_state = MarketState()
-
-        spy_level = 687.0
-        es_level = 6870.0  # 687 * 10
-        ts_base = _time.time_ns()
-
-        # Create MBP with depth at ES 6870
-        mbp1 = create_mbp10(
-            ts_ns=ts_base,
-            bid_levels=[(es_level, 300)],
-            ask_levels=[(es_level + 0.25, 200)]
-        )
-        market_state.update_es_mbp10(mbp1)
-
-        # Depth pulled
-        mbp2 = create_mbp10(
-            ts_ns=ts_base + int(2e9),
-            bid_levels=[(es_level, 50)],
-            ask_levels=[(es_level + 0.25, 200)]
-        )
-        market_state.update_es_mbp10(mbp2)
-
-        metrics = engine.compute_barrier_state(
-            level_price=spy_level,
-            direction=Direction.SUPPORT,
-            market_state=market_state
-        )
-
-        # Should have detected depth change at the level
-        assert metrics.state != BarrierState.NEUTRAL, "Should detect activity at level"
-        # defending_quote.price should be converted back to SPY
-        if metrics.defending_quote["price"] > 0:
-            assert metrics.defending_quote["price"] < 1000, "Price should be in SPY scale"
 
 
 class TestBarrierEngineDefendingQuote:
@@ -404,13 +357,13 @@ class TestBarrierEngineDefendingQuote:
         market_state.update_es_mbp10(mbp2)
 
         metrics = engine.compute_barrier_state(
-            level_price=687.0,
+            level_price=6870.0,
             direction=Direction.SUPPORT,
             market_state=market_state
         )
 
-        # Best bid is at 6870.0 -> SPY 687.0
-        assert abs(metrics.defending_quote["price"] - 687.0) < 0.01
+        # Best bid is at 6870.0
+        assert abs(metrics.defending_quote["price"] - 6870.0) < 0.01
         assert metrics.defending_quote["size"] == 200
 
     def test_defending_quote_resistance(self):
@@ -435,11 +388,11 @@ class TestBarrierEngineDefendingQuote:
         market_state.update_es_mbp10(mbp2)
 
         metrics = engine.compute_barrier_state(
-            level_price=687.0,
+            level_price=6870.0,
             direction=Direction.RESISTANCE,
             market_state=market_state
         )
 
-        # Best ask is at 6870.0 -> SPY 687.0
-        assert abs(metrics.defending_quote["price"] - 687.0) < 0.01
+        # Best ask is at 6870.0
+        assert abs(metrics.defending_quote["price"] - 6870.0) < 0.01
         assert metrics.defending_quote["size"] == 300

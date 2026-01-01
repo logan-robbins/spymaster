@@ -21,7 +21,7 @@ import pyarrow.ipc as ipc
 
 from src.io.wal import WALManager
 from src.common.event_types import (
-    FuturesTrade, MBP10, OptionTrade, StockTrade, StockQuote,
+    FuturesTrade, MBP10,
     EventSource, Aggressor, BidAskLevel
 )
 
@@ -118,41 +118,6 @@ async def test_wal_append_mbp10(wal_manager, temp_wal_dir):
 
 @pytest.mark.asyncio
 async def test_wal_append_option_trade(wal_manager, temp_wal_dir):
-    """Test appending option trade to WAL."""
-    event = OptionTrade(
-        ts_event_ns=1700000000000000000,
-        ts_recv_ns=1700000000100000000,
-        source=EventSource.POLYGON_WS,
-        underlying='SPY',
-        option_symbol='O:SPY251216C00676000',
-        exp_date='2025-12-16',
-        strike=676.0,
-        right='C',
-        price=5.50,
-        size=10,
-        opt_bid=5.45,
-        opt_ask=5.55,
-        aggressor=Aggressor.BUY,
-        seq=1
-    )
-    
-    await wal_manager.append('options.trades', 'SPY', event)
-    
-    # Verify WAL file exists
-    wal_path = os.path.join(temp_wal_dir, 'options_trades_SPY.arrow')
-    assert os.path.exists(wal_path)
-    
-    # Verify we can read it back
-    batches = wal_manager.recover_from_wal(wal_path)
-    assert len(batches) == 1
-    
-    table = pa.Table.from_batches(batches)
-    df = table.to_pandas()
-    assert df['underlying'].iloc[0] == 'SPY'
-    assert df['strike'].iloc[0] == 676.0
-    assert df['price'].iloc[0] == 5.50
-
-
 @pytest.mark.asyncio
 async def test_wal_multiple_events(wal_manager, temp_wal_dir):
     """Test appending multiple events to same WAL."""
@@ -320,28 +285,10 @@ async def test_wal_separate_streams(wal_manager, temp_wal_dir):
         seq=1
     )
     await wal_manager.append('futures.trades', 'ES', futures_event)
-    
-    # Write to options.trades
-    options_event = OptionTrade(
-        ts_event_ns=1700000000000000000,
-        ts_recv_ns=1700000000100000000,
-        source=EventSource.POLYGON_WS,
-        underlying='SPY',
-        option_symbol='O:SPY251216C00676000',
-        exp_date='2025-12-16',
-        strike=676.0,
-        right='C',
-        price=5.50,
-        size=10,
-        aggressor=Aggressor.BUY,
-        seq=1
-    )
-    await wal_manager.append('options.trades', 'SPY', options_event)
-    
-    # Should have separate WAL files
+
+    # Should have WAL file
     wal_files = os.listdir(temp_wal_dir)
     assert 'futures_trades_ES.arrow' in wal_files
-    assert 'options_trades_SPY.arrow' in wal_files
 
 
 @pytest.mark.asyncio

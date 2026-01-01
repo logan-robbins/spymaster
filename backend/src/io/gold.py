@@ -174,12 +174,10 @@ class GoldWriter:
         The payload should match §6.4 WS payload format:
         {
             "ts": Unix ms,
-            "spy": {"spot": float, "bid": float, "ask": float},
             "levels": [LevelSignal, ...]
         }
         """
         ts_ms = payload.get('ts', int(time.time() * 1000))
-        spy_data = payload.get('spy', {})
         levels = payload.get('levels', [])
 
         # Flatten each level signal into a record
@@ -188,9 +186,6 @@ class GoldWriter:
                 # Market context
                 'ts_event_ns': ts_ms * 1_000_000,  # Convert ms to ns
                 'underlying': 'ES',
-                'spot': spy_data.get('spot'),
-                'bid': spy_data.get('bid'),
-                'ask': spy_data.get('ask'),
 
                 # Level identity
                 'level_id': level.get('id'),

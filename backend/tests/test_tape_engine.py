@@ -5,7 +5,7 @@ Verifies:
 - Imbalance calculation (buy/sell ratio)
 - Velocity calculation (price slope)
 - Sweep detection (clustered aggressive prints)
-- SPY level -> ES conversion for trade queries
+- ES trade analysis and metrics calculation
 """
 
 import pytest
@@ -53,13 +53,12 @@ class TestTapeEngineImbalance:
         """Positive imbalance when buy volume > sell volume."""
         config = Config()
         config.W_t = 10.0  # 10 second window
-        config.TAPE_BAND = 0.10  # SPY $0.10 band
+        config.TAPE_BAND = 1.0  # ES 1.0 point band
 
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
-        es_level = 6870.0  # 687 * 10
+        es_level = 6870.0
         ts_base = _time.time_ns()
 
         # Add MBP for price reference
@@ -87,7 +86,7 @@ class TestTapeEngineImbalance:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -100,12 +99,11 @@ class TestTapeEngineImbalance:
         """Negative imbalance when sell volume > buy volume."""
         config = Config()
         config.W_t = 10.0
-        config.TAPE_BAND = 0.10
+        config.TAPE_BAND = 1.0
 
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -133,7 +131,7 @@ class TestTapeEngineImbalance:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -144,12 +142,11 @@ class TestTapeEngineImbalance:
         """Near-zero imbalance when buy ≈ sell."""
         config = Config()
         config.W_t = 10.0
-        config.TAPE_BAND = 0.10
+        config.TAPE_BAND = 1.0
 
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -172,7 +169,7 @@ class TestTapeEngineImbalance:
             ))
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -204,7 +201,7 @@ class TestTapeEngineVelocity:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=687.0,
+            level_price=6870.0,
             market_state=market_state
         )
 
@@ -232,7 +229,7 @@ class TestTapeEngineVelocity:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=687.0,
+            level_price=6870.0,
             market_state=market_state
         )
 
@@ -244,7 +241,7 @@ class TestTapeEngineVelocity:
         market_state = MarketState()
 
         metrics = engine.compute_tape_state(
-            level_price=687.0,
+            level_price=6870.0,
             market_state=market_state
         )
 
@@ -263,11 +260,10 @@ class TestTapeEngineSweep:
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
-        # Create a sweep: rapid BUY trades with small gaps
+        # Create a BUY sweep
         # ES contract = $50/point, so 6870 * 100 * 50 = $34.35M per trade
         for i in range(5):
             trade = create_es_trade(
@@ -279,7 +275,7 @@ class TestTapeEngineSweep:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -296,7 +292,6 @@ class TestTapeEngineSweep:
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -311,7 +306,7 @@ class TestTapeEngineSweep:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -327,7 +322,6 @@ class TestTapeEngineSweep:
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -343,7 +337,7 @@ class TestTapeEngineSweep:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -358,7 +352,6 @@ class TestTapeEngineSweep:
         engine = TapeEngine(config=config)
         market_state = MarketState()
 
-        spy_level = 687.0
         es_level = 6870.0
         ts_base = _time.time_ns()
 
@@ -373,7 +366,7 @@ class TestTapeEngineSweep:
             market_state.update_es_trade(trade)
 
         metrics = engine.compute_tape_state(
-            level_price=spy_level,
+            level_price=es_level,
             market_state=market_state
         )
 
@@ -389,7 +382,7 @@ class TestTapeEngineNoData:
         market_state = MarketState()
 
         metrics = engine.compute_tape_state(
-            level_price=687.0,
+            level_price=6870.0,
             market_state=market_state
         )
 
@@ -401,46 +394,7 @@ class TestTapeEngineNoData:
         assert metrics.confidence == 0.0
 
 
-class TestTapeEnginePriceConversion:
-    """Tests for SPY -> ES price conversion."""
 
-    def test_spy_level_queries_es_trades(self):
-        """SPY level should query ES trades at converted price."""
-        config = Config()
-        config.TAPE_BAND = 0.10  # SPY $0.10 = ES $1.00
-
-        engine = TapeEngine(config=config)
-        market_state = MarketState()
-
-        spy_level = 687.0
-        es_level = 6870.0  # 687 * 10
-        ts_base = _time.time_ns()
-
-        # Trade at ES 6870 (within band of SPY 687)
-        trade = create_es_trade(
-            ts_ns=ts_base,
-            price=es_level,
-            size=50,
-            aggressor=Aggressor.BUY
-        )
-        market_state.update_es_trade(trade)
-
-        # Trade outside band (should not be counted)
-        trade_outside = create_es_trade(
-            ts_ns=ts_base + int(0.5e9),
-            price=es_level + 5.0,  # $5 away in ES = $0.50 SPY > TAPE_BAND
-            size=100,
-            aggressor=Aggressor.BUY
-        )
-        market_state.update_es_trade(trade_outside)
-
-        metrics = engine.compute_tape_state(
-            level_price=spy_level,
-            market_state=market_state
-        )
-
-        # Only the trade within band should count
-        assert metrics.buy_vol == 50, f"Expected 50, got {metrics.buy_vol}"
 
 
 class TestTapeEngineConfidence:
@@ -473,7 +427,7 @@ class TestTapeEngineConfidence:
                 aggressor=Aggressor.BUY
             ))
 
-        metrics_low = engine.compute_tape_state(687.0, market_state_low)
-        metrics_high = engine.compute_tape_state(687.0, market_state_high)
+        metrics_low = engine.compute_tape_state(6870.0, market_state_low)
+        metrics_high = engine.compute_tape_state(6870.0, market_state_high)
 
         assert metrics_high.confidence > metrics_low.confidence

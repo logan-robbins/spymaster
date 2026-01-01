@@ -117,15 +117,15 @@ def _build_ohlcv_features(date: str) -> pd.DataFrame:
     if not trades:
         raise ValueError(f"No ES trades found for {date}")
 
-    ohlcv_1m = build_ohlcv(trades, convert_to_spy=True, freq="1min")
-    ohlcv_2m = build_ohlcv(trades, convert_to_spy=True, freq="2min")
+    ohlcv_1m = build_ohlcv(trades, freq="1min")
+    ohlcv_2m = build_ohlcv(trades, freq="2min")
     warmup_dates = _get_warmup_dates(ingestor, date)
     warmup_frames = []
     for warmup_date in warmup_dates:
         warmup_trades = list(ingestor.read_trades(date=warmup_date))
         if not warmup_trades:
             continue
-        warmup_2m = build_ohlcv(warmup_trades, convert_to_spy=True, freq="2min")
+        warmup_2m = build_ohlcv(warmup_trades, freq="2min")
         if not warmup_2m.empty:
             warmup_frames.append(warmup_2m)
     if warmup_frames:

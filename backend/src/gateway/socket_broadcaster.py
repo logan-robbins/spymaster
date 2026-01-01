@@ -152,10 +152,6 @@ class SocketBroadcaster:
 
         is_first_15m, bars_since_open = self._compute_session_context(ts_ms)
 
-        spy = payload.get("spy")
-        if not isinstance(spy, dict):
-            spy = {"spot": None, "bid": None, "ask": None}
-
         raw_levels = payload.get("levels")
         # Some publishers may nest levels as {"levels": [...]}.
         if isinstance(raw_levels, dict) and "levels" in raw_levels:
@@ -190,7 +186,6 @@ class SocketBroadcaster:
 
         return {
             "ts": ts_ms,
-            "spy": spy,
             "levels": normalized_levels
         }
 

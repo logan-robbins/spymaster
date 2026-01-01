@@ -72,7 +72,7 @@ def detect_interaction_zone_entries(
     - Use deterministic event IDs
     
     Args:
-        ohlcv_df: OHLCV bars (SPX index points)
+        ohlcv_df: OHLCV bars (ES index points)
         level_prices: Array of level prices
         level_kinds: Array of level kind codes
         level_kind_names: List of level kind names

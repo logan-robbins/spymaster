@@ -56,7 +56,7 @@ def synthetic_signals_df() -> pd.DataFrame:
         "ts_ns": np.arange(1765843200000000000, 1765843200000000000 + n_samples * 1_000_000_000, 1_000_000_000),
         "confirm_ts_ns": np.arange(1765843260000000000, 1765843260000000000 + n_samples * 1_000_000_000, 1_000_000_000),
         "date": ["2025-12-16"] * 250 + ["2025-12-17"] * 250,
-        "symbol": ["SPY"] * n_samples,
+        "symbol": [""] * n_samples,
     }
     
     # Level columns
@@ -835,7 +835,7 @@ def test_zero_variance_feature():
         "event_id": [f"evt_{i}" for i in range(100)],
         "ts_ns": np.arange(100),
         "confirm_ts_ns": np.arange(100),
-        "symbol": ["SPY"] * 100,
+        "symbol": [""] * 100,
     })
     
     feature_set = select_features(df, stage="stage_b", ablation="full")

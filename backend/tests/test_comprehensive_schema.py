@@ -37,7 +37,7 @@ class TestComprehensiveSchema:
         )
         
         assert signal.event_id == "test_001"
-        assert signal.level_price == 687.0
+        assert signal.level_price == 6870.0
         assert signal.wall_ratio == 2.5
         # Optional fields should have defaults
         assert signal.outcome == OutcomeLabel.UNDEFINED
@@ -112,7 +112,7 @@ class TestComprehensiveSchema:
             
             # Outcome
             outcome=OutcomeLabel.BREAK,
-            future_price=683.5,
+            future_price=6835.0,
             
             # Note
             note="Vacuum + dealers chase; sweep confirms"
@@ -143,7 +143,7 @@ class TestComprehensiveSchema:
         # Agent B: Add context
         signal.is_first_15m = True
         signal.dist_to_sma_90 = 0.5
-        signal.spot = 687.35
+        signal.spot = 6873.50
         
         # Advanced physics (could be Agent A extended)
         signal.barrier_state = BarrierState.WALL
@@ -152,7 +152,7 @@ class TestComprehensiveSchema:
         
         # Agent C: Add outcome
         signal.outcome = OutcomeLabel.BOUNCE
-        signal.future_price = 687.8
+        signal.future_price = 6878.0
         
         # Verify incremental additions
         assert signal.wall_ratio == 2.0

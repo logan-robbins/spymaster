@@ -51,7 +51,7 @@ export interface MLEnhancedLevel extends Omit<DerivedLevel, 'ml'> {
  * - ML tells us WHAT (historical pattern outcomes)
  * - Together they tell us IF (should we trade this)
  * 
- * For SPY 0DTE traders:
+ * For  0DTE traders:
  * - Tradeability > 60%: GO (high confidence, clear direction)
  * - Tradeability 40-60%: WAIT (choppy, unclear)
  * - Tradeability < 40%: NO-GO (avoid, likely to whipsaw)

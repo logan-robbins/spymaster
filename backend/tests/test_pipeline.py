@@ -62,7 +62,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     trades.append(FuturesTrade(
         ts_event_ns=base_timestamp,
         ts_recv_ns=base_timestamp,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         price=6850.00,
         size=100,
@@ -73,7 +73,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     trades.append(FuturesTrade(
         ts_event_ns=base_timestamp + 1_000_000_000,
         ts_recv_ns=base_timestamp + 1_000_000_000,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         price=6850.25,
         size=200,
@@ -84,7 +84,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     trades.append(FuturesTrade(
         ts_event_ns=base_timestamp + 2_000_000_000,
         ts_recv_ns=base_timestamp + 2_000_000_000,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         price=6850.50,
         size=150,
@@ -95,7 +95,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     trades.append(FuturesTrade(
         ts_event_ns=base_timestamp + 3_000_000_000,
         ts_recv_ns=base_timestamp + 3_000_000_000,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         price=6850.75,
         size=100,
@@ -106,7 +106,7 @@ def simple_trades(base_timestamp: int) -> List[FuturesTrade]:
     trades.append(FuturesTrade(
         ts_event_ns=base_timestamp + 4_000_000_000,
         ts_recv_ns=base_timestamp + 4_000_000_000,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         price=6851.00,
         size=300,
@@ -157,7 +157,7 @@ def simple_mbp10(base_timestamp: int) -> List[MBP10]:
     snapshots.append(MBP10(
         ts_event_ns=base_timestamp,
         ts_recv_ns=base_timestamp,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         levels=levels_1,
         is_snapshot=True
@@ -184,7 +184,7 @@ def simple_mbp10(base_timestamp: int) -> List[MBP10]:
     snapshots.append(MBP10(
         ts_event_ns=base_timestamp + 5_000_000_000,
         ts_recv_ns=base_timestamp + 5_000_000_000,
-        source=EventSource.POLYGON_WS,
+        source=EventSource.DIRECT_FEED,
         symbol="ES",
         levels=levels_2,
         is_snapshot=True
@@ -212,6 +212,7 @@ def simple_option_flows() -> Dict[Tuple[float, str, str], Any]:
     @dataclass
     class MockFlow:
         net_gamma_flow: float
+        net_premium_flow: float = 0.0
         cumulative_volume: int = 1000
     
     flows = {}
@@ -543,6 +544,7 @@ def test_fuel_metrics_amplify_effect(simple_trades, simple_mbp10, base_timestamp
     @dataclass
     class MockFlow:
         net_gamma_flow: float
+        net_premium_flow: float = 0.0
         cumulative_volume: int = 1000
     
     # Create option flows with large negative gamma
@@ -574,6 +576,7 @@ def test_fuel_metrics_neutral_effect(simple_trades, simple_mbp10, base_timestamp
     @dataclass
     class MockFlow:
         net_gamma_flow: float
+        net_premium_flow: float = 0.0
         cumulative_volume: int = 1000
     
     # Small gamma values
@@ -722,23 +725,7 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
     assert result['fuel_effect'][0] == 'DAMPEN'
 
 
-# =============================================================================
-# TESTS: Price Passthrough
-# =============================================================================
 
-
-def test_es_price_passthrough(simple_trades, simple_mbp10, simple_option_flows):
-    """ES options and futures use the same index points (no conversion)."""
-    market_data = build_vectorized_market_data(
-        simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
-    )
-    
-    assert market_data.spx_to_es(6850.0) == 6850.0
-    assert market_data.spx_to_es(6840.0) == 6840.0
-    assert market_data.spx_to_es(6865.0) == 6865.0
-    assert market_data.es_to_spx(6850.0) == 6850.0
-    assert market_data.es_to_spx(6840.0) == 6840.0
-    assert market_data.es_to_spx(6865.0) == 6865.0
 
 
 # =============================================================================
@@ -896,7 +883,7 @@ def test_timestamp_ordering_requirement(simple_mbp10, simple_option_flows):
         FuturesTrade(
             ts_event_ns=ts_base + 2_000_000_000,  # Later
             ts_recv_ns=ts_base + 2_000_000_000,
-            source=EventSource.POLYGON_WS,
+            source=EventSource.DIRECT_FEED,
             symbol="ES",
             price=6850.0,
             size=100,
@@ -905,7 +892,7 @@ def test_timestamp_ordering_requirement(simple_mbp10, simple_option_flows):
         FuturesTrade(
             ts_event_ns=ts_base,  # Earlier
             ts_recv_ns=ts_base,
-            source=EventSource.POLYGON_WS,
+            source=EventSource.DIRECT_FEED,
             symbol="ES",
             price=6849.0,
             size=50,
@@ -929,7 +916,7 @@ def test_aggressor_encoding(base_timestamp):
         FuturesTrade(
             ts_event_ns=base_timestamp,
             ts_recv_ns=base_timestamp,
-            source=EventSource.POLYGON_WS,
+            source=EventSource.DIRECT_FEED,
             symbol="ES",
             price=6850.0,
             size=100,
@@ -938,7 +925,7 @@ def test_aggressor_encoding(base_timestamp):
         FuturesTrade(
             ts_event_ns=base_timestamp + 1_000_000_000,
             ts_recv_ns=base_timestamp + 1_000_000_000,
-            source=EventSource.POLYGON_WS,
+            source=EventSource.DIRECT_FEED,
             symbol="ES",
             price=6850.0,
             size=100,
@@ -983,10 +970,10 @@ def test_vacuum_scenario():
     mbp2_levels += [BidAskLevel(bid_px=6850.0 - i*0.25, bid_sz=1000, ask_px=6850.25 + i*0.25, ask_sz=500) for i in range(1, 10)]
     
     mbp_snapshots = [
-        MBP10(ts_event_ns=ts_base, ts_recv_ns=ts_base, source=EventSource.POLYGON_WS, 
+        MBP10(ts_event_ns=ts_base, ts_recv_ns=ts_base, source=EventSource.DIRECT_FEED, 
               symbol="ES", levels=mbp1_levels, is_snapshot=True),
         MBP10(ts_event_ns=ts_base + 5_000_000_000, ts_recv_ns=ts_base + 5_000_000_000,
-              source=EventSource.POLYGON_WS, symbol="ES", levels=mbp2_levels, is_snapshot=True)
+              source=EventSource.DIRECT_FEED, symbol="ES", levels=mbp2_levels, is_snapshot=True)
     ]
     
     market_data = build_vectorized_market_data(trades, mbp_snapshots, {}, "2025-12-16")
@@ -1022,7 +1009,7 @@ def test_wall_scenario():
     # Small trades (some consumption)
     trades = [
         FuturesTrade(ts_event_ns=ts_base + 1_000_000_000, ts_recv_ns=ts_base + 1_000_000_000,
-                    source=EventSource.POLYGON_WS, symbol="ES", price=6850.0, size=500, aggressor=Aggressor.SELL)
+                    source=EventSource.DIRECT_FEED, symbol="ES", price=6850.0, size=500, aggressor=Aggressor.SELL)
     ]
     
     # MBP-10: Initial → Consumed → Replenished
@@ -1031,20 +1018,20 @@ def test_wall_scenario():
     # t=0: 2000
     levels = [BidAskLevel(bid_px=6850.0, bid_sz=2000, ask_px=6850.25, ask_sz=500)]
     levels += [BidAskLevel(bid_px=6850.0 - i*0.25, bid_sz=1000, ask_px=6850.25 + i*0.25, ask_sz=500) for i in range(1, 10)]
-    mbp_snapshots.append(MBP10(ts_event_ns=ts_base, ts_recv_ns=ts_base, source=EventSource.POLYGON_WS, 
+    mbp_snapshots.append(MBP10(ts_event_ns=ts_base, ts_recv_ns=ts_base, source=EventSource.DIRECT_FEED, 
                                symbol="ES", levels=levels, is_snapshot=True))
     
     # t=2s: 1500 (consumed)
     levels = [BidAskLevel(bid_px=6850.0, bid_sz=1500, ask_px=6850.25, ask_sz=500)]
     levels += [BidAskLevel(bid_px=6850.0 - i*0.25, bid_sz=1000, ask_px=6850.25 + i*0.25, ask_sz=500) for i in range(1, 10)]
     mbp_snapshots.append(MBP10(ts_event_ns=ts_base + 2_000_000_000, ts_recv_ns=ts_base + 2_000_000_000,
-                               source=EventSource.POLYGON_WS, symbol="ES", levels=levels, is_snapshot=True))
+                               source=EventSource.DIRECT_FEED, symbol="ES", levels=levels, is_snapshot=True))
     
     # t=5s: 2500 (replenished!)
     levels = [BidAskLevel(bid_px=6850.0, bid_sz=2500, ask_px=6850.25, ask_sz=500)]
     levels += [BidAskLevel(bid_px=6850.0 - i*0.25, bid_sz=1000, ask_px=6850.25 + i*0.25, ask_sz=500) for i in range(1, 10)]
     mbp_snapshots.append(MBP10(ts_event_ns=ts_base + 5_000_000_000, ts_recv_ns=ts_base + 5_000_000_000,
-                               source=EventSource.POLYGON_WS, symbol="ES", levels=levels, is_snapshot=True))
+                               source=EventSource.DIRECT_FEED, symbol="ES", levels=levels, is_snapshot=True))
     
     market_data = build_vectorized_market_data(trades, mbp_snapshots, {}, "2025-12-16")
     
@@ -1073,7 +1060,7 @@ def test_heavy_sell_imbalance():
     
     trades = [
         FuturesTrade(ts_event_ns=ts_base + i * 1_000_000_000, ts_recv_ns=ts_base + i * 1_000_000_000,
-                    source=EventSource.POLYGON_WS, symbol="ES", price=6850.0, size=100, aggressor=Aggressor.SELL)
+                    source=EventSource.DIRECT_FEED, symbol="ES", price=6850.0, size=100, aggressor=Aggressor.SELL)
         for i in range(10)
     ]
     
@@ -1110,6 +1097,7 @@ def test_es_strikes_at_5pt_intervals():
     @dataclass
     class MockFlow:
         net_gamma_flow: float
+        net_premium_flow: float = 0.0
         cumulative_volume: int = 1000
     
     ts_base = int(datetime(2025, 12, 16, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1e9)

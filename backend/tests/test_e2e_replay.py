@@ -15,7 +15,7 @@ from src.common.event_types import FuturesTrade, MBP10, Aggressor, EventSource, 
 from src.core.market_state import MarketState
 from src.core.level_signal_service import LevelSignalService
 from src.ingestion.databento.dbn_reader import DBNReader
-from src.common.price_converter import PriceConverter
+
 
 
 class TestDBNDataAvailability:
@@ -88,48 +88,10 @@ class TestMarketStateWithDBN:
         assert es_spot is not None
         assert abs(es_spot - 6870.25) < 0.01
 
-        # Verify SPY-equivalent spot (ES/10)
-        spy_spot = ms.get_spot()
-        assert spy_spot is not None
-        assert abs(spy_spot - 687.025) < 0.01
-
-    def test_mbp10_updates_bid_ask(self):
-        """MBP-10 update should set bid/ask prices."""
-        ms = MarketState()
-
-        # Create synthetic MBP-10 snapshot
-        levels = [
-            BidAskLevel(bid_px=6870.00, bid_sz=50, ask_px=6870.25, ask_sz=30),
-            BidAskLevel(bid_px=6869.75, bid_sz=100, ask_px=6870.50, ask_sz=80),
-        ]
-        # Pad to 10 levels
-        for i in range(8):
-            levels.append(BidAskLevel(
-                bid_px=6869.75 - 0.25*i,
-                bid_sz=10,
-                ask_px=6870.50 + 0.25*i,
-                ask_sz=10
-            ))
-
-        mbp = MBP10(
-            ts_event_ns=1734345600_000_000_000,
-            ts_recv_ns=1734345600_000_000_000,
-            source=EventSource.REPLAY,
-            symbol='ES',
-            levels=levels,
-            is_snapshot=True
-        )
-
-        ms.update_es_mbp10(mbp)
-
-        # Verify bid/ask in SPY terms
-        bid_ask = ms.get_bid_ask()
-        assert bid_ask is not None
-        spy_bid, spy_ask = bid_ask
-
-        # ES 6870.00 / 10 = 687.00, ES 6870.25 / 10 = 687.025
-        assert abs(spy_bid - 687.00) < 0.01
-        assert abs(spy_ask - 687.025) < 0.01
+        # Verify ES spot updated
+        es_spot = ms.get_es_spot()
+        assert es_spot is not None
+        assert abs(es_spot - 6870.25) < 0.01
 
 
 class TestLevelSignalServiceWithDBN:
@@ -182,7 +144,7 @@ class TestLevelSignalServiceWithDBN:
         # Verify signals structure - returns dict with 'levels' key
         assert isinstance(result, dict)
         assert 'levels' in result
-        assert 'spy' in result
+        assert 'es_price' in result
         assert 'ts' in result
 
         signals = result['levels']
@@ -241,11 +203,11 @@ class TestFullReplayE2E:
         # Verify market state has data
         spot = ms.get_spot()
         assert spot is not None, "Spot price should be set after MBP-10 updates"
-        print(f"SPY spot (from ES): {spot:.2f}")
+        print(f"ES spot: {spot:.2f}")
 
         bid_ask = ms.get_bid_ask()
         assert bid_ask is not None, "Bid/ask should be set after MBP-10 updates"
-        print(f"SPY bid/ask: {bid_ask[0]:.2f} / {bid_ask[1]:.2f}")
+        print(f"ES bid/ask: {bid_ask[0]:.2f} / {bid_ask[1]:.2f}")
 
         # Compute level signals
         result = lss.compute_level_signals()

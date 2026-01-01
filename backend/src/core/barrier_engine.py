@@ -179,7 +179,7 @@ class BarrierEngine:
 
         # Compute confidence based on activity
         total_activity = added_size + canceled_size + filled_size
-        # ES contracts are smaller counts than SPY shares, scale differently
+        # Scale confidence based on total activity volume (ES contracts)
         confidence = min(1.0, total_activity / 500.0)
 
         return BarrierMetrics(
@@ -400,7 +400,7 @@ class BarrierEngine:
             return BarrierState.ABSORPTION
 
         # WEAK: low depth in zone (could add baseline tracking)
-        if depth_in_zone < 50:  # ES typically has smaller sizes than SPY shares
+        if depth_in_zone < 50:  # Threshold adjusted for ES market depth
             return BarrierState.WEAK
 
         # High churn but stable depth suggests contested

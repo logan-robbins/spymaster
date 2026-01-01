@@ -10,7 +10,7 @@ This shows Agent G (score engine) how to integrate fuel metrics.
 import time
 from src.core.fuel_engine import FuelEngine, FuelEffect
 from src.core.market_state import MarketState, OptionFlowAggregate
-from src.common.event_types import StockTrade, OptionTrade, EventSource, Aggressor
+from src.common.event_types import FuturesTrade, OptionTrade, EventSource, Aggressor
 
 
 def example_fuel_computation():
@@ -18,9 +18,9 @@ def example_fuel_computation():
     Example: Compute fuel state for a level with option flow data.
     
     Scenario:
-    - SPY trading at 680
-    - Testing level 680 (ATM strike)
-    - Customers have been buying 680 calls (dealers short gamma)
+    - ES trading at 6850
+    - Testing level 6850 (ATM strike)
+    - Customers have been buying 6850 calls (dealers short gamma)
     - Expect AMPLIFY effect (dealers will chase moves)
     """
     print("\n" + "="*60)
@@ -31,91 +31,92 @@ def example_fuel_computation():
     market_state = MarketState()
     fuel_engine = FuelEngine()
     
-    # 1. Update stock state (set spot price)
+    # 1. Update futures state (set spot price)
     ts_base = time.time_ns()
-    trade = StockTrade(
+    trade = FuturesTrade(
         ts_event_ns=ts_base,
         ts_recv_ns=ts_base,
         source=EventSource.SIM,
-        symbol='SPY',
-        price=680.0,
-        size=100
+        symbol='ES',
+        price=6850.0,
+        size=100,
+        aggressor=Aggressor.BUY
     )
-    market_state.update_stock_trade(trade, Aggressor.BUY)
+    market_state.update_es_trade(trade)
     
-    print(f"\n📊 SPY Spot: ${market_state.get_spot()}")
+    print(f"\n📊 ES Spot: {market_state.get_spot()}")
     
     # 2. Simulate option trades (customers buying calls at multiple strikes)
     print("\n📈 Simulating option flow...")
     
     option_trades = [
-        # 679 strike: moderate buying
+        # 6840 strike: moderate buying
         OptionTrade(
             ts_event_ns=ts_base + int(1e9),
             ts_recv_ns=ts_base + int(1e9),
             source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol='O:SPY251220C00679000',
+            underlying='ES',
+            option_symbol='O:ES251220C06840000',
             exp_date='2025-12-20',
-            strike=679.0,
+            strike=6840.0,
             right='C',
-            price=1.50,
+            price=15.00,
             size=100,
             aggressor=Aggressor.BUY  # Customer buys → dealer sells gamma
         ),
-        # 680 strike: heavy buying (ATM)
+        # 6850 strike: heavy buying (ATM)
         OptionTrade(
             ts_event_ns=ts_base + int(2e9),
             ts_recv_ns=ts_base + int(2e9),
             source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol='O:SPY251220C00680000',
+            underlying='ES',
+            option_symbol='O:ES251220C06850000',
             exp_date='2025-12-20',
-            strike=680.0,
+            strike=6850.0,
             right='C',
-            price=1.75,
+            price=17.50,
             size=300,
             aggressor=Aggressor.BUY  # Customer buys → dealer sells gamma
         ),
-        # 681 strike: light buying
+        # 6860 strike: light buying
         OptionTrade(
             ts_event_ns=ts_base + int(3e9),
             ts_recv_ns=ts_base + int(3e9),
             source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol='O:SPY251220C00681000',
+            underlying='ES',
+            option_symbol='O:ES251220C06860000',
             exp_date='2025-12-20',
-            strike=681.0,
+            strike=6860.0,
             right='C',
-            price=1.25,
+            price=12.50,
             size=50,
             aggressor=Aggressor.BUY  # Customer buys → dealer sells gamma
         ),
-        # 682 strike: customers selling (dealers buying = long gamma = wall)
+        # 6870 strike: customers selling (dealers buying = long gamma = wall)
         OptionTrade(
             ts_event_ns=ts_base + int(4e9),
             ts_recv_ns=ts_base + int(4e9),
             source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol='O:SPY251220C00682000',
+            underlying='ES',
+            option_symbol='O:ES251220C06870000',
             exp_date='2025-12-20',
-            strike=682.0,
+            strike=6870.0,
             right='C',
-            price=1.00,
+            price=10.00,
             size=500,
             aggressor=Aggressor.SELL  # Customer sells → dealer buys gamma → WALL
         ),
-        # 678 put: customers buying (dealers selling gamma)
+        # 6830 put: customers buying (dealers selling gamma)
         OptionTrade(
             ts_event_ns=ts_base + int(5e9),
             ts_recv_ns=ts_base + int(5e9),
             source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol='O:SPY251220P00678000',
+            underlying='ES',
+            option_symbol='O:ES251220P06830000',
             exp_date='2025-12-20',
-            strike=678.0,
+            strike=6830.0,
             right='P',
-            price=1.20,
+            price=12.00,
             size=200,
             aggressor=Aggressor.BUY  # Customer buys → dealer sells gamma
         ),
@@ -126,11 +127,11 @@ def example_fuel_computation():
         # Simulate Greeks (in reality these come from greek_enricher)
         # ATM delta ~0.5, gamma ~0.10 for 0DTE
         # OTM delta/gamma decay
-        moneyness = abs(opt_trade.strike - 680.0)
-        if moneyness < 1:
+        moneyness = abs(opt_trade.strike - 6850.0)
+        if moneyness < 10:
             delta = 0.50 if opt_trade.right == 'C' else -0.50
             gamma = 0.10
-        elif moneyness < 2:
+        elif moneyness < 20:
             delta = 0.35 if opt_trade.right == 'C' else -0.35
             gamma = 0.08
         else:
@@ -143,10 +144,10 @@ def example_fuel_computation():
         sign = "BUY" if opt_trade.aggressor == Aggressor.BUY else "SELL"
         print(f"  {opt_trade.strike} {opt_trade.right}: {sign} {opt_trade.size} @ ${opt_trade.price:.2f}")
     
-    # 3. Compute fuel state at level 680
-    print(f"\n🔥 Computing fuel state at level 680...")
+    # 3. Compute fuel state at level 6850
+    print(f"\n🔥 Computing fuel state at level 6850...")
     metrics = fuel_engine.compute_fuel_state(
-        level_price=680.0,
+        level_price=6850.0,
         market_state=market_state,
         exp_date_filter='2025-12-20'
     )
@@ -226,26 +227,27 @@ def example_scoring_integration():
     fuel_engine = FuelEngine()
     
     # Minimal setup
-    trade = StockTrade(
+    trade = FuturesTrade(
         ts_event_ns=time.time_ns(),
         ts_recv_ns=time.time_ns(),
         source=EventSource.SIM,
-        symbol='SPY',
-        price=680.0,
-        size=100
+        symbol='ES',
+        price=6850.0,
+        size=100,
+        aggressor=Aggressor.BUY
     )
-    market_state.update_stock_trade(trade, Aggressor.BUY)
+    market_state.update_es_trade(trade)
     
     # Simulate option flow that creates AMPLIFY effect
-    market_state.option_flows[(680.0, 'C', '2025-12-20')] = OptionFlowAggregate(
-        strike=680.0,
+    market_state.option_flows[(6850.0, 'C', '2025-12-20')] = OptionFlowAggregate(
+        strike=6850.0,
         right='C',
         exp_date='2025-12-20',
         net_gamma_flow=-50000.0,  # Dealers short gamma
         cumulative_volume=500
     )
     
-    metrics = fuel_engine.compute_fuel_state(680.0, market_state, '2025-12-20')
+    metrics = fuel_engine.compute_fuel_state(6850.0, market_state, '2025-12-20')
     
     # Score engine mapping (per PLAN.md §5.4.1)
     print("\n📊 Hedge Score Computation:")

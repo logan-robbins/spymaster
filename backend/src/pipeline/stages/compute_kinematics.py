@@ -4,7 +4,7 @@ Compute kinematic features in the level frame.
 Velocity, acceleration, jerk detect phase transitions.
 
 Level frame physics:
-- x(t) = SPX_mid(t) - L(t)  (distance to level)
+- x(t) = ES_mid(t) - L(t)  (distance to level)
 - p(t) = dir_sign × x(t)     (direction-aligned distance, increasing = approaching break)
 - v(t) = d/dt p(t)           (velocity)
 - a(t) = d/dt v(t)           (acceleration)
@@ -37,7 +37,7 @@ def compute_level_frame_kinematics(
     
     Args:
         signals_df: DataFrame with signals (must have level_price, direction, ts_ns)
-        ohlcv_df: OHLCV DataFrame with SPX prices
+        ohlcv_df: OHLCV DataFrame with ES prices
         lookback_minutes: Window for kinematic computation
     
     Returns:

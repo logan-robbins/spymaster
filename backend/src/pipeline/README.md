@@ -72,7 +72,7 @@ src/pipeline/
 │   └── checkpoint.py           # Stage checkpoints (resume/inspect)
 ├── stages/
 │   ├── load_bronze.py                      # Stage 0: DuckDB data loading
-│   ├── build_spx_ohlcv.py                  # Stages 1-3: OHLCV (1min/10s/2min)
+│   ├── build_es_ohlcv.py                   # Stages 1-3: OHLCV (1min/10s/2min)
 │   ├── init_market_state.py                # Stage 4: MarketState + Greeks
 │   ├── generate_levels.py                  # Stage 5: Level universe + dynamic series
 │   ├── detect_interaction_zones.py         # Stage 6: Zone entry events

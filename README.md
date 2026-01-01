@@ -6,19 +6,15 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 
 **System**: Retrieves historically similar market setups when price approaches technical levels, presenting empirical outcome distributions.
 
-**Canonical Specification**: See **[IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)** for complete system architecture, data contracts, and implementation details.
-
-**Version**: 3.1.0 (December 2025)
-
 ## Quick Facts
 
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
 - **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_90/EMA_20)
 - **Outcomes**: BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold)
-- **Episode Vectors**: 144 dimensions (Source) → 32 dimensions (Runtime Index/Geometry Only)
+- **Episode Vectors**: N dimensions (Source) → 32 dimensions (Runtime Index/Geometry Only)
 - **Zone Threshold**: 2.0 ATR for approach detection
 - **Retrieval**: FAISS similarity search (60 partitions: 6 levels × 2 directions × 5 time buckets)
-- **Pipeline**: 18 stages (bronze → silver → gold → indices)
+- **Pipeline**: N stages (bronze → silver → gold → indices)
 
 ---
 
@@ -41,7 +37,7 @@ uv sync
 ```bash
 cd backend
 
-# Download ES options (trades + NBBO) → Bronze layer
+# Download ES options (trades + NBBO + Statistics) → Bronze layer
 uv run python scripts/download_es_options.py \
   --start 2024-11-01 \
   --end 2024-12-31 \
