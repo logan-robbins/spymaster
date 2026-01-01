@@ -10,7 +10,7 @@ from scipy.fft import dct
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.ml.stream_builder import compute_all_streams, compute_derivatives
 from src.ml.stream_normalization import load_stream_normalization_stats
-from src.common.lake_paths import date_partition
+from src.common.data_paths import date_partition
 
 logger = logging.getLogger(__name__)
 

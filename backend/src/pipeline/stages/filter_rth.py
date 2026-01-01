@@ -8,7 +8,7 @@ import pandas as pd
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.config import CONFIG
 from src.common.schemas.silver_features import validate_silver_features
-from src.common.lake_paths import canonical_signals_dir, date_partition
+from src.common.data_paths import canonical_signals_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
