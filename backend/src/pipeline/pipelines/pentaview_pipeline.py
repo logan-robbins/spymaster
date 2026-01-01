@@ -47,7 +47,7 @@ class LoadStateTableStage(BaseStage):
         else:
             date_str = pd.Timestamp(ctx.date).strftime('%Y-%m-%d')
         
-        canonical_version = ctx.config.get('CANONICAL_VERSION', '3.1.0')
+        canonical_version = ctx.config.get('PIPELINE_CANONICAL_VERSION') or ctx.config.get('CANONICAL_VERSION', '3.1.0')
         
         # Get state table path (try versioned first, fall back to unversioned)
         data_root = ctx.config.get("DATA_ROOT")

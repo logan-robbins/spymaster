@@ -122,7 +122,7 @@ class ComputeStreamsStage(BaseStage):
         logger.info(f"  Generated {len(streams_df):,} stream bars across {len(all_stream_bars)} levels")
         
         # Save to gold layer
-        canonical_version = ctx.config.get('CANONICAL_VERSION', '3.1.0')
+        canonical_version = ctx.config.get('PIPELINE_CANONICAL_VERSION') or ctx.config.get('CANONICAL_VERSION', '3.1.0')
         output_path = self._get_output_path(ctx, canonical_version, date)
         
         if not streams_df.empty:
