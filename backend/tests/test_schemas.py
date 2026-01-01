@@ -20,23 +20,17 @@ from src.common.schemas import (
     AggressorEnum,
     pydantic_to_arrow_table,
     # Bronze
-    StockTradeV1,
-    StockQuoteV1,
-    OptionTradeV1,
-    GreeksSnapshotV1,
     FuturesTradeV1,
     MBP10V1,
     BidAskLevelModel,
-    # Silver
-    OptionTradeEnrichedV1,
     # Gold
     LevelSignalV1,
-    BarrierStateEnum,
-    DirectionEnum,
-    FuelEffectEnum,
-    SignalEnum,
-    ConfidenceEnum,
-    LevelKindEnum,
+    LevelKind,
+    Direction,
+    Signal,
+    Confidence,
+    FuelEffect,
+    BarrierState,
 )
 
 
@@ -114,222 +108,6 @@ class TestSchemaVersion:
 # =============================================================================
 # Test Bronze Schemas
 # =============================================================================
-
-class TestStockTradeV1:
-    """Test stocks.trades.v1 schema."""
-
-    def test_valid_trade(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Valid trade should pass validation."""
-        trade = StockTradeV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            symbol='SPY',
-            price=687.50,
-            size=100,
-        )
-        assert trade.symbol == 'SPY'
-        assert trade.price == 687.50
-        assert trade.size == 100
-
-    def test_valid_trade_with_optionals(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Trade with all optional fields."""
-        trade = StockTradeV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.REPLAY,
-            symbol='SPY',
-            price=687.50,
-            size=100,
-            exchange=4,
-            conditions=[0, 12],
-            seq=12345,
-        )
-        assert trade.exchange == 4
-        assert trade.conditions == [0, 12]
-        assert trade.seq == 12345
-
-    def test_invalid_price_zero(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Price must be > 0."""
-        with pytest.raises(ValueError):
-            StockTradeV1(
-                ts_event_ns=valid_ts_event_ns,
-                ts_recv_ns=valid_ts_recv_ns,
-                source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
-                price=0,  # Invalid
-                size=100,
-            )
-
-    def test_invalid_size_zero(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Size must be >= 1."""
-        with pytest.raises(ValueError):
-            StockTradeV1(
-                ts_event_ns=valid_ts_event_ns,
-                ts_recv_ns=valid_ts_recv_ns,
-                source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
-                price=687.50,
-                size=0,  # Invalid
-            )
-
-    def test_invalid_timestamp_too_old(self, valid_ts_recv_ns):
-        """Timestamp before year 2000 should fail."""
-        with pytest.raises(ValueError, match="outside valid range"):
-            StockTradeV1(
-                ts_event_ns=100_000_000,  # Very old
-                ts_recv_ns=valid_ts_recv_ns,
-                source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
-                price=687.50,
-                size=100,
-            )
-
-    def test_arrow_schema_fields(self):
-        """Arrow schema should have correct fields and types."""
-        schema = StockTradeV1._arrow_schema
-        assert schema.field('ts_event_ns').type == pa.int64()
-        assert schema.field('price').type == pa.float64()
-        assert schema.field('size').type == pa.int32()
-        assert schema.field('exchange').nullable is True
-        assert schema.field('symbol').nullable is False
-
-
-class TestStockQuoteV1:
-    """Test stocks.quotes.v1 schema."""
-
-    def test_valid_quote(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Valid quote should pass validation."""
-        quote = StockQuoteV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            symbol='SPY',
-            bid_px=687.48,
-            ask_px=687.52,
-            bid_sz=500,
-            ask_sz=300,
-        )
-        assert quote.bid_px == 687.48
-        assert quote.ask_px == 687.52
-
-    def test_crossed_quote_raises_error(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Crossed quote (ask < bid) should fail."""
-        with pytest.raises(ValueError, match="Crossed quote"):
-            StockQuoteV1(
-                ts_event_ns=valid_ts_event_ns,
-                ts_recv_ns=valid_ts_recv_ns,
-                source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
-                bid_px=687.52,
-                ask_px=687.48,  # ask < bid
-                bid_sz=500,
-                ask_sz=300,
-            )
-
-    def test_zero_bid_ask_allowed(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Zero bid/ask is allowed (halted or no quotes)."""
-        quote = StockQuoteV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            symbol='SPY',
-            bid_px=0.0,
-            ask_px=0.0,
-            bid_sz=0,
-            ask_sz=0,
-        )
-        assert quote.bid_px == 0.0
-
-
-class TestOptionTradeV1:
-    """Test options.trades.v1 schema."""
-
-    def test_valid_option_trade(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Valid option trade should pass."""
-        trade = OptionTradeV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            underlying='SPY',
-            option_symbol='O:SPY251216C00687000',
-            exp_date=date(2025, 12, 16),
-            strike=687.0,
-            right='C',
-            price=1.50,
-            size=10,
-        )
-        assert trade.underlying == 'SPY'
-        assert trade.strike == 687.0
-        assert trade.right == 'C'
-
-    def test_valid_put_trade(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Put option should pass."""
-        trade = OptionTradeV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            underlying='SPY',
-            option_symbol='O:SPY251216P00680000',
-            exp_date=date(2025, 12, 16),
-            strike=680.0,
-            right='P',
-            price=2.00,
-            size=5,
-            aggressor=AggressorEnum.SELL,
-        )
-        assert trade.right == 'P'
-        assert trade.aggressor == AggressorEnum.SELL
-
-    def test_invalid_right(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Right must be 'C' or 'P'."""
-        with pytest.raises(ValueError):
-            OptionTradeV1(
-                ts_event_ns=valid_ts_event_ns,
-                ts_recv_ns=valid_ts_recv_ns,
-                source=EventSourceEnum.MASSIVE_WS,
-                underlying='SPY',
-                option_symbol='O:SPY251216X00687000',
-                exp_date=date(2025, 12, 16),
-                strike=687.0,
-                right='X',  # Invalid
-                price=1.50,
-                size=10,
-            )
-
-
-class TestGreeksSnapshotV1:
-    """Test options.greeks_snapshots.v1 schema."""
-
-    def test_valid_greeks(self, valid_ts_event_ns):
-        """Valid Greeks snapshot should pass."""
-        greeks = GreeksSnapshotV1(
-            ts_event_ns=valid_ts_event_ns,
-            source=EventSourceEnum.MASSIVE_REST,
-            underlying='SPY',
-            option_symbol='O:SPY251216C00687000',
-            delta=0.55,
-            gamma=0.08,
-            theta=-0.15,
-            vega=0.12,
-        )
-        assert greeks.delta == 0.55
-        assert greeks.gamma == 0.08
-
-    def test_delta_range_validation(self, valid_ts_event_ns):
-        """Delta must be between -1 and +1."""
-        with pytest.raises(ValueError):
-            GreeksSnapshotV1(
-                ts_event_ns=valid_ts_event_ns,
-                source=EventSourceEnum.MASSIVE_REST,
-                underlying='SPY',
-                option_symbol='O:SPY251216C00687000',
-                delta=1.5,  # Invalid
-                gamma=0.08,
-                theta=-0.15,
-                vega=0.12,
-            )
-
 
 class TestFuturesTradeV1:
     """Test futures.trades.v1 schema."""
@@ -410,51 +188,6 @@ class TestMBP10V1:
 # Test Silver Schema
 # =============================================================================
 
-class TestOptionTradeEnrichedV1:
-    """Test options.trades_enriched.v1 schema."""
-
-    def test_valid_enriched_trade(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Valid enriched trade should pass."""
-        trade = OptionTradeEnrichedV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            underlying='SPY',
-            option_symbol='O:SPY251216C00687000',
-            exp_date=date(2025, 12, 16),
-            strike=687.0,
-            right='C',
-            price=1.50,
-            size=10,
-            greeks_snapshot_id='abc123',
-            delta=0.55,
-            gamma=0.08,
-        )
-        assert trade.delta == 0.55
-        assert trade.gamma == 0.08
-
-    def test_compute_notionals(self, valid_ts_event_ns, valid_ts_recv_ns):
-        """Test compute_notionals helper."""
-        trade = OptionTradeEnrichedV1(
-            ts_event_ns=valid_ts_event_ns,
-            ts_recv_ns=valid_ts_recv_ns,
-            source=EventSourceEnum.MASSIVE_WS,
-            underlying='SPY',
-            option_symbol='O:SPY251216C00687000',
-            exp_date=date(2025, 12, 16),
-            strike=687.0,
-            right='C',
-            price=1.50,
-            size=10,
-            delta=0.55,
-            gamma=0.08,
-        )
-        trade.compute_notionals()
-        assert trade.delta_notional == 0.55 * 10 * 100
-        assert trade.gamma_notional == 0.08 * 10 * 100
-
-
-# =============================================================================
 # Test Gold Schema
 # =============================================================================
 
@@ -465,13 +198,13 @@ class TestLevelSignalV1:
         """Valid level signal should pass."""
         signal = LevelSignalV1(
             ts_event_ns=valid_ts_event_ns,
-            underlying='SPY',
-            spot=687.50,
-            bid=687.48,
-            ask=687.52,
-            level_id='ROUND_687',
-            level_kind=LevelKindEnum.ROUND,
-            level_price=687.0,
+            symbol='ES',
+            spot=6875.00,
+            bid=6874.80,
+            ask=6875.20,
+            level_id='ROUND_6875',
+            level_kind=LevelKind.ROUND,
+            level_price=6875.0,
             direction=DirectionEnum.SUPPORT,
             distance=0.50,
             break_score_raw=75.5,
@@ -480,7 +213,7 @@ class TestLevelSignalV1:
             confidence=ConfidenceEnum.MEDIUM,
             barrier_state=BarrierStateEnum.CONSUMED,
         )
-        assert signal.level_id == 'ROUND_687'
+        assert signal.level_id == 'ROUND_6875'
         assert signal.break_score_raw == 75.5
         assert signal.signal == SignalEnum.CONTESTED
 
@@ -488,10 +221,10 @@ class TestLevelSignalV1:
         """Level signal with all fields populated."""
         signal = LevelSignalV1(
             ts_event_ns=valid_ts_event_ns,
-            underlying='SPY',
-            spot=687.50,
-            bid=687.48,
-            ask=687.52,
+            symbol='ES',
+            spot=6875.00,
+            bid=6874.80,
+            ask=6875.20,
             level_id='STRIKE_685',
             level_kind=LevelKindEnum.STRIKE,
             level_price=685.0,
@@ -535,13 +268,13 @@ class TestLevelSignalV1:
         with pytest.raises(ValueError):
             LevelSignalV1(
                 ts_event_ns=valid_ts_event_ns,
-                underlying='SPY',
-                spot=687.50,
-                bid=687.48,
-                ask=687.52,
-                level_id='ROUND_687',
-                level_kind=LevelKindEnum.ROUND,
-                level_price=687.0,
+                symbol='ES',
+                spot=6875.00,
+                bid=6874.80,
+                ask=6875.20,
+                level_id='ROUND_6875',
+                level_kind=LevelKind.ROUND,
+                level_price=6875.0,
                 direction=DirectionEnum.SUPPORT,
                 distance=0.50,
                 break_score_raw=150.0,  # Invalid: > 100
@@ -566,15 +299,15 @@ class TestPydanticToArrow:
                 ts_event_ns=valid_ts_event_ns,
                 ts_recv_ns=valid_ts_recv_ns,
                 source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
-                price=687.50,
+                symbol='ES',
+                price=6875.00,
                 size=100,
             ),
             StockTradeV1(
                 ts_event_ns=valid_ts_event_ns + 1_000_000,
                 ts_recv_ns=valid_ts_recv_ns + 1_000_000,
                 source=EventSourceEnum.MASSIVE_WS,
-                symbol='SPY',
+                symbol='ES',
                 price=687.52,
                 size=200,
             ),

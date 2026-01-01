@@ -97,8 +97,8 @@ class TapeEngine:
         # ES system: level_price is already in ES points (no conversion needed)
         es_level_price = level_price  # ES futures = ES options
 
-        # Tape band already in ES points (ratio = 1.0)
-        es_tape_band = self.tape_band_dollars * market_state.price_converter.ratio
+        # Tape band is already in ES points
+        es_tape_band = self.tape_band_dollars
 
         # Get ES trades near level for imbalance (using ES prices)
         trades_near_level = market_state.get_es_trades_near_level(
@@ -127,7 +127,7 @@ class TapeEngine:
 
         # Compute confidence (scaled for ES contract sizes)
         total_vol = buy_vol + sell_vol
-        confidence = min(1.0, total_vol / 500.0)  # ES contracts are smaller than SPY shares
+        confidence = min(1.0, total_vol / 500.0)  # Threshold adjusted for ES contract sizes
 
         return TapeMetrics(
             imbalance=imbalance,

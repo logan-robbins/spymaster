@@ -112,11 +112,6 @@ def _validate_price_range(bronze_root: Path, date: str) -> None:
     assert 6700 < price_min < 7000, f"Min price {price_min:.2f} out of expected range"
     assert 6750 < price_max < 7100, f"Max price {price_max:.2f} out of expected range"
 
-    spy_min = price_min / 10
-    spy_max = price_max / 10
-    print(f"  SPY equivalent: ${spy_min:.2f} - ${spy_max:.2f}")
-    assert 670 < spy_min < 700, "SPY equivalent out of expected range"
-    assert 675 < spy_max < 710, "SPY equivalent out of expected range"
 
 
 def main() -> int:

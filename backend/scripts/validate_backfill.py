@@ -88,7 +88,7 @@ def validate_date(
         else:
             log(f"    ✅ Time-sorted")
         
-        # Price range (ES converted to SPY should be 300-700 range typically)
+        # Price range (ES should be 3000-7000 range typically)
         min_price = bronze_trades_df['price'].min()
         max_price = bronze_trades_df['price'].max()
         log(f"    ✅ Price range: [{min_price:.2f}, {max_price:.2f}]")

@@ -109,7 +109,7 @@ def compute_all_level_distances(
     result['dist_to_tested_level'] = 0.0  # By definition at entry
     
     # Level stacking: count how many other levels are nearby
-    stacking_bands = [2.0, 5.0, 10.0]  # SPX points
+    stacking_bands = [2.0, 5.0, 10.0]  # ES points
     
     for band in stacking_bands:
         col_name = f'level_stacking_{int(band)}pt'

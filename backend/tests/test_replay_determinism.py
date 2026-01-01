@@ -13,7 +13,7 @@ import shutil
 import os
 from typing import List, Dict, Any
 
-from src.common.event_types import StockTrade, StockQuote, OptionTrade, FuturesTrade, EventSource, Aggressor
+from src.common.event_types import FuturesTrade, MBP10, EventSource, Aggressor, BidAskLevel
 from src.core.market_state import MarketState
 from src.core.barrier_engine import BarrierEngine, Direction
 from src.core.tape_engine import TapeEngine
@@ -28,8 +28,7 @@ from src.common.config import CONFIG
 def generate_synthetic_events(
     base_ts_ns: int,
     num_quotes: int = 100,
-    num_trades: int = 50,
-    num_options: int = 20
+    num_trades: int = 50
 ) -> List[Any]:
     """
     Generate deterministic synthetic events for testing.
@@ -42,49 +41,36 @@ def generate_synthetic_events(
     for i in range(num_quotes):
         ts = base_ts_ns + i * 100_000_000  # 100ms apart
         price_offset = (i % 10) * 0.01  # Oscillate price
-        events.append(StockQuote(
+        from src.common.event_types import BidAskLevel
+        events.append(MBP10(
             ts_event_ns=ts,
             ts_recv_ns=ts + 1000,
             source=EventSource.SIM,
-            symbol='SPY',
-            bid_px=545.00 + price_offset,
-            ask_px=545.02 + price_offset,
-            bid_sz=10000 + i * 100,
-            ask_sz=8000 + i * 50
+            symbol='ES',
+            levels=[
+                BidAskLevel(
+                    bid_px=(5450.00 + price_offset) + j * 0.25,
+                    ask_px=(5450.25 + price_offset) + j * 0.25,
+                    bid_sz=10000 + i * 100,
+                    ask_sz=8000 + i * 50
+                ) for j in range(10)  # 10 levels
+            ],
+            is_snapshot=True
         ))
 
     # Generate trades at some of those timestamps
     for i in range(num_trades):
         ts = base_ts_ns + i * 200_000_000 + 50_000_000  # Offset from quotes
-        price = 545.01 + (i % 10) * 0.01
-        events.append(StockTrade(
+        price = 5450.10 + (i % 10) * 0.10
+        events.append(FuturesTrade(
             ts_event_ns=ts,
             ts_recv_ns=ts + 1000,
             source=EventSource.SIM,
-            symbol='SPY',
+            symbol='ES',
             price=price,
             size=100 + i * 10
         ))
 
-    # Generate option trades
-    for i in range(num_options):
-        ts = base_ts_ns + i * 500_000_000 + 25_000_000  # Different offset
-        strike = 545.0 + (i % 5)
-        right = 'C' if i % 2 == 0 else 'P'
-        exp_date = '2025-12-22'
-        symbol = f"O:SPY251222{right}00{int(strike*1000):08d}"
-        events.append(OptionTrade(
-            ts_event_ns=ts,
-            ts_recv_ns=ts + 1000,
-            source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol=symbol,
-            exp_date=exp_date,
-            strike=strike,
-            right=right,
-            price=1.50 + i * 0.1,
-            size=10 + i
-        ))
 
     # Sort by timestamp (deterministic order)
     events.sort(key=lambda e: e.ts_event_ns)
@@ -100,14 +86,14 @@ def generate_es_events(
     Generate deterministic synthetic ES futures events for testing.
 
     All events are created with predictable values based on their index.
-    ES prices are ~10x SPY prices (e.g., SPY 545 = ES 5450).
+    ES prices are quoted in index points.
     """
     events = []
 
     # Generate ES trades with small price variations
     for i in range(num_trades):
         ts = base_ts_ns + i * 200_000_000  # 200ms apart
-        # ES price oscillates around 5450 (equivalent to SPY 545)
+        # ES price oscillates around 5450
         price = 5450.0 + (i % 10) * 0.25
         events.append(FuturesTrade(
             ts_event_ns=ts,
@@ -120,28 +106,6 @@ def generate_es_events(
         ))
 
     # Generate option trades
-    for i in range(num_options):
-        ts = base_ts_ns + i * 500_000_000 + 25_000_000  # Different offset
-        strike = 545.0 + (i % 5)
-        right = 'C' if i % 2 == 0 else 'P'
-        exp_date = '2025-12-22'
-        symbol = f"O:SPY251222{right}00{int(strike*1000):08d}"
-        events.append(OptionTrade(
-            ts_event_ns=ts,
-            ts_recv_ns=ts + 1000,
-            source=EventSource.SIM,
-            underlying='SPY',
-            option_symbol=symbol,
-            exp_date=exp_date,
-            strike=strike,
-            right=right,
-            price=1.50 + i * 0.1,
-            size=10 + i,
-            aggressor=Aggressor.BUY
-        ))
-
-    # Sort by timestamp (deterministic order)
-    events.sort(key=lambda e: e.ts_event_ns)
     return events
 
 
@@ -314,22 +278,22 @@ class TestBronzeGoldDeterminism:
 
             async def write_events():
                 for event in events:
-                    if isinstance(event, StockQuote):
-                        await writer.write_stock_quote(event)
-                    elif isinstance(event, StockTrade):
-                        await writer.write_stock_trade(event)
+                    if isinstance(event, MBP10):
+                        await writer.write_mbp10(event)
+                    elif isinstance(event, FuturesTrade):
+                        await writer.write_futures_trade(event)
                 await writer.flush_all()
 
             asyncio.run(write_events())
 
             # Read back
             reader = BronzeReader(data_root=tmpdir)
-            quotes_df = reader.read_stock_quotes(symbol='SPY')
-            trades_df = reader.read_stock_trades(symbol='SPY')
+            quotes_df = reader.read_mbp10(symbol='ES')
+            trades_df = reader.read_futures_trades(symbol='ES')
 
             # Verify counts
-            expected_quotes = sum(1 for e in events if isinstance(e, StockQuote))
-            expected_trades = sum(1 for e in events if isinstance(e, StockTrade))
+            expected_quotes = sum(1 for e in events if isinstance(e, MBP10))
+            expected_trades = sum(1 for e in events if isinstance(e, FuturesTrade))
 
             assert len(quotes_df) == expected_quotes, f"Expected {expected_quotes} quotes, got {len(quotes_df)}"
             assert len(trades_df) == expected_trades, f"Expected {expected_trades} trades, got {len(trades_df)}"
@@ -342,7 +306,6 @@ class TestBronzeGoldDeterminism:
             ts_ms = int(time.time() * 1000)
             payload = {
                 'ts': ts_ms,
-                'spy': {'spot': 545.01, 'bid': 545.00, 'ask': 545.02},
                 'levels': [
                     {
                         'id': 'STRIKE_545',
@@ -375,7 +338,7 @@ class TestBronzeGoldDeterminism:
 
             # Read back
             reader = GoldReader(data_root=tmpdir)
-            df = reader.read_level_signals(underlying='SPY')
+            df = reader.read_level_signals(symbol='ES')
 
             assert len(df) == 1, f"Expected 1 level signal, got {len(df)}"
             assert df.iloc[0]['level_id'] == 'STRIKE_545'
@@ -417,8 +380,6 @@ class TestLevelSignalServiceDeterminism:
             assert l1.get('break_score_raw') == l2.get('break_score_raw')
             assert l1.get('signal') == l2.get('signal')
 
-        # Also check spy snapshot matches
-        assert payload1.get('spy') == payload2.get('spy')
 
         print(f"✅ LevelSignalService: Deterministic ({len(levels1)} levels)")
 

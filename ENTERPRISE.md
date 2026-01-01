@@ -435,7 +435,7 @@ Stage IDs are stable identifiers used in manifests. Map each `stage_id` → conc
 
 Agents must implement a `StageFactory` with this registry (ES v1):
 - `load_bronze` → `backend/src/pipeline/stages/load_bronze.py:LoadBronzeStage` (instrumentized)
-- `build_ohlcv` → `backend/src/pipeline/stages/build_spx_ohlcv.py:BuildOHLCVStage`
+- `build_ohlcv` → `backend/src/pipeline/stages/build_es_ohlcv.py:BuildOHLCVStage`
 - `init_market_state` → `backend/src/pipeline/stages/init_market_state.py:InitMarketStateStage`
 - `generate_levels` → `backend/src/pipeline/stages/generate_levels.py:GenerateLevelsStage`
 - `detect_interaction_zones` → `backend/src/pipeline/stages/detect_interaction_zones.py:DetectInteractionZonesStage`

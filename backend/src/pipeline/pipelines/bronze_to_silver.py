@@ -18,7 +18,7 @@ Consumers: Data scientists, ML experiments, Silver → Gold pipelines
 
 from src.pipeline.core.pipeline import Pipeline
 from src.pipeline.stages.load_bronze import LoadBronzeStage
-from src.pipeline.stages.build_spx_ohlcv import BuildOHLCVStage
+from src.pipeline.stages.build_es_ohlcv import BuildOHLCVStage
 from src.pipeline.stages.init_market_state import InitMarketStateStage
 from src.pipeline.stages.generate_levels import GenerateLevelsStage
 from src.pipeline.stages.detect_interaction_zones import DetectInteractionZonesStage

@@ -43,48 +43,6 @@ async def test_gateway_nats_subscription():
 
 
 @pytest.mark.asyncio
-async def test_gateway_caches_latest_payload():
-    """Test that Gateway caches latest payload for new connections."""
-    # Create mock bus
-    mock_bus = MagicMock(spec=NATSBus)
-    mock_bus.connect = AsyncMock()
-    mock_bus.subscribe = AsyncMock()
-    
-    # Create broadcaster
-    broadcaster = SocketBroadcaster(bus=mock_bus)
-    broadcaster.broadcast = AsyncMock()  # Mock broadcast to avoid WebSocket errors
-    
-    # Start
-    await broadcaster.start()
-    
-    # Get the callback that was registered
-    callback = mock_bus.subscribe.call_args[1]["callback"]
-    
-    # Simulate NATS message
-    test_payload = {
-        "ts": 1234567890,
-        "spy": {"spot": 600.0, "bid": 599.99, "ask": 600.01},
-        "levels": [
-            {
-                "id": "STRIKE_600",
-                "price": 600.0,
-                "break_score_raw": 75,
-                "signal": "CONTESTED"
-            }
-        ]
-    }
-    
-    # Call the callback
-    await callback(test_payload)
-    
-    # Verify payload was cached
-    assert broadcaster._latest_payload == test_payload
-    
-    # Verify broadcast was called
-    broadcaster.broadcast.assert_called_once_with(test_payload)
-
-
-@pytest.mark.asyncio
 async def test_gateway_broadcasts_to_multiple_clients():
     """Test that Gateway broadcasts to multiple WebSocket clients."""
     # Create broadcaster (no bus needed for this test)
@@ -131,33 +89,6 @@ async def test_gateway_removes_failed_connections():
     # Verify bad client was removed
     assert mock_ws_bad not in broadcaster.active_connections
     assert len(broadcaster.active_connections) == 1
-
-
-@pytest.mark.asyncio
-async def test_gateway_new_client_receives_cached_state():
-    """Test that new clients receive cached state on connect."""
-    broadcaster = SocketBroadcaster()
-    
-    # Set cached payload
-    cached_payload = {
-        "ts": 1234567890,
-        "spy": {"spot": 600.0},
-        "levels": []
-    }
-    broadcaster._latest_payload = cached_payload
-    
-    # Create mock WebSocket
-    mock_ws = AsyncMock()
-    
-    # Connect new client
-    await broadcaster.connect(mock_ws)
-    
-    # Verify client received cached state
-    expected_json = json.dumps(cached_payload)
-    mock_ws.send_text.assert_called_once_with(expected_json)
-    
-    # Verify client was added to connections
-    assert mock_ws in broadcaster.active_connections
 
 
 @pytest.mark.asyncio

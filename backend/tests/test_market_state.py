@@ -23,11 +23,11 @@ def test_option_flow_aggregation():
     opt_trade = OptionTrade(
         ts_event_ns=ts_base,
         ts_recv_ns=ts_base,
-        source=EventSource.MASSIVE_WS,
-        underlying="SPY",
-        option_symbol="O:SPY251216C00545000",
+        source=EventSource.DIRECT_FEED,
+        underlying="ES",
+        option_symbol="O:ES251216C06850000",
         exp_date="2025-12-16",
-        strike=545.0,
+        strike=6850.0,
         right="C",
         price=2.50,
         size=10,
@@ -38,7 +38,7 @@ def test_option_flow_aggregation():
     state.update_option_trade(opt_trade, delta=0.50, gamma=0.05)
 
     # Verify aggregate
-    key = (545.0, "C", "2025-12-16")
+    key = (6850.0, "C", "2025-12-16")
     assert key in state.option_flows, f"Expected option flow for {key}"
 
     agg = state.option_flows[key]
@@ -49,9 +49,10 @@ def test_option_flow_aggregation():
     print(f"   Net Dealer Gamma: {agg.net_gamma_flow:,.0f}")
 
     assert agg.cumulative_volume == 10
-    assert agg.cumulative_premium == 2.50 * 10 * 100  # 2500
+    from src.common.config import CONFIG
+    assert agg.cumulative_premium == 2.50 * 10 * CONFIG.OPTION_CONTRACT_MULTIPLIER
     # Customer buys gamma -> dealer sells gamma (negative)
-    assert agg.net_gamma_flow == -10 * 0.05 * 100  # -50
+    assert agg.net_gamma_flow == -10 * 0.05 * CONFIG.OPTION_CONTRACT_MULTIPLIER
 
 
 def test_option_flows_near_level():
@@ -62,14 +63,14 @@ def test_option_flows_near_level():
     ts_base = int(time.time() * 1e9)
 
     # Add option trades at different strikes
-    strikes = [544.0, 545.0, 546.0, 548.0]
+    strikes = [6840.0, 6850.0, 6860.0, 6880.0]
     for strike in strikes:
         opt_trade = OptionTrade(
             ts_event_ns=ts_base,
             ts_recv_ns=ts_base,
-            source=EventSource.MASSIVE_WS,
-            underlying="SPY",
-            option_symbol=f"O:SPY251216C00{int(strike*1000):05d}000",
+            source=EventSource.DIRECT_FEED,
+            underlying="ES",
+            option_symbol=f"O:ES251216C0{int(strike*100):05d}000",
             exp_date="2025-12-16",
             strike=strike,
             right="C",
@@ -79,11 +80,11 @@ def test_option_flows_near_level():
         )
         state.update_option_trade(opt_trade, delta=0.50, gamma=0.05)
 
-    # Query near 545.0 within ±2.0
+    # Query near 6850.0 within ±20.0
     flows = state.get_option_flows_near_level(
-        level_price=545.0,
-        strike_range=2.0
+        level_price=6850.0,
+        strike_range=20.0
     )
-    print(f"✅ Option flows near 545.0 (±2.0): {len(flows)} (expected 3)")
+    print(f"✅ Option flows near 6850.0 (±20.0): {len(flows)} (expected 3)")
     print(f"   Strikes: {[f.strike for f in flows]}")
     assert len(flows) == 3, f"Expected 3 flows, got {len(flows)}"

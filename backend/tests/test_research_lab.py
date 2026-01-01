@@ -22,27 +22,27 @@ class TestLabeler:
     
     def test_bounce_on_resistance_test(self):
         """Test BOUNCE classification when price rejects resistance."""
-        # Price at 400.00, tries to go up, falls back down significantly
-        signal_price = 400.00
-        future_prices = [400.05, 399.50, 398.90, 397.75, 398.10]  # Falls > $2.00
+        # Price at 4000.00, tries to go up, falls back down significantly
+        signal_price = 4000.00
+        future_prices = [4000.50, 3995.00, 3989.00, 3977.50, 3981.00]  # Falls > $20.00
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.BOUNCE
     
     def test_break_on_resistance_test(self):
         """Test BREAK classification when price breaks through resistance."""
-        # Price at 400.00, breaks up significantly
-        signal_price = 400.00
-        future_prices = [400.50, 401.20, 402.10, 402.35]  # Breaks up > $2.00
+        # Price at 4000.00, breaks up significantly
+        signal_price = 4000.00
+        future_prices = [4005.00, 4012.00, 4021.00, 4023.50]  # Breaks up > $20.00
         
         outcome = get_outcome(signal_price, future_prices, direction="UP")
         assert outcome == OutcomeLabel.BREAK
     
     def test_bounce_on_support_test(self):
         """Test BOUNCE classification when price rejects support (bounces up)."""
-        # Price at 400.00, tests support, bounces back up
-        signal_price = 400.00
-        future_prices = [399.70, 400.10, 401.25, 402.05, 402.30]  # Bounces up > $2.00
+        # Price at 4000.00, tests support, bounces back up
+        signal_price = 4000.00
+        future_prices = [3997.00, 4001.00, 4012.50, 4020.50, 4023.00]  # Bounces up > $20.00
         
         outcome = get_outcome(signal_price, future_prices, direction="DOWN")
         assert outcome == OutcomeLabel.BOUNCE
@@ -418,7 +418,7 @@ class TestResearchIntegration:
         signal = LevelSignalV1(
             event_id="complete_signal",
             ts_event_ns=1700000000000000000,
-            symbol="SPY",
+            symbol="ES",
             spot=400.05,
             bid=400.04,
             ask=400.06,

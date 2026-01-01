@@ -57,9 +57,9 @@ class LoadSilverFeaturesStage(BaseStage):
         trades_df = reader.read_futures_trades('ES', date)
         trades_objs = futures_trades_from_df(trades_df)
         
-        from src.pipeline.stages.build_spx_ohlcv import build_spx_ohlcv_from_es
-        ohlcv_1min = build_spx_ohlcv_from_es(trades_objs, date=date, freq='1min')
-        ohlcv_2min = build_spx_ohlcv_from_es(trades_objs, date=date, freq='2min')
+        from src.pipeline.stages.build_es_ohlcv import build_es_ohlcv_from_es
+        ohlcv_1min = build_es_ohlcv_from_es(trades_objs, date=date, freq='1min')
+        ohlcv_2min = build_es_ohlcv_from_es(trades_objs, date=date, freq='2min')
         
         import logging
         logger = logging.getLogger(__name__)

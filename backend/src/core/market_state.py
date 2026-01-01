@@ -21,7 +21,7 @@ import math
 import numpy as np
 
 from src.common.event_types import FuturesTrade, MBP10, OptionTrade, Aggressor
-from src.common.price_converter import PriceConverter
+
 from src.common.config import CONFIG
 
 
@@ -132,8 +132,7 @@ class MarketState:
     def __init__(self, max_buffer_window_seconds: Optional[float] = None):
         if max_buffer_window_seconds is None:
             max_buffer_window_seconds = max(CONFIG.W_b, CONFIG.CONFIRMATION_WINDOW_SECONDS)
-        # ========== Price Converter (ES <-> ES no-op) ==========
-        self.price_converter = PriceConverter()
+
 
         # ========== ES Futures State ==========
         # Last-known MBP-10 snapshot
@@ -171,16 +170,16 @@ class MarketState:
 
         # 1-minute closes for approach context (ES points)
         self._current_minute_start_ns: Optional[int] = None
-        self._current_minute_close_spy: Optional[float] = None
-        self._current_minute_open_spy: Optional[float] = None
-        self._current_minute_high_spy: Optional[float] = None
-        self._current_minute_low_spy: Optional[float] = None
+        self._current_minute_close: Optional[float] = None
+        self._current_minute_open: Optional[float] = None
+        self._current_minute_high: Optional[float] = None
+        self._current_minute_low: Optional[float] = None
         self._minute_closes: deque[Tuple[int, float]] = deque(maxlen=240)  # 4 hours of 1-min closes
         self._minute_bars: deque[MinuteBar] = deque(maxlen=240)
         
         # 2-minute bars for SMA tracking
         self._current_2m_start_ns: Optional[int] = None
-        self._current_2m_close_spy: Optional[float] = None
+        self._current_2m_close: Optional[float] = None
         self._two_minute_closes: deque = deque(maxlen=400) # Keep 400 for safety, though only need 90
         self._two_minute_ema_20_values: deque = deque(maxlen=400) # For slope calculation
         
@@ -240,8 +239,7 @@ class MarketState:
         self.last_es_trade = timestamped
         self.es_trades_buffer.append(timestamped)
 
-        # Update price converter with ES price
-        self.price_converter.update_es_price(trade.price)
+
 
         # ES system: price is already in ES points (no conversion)
         self._update_context_from_trade(trade.ts_event_ns, trade.price)
@@ -262,7 +260,7 @@ class MarketState:
             self._vwap = (self._vwap * self._vwap_volume + notional) / total_volume
             self._vwap_volume = total_volume
 
-    def _update_context_from_trade(self, ts_event_ns: int, spx_price: float) -> None:
+    def _update_context_from_trade(self, ts_event_ns: int, price: float) -> None:
         """
         Update day-scoped context metrics from the ES trade stream.
 
@@ -285,12 +283,12 @@ class MarketState:
             self._minute_bars.clear()
             self._two_minute_closes.clear()
             self._current_minute_start_ns = None
-            self._current_minute_close_spy = None
-            self._current_minute_open_spy = None
-            self._current_minute_high_spy = None
-            self._current_minute_low_spy = None
+            self._current_minute_close = None
+            self._current_minute_open = None
+            self._current_minute_high = None
+            self._current_minute_low = None
             self._current_2m_start_ns = None
-            self._current_2m_close_spy = None
+            self._current_2m_close = None
             self._sma_90 = None
             self._ema_20 = None
 
@@ -301,66 +299,66 @@ class MarketState:
         opening_range_end = 9 * 60 + 45
 
         if premarket_start <= minutes_since_midnight < market_open:
-            if self._premarket_high is None or spx_price > self._premarket_high:
-                self._premarket_high = spx_price
-            if self._premarket_low is None or spx_price < self._premarket_low:
-                self._premarket_low = spx_price
+            if self._premarket_high is None or price > self._premarket_high:
+                self._premarket_high = price
+            if self._premarket_low is None or price < self._premarket_low:
+                self._premarket_low = price
 
         if market_open <= minutes_since_midnight < opening_range_end:
-            if self._opening_range_high is None or spx_price > self._opening_range_high:
-                self._opening_range_high = spx_price
-            if self._opening_range_low is None or spx_price < self._opening_range_low:
-                self._opening_range_low = spx_price
+            if self._opening_range_high is None or price > self._opening_range_high:
+                self._opening_range_high = price
+            if self._opening_range_low is None or price < self._opening_range_low:
+                self._opening_range_low = price
 
         # --- 1-minute bars (approach context + ATR) ---
         one_min_ns = 60 * 1_000_000_000
         minute_start_ns = (ts_event_ns // one_min_ns) * one_min_ns
         if self._current_minute_start_ns is None:
             self._current_minute_start_ns = minute_start_ns
-            self._current_minute_open_spy = spx_price
-            self._current_minute_high_spy = spx_price
-            self._current_minute_low_spy = spx_price
-            self._current_minute_close_spy = spx_price
+            self._current_minute_open = price
+            self._current_minute_high = price
+            self._current_minute_low = price
+            self._current_minute_close = price
         elif minute_start_ns == self._current_minute_start_ns:
-            self._current_minute_close_spy = spx_price
-            if self._current_minute_high_spy is None or spx_price > self._current_minute_high_spy:
-                self._current_minute_high_spy = spx_price
-            if self._current_minute_low_spy is None or spx_price < self._current_minute_low_spy:
-                self._current_minute_low_spy = spx_price
+            self._current_minute_close = price
+            if self._current_minute_high is None or price > self._current_minute_high:
+                self._current_minute_high = price
+            if self._current_minute_low is None or price < self._current_minute_low:
+                self._current_minute_low = price
         else:
             # Finalize prior minute close
             if (
-                self._current_minute_close_spy is not None
-                and self._current_minute_open_spy is not None
-                and self._current_minute_high_spy is not None
-                and self._current_minute_low_spy is not None
+                self._current_minute_close is not None
+                and self._current_minute_open is not None
+                and self._current_minute_high is not None
+                and self._current_minute_low is not None
             ):
-                self._minute_closes.append((self._current_minute_start_ns, self._current_minute_close_spy))
+                self._minute_closes.append((self._current_minute_start_ns, self._current_minute_close))
                 self._minute_bars.append(MinuteBar(
                     start_ts_ns=self._current_minute_start_ns,
-                    open=self._current_minute_open_spy,
-                    high=self._current_minute_high_spy,
-                    low=self._current_minute_low_spy,
-                    close=self._current_minute_close_spy
+                    open=self._current_minute_open,
+                    high=self._current_minute_high,
+                    low=self._current_minute_low,
+                    close=self._current_minute_close
                 ))
             self._current_minute_start_ns = minute_start_ns
-            self._current_minute_open_spy = spx_price
-            self._current_minute_high_spy = spx_price
-            self._current_minute_low_spy = spx_price
-            self._current_minute_close_spy = spx_price
+            self._current_minute_open = price
+            self._current_minute_high = price
+            self._current_minute_low = price
+            self._current_minute_close = price
 
         # --- 2-minute closes (SMA levels) ---
         two_min_ns = 120 * 1_000_000_000
         two_min_start_ns = (ts_event_ns // two_min_ns) * two_min_ns
         if self._current_2m_start_ns is None:
             self._current_2m_start_ns = two_min_start_ns
-            self._current_2m_close_spy = spx_price
+            self._current_2m_close = price
         elif two_min_start_ns == self._current_2m_start_ns:
-            self._current_2m_close_spy = spx_price
+            self._current_2m_close = price
         else:
             # Finalize prior 2-minute close and update SMAs
-            if self._current_2m_close_spy is not None:
-                self._two_minute_closes.append(self._current_2m_close_spy)
+            if self._current_2m_close is not None:
+                self._two_minute_closes.append(self._current_2m_close)
                 closes = list(self._two_minute_closes)
                 
                 # Update SMA 90
@@ -384,7 +382,7 @@ class MarketState:
                      
                      self._two_minute_ema_20_values.append(self._ema_20)
             self._current_2m_start_ns = two_min_start_ns
-            self._current_2m_close_spy = spx_price
+            self._current_2m_close = price
 
     def get_recent_minute_closes(self, lookback_minutes: int) -> List[Tuple[int, float]]:
         """
@@ -396,8 +394,8 @@ class MarketState:
             return []
 
         closes: List[Tuple[int, float]] = list(self._minute_closes)
-        if self._current_minute_close_spy is not None and self._current_minute_start_ns is not None:
-            closes.append((self._current_minute_start_ns, self._current_minute_close_spy))
+        if self._current_minute_close is not None and self._current_minute_start_ns is not None:
+            closes.append((self._current_minute_start_ns, self._current_minute_close))
         return closes[-lookback_minutes:]
 
     def get_recent_minute_bars(self, lookback_minutes: int) -> List[MinuteBar]:
@@ -410,17 +408,17 @@ class MarketState:
         bars: List[MinuteBar] = list(self._minute_bars)
         if (
             self._current_minute_start_ns is not None
-            and self._current_minute_open_spy is not None
-            and self._current_minute_high_spy is not None
-            and self._current_minute_low_spy is not None
-            and self._current_minute_close_spy is not None
+            and self._current_minute_open is not None
+            and self._current_minute_high is not None
+            and self._current_minute_low is not None
+            and self._current_minute_close is not None
         ):
             bars.append(MinuteBar(
                 start_ts_ns=self._current_minute_start_ns,
-                open=self._current_minute_open_spy,
-                high=self._current_minute_high_spy,
-                low=self._current_minute_low_spy,
-                close=self._current_minute_close_spy
+                open=self._current_minute_open,
+                high=self._current_minute_high,
+                low=self._current_minute_low,
+                close=self._current_minute_close
             ))
         return bars[-lookback_minutes:]
 
@@ -570,8 +568,8 @@ class MarketState:
 
     def _get_two_minute_closes(self, include_current: bool = True) -> List[float]:
         closes = list(self._two_minute_closes)
-        if include_current and self._current_2m_close_spy is not None:
-            closes.append(self._current_2m_close_spy)
+        if include_current and self._current_2m_close is not None:
+            closes.append(self._current_2m_close)
         return closes
 
     @staticmethod
@@ -774,7 +772,7 @@ class MarketState:
 
         return results
 
-    # ========== Spot and derived values (SPX-equivalent) ==========
+    # ========== Spot and derived values ==========
 
     def get_spot(self) -> Optional[float]:
         """
@@ -864,7 +862,7 @@ class MarketState:
 
     def reset(self):
         """Clear all state (useful for testing or session reset)."""
-        self.price_converter = PriceConverter()
+
         self.es_mbp10_snapshot = None
         self.last_es_trade = None
         self.es_mbp10_buffer = RingBuffer(max_window_seconds=120.0)
@@ -884,12 +882,7 @@ class MarketState:
         self._minute_bars.clear()
         self._two_minute_closes.clear()
         self._current_minute_start_ns = None
-        self._current_minute_close_spy = None
-        self._current_minute_open_spy = None
-        self._current_minute_high_spy = None
-        self._current_minute_low_spy = None
         self._current_2m_start_ns = None
-        self._current_2m_close_spy = None
         self._sma_90 = None
         self._ema_20 = None
         self._two_minute_ema_20_values.clear()
