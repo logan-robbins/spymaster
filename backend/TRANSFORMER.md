@@ -8,119 +8,104 @@
 
 ## 1. Context & Motivation
 
-**Current State (Phase 4):**
-- We use **DCT (Discrete Cosine Transform)** to encode the 20-minute approach trajectory (40 samples @ 30s cadence).
-- This is "Rigid Geometry." It captures the *frequency* components of the shape.
-- **Success:** Reduced ECE from 21% (Physics) to 2.4% (Geometry), proving that **Shape > Physics**.
+**Current State (Phase 4.5):**
+- We use **DCT (Discrete Cosine Transform)** to encode the 20-minute approach trajectory.
+- **Ablation Result (Dec 31):**
+    - **Geometry (Shape):** 71.8% Accuracy, **+19.6% Calibration** (Robust/Linear).
+    - **Physics (Velocity/Force):** 69.1% Accuracy, **-17.0% Calibration** (Inverted/Non-Linear).
+    - **Combined (147D):** 69.4% Accuracy. Physics "dilutes" Geometry.
+- **The "Context Discovery":**
+    - Physics helps for *Regime* levels (PM High: +6.5%).
+    - Physics hurts for *Structural* levels (SMA 200: -11.3%).
 
 **The Problem:**
-- DCT is lossy and mathematically predetermined. It cannot learn non-linear patterns (e.g., "A specific double-bottom followed by an OFI spike").
-- We want to learn the "Geometry of Liquidity" directly from the data.
+- A linear model (kNN) cannot switch between "Follow Momentum" (Regime) and "Fade Momentum" (structure). It averages them, leading to failure.
+- We need an **Attention Mechanism** to learn: *"If Level=SMA, Ignore Velocity. If Level=PM_HIGH, Attend Velocity."*
 
 **The Solution:**
-- Train a **Time-Series Transformer (PatchTST)** to encode the raw 20-minute trajectory into a dense vector.
-- Use this Neural Vector for similarity search.
+- Train a **Time-Series Transformer (PatchTST)** to encode the raw 20-minute trajectory.
+- **Crucial Upgrade:** Input must include **BOTH** Geometry (Shape) and Physics (Velocity) channels so the model can learn the interaction.
 
 ---
 
 ## 2. Implementation Roadmap
 
 ### Step 1: Data Engineering (The Missing Link)
-**Critical Blocker:** Currently, Stage 17 (`construct_episodes.py`) computes DCT coefficients but **discards** the raw trajectory data. You cannot train a Transformer on DCT coefficients.
+**Critical Blocker:** Stage 17 (`construct_episodes.py`) currently computes DCT coefficients but discards the raw trajectory. The current sequence saver (added recently) only saves 4 channels (`d_atr`, `ofi`, `barrier`, `tape`).
 
 **Task:**
 1.  Modify `src/ml/episode_vector.py`:
-    *   Update `construct_episodes_from_events` to extract and return `raw_sequences` (Shape: `[N, 40, C]`).
-    *   Channels (`C=4`): `d_atr`, `ofi_60s`, `barrier_delta_liq_log`, `tape_imbalance`.
-2.  Modify `src/pipeline/stages/construct_episodes.py`:
-    *   Capture `raw_sequences` from the vector constructor.
-    *   Save to `gold/episodes/es_level_episodes/version=X/sequences/date=YYYY-MM-DD/sequences.npy`.
+    - Update `construct_episodes_from_events` sequence formatting.
+    - **New Shape:** `[N, 40, 7]` (40 steps = 20 mins @ 30s cadence).
+    - **Channels (C=7):**
+        1.  `distance_signed_atr` (Geometry)
+        2.  `ofi_60s` (Order Flow)
+        3.  `barrier_delta_liq_log` (Limit Book)
+        4.  `tape_imbalance` (Aggression)
+        5.  **`velocity_1min`** (Physics - Speed)
+        6.  **`acceleration_1min`** (Physics - Force Outcome)
+        7.  **`jerk_1min`** (Physics - Change in Force)
+2.  **Backfill:** Re-run Stage 17 for the full date range to regenerate `sequences.npy` with these 7 channels.
 
-### Step 2: The Neural Architecture (PatchTST Encoder)
+### Step 2: The Neural Architecture (Physics-Aware PatchTST)
 **File:** `src/ml/models/market_transformer.py`
 
 **Specs:**
-- **Input:** `(Batch, 40, 4)`
-    - Length: 40 steps (20 mins).
-    - Channels: 4 features.
+- **Input:** `(Batch, 40, 7)`
+- **Conditioning:**
+    - `level_kind` (Categorical, 15 types) -> Embedding (Dim 8).
+    - Concatenate this embedding to the Transformer output (or use as a CLS token modifier).
+    - **Why:** To explicitly tell the model "We are at an SMA" vs "We are at PM High", enabling the conditional logic found in the ablation.
 - **Patching:**
     - Patch Length: 8 steps (4 mins).
-    - Stride: 4 steps (50% overlap).
-    - Patches per Series: ~9 patches.
+    - Stride: 4 steps.
 - **Backbone:**
-    - `TransformerEncoder` (PyTorch).
-    - Layers: 2 (Keep it shallow to prevent overfitting).
+    - `TransformerEncoder`.
+    - Layers: 2.
     - Heads: 4.
-    - Model Dim: 64 or 128.
-- **Pooling:** `CLS` token or Mean Pooling over patches.
+    - Model Dim: 128.
 - **Projection Head:** Linear -> `(Batch, 32)` (Output Dimension).
 
 ### Step 3: Training Pipeline (Supervised Contrastive)
-**Desire:** We want "Similar Setups have Similar Outcomes."
-**Loss Function:** **Supervised Contrastive Loss (SupCon)** or Triplet Loss is superior to simple Cross-Entropy here.
-- **Positive Pair:** Two episodes with the same Outcome (e.g., both `BREAK`).
-- **Negative Pair:** Episodes with different Outcomes.
-- **Goal:** Learn an embedding space where `BREAK` clusters are distinct from `REJECT` clusters.
+**Desire:** "Similar Setup + Similar Context = Similar Outcome."
 
 **Script:** `scripts/train_transformer.py`
-1.  Load `sequences.npy` (X) and `metadata.parquet` (y = `outcome_4min`).
-2.  Split Train/Val (Temporal Split!).
-3.  Train with `SupConLoss`.
-4.  Save best model to `data/ml/models/market_transformer_v1.pt`.
+1.  Load `sequences.npy` (X) and `metadata.parquet` (y_outcome, y_level).
+2.  **Loss:** `SupConLoss` (Supervised Contrastive).
+    - Pull together same-outcome pairs.
+    - Push apart opposite-outcome pairs.
+3.  **Result:** A 32D embedding that clusters by *Dynamics-Adjusted Outcome*.
 
-### Step 4: Integration (The Vector Compressor)
-**Task:**
-- Update `src/ml/vector_compressor.py`.
-- Add strategy `neural_transformer`.
-- Logic:
-    - Load `market_transformer_v1.pt`.
-    - Instead of `Vector[112:144]` (DCT), we ignore the vector input.
-    - We take the `raw_sequence` input (need to plumbing this through).
-    - **Wait:** `VectorCompressor` currently takes the 144D vector.
-    - **Refactor:** `VectorCompressor` needs access to the raw data OR we replace the 144D vector entirely in Stage 17.
-    - **Simplification Plan:**
-        - Keep `VectorCompressor` as a "post-processor" for now.
-        - **Better:** Use the Transformer *inside* Stage 17 to generate the vector in the first place?
-        - **No:** We want to keep the "Source of Truth" (144D) and "Neural View" aligned.
-        - **Decision:** The `VectorCompressor` will be updated to load the `sequences.npy` (matched by ID) if available, OR we simply rebuild the indices using a new script `scripts/build_neural_indices.py` that utilizes the model.
+### Step 4: Integration (147D Hyrbid)
+**Strategy:**
+- We do **NOT** replace the whole 147D vector.
+- we replace **Section F (Trajectory Basis, 32 dims)** with the **Neural Embedding (32 dims)**.
+- **Result:**
+    - Sections A-E (Regime, Physics, History): Explicit Human-Readable Features (115 dims).
+    - Section F (Trajectory): Neural "Black Box" encoding of Shape+Physics interaction (32 dims).
+    - Total: 147D.
 
 ---
 
-## 3. Step-by-Step Implementation Instructions (For Agent)
+## 3. Step-by-Step Instructions
 
-### Phase 5.1: Save the Data (Do this NOW)
-1.  Edit `src/ml/episode_vector.py`.
-    - Function: `construct_episodes_from_events`.
-    - Logic: Inside the loop, collect `raw_series` (the 40x4 array used for DCT).
-    - Return: `Tuple[vectors, metadata, sequences]`.
-2.  Edit `src/pipeline/stages/construct_episodes.py`.
-    - receive `sequences`.
-    - Save `np.save(output_dir / 'sequences.npy', sequences)`.
-3.  **Run Pipeline Stage 17** for the full date range.
-    - This will backfill the raw training data.
+### Phase 5.1: Fix the Data (Priority 1)
+1.  Edit `src/ml/episode_vector.py`:
+    - Add `velocity_1min`, `acceleration_1min`, `jerk_1min` to `seq_array`.
+    - Ensure `nan` handling (fillna 0).
+2.  Run `scripts/backfill_sequences.py` (or pipeline) to update `gold`.
 
-### Phase 5.2: Build the Model
-1.  Create `src/ml/models/market_transformer.py`.
-    - Implement `PatchTSTEncoder`.
-2.  Create `src/ml/datasets/sequence_dataset.py`.
-    - `torch.utils.data.Dataset` that loads `sequences.npy` and `metadata.parquet`.
+### Phase 5.2: Build & Train
+1.  Implement `MarketTransformer` (with Level embedding).
+2.  Train on Nov-Dec data.
 
-### Phase 5.3: Train
-1.  Create `scripts/train_market_encoder.py`.
-    - Implement training loop.
-    - Use `pytorch_metric_learning` losses if available, or implement simple Triplet Loss.
-
-### Phase 5.4: Deploy
-1.  Create `scripts/build_neural_indices.py`.
-    - Loads the trained model.
-    - Loads all `sequences.npy`.
-    - Infer embeddings (N, 32).
-    - Builds FAISS index from these embeddings.
-    - Saves to `gold/indices/neural_indices/...`
+### Phase 5.3: Deployment
+1.  Update `construct_episodes.py` to allow loading the model and inferring Section F on the fly (optional) OR build a separate "Neural Indexer".
 
 ---
 
 ## 4. Context for the "Why"
-The user (Human) is downloading massive amounts of data in the background. They want to ensure that when that data arrives, the **Systems** are ready to ingest it into a Transformer.
-We are moving from **Feature Engineering** (DCT) to **Representation Learning** (Transformer).
-This is the standard evolution of ML systems. We have validated the *signal* exists (Physics/Geometry), now we build the optimal *sensor* for it.
+The ablation proved that **Physics is Context-Dependent**.
+- SMA 200: High Velocity = FAKEOUT (Rejection).
+- PM High: High Velocity = BREAKOUT.
+We cannot code this rule manually (too complex). The Transformer will learn it via the `level_kind` token and the interaction between Channel 1 (Distance) and Channel 5 (Velocity).

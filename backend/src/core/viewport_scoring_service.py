@@ -13,6 +13,7 @@ from .viewport_feature_builder import ViewportFeatureBuilder
 from .inference_engine import ViewportInferenceEngine
 from src.ml.feature_sets import STAGE_B_ONLY_PREFIXES
 from src.common.config import CONFIG
+from src.core.feature_historian import FeatureHistorian
 
 
 @dataclass
@@ -40,7 +41,8 @@ class ViewportScoringService:
         feature_builder: ViewportFeatureBuilder,
         stage_a_engine: ViewportInferenceEngine,
         stage_b_engine: ViewportInferenceEngine,
-        trading_date: Optional[str] = None
+        trading_date: Optional[str] = None,
+        feature_historian: Optional[FeatureHistorian] = None
     ):
         self.market_state = market_state
         self.level_universe = level_universe
@@ -49,6 +51,7 @@ class ViewportScoringService:
         self.stage_a_engine = stage_a_engine
         self.stage_b_engine = stage_b_engine
         self.trading_date = trading_date
+        self.feature_historian = feature_historian
         self._confirmation_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
         self._inference_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
         self._inference_state: Dict[str, InferenceState] = {}
@@ -79,7 +82,8 @@ class ViewportScoringService:
                         market_state=self.market_state,
                         universe=universe,
                         ts_ns=target.confirm_ts_ns or ts_ns,
-                        trading_date=self.trading_date
+                        trading_date=self.trading_date,
+                        historian=self.feature_historian
                     ).data
                     row["confirm_ts_ns"] = target.confirm_ts_ns
                     self._confirmation_cache[cache_key] = row
@@ -91,7 +95,8 @@ class ViewportScoringService:
                     market_state=self.market_state,
                     universe=universe,
                     ts_ns=ts_ns,
-                    trading_date=self.trading_date
+                    trading_date=self.trading_date,
+                    historian=self.feature_historian
                 ).data
 
             row["viewport_state"] = target.state.value
