@@ -13,7 +13,7 @@ from src.common.lake_paths import canonical_state_dir, date_partition
 logger = logging.getLogger(__name__)
 
 
-LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 STATE_CADENCE_SECONDS = 30
 RTH_START = time(9, 30, 0)  # 09:30:00 ET
 RTH_END = time(12, 30, 0)   # 12:30:00 ET
@@ -217,9 +217,9 @@ def materialize_state_table(
                 # Level stacking
                 'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
                 # Kinematics
-                'velocity_1min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
-                'acceleration_1min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
-                'jerk_1min', 'jerk_3min', 'jerk_5min', 'jerk_10min', 'jerk_20min',
+                'velocity_1min', 'velocity_2min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
+                'acceleration_1min', 'acceleration_2min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
+                'jerk_1min', 'jerk_2min', 'jerk_3min', 'jerk_5min', 'jerk_10min', 'jerk_20min',
                 'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
                 # Approach
                 'approach_velocity', 'approach_bars', 'approach_distance_atr',
@@ -241,7 +241,7 @@ def materialize_state_table(
                 # Physics
                 'predicted_accel', 'accel_residual', 'force_mass_ratio',
                 # Touch/attempt
-                'prior_touches', 'attempt_index', 'time_since_last_touch',
+                'prior_touches', 'attempt_index',
                 # Cluster trends
                 'barrier_replenishment_trend', 'barrier_delta_liq_trend',
                 'tape_velocity_trend', 'tape_imbalance_trend',
@@ -253,6 +253,14 @@ def materialize_state_table(
                 else:
                     # Handle missing columns gracefully
                     state_row[col] = None
+
+            # Compute time since last interaction event (seconds).
+            # Note: signals_df rows are interaction events (zone entries); this yields a dynamic
+            # recency feature that increases between events and resets to ~0 at each new event.
+            try:
+                state_row['time_since_last_touch_sec'] = float((ts - latest_signal['timestamp']).total_seconds())
+            except Exception:
+                state_row['time_since_last_touch_sec'] = None
             
             state_rows.append(state_row)
         

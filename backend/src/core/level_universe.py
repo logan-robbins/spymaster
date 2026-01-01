@@ -27,8 +27,8 @@ class LevelKind(Enum):
     PM_LOW = "PM_LOW"
     OR_HIGH = "OR_HIGH"
     OR_LOW = "OR_LOW"
-    SMA_200 = "SMA_200"
-    SMA_400 = "SMA_400"
+    SMA_90 = "SMA_90"
+    EMA_20 = "EMA_20"
     VWAP = "VWAP"
     STRIKE = "STRIKE"
     ROUND = "ROUND"
@@ -110,8 +110,8 @@ class LevelUniverse:
         snapshot_ts_ns = ts_ns if ts_ns is not None else market_state.get_current_ts_ns()
         dynamic_kinds = {
             LevelKind.VWAP,
-            LevelKind.SMA_200,
-            LevelKind.SMA_400,
+            LevelKind.SMA_90,
+            LevelKind.EMA_20,
             LevelKind.CALL_WALL,
             LevelKind.PUT_WALL,
             LevelKind.GAMMA_FLIP,
@@ -157,28 +157,28 @@ class LevelUniverse:
                 valid_from_ns=snapshot_ts_ns
             ))
 
-        sma_200 = market_state.get_sma_200()
-        if sma_200 is not None:
+        sma_90 = market_state.get_sma_90()
+        if sma_90 is not None:
             levels.append(Level(
-                id="SMA_200",
-                price=sma_200,
-                kind=LevelKind.SMA_200,
+                id="SMA_90",
+                price=sma_90,
+                kind=LevelKind.SMA_90,
                 valid_from_ns=snapshot_ts_ns,
                 dynamic=True
             ))
 
-        sma_400 = market_state.get_sma_400()
-        if sma_400 is not None:
+        ema_20 = market_state.get_ema_20()
+        if ema_20 is not None:
             levels.append(Level(
-                id="SMA_400",
-                price=sma_400,
-                kind=LevelKind.SMA_400,
+                id="EMA_20",
+                price=ema_20,
+                kind=LevelKind.EMA_20,
                 valid_from_ns=snapshot_ts_ns,
                 dynamic=True
             ))
         
         # NOTE: SESSION_HIGH/SESSION_LOW are intentionally NOT emitted as chart overlays.
-        # The frontend default "key overlays" are PM_HIGH/PM_LOW, OR_HIGH/OR_LOW, SMA_200/SMA_400.
+        # The frontend default "key overlays" are PM_HIGH/PM_LOW, OR_HIGH/OR_LOW, SMA_90/EMA_20.
         
         # ========== Round numbers ==========
         round_levels = self._generate_round_levels(spot, snapshot_ts_ns)

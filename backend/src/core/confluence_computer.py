@@ -51,8 +51,8 @@ class ConfluenceComputer:
         LevelKind.PM_LOW: 1.0,
         LevelKind.OR_HIGH: 0.9,
         LevelKind.OR_LOW: 0.9,
-        LevelKind.SMA_200: 0.8,
-        LevelKind.SMA_400: 0.8,
+        LevelKind.SMA_90: 0.8,
+        LevelKind.EMA_20: 0.8,
         LevelKind.VWAP: 0.7,
         LevelKind.SESSION_HIGH: 0.6,
         LevelKind.SESSION_LOW: 0.6,
@@ -183,27 +183,27 @@ class ConfluenceComputer:
         if spot is None:
             return ConfluenceAlignment.NEUTRAL
         
-        # Find SMA levels
-        sma_200 = None
-        sma_400 = None
+        # Find MA levels
+        sma_90 = None
+        ema_20 = None
         for level in all_levels:
-            if level.kind == LevelKind.SMA_200:
-                sma_200 = level.price
-            elif level.kind == LevelKind.SMA_400:
-                sma_400 = level.price
-        
+            if level.kind == LevelKind.SMA_90:
+                sma_90 = level.price
+            elif level.kind == LevelKind.EMA_20:
+                ema_20 = level.price
+
         # If no SMAs available, can't compute alignment
-        if sma_200 is None and sma_400 is None:
+        if sma_90 is None and ema_20 is None:
             return ConfluenceAlignment.NEUTRAL
-        
+
         # Determine trend from SMA relationship
-        # Bullish if SMA_200 > SMA_400 (shorter MA above longer MA)
-        # Bearish if SMA_200 < SMA_400
+        # Bullish if EMA_20 > SMA_90 (shorter MA above longer MA)
+        # Bearish if EMA_20 < SMA_90
         trend_bullish = None
-        if sma_200 is not None and sma_400 is not None:
-            if sma_200 > sma_400 + 0.05:  # Small threshold to avoid noise
+        if ema_20 is not None and sma_90 is not None:
+            if ema_20 > sma_90 + 0.05:  # Small threshold to avoid noise
                 trend_bullish = True
-            elif sma_200 < sma_400 - 0.05:
+            elif ema_20 < sma_90 - 0.05:
                 trend_bullish = False
         
         if trend_bullish is None:
@@ -303,4 +303,3 @@ def get_confluence_level_name(level: int) -> str:
         return "MODERATE"
     else:
         return "CONSOLIDATION"
-

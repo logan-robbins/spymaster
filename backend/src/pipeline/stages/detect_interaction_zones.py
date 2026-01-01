@@ -37,7 +37,7 @@ def compute_deterministic_event_id(
     
     Args:
         date: Date string (YYYY-MM-DD)
-        level_kind: Level type (PM_HIGH, OR_LOW, SMA_200, etc.)
+        level_kind: Level type (PM_HIGH, OR_LOW, SMA_90, etc.)
         level_price: Level price in ES index points
         anchor_ts_ns: Anchor timestamp in nanoseconds
         direction: 'UP' or 'DOWN'
@@ -219,6 +219,13 @@ class DetectInteractionZonesStage(BaseStage):
         # Filter OHLCV to training window
         if isinstance(ohlcv_df.index, pd.DatetimeIndex):
             mask = (ohlcv_df.index >= window_start) & (ohlcv_df.index <= window_end)
+            ohlcv_df = ohlcv_df[mask]
+        elif 'timestamp' in ohlcv_df.columns:
+            timestamps = ohlcv_df['timestamp']
+            if timestamps.dt.tz is None:
+                timestamps = timestamps.dt.tz_localize('UTC')
+            timestamps = timestamps.dt.tz_convert('America/New_York')
+            mask = (timestamps >= window_start) & (timestamps <= window_end)
             ohlcv_df = ohlcv_df[mask]
         
         # Detect interaction zone entries (only within training window)

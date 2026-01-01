@@ -7,10 +7,10 @@ All distance features should be SIGNED and have ATR-normalized variants.
 Required distances (v1 level universe):
 - dist_to_pm_high
 - dist_to_pm_low
-- dist_to_or_high (MISSING - add this)
-- dist_to_or_low (MISSING - add this)
-- dist_to_sma_200
-- dist_to_sma_400
+- dist_to_or_high
+- dist_to_or_low
+- dist_to_sma_90
+- dist_to_ema_20
 """
 
 from typing import Any, Dict, List
@@ -34,7 +34,7 @@ def compute_all_level_distances(
     
     Args:
         signals_df: DataFrame with signals (must have bar_idx, level_price)
-        dynamic_levels: Dict of level series (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400)
+        dynamic_levels: Dict of level series (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90, EMA_20)
         atr: Optional ATR series for normalized distances
     
     Returns:
@@ -44,19 +44,19 @@ def compute_all_level_distances(
         return signals_df
     
     # v1 level types
-    level_types = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+    level_types = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
     
     n = len(signals_df)
     bar_idx = signals_df.get('bar_idx')
     level_prices = signals_df['level_price'].values.astype(np.float64)
     
-    # Get current spot from the tested level's bar
-    # Assume tested level is at spot (this is the event anchor)
-    # For other levels, compute spot - other_level
-    
-    # Better: get spot from ohlcv close at bar_idx
-    # For now, approximate: level_price is the tested level, so spot ≈ level_price
-    spot_prices = level_prices.copy()  # Approximation
+    # Prefer actual spot/entry price when available
+    if 'spot' in signals_df.columns:
+        spot_prices = signals_df['spot'].astype(np.float64).to_numpy()
+    elif 'entry_price' in signals_df.columns:
+        spot_prices = signals_df['entry_price'].astype(np.float64).to_numpy()
+    else:
+        raise ValueError("signals_df missing 'spot' or 'entry_price' for distance computation")
     
     result = signals_df.copy()
     
@@ -74,7 +74,7 @@ def compute_all_level_distances(
                     idx = int(bar_idx.iloc[i])
                     if 0 <= idx < len(level_series):
                         level_val = level_series.iloc[idx]
-                        if np.isfinite(level_val):
+                        if np.isfinite(level_val) and np.isfinite(spot_prices[i]):
                             # Signed distance: positive = above level, negative = below
                             distances[i] = spot_prices[i] - level_val
             
@@ -166,4 +166,3 @@ class ComputeLevelDistancesStage(BaseStage):
         )
         
         return {'signals_df': signals_df}
-

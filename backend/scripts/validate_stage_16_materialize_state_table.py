@@ -11,7 +11,7 @@ Validation Checks:
 - Required inputs present (signals_df, ohlcv_2min, date)
 - state_df output exists with correct schema
 - Timestamp coverage: 09:30-12:30 ET at 30s intervals
-- 6 level_kinds present (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400)
+- 6 level_kinds present (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90, EMA_20)
 - OR levels inactive before 09:45 ET
 - All features are online-safe (no future data)
 """
@@ -171,7 +171,7 @@ class Stage16Validator:
 
         # Check level_kinds
         level_kinds = state_df['level_kind'].unique()
-        expected_levels = {'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400'}
+        expected_levels = {'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20'}
         missing_levels = expected_levels - set(level_kinds)
         
         if missing_levels:

@@ -88,7 +88,7 @@ class DataValidator:
         'barrier_state': ['VACUUM', 'WALL', 'ABSORPTION', 'CONSUMED', 'WEAK', 'NEUTRAL'],
         'level_kind_name': [
             'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SESSION_HIGH', 'SESSION_LOW',
-            'SMA_200', 'SMA_400', 'VWAP', 'ROUND', 'STRIKE', 'CALL_WALL', 'PUT_WALL'
+            'SMA_90', 'EMA_20', 'VWAP', 'ROUND', 'STRIKE', 'CALL_WALL', 'PUT_WALL'
         ],
         'symbol': ['ES'],
     }
@@ -102,19 +102,19 @@ class DataValidator:
     }
 
     ALLOWED_MISSING_COLUMNS = {
-        'sma_200',
-        'sma_400',
-        'dist_to_sma_200',
-        'dist_to_sma_400',
-        'sma_200_slope',
-        'sma_400_slope',
-        'sma_200_slope_5bar',
-        'sma_400_slope_5bar',
+        'sma_90',
+        'ema_20',
+        'dist_to_sma_90',
+        'dist_to_ema_20',
+        'sma_90_slope',
+        'ema_20_slope',
+        'sma_90_slope_5bar',
+        'ema_20_slope_5bar',
         'sma_spread',
-        'mean_reversion_pressure_200',
-        'mean_reversion_pressure_400',
-        'mean_reversion_velocity_200',
-        'mean_reversion_velocity_400',
+        'mean_reversion_pressure_90',
+        'mean_reversion_pressure_20',
+        'mean_reversion_velocity_90',
+        'mean_reversion_velocity_20',
         'confluence_min_distance',
         'time_to_threshold_1',
         'time_to_threshold_2',
@@ -444,12 +444,12 @@ class DataValidator:
 
         # Distance geometry
         if {"level_price", "spot", "distance"}.issubset(df.columns):
-            distance_calc = (df["level_price"] - df["spot"]).abs().to_numpy()
+            distance_calc = (df["spot"] - df["level_price"]).abs().to_numpy()
             distance = df["distance"].to_numpy()
             distance_match = np.allclose(distance, distance_calc, atol=0.01)
             if not distance_match:
                 self._add_result("distance_geometry", False, "ERROR",
-                               "Distance != |level_price - spot|")
+                               "Distance != |spot - level_price|")
             else:
                 self._add_result("distance_geometry", True, "INFO",
                                "Distance geometry matches")
@@ -464,8 +464,8 @@ class DataValidator:
 
         # Direction consistency
         if {"direction", "distance_signed"}.issubset(df.columns):
-            up_valid = df[df["direction"] == "UP"]["distance_signed"].ge(-0.01).all()
-            down_valid = df[df["direction"] == "DOWN"]["distance_signed"].le(0.01).all()
+            up_valid = df[df["direction"] == "UP"]["distance_signed"].le(0.01).all()
+            down_valid = df[df["direction"] == "DOWN"]["distance_signed"].ge(-0.01).all()
             if not (up_valid and down_valid):
                 self._add_result("direction_consistency", False, "ERROR",
                                f"Direction consistency failed: UP={up_valid}, DOWN={down_valid}")

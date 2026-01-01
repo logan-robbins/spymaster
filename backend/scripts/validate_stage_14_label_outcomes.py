@@ -13,7 +13,7 @@ Outcome Semantics (UPDATED):
 - CHOP: Neither threshold crossed within horizon
 
 Validation Checks:
-- Required inputs present (signals_df, ohlcv_2min)
+- Required inputs present (signals_df, ohlcv_1min)
 - signals_df output exists and has required outcome columns
 - Row count matches input
 - Outcome values within expected set {BREAK, REJECT, CHOP}
@@ -97,7 +97,7 @@ class Stage14Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['signals_df', 'ohlcv_2min']  # Updated to use 2min bars
+        required_inputs = ['signals_df', 'ohlcv_1min']  # Updated to use 1min bars
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())

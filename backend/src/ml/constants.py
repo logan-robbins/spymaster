@@ -37,17 +37,16 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-# ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 152  # Updated to 152 (149 + 3 extra kinematics scales + 1 missed barrier state fix)
+VECTOR_DIMENSION = 144  # Canonical spec: 144D vectors
 
-# Vector section boundaries (152D)
+# Vector section boundaries (144D)
 VECTOR_SECTIONS = {
     'context_regime': (0, 25),       # 25 dims
-    'multiscale_dynamics': (25, 65), # 40 dims
-    'micro_history': (65, 100),      # 35 dims
-    'derived_physics': (100, 116),   # 16 dims (Added mass/force proxies, tide, barrier state)
-    'online_trends': (116, 120),     # 4 dims
-    'trajectory_basis': (120, 152),  # 32 dims
+    'multiscale_dynamics': (25, 62), # 37 dims
+    'micro_history': (62, 97),       # 35 dims
+    'derived_physics': (97, 108),    # 11 dims
+    'online_trends': (108, 112),     # 4 dims
+    'trajectory_basis': (112, 144),  # 32 dims
 }
 
 # ─── Normalization Parameters ───
@@ -83,4 +82,3 @@ LOOKBACK_WINDOW_MIN = 20  # For trajectory basis DCT
 # Using existing threshold logic (1.0 ATR for break/bounce)
 THETA_BREAK = 1.0  # ATR units
 THETA_REJECT = 1.0  # ATR units
-

@@ -48,7 +48,7 @@ ZSCORE_FEATURES = {
     # Distances (signed, symmetric)
     'distance_signed_atr', 'd_atr',
     'dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr', 'dist_to_or_low_atr',
-    'dist_to_sma_200_atr', 'dist_to_sma_400_atr',
+    'dist_to_sma_90_atr', 'dist_to_ema_20_atr',
     # Approach
     'approach_velocity', 'approach_distance_atr',
     # Other

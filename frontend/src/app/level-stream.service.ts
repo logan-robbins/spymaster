@@ -13,7 +13,7 @@ export interface SpySnapshot {
 export interface LevelSignal {
     id: string;
     level_price: number;
-    level_kind_name: 'PM_HIGH' | 'PM_LOW' | 'OR_HIGH' | 'OR_LOW' | 'SESSION_HIGH' | 'SESSION_LOW' | 'SMA_200' | 'SMA_400' | 'VWAP' | 'ROUND' | 'STRIKE' | 'CALL_WALL' | 'PUT_WALL';
+    level_kind_name: 'PM_HIGH' | 'PM_LOW' | 'OR_HIGH' | 'OR_LOW' | 'SESSION_HIGH' | 'SESSION_LOW' | 'SMA_90' | 'EMA_20' | 'VWAP' | 'ROUND' | 'STRIKE' | 'CALL_WALL' | 'PUT_WALL';
     direction: 'UP' | 'DOWN';
     distance: number;
     is_first_15m: boolean;

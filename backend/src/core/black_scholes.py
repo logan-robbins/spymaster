@@ -12,6 +12,7 @@ Performance: Uses numpy vectorization for batch calculations on millions of trad
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 import numpy as np
 
@@ -218,9 +219,9 @@ class BlackScholesCalculator:
     based on market close at 4:00 PM ET.
     """
 
-    # Market close in UTC (4 PM ET = 21:00 UTC during EST)
-    MARKET_CLOSE_UTC_HOUR = 21
-    MARKET_CLOSE_UTC_MINUTE = 0
+    # Market close in ET (4 PM). Converted to UTC to respect DST.
+    MARKET_CLOSE_ET_HOUR = 16
+    MARKET_CLOSE_ET_MINUTE = 0
 
     # Default risk-free rate (Fed Funds Rate approximation)
     DEFAULT_RISK_FREE_RATE = 0.045  # 4.5% as of late 2024
@@ -254,15 +255,14 @@ class BlackScholesCalculator:
         # Parse expiration date
         exp = datetime.strptime(exp_date, '%Y-%m-%d')
 
-        # Market close time on expiration day (4 PM ET = 21:00 UTC in winter)
-        # Note: This should account for DST but for 0DTE it's close enough
-        expiry_ts = datetime(
+        # Market close time on expiration day (4 PM ET, DST-aware)
+        expiry_et = datetime(
             exp.year, exp.month, exp.day,
-            hour=self.MARKET_CLOSE_UTC_HOUR,
-            minute=self.MARKET_CLOSE_UTC_MINUTE,
-            tzinfo=timezone.utc
+            hour=self.MARKET_CLOSE_ET_HOUR,
+            minute=self.MARKET_CLOSE_ET_MINUTE,
+            tzinfo=ZoneInfo("America/New_York")
         )
-        expiry_ns = int(expiry_ts.timestamp() * 1e9)
+        expiry_ns = int(expiry_et.astimezone(timezone.utc).timestamp() * 1e9)
 
         # Calculate remaining time
         remaining_ns = max(0, expiry_ns - ts_ns)

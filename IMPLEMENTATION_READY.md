@@ -122,8 +122,8 @@ This system retrieves historically similar market setups when price approaches k
 | Pre-Market Low | `PM_LOW` | Lowest price during pre-market session | 09:30:00 ET |
 | Opening Range High | `OR_HIGH` | Highest price in first 15 minutes | 09:45:00 ET |
 | Opening Range Low | `OR_LOW` | Lowest price in first 15 minutes | 09:45:00 ET |
-| 200-period SMA | `SMA_200` | 200-bar SMA on 2-minute bars | 09:30:00 ET (dynamic) |
-| 400-period SMA | `SMA_400` | 400-bar SMA on 2-minute bars | 09:30:00 ET (dynamic) |
+| 90-period SMA | `SMA_90` | 90-bar SMA on 2-minute bars | 09:30:00 ET (dynamic) |
+| 20-period EMA | `EMA_20` | 20-bar EMA on 2-minute bars | 09:30:00 ET (dynamic) |
 
 ### 1.3 System Outputs
 
@@ -178,7 +178,7 @@ Identifiers:
   - ts_ns: int64
 
 Level Context:
-  - level_kind: string {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400}
+  - level_kind: string {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90, EMA_20}
   - level_price: float64
   - direction: string {UP, DOWN}
   - zone_width: float64
@@ -273,9 +273,9 @@ gold/indices/es_level_indices/version={canonical_version}/
 │   └── [same structure]
 ├── OR_LOW/
 │   └── [same structure]
-├── SMA_200/
+├── SMA_90/
 │   └── [same structure]
-├── SMA_400/
+├── EMA_20/
 │   └── [same structure]
 └── config.json
 ```
@@ -409,8 +409,8 @@ Distances to All Levels (ATR-normalized):
   dist_to_pm_low_atr: float64
   dist_to_or_high_atr: float64 | null  # null before 09:45
   dist_to_or_low_atr: float64 | null
-  dist_to_sma_200_atr: float64
-  dist_to_sma_400_atr: float64
+  dist_to_sma_90_atr: float64
+  dist_to_ema_20_atr: float64
 
 Level Stacking:
   level_stacking_2pt: int
@@ -504,7 +504,7 @@ Cluster Trends:
 
 ### 4.4 Computation Notes
 
-1. **SMA levels**: `level_price` for SMA_200/SMA_400 is computed at each timestamp (they are moving targets)
+1. **SMA levels**: `level_price` for SMA_90/EMA_20 is computed at each timestamp (they are moving targets)
 
 2. **OR levels before 09:45**: Set `level_active = false`, `level_price = null`, distances to OR = null
 
@@ -649,8 +649,8 @@ Index   Feature                      Encoding / Notes
 8       dist_to_pm_low_atr           Z-score normalized
 9       dist_to_or_high_atr          Z-score normalized (0 if OR not active)
 10      dist_to_or_low_atr           Z-score normalized (0 if OR not active)
-11      dist_to_sma_200_atr          Z-score normalized
-12      dist_to_sma_400_atr          Z-score normalized
+11      dist_to_sma_90_atr          Z-score normalized
+12      dist_to_ema_20_atr          Z-score normalized
 13      prior_touches                MinMax normalized [0, 10]
 14      attempt_index                MinMax normalized [0, 10]
 15      time_since_last_touch_sec    MinMax normalized (seconds since last touch)
@@ -864,7 +864,7 @@ The retrieval system uses partitioned FAISS indices to ensure regime-comparable 
 
 Indices are partitioned by three dimensions:
 
-1. **level_kind**: {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400} (6 values)
+1. **level_kind**: {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90, EMA_20} (6 values)
 2. **direction**: {UP, DOWN} (2 values)
 3. **time_bucket**: {T0_15, T15_30, T30_60, T60_120, T120_180} (5 values)
 
@@ -1319,7 +1319,7 @@ The ES pipeline consists of 18 stages that transform raw Databento data through 
 | 1 | BuildOHLCV (1min) | 1-minute OHLCV for ATR computation |
 | 2 | BuildOHLCV (2min) | 2-minute OHLCV for SMA calculation |
 | 3 | InitMarketState | Market state + Greeks initialization |
-| 4 | GenerateLevels | 6 level kinds (PM/OR high/low, SMA_200/400) |
+| 4 | GenerateLevels | 6 level kinds (PM/OR high/low, SMA_90/EMA_20) |
 | 5 | DetectInteractionZones | Event detection at zone entry |
 | 6 | ComputePhysics | Barrier/Tape/Fuel computation |
 | 7 | ComputeMultiWindowKinematics | Velocity/Accel/Jerk at 5 scales |
@@ -1545,8 +1545,8 @@ data/
 | 8 | dist_to_pm_low_atr | dist_to_pm_low_atr | Z-Score |
 | 9 | dist_to_or_high_atr | dist_to_or_high_atr | Z-Score |
 | 10 | dist_to_or_low_atr | dist_to_or_low_atr | Z-Score |
-| 11 | dist_to_sma_200_atr | dist_to_sma_200_atr | Z-Score |
-| 12 | dist_to_sma_400_atr | dist_to_sma_400_atr | Z-Score |
+| 11 | dist_to_sma_90_atr | dist_to_sma_90_atr | Z-Score |
+| 12 | dist_to_ema_20_atr | dist_to_ema_20_atr | Z-Score |
 | 13 | prior_touches | prior_touches | MinMax [0, 10] |
 | 14 | attempt_index | attempt_index | MinMax [0, 10] |
 | 15 | time_since_last_touch_sec | time_since_last_touch | MinMax |
@@ -1775,7 +1775,7 @@ CALIBRATION_WARNING_ECE = 0.10    # Expected calibration error warning
 ### C.6 Level Kinds
 
 ```python
-LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 ```
 
 ### C.8 Vector Parameters

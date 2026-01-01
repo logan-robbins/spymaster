@@ -37,7 +37,7 @@ def label_outcomes(
 
     Args:
         signals_df: DataFrame with signals (event table)
-        ohlcv_df: OHLCV DataFrame (ES futures, 2min bars)
+        ohlcv_df: OHLCV DataFrame (ES futures, 1min bars)
         lookforward_minutes: Not used (horizons are fixed at 2/4/8 min)
         outcome_threshold: Not used (threshold is 1.0 ATR, computed dynamically)
         use_multi_timeframe: Must be True (generates 2/4/8min labels)
@@ -104,13 +104,19 @@ def label_outcomes(
             direction = directions[i]
             level_price = level_prices[i]
             atr = atrs[i]
+
+            if not np.isfinite(atr) or atr <= 0:
+                outcomes[i] = 'CHOP'
+                continue
             
             # ATR-normalized threshold: 1.0 ATR (fixed per spec)
             threshold_atr = 1.0
             threshold_points = threshold_atr * atr
             
-            start_idx = np.searchsorted(ohlcv_ts, ts, side='left')
-            if start_idx < 0 or start_idx >= len(ohlcv_ts):
+            start_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
+            if start_idx < 0:
+                start_idx = 0
+            if start_idx >= len(ohlcv_ts):
                 outcomes[i] = 'CHOP'
                 continue
 
@@ -267,11 +273,11 @@ class LabelOutcomesStage(BaseStage):
 
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'ohlcv_2min']  # Use 2min bars per spec
+        return ['signals_df', 'ohlcv_1min']  # Use 1min bars for precise alignment
 
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
-        ohlcv_df = ctx.data.get('ohlcv_2min', ctx.data.get('ohlcv_1min'))  # Fallback to 1min if 2min not available
+        ohlcv_df = ctx.data['ohlcv_1min']
 
         n_signals = len(signals_df)
         logger.info(f"  Labeling outcomes (first-crossing, ATR-normalized) for {n_signals:,} signals...")

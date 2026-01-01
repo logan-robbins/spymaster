@@ -66,6 +66,7 @@ def build_ohlcv(
     # Drop NaN bars
     ohlcv = ohlcv.dropna(subset=['open'])
     ohlcv = ohlcv.reset_index()
+    ohlcv['ts_ns'] = ohlcv['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
 
     # ES prices are already in index points; no conversion needed.
     if convert_to_spx:

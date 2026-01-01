@@ -19,7 +19,7 @@ interface StreamBar {
   // METADATA (for context and filtering)
   // ============================================================
   timestamp: string;              // ISO 8601: "2024-12-16T10:32:00"
-  level_kind: LevelKind;          // "PM_HIGH" | "PM_LOW" | "OR_HIGH" | "OR_LOW" | "SMA_200" | "SMA_400"
+  level_kind: LevelKind;          // "PM_HIGH" | "PM_LOW" | "OR_HIGH" | "OR_LOW" | "SMA_90" | "EMA_20"
   direction: Direction;           // "UP" | "DOWN" (approach direction)
   spot: number;                   // Current underlying price (e.g., 6875.25)
   atr: number;                    // Current ATR value (e.g., 12.5)
@@ -95,7 +95,7 @@ interface StreamBar {
 }
 
 // Type definitions
-type LevelKind = "PM_HIGH" | "PM_LOW" | "OR_HIGH" | "OR_LOW" | "SMA_200" | "SMA_400";
+type LevelKind = "PM_HIGH" | "PM_LOW" | "OR_HIGH" | "OR_LOW" | "SMA_90" | "EMA_20";
 type Direction = "UP" | "DOWN";
 ```
 

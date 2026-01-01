@@ -18,6 +18,7 @@ import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.event_types import MBP10
+from src.common.config import CONFIG
 
 
 def compute_barrier_evolution(
@@ -51,24 +52,31 @@ def compute_barrier_evolution(
             result[f'barrier_pct_change{suffix}'] = 0.0
         return result
     
-    # Build barrier depth time series
-    mbp_times = np.array([mbp.ts_event_ns for mbp in mbp10_snapshots], dtype=np.int64)
-    
-    # Compute depth at best bid/ask (top level)
-    mbp_depths = []
-    for mbp in mbp10_snapshots:
-        if len(mbp.levels) > 0:
-            # Total depth at top 5 levels
-            depth = sum(level.bid_sz + level.ask_sz for level in mbp.levels[:5])
-            mbp_depths.append(depth)
-        else:
-            mbp_depths.append(0.0)
-    
-    mbp_depths = np.array(mbp_depths, dtype=np.float64)
+    # Build barrier depth time series (sorted)
+    sorted_snapshots = sorted(mbp10_snapshots, key=lambda mbp: mbp.ts_event_ns)
+    mbp_times = np.array([mbp.ts_event_ns for mbp in sorted_snapshots], dtype=np.int64)
+
+    zone_es = CONFIG.BARRIER_ZONE_ES_TICKS * 0.25
+
+    def _depth_in_zone(mbp: MBP10, level_price: float, side: str) -> float:
+        zone_low = level_price - zone_es
+        zone_high = level_price + zone_es
+        total = 0.0
+        for level in mbp.levels:
+            if side == 'bid':
+                price = level.bid_px
+                size = level.bid_sz
+            else:
+                price = level.ask_px
+                size = level.ask_sz
+            if zone_low <= price <= zone_high:
+                total += size
+        return float(total)
     
     n = len(signals_df)
     signal_ts = signals_df['ts_ns'].values
     level_prices = signals_df['level_price'].values.astype(np.float64)
+    directions = signals_df['direction'].values if 'direction' in signals_df.columns else None
     
     result = signals_df.copy()
     
@@ -94,8 +102,9 @@ def compute_barrier_evolution(
             if past_idx < 0:
                 continue
             
-            current_depth = mbp_depths[current_idx]
-            past_depth = mbp_depths[past_idx]
+            side = 'ask' if directions is not None and directions[i] == 'UP' else 'bid'
+            current_depth = _depth_in_zone(sorted_snapshots[current_idx], level, side)
+            past_depth = _depth_in_zone(sorted_snapshots[past_idx], level, side)
             
             # Delta
             barrier_delta[i] = current_depth - past_depth
@@ -115,7 +124,8 @@ def compute_barrier_evolution(
         ts = signal_ts[i]
         current_idx = np.searchsorted(mbp_times, ts, side='right') - 1
         if 0 <= current_idx < len(mbp_times):
-            current_depths[i] = mbp_depths[current_idx]
+            side = 'ask' if directions is not None and directions[i] == 'UP' else 'bid'
+            current_depths[i] = _depth_in_zone(sorted_snapshots[current_idx], level_prices[i], side)
     
     result['barrier_depth_current'] = current_depths
     
@@ -148,4 +158,3 @@ class ComputeBarrierEvolutionStage(BaseStage):
         )
         
         return {'signals_df': signals_df}
-

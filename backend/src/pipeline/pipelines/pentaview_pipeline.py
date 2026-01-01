@@ -95,7 +95,9 @@ class LoadStateTableStage(BaseStage):
         if 'direction' not in state_df.columns:
             # Infer direction from distance_signed_atr
             state_df['direction'] = state_df['distance_signed_atr'].apply(
-                lambda d: 'UP' if d < 0 else 'DOWN'
+                # distance_signed_atr = (spot - level_price) / atr
+                # spot < level_price  -> approaching from below -> UP
+                lambda d: 'DOWN' if d > 0 else 'UP'
             )
         
         if 'fuel_effect_encoded' not in state_df.columns and 'fuel_effect' in state_df.columns:
@@ -154,4 +156,3 @@ def build_pentaview_pipeline() -> Pipeline:
             )
         ]
     )
-

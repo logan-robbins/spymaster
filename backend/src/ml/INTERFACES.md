@@ -436,7 +436,7 @@ X_val = X[val_mask]
 
 **Stage B Features** (+ technical analysis):
 - Stage A features +
-- SMA: `sma_200_distance`, `sma_400_distance`, `sma_slope_short`, `sma_slope_long`
+- SMA: `dist_to_sma_90`, `dist_to_ema_20`, `sma_90_slope_5bar`, `ema_20_slope_5bar`
 - Confluence: `confluence_count`, `confluence_score`, `confluence_min_distance`
 - Approach: `approach_velocity`, `approach_bars`, `prior_touches`
 

@@ -66,7 +66,7 @@ class TestComprehensiveSchema:
             
             # Context
             is_first_15m=True,
-            dist_to_sma_200=2.5,
+            dist_to_sma_90=2.5,
             
             # Basic physics
             wall_ratio=3.5,
@@ -142,7 +142,7 @@ class TestComprehensiveSchema:
         
         # Agent B: Add context
         signal.is_first_15m = True
-        signal.dist_to_sma_200 = 0.5
+        signal.dist_to_sma_90 = 0.5
         signal.spot = 687.35
         
         # Advanced physics (could be Agent A extended)

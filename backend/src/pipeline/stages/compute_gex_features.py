@@ -102,17 +102,12 @@ def compute_strike_banded_gex(
     # Standardized: we use gamma × contracts for relative comparisons.
     opt_df['strike'] = opt_df['strike'].astype(np.float64)
     opt_df['gamma'] = opt_df['gamma'].fillna(0).astype(np.float64)
-    opt_df['contracts'] = opt_df['contracts'].astype(np.int64)
+    opt_df['contracts'] = opt_df['contracts'].astype(np.float64)
     opt_df['right'] = opt_df['right'].astype(str)
-    
-    # Aggregate by strike + right
-    gex_by_strike = opt_df.groupby(['strike', 'right']).agg({
-        'gamma': 'sum',
-        'contracts': 'sum'
-    }).reset_index()
-    
-    # Compute dealer GEX (negative of customer gamma)
-    gex_by_strike['dealer_gex'] = -gex_by_strike['gamma'] * gex_by_strike['contracts']
+
+    # Compute dealer GEX per record, then aggregate by strike + right
+    opt_df['dealer_gex'] = -opt_df['gamma'] * opt_df['contracts']
+    gex_by_strike = opt_df.groupby(['strike', 'right'])['dealer_gex'].sum().reset_index()
     
     n = len(signals_df)
     level_prices = signals_df['level_price'].values.astype(np.float64)

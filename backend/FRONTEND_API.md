@@ -95,7 +95,7 @@ interface Level {
   // Identity
   id: string;
   level_price: number;
-  level_kind_name: string;  // PM_HIGH, OR_LOW, SMA_200, etc.
+  level_kind_name: string;  // PM_HIGH, OR_LOW, SMA_90, etc.
   direction: "UP" | "DOWN";
   distance: number;
   
@@ -165,7 +165,7 @@ Physics features (velocity, order flow) are "adversarial" - high velocity can me
 ### Future: Transformer (Phase 5)
 When we deploy the neural model, it will learn when to use physics:
 - At **PM_HIGH**: Physics helps (+6.5% accuracy)
-- At **SMA_200**: Physics hurts (-11.3% accuracy)
+- At **SMA_90**: Physics hurts (-11.3% accuracy)
 
 The transformer will add a `ml_predictions.transformer` field alongside the current `ml_predictions` kNN output.
 

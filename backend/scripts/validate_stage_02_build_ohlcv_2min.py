@@ -3,7 +3,7 @@ Validate Stage 2: BuildOHLCV (2min with warmup)
 
 Goals:
 1. Build 2-minute OHLCV bars from ES futures trades
-2. Include warmup days for SMA_200/400 calculation
+2. Include warmup days for SMA_90/EMA_20 calculation
 3. Verify multi-day data concatenation
 4. Ensure proper time ordering across dates
 5. Validate bar structure for SMA computation
@@ -14,7 +14,7 @@ Validation Checks:
 - DatetimeIndex preservation
 - Multi-day timestamp ordering
 - OHLC relationships
-- Sufficient warmup for SMA_200/400
+- Sufficient warmup for SMA_90/EMA_20
 """
 
 import argparse
@@ -216,20 +216,20 @@ class Stage2Validator:
                 self.logger.info(f"  ✅ Warmup included: {days_of_warmup} days before {date}")
                 checks['warmup_included'] = True
                 
-                # Check if sufficient for SMA_200/400
-                # SMA_200 @ 2min = 200 bars = ~6.67 hours
-                # SMA_400 @ 2min = 400 bars = ~13.33 hours  
-                # Need ~2-3 trading days for SMA_400
+                # Check if sufficient for SMA_90/EMA_20
+                # SMA_90 @ 2min = 90 bars = 3.0 hours
+                # EMA_20 @ 2min = 20 bars = ~40 minutes
+                # Use SMA_WARMUP_DAYS for stability
                 warmup_days_needed = CONFIG.SMA_WARMUP_DAYS if hasattr(CONFIG, 'SMA_WARMUP_DAYS') else 3
                 
                 if days_of_warmup < warmup_days_needed:
                     checks['warmup_sufficient'] = False
-                    warning = f"Insufficient warmup: {days_of_warmup} days (need {warmup_days_needed} for SMA_400)"
+                    warning = f"Insufficient warmup: {days_of_warmup} days (need {warmup_days_needed} for SMA_90/EMA_20)"
                     self.results['warnings'].append(warning)
                     self.logger.warning(f"  ⚠️  {warning}")
                 else:
                     checks['warmup_sufficient'] = True
-                    self.logger.info(f"  ✅ Sufficient warmup for SMA_400")
+                    self.logger.info(f"  ✅ Sufficient warmup for SMA_90/EMA_20")
             else:
                 checks['warmup_included'] = False
                 warning = "No warmup data (starts on target date)"
@@ -440,4 +440,3 @@ def main():
 if __name__ == "__main__":
     import sys
     sys.exit(main())
-

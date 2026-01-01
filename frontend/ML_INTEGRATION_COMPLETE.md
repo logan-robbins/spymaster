@@ -212,7 +212,7 @@ All components work with mock ML predictions
    - **Used during regular hours** as key support/resistance
    - ML models trained on these levels' behavior during regular hours
 
-2. **SMA-200/400**:
+2. **SMA-90/EMA-20**:
    - Calculated on 2-minute bars continuously
    - Includes pre-market data for warmup
    - **Valid throughout trading day**
@@ -231,7 +231,7 @@ All components work with mock ML predictions
 
 **8:45 AM ET** (Pre-Market):
 - PM High established at $585.50
-- SMA-200 at $584.80
+- SMA-90 at $584.80
 - **Options not trading yet** → No viewport targets
 
 **10:00 AM ET** (Regular Hours):

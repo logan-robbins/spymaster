@@ -108,7 +108,7 @@ class FeatureHistorian:
             
             snapshot = LevelHistorySnapshot(
                 ts_ns=ts_ns,
-                distance_signed=level.price - spot,
+                distance_signed=spot - level.price,
                 barrier_delta_liq=barrier.delta_liq,
                 tape_imbalance=tape.imbalance,
                 ofi_60s=ofi_60s,

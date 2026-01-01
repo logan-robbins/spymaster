@@ -4,7 +4,7 @@ ES Futures + ES Options Multi-Window Physics Pipeline + Episode Retrieval.
 Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
 Inference: Event-driven (zone entry + adaptive cadence)
 Features: 182 columns (10 identity + 108 engineered features + 64 labels)
-Levels: 6 kinds (PM/OR high/low + SMA_200/400)
+Levels: 6 kinds (PM/OR high/low + SMA_90/EMA_20)
 Outcome: First-crossing semantics (BREAK/REJECT/CHOP), 2/4/8min horizons
 Episode Vectors: 144-dimensional vectors with DCT trajectory basis for similarity retrieval
 Zone Threshold: 2.0 ATR (compromise between 3.0 original and 1.25 analyst)
@@ -40,9 +40,9 @@ def build_es_pipeline() -> Pipeline:
     Stage sequence (0-indexed):
     0. LoadBronze (ES futures + options, front-month filtered)
     1. BuildOHLCV (1min for ATR/volatility)
-    2. BuildOHLCV (2min with warmup for SMA_200/400)
+    2. BuildOHLCV (2min with warmup for SMA_90/EMA_20)
     3. InitMarketState (ES market state)
-    4. GenerateLevels (6 level kinds: PM/OR high/low + SMA_200/400)
+    4. GenerateLevels (6 level kinds: PM/OR high/low + SMA_90/EMA_20)
     5. DetectInteractionZones (event-driven zone entry, deterministic IDs)
     6. ComputePhysics (barrier, tape, fuel from engines)
     7. ComputeMultiWindowKinematics (velocity/accel/jerk at 1,3,5,10,20min)

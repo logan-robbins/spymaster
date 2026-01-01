@@ -158,7 +158,7 @@ class LevelSignalService:
         # Key defaults per UX:
         # - PM_HIGH / PM_LOW
         # - OR_HIGH / OR_LOW (15m opening range)
-        # - SMA_200 / SMA_400 (2m bars)
+        # - SMA_90 / EMA_20 (2m bars)
         #
         # Optional overlays:
         # - VWAP
@@ -168,8 +168,8 @@ class LevelSignalService:
             LevelKind.PM_LOW,
             LevelKind.OR_HIGH,
             LevelKind.OR_LOW,
-            LevelKind.SMA_200,
-            LevelKind.SMA_400,
+            LevelKind.SMA_90,
+            LevelKind.EMA_20,
             LevelKind.VWAP,
             LevelKind.CALL_WALL,
             LevelKind.PUT_WALL,
