@@ -4,9 +4,6 @@
 > **TARGET AUDIENCE: AI CODING AGENTS**
 > This document defines the *intent*, *history*, and *scientific goals* of the project. Use this to understand *why* the code exists, not just *how* it works. Prioritize the **Glass Box** philosophy over "Black Box" optimization.
 
-> [!NOTE]
-> **ACADEMIC GOAL:** This research ultimately supports the paper: *"The Geometry of Liquidity: Why Trajectory Isomorphism Outperforms Microstructure Physics in High-Frequency Context Retrieval"*.
-
 ---
 
 ## 1. Core Thesis: "Contextual Intelligence over Oracle Prediction"
@@ -112,6 +109,9 @@ We are now optimizing the **Quality of the Mirror**.
 *   **Experimental Goal:** Compress Physics into **3-5 Latent Factors** (Net Aggression, Inertia).
 *   **The End State:** A balanced vector where **Geometry determines the Probability** (Base Rate) and **Physics determines the Magnitude** (Volatility).
 
+**IMPORTANT**
+This is EVOLVING THOUGHT- none of this is GOSPEL/FACT/IN STONE. ANYTHING can be contradicted by rerunning ablations at any time.
+
 ---
 
 ## 5. Deployment & Infrastructure Rules
@@ -129,22 +129,3 @@ We are now optimizing the **Quality of the Mirror**.
 
 ---
 
-## 6. Academic Output (The "Why")
-
-We are building a product ("Market Intelligence"), but it relies on a specific academic discovery.
-
-**Paper Title:** *"The Geometry of Liquidity: Why Trajectory Isomorphism Outperforms Microstructure Physics in High-Frequency Context Retrieval"*
-
-**The Thesis:**
-Modern microstructure theory assumes that **Order Flow (Physics)** is the primary driver of price. We challenge this by proving that at key structural levels (SMAs, Open Ranges), **Shape (Geometry)** is the dominant predictor of outcome context.
-
-**The Narrative Arc:**
-1.  **The Hypothesis:** We assumed high-fidelity physical matching (Velocity, OFI, Jerk) would yield high-accuracy predictions.
-2.  **The Anomaly (Phase 2):** We found a **Similarity Inversion**. The closest "Physical Twins" often had *opposite* outcomes. High-velocity approaches predicted breaks in the past, but rejections in the present.
-3.  **The Theory:** **Physics is Adversarial.** Order flow is often "spoofing" or "absorption" (hidden intent). A high-velocity move might be a "Stop Run" (fake) or a "Breakout" (real). The physics look identical.
-4.  **The Solution:** **Geometry is Truth.** The *Path Shape* (DCT Trajectory) represents the net consensus of all participants. When the *shape* matches, history repeats.
-5.  **Conclusion:** Market outcomes are path-dependent (Geometric) rather than force-dependent (Physical) at 5-minute horizons.
-
-**Implication for Agents:**
-*   **Prioritize Geometry:** When refining the Vector (Phase 4), focus on features that describe *Shape* (DCT, Trends, Patterns).
-*   **Distrust Physics:** Treat "OFI" and "Velocity" as context labels, not predictive signals.
