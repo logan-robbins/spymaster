@@ -42,7 +42,7 @@
 ### Phase 3: "Glass Box" Implementation (Current Standard)
 *   **Goal:** Operationalize Phase 2 insights.
 *   **Implementation:**
-    *   **Vector:** 149D composite (Geometry + Physics). We keep Physics because we *want* to see the velocity context, even if it predicts poorly.
+    *   **Vector:**  composite (Geometry + Physics). We keep Physics because we *want* to see the velocity context, even if it predicts poorly.
     *   **Output:** Expose `context_metrics` (Base Rates, Volatility) directly to the user.
     *   **Architecture:** `SimilarityQueryEngine` is the Source of Truth.
 *   **Status:** **LIVE / DEPLOYED (v3.1.0).**
@@ -51,7 +51,7 @@
 *   **Hypothesis:** The "Inversion" in Phase 2 was due to Physics Noise. "Geometry Only" should align closer to Ground Truth.
 *   **Metric:** Expected Calibration Error (ECE). (Target < 10%).
 *   **Experiment:** Grid Search on 361 test episodes.
-    *   **Baseline (144D Physics+Geo):** ECE = 21.35% (Broken).
+    *   **Baseline ( Physics+Geo):** ECE = 21.35% (Broken).
     *   **PCA Physics (k=3):** ECE = 5.4%.
     *   **Geometry Only (32D):** ECE = **2.40%**.
 *   **Outcome:** **Geometry Only** is the Production Standard. We achieved near-perfect calibration for Open Range/Premarket levels (< 1.5% Error).
@@ -79,7 +79,7 @@ The 149-dimensional vector is the core "genetic code" of a market setup. It is d
 | **F: Trajectory** | 32 | **Geometry**. DCT Coefficients of Price/OFI shapes. | "What does the path look like?" (The robust signal) |
 
 **Critical Constraint:**
-*   **Do not change the vector dimensions** without retraining the indices. FAISS is rigid (149D).
+*   **Do not change the vector dimensions** without retraining the indices. FAISS is rigid ().
 *   **DCT Basis:** Section F uses discrete cosine transform to encode shape frequency. This is our most robust feature set.
 
 ---
@@ -98,13 +98,13 @@ We are now optimizing the **Quality of the Mirror**.
 *   **Investigation:** Verify if `MONITOR_BAND` (currently 5.0 pts) is optimal. Should it be dynamic (ATR-based)?
 
 **Q3: Physics vs. Geometry (The Dec 31 Verdict)**
-*   **Experiment:** Comparison of 147D High-Res Physics (10s bars) vs 32D Geometry (DCT).
+*   **Experiment:** Comparison of  High-Res Physics (10s bars) vs 32D Geometry (DCT).
 *   **Result:**
     *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
     *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
     *   **Physics:** 69.1% Accuracy, **-17.0% Calibration** (Inverted).
 *   **Conclusion:** Physics features are valid but **Non-Linear**. kNN cannot use them effectively.
-*   **Phase 4.5 Update:** "Market Tide" (Net Premium Flow) added to Vector (149D) to capture explicit Money Flow conviction.
+*   **Phase 4.5 Update:** "Market Tide" (Net Premium Flow) added to Vector () to capture explicit Money Flow conviction.
 *   **Next Step:** Phase 5 (Transformers) to learn the interaction.
 
 **Q4: The "Unified Field Theory" (Holistic Vector)**

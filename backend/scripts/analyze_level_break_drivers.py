@@ -4,7 +4,7 @@ Episode-level BREAK vs REJECT driver analysis for PM/OR level interactions.
 Why this exists:
 - Avoids the "30s bars are samples" pitfall: analysis is done per interaction episode
 - Focuses on trader-relevant TA anchors: PM_HIGH/PM_LOW/OR_HIGH/OR_LOW
-- Ranks which parts of the 144D episode vector explain BREAK vs REJECT (by direction/time bucket)
+- Ranks which parts of the  episode vector explain BREAK vs REJECT (by direction/time bucket)
 - Optionally compares against Pentaview stream proxies (sigma_s, sigma_r, sigma_b_slope, sigma_p_slope, sigma_d)
 
 Usage examples:

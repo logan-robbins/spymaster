@@ -77,7 +77,7 @@ def validate_date(date: str) -> Dict:
             
         # 3. Content Checks (Skeptical Validation)
         # Check for "Dead" vectors (all zeros)
-        # Some zero vectors might be valid if everything is 0, but unlikely in 149D space
+        # Some zero vectors might be valid if everything is 0, but unlikely in  space
         zero_rows = (np.abs(vectors).sum(axis=1) == 0).sum()
         
         if zero_rows > 0:
@@ -123,7 +123,7 @@ def main():
     dates = pd.date_range(start=args.start, end=args.end, freq='B') # Business days
     date_strs = [d.strftime('%Y-%m-%d') for d in dates]
     
-    print(f"\nVALIDATING GOLD PIPELINE (149D) ({args.start} to {args.end})")
+    print(f"\nVALIDATING GOLD PIPELINE () ({args.start} to {args.end})")
     print(f"Schema Expectation: {EXPECTED_DIM} dimensions")
     print("-" * 80)
     print(f"{'DATE':<12} | {'STATUS':<8} | {'VECTORS':<6} | {'ISSUES'}")

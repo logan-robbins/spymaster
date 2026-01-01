@@ -1,4 +1,4 @@
-"""Episode vector construction - 149D per RESEARCH.md (Phase 4.5 with Market Tide)."""
+"""Episode vector construction -  per RESEARCH.md (Phase 4.5 with Market Tide)."""
 import logging
 from typing import List, Dict, Any, Tuple
 import numpy as np
@@ -17,7 +17,7 @@ from src.ml.constants import (
 logger = logging.getLogger(__name__)
 
 
-# Vector dimensions: 149D per RESEARCH.md
+# Vector dimensions:  per RESEARCH.md
 # Section boundaries verified at module load
 assert VECTOR_DIMENSION == 149, "Vector dimension must be 149 per RESEARCH.md"
 
@@ -542,7 +542,7 @@ def construct_episodes_from_events(
     """
     Construct episode vectors and metadata from event table and state table.
     
-    Updated for 149D with Market Tide (Phase 4.5):
+    Updated for  with Market Tide (Phase 4.5):
     - For each event (anchor), extract 5-bar micro-history from state table
     - Extract 40-bar (20-minute) trajectory window for DCT computation
     - Construct raw 149-dim vector (includes call_tide, put_tide)
@@ -566,7 +566,7 @@ def construct_episodes_from_events(
     if events_df.empty:
         return np.array([]), pd.DataFrame(), np.array([])
     
-    logger.info(f"Constructing 149D episode vectors from {len(events_df):,} events...")
+    logger.info(f"Constructing  episode vectors from {len(events_df):,} events...")
     
     # Sort state table by timestamp and level_kind for efficient lookup
     state_sorted = state_df.sort_values(['level_kind', 'timestamp']).copy()
@@ -597,7 +597,7 @@ def construct_episodes_from_events(
     skipped_reasons = {'no_history': 0, 'vector_construction_failed': 0, 'normalization_failed': 0}
 
     # Track recency between interaction events for the same level (seconds).
-    # This feeds `time_since_last_touch_sec` used by the setup-quality proxy and the 144D vector.
+    # This feeds `time_since_last_touch_sec` used by the setup-quality proxy and the  vector.
     last_touch_ts_ns: Dict[Tuple[str, int], int] = {}
     
     for i, event in events_sorted.iterrows():
@@ -644,7 +644,7 @@ def construct_episodes_from_events(
 
         # IMPORTANT: Anchor features should come from the event row when available.
         # The state table is forward-filled but may omit some event-only columns (e.g., 2-min kinematics),
-        # which would otherwise become zeros in the 144D vector.
+        # which would otherwise become zeros in the  vector.
         current_bar = dict(current_bar) if isinstance(current_bar, dict) else {}
         current_bar['time_since_last_touch_sec'] = time_since_last_touch_sec
 
@@ -774,7 +774,7 @@ def save_episodes(
     
     Output structure:
         gold/episodes/es_level_episodes/
-        ├── vectors/date=YYYY-MM-DD/episodes.npy (149D)
+        ├── vectors/date=YYYY-MM-DD/episodes.npy ()
         ├── sequences/date=YYYY-MM-DD/sequences.npy (40x4 Raw)
         └── metadata/date=YYYY-MM-DD/metadata.parquet
     

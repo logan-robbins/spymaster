@@ -37,9 +37,9 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 149  # Canonical spec: 149D vectors (per RESEARCH.md)
+VECTOR_DIMENSION = 149  # Canonical spec:  vectors (per RESEARCH.md)
 
-# Vector section boundaries (149D)
+# Vector section boundaries ()
 VECTOR_SECTIONS = {
     'context_regime': (0, 25),       # 25 dims
     'multiscale_dynamics': (25, 65), # 40 dims (added 2min momentum_trend, 2min barrier_delta)

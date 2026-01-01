@@ -25,7 +25,7 @@ class ConstructEpisodesStage(BaseStage):
     - Compute labels (outcome_2min/4min/8min) and emission weights
     - Output: vectors (npy) and metadata (parquet) partitioned by date
     
-    Vector architecture (144D):
+    Vector architecture ():
     - Section A: Context + Regime (25 dims) - removed redundant encodings
     - Section B: Multi-Scale Dynamics (37 dims)
     - Section C: Micro-History (35 dims, 7 features × 5 bars, LOG-TRANSFORMED)

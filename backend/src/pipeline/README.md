@@ -31,11 +31,11 @@
 - **Written by**: This pipeline - Stages 17-18
 - **Purpose**: Production-ready derived analytics for live trading and ML
 
-#### Gold - Episodes (149D Source Vectors)
+#### Gold - Episodes ( Source Vectors)
 - **Written by**: Stage 18 (ConstructEpisodes)
 - **Location**: `data/gold/episodes/es_level_episodes/version={version}/`
 - **Partitions**: 
-  - `vectors/date=YYYY-MM-DD/episodes.npy` (149D numpy arrays)
+  - `vectors/date=YYYY-MM-DD/episodes.npy` ( numpy arrays)
   - `metadata/date=YYYY-MM-DD/metadata.parquet`
   - `sequences/date=YYYY-MM-DD/sequences.npy` (40×4 raw trajectories for Transformer)
 - **Purpose**: Source of truth vectors for ML training and analysis
@@ -44,7 +44,7 @@
 - **Written by**: `build_all_indices()` from episodes
 - **Location**: `data/gold/indices/es_level_indices/`
 - **Partitions**: 48 partitions by `{level_kind}/{direction}/{time_bucket}/`
-- **Content**: 32D geometry-only vectors (Section F of 149D)
+- **Content**: 32D geometry-only vectors (Section F of )
 - **Compression**: Via `compressor.pkl` (geometry_only strategy per Phase 4)
 - **Purpose**: Live similarity retrieval (calibrated kNN)
 
@@ -52,7 +52,7 @@
 - **Streams**: `data/gold/streams/` - Aggregated 2-min bars (Pentaview)
 - **Training**: `data/gold/training/` - Curated samples for specific models
 
-**Key Point**: The 149D vector is **Gold** (episodes), not Silver. The 32D compressed vector in FAISS is also **Gold** (indices). Silver contains the ~142-column feature table from Stage 16.
+**Key Point**: The  vector is **Gold** (episodes), not Silver. The 32D compressed vector in FAISS is also **Gold** (indices). Silver contains the ~142-column feature table from Stage 16.
 
 ---
 
@@ -87,7 +87,7 @@ src/pipeline/
 │   ├── label_outcomes.py                   # Stage 15: First-crossing labels
 │   ├── filter_rth.py                       # Stage 16: RTH filtering + schema validation
 │   ├── materialize_state_table.py          # Stage 17: 30s state table
-│   └── construct_episodes.py               # Stage 18: 149D episode vectors
+│   └── construct_episodes.py               # Stage 18:  episode vectors
 ├── pipelines/
 │   ├── bronze_to_silver.py      # Bronze → Silver (stages 0-16)
 │   ├── silver_to_gold.py        # Silver → Gold (stages 0-2)
@@ -175,13 +175,13 @@ episodes_metadata = pipeline.run("2025-12-16", write_outputs=True)
 **Name**: `silver_to_gold`  
 **Purpose**: Episode vector construction  
 **Input**: Silver features from bronze_to_silver  
-**Output**: Gold episodes (149D vectors + metadata + sequences)
+**Output**: Gold episodes ( vectors + metadata + sequences)
 
 0. LoadSilverFeatures (read from Silver layer)
 1. MaterializeStateTable (30s cadence state for episode construction)
-2. ConstructEpisodes (149D vectors with DCT trajectory basis)
+2. ConstructEpisodes ( vectors with DCT trajectory basis)
 
-**Episode Vectors**: See [../../EPISODE_VECTOR_SCHEMA.md](../../EPISODE_VECTOR_SCHEMA.md) for complete 149D specification.
+**Episode Vectors**: See [../../EPISODE_VECTOR_SCHEMA.md](../../EPISODE_VECTOR_SCHEMA.md) for complete  specification.
 
 ---
 
@@ -198,13 +198,13 @@ episodes_metadata = pipeline.run("2025-12-16", write_outputs=True)
 
 **Pipeline**: `silver_to_gold` (3 stages: 0-2)
 - Input: Silver features from bronze_to_silver
-- Output: Gold episodes (149D vectors + metadata + sequences)
+- Output: Gold episodes ( vectors + metadata + sequences)
 - Use case: Production retrieval, Transformer training
 
 ### 3. Gold → FAISS Indices (Index Building)
 
 **Script**: `scripts/build_faiss_indices.py`
-- Input: Gold episodes (149D)
+- Input: Gold episodes ()
 - Output: Gold indices (32D compressed for kNN)
 - Compression: geometry_only strategy per Phase 4
 
@@ -256,7 +256,7 @@ The pipeline writes to multiple layers depending on configuration flags:
 **Flag**: `PIPELINE_WRITE_EPISODES=True`  
 **Path**: `gold/episodes/es_level_episodes/version={version}/`  
 **Content**: 
-- `vectors/date=YYYY-MM-DD/episodes.npy` - 149D vectors
+- `vectors/date=YYYY-MM-DD/episodes.npy` -  vectors
 - `metadata/date=YYYY-MM-DD/metadata.parquet` - Event metadata  
 - `sequences/date=YYYY-MM-DD/sequences.npy` - Raw 40×4 trajectories  
 **Schema**: See [../../EPISODE_VECTOR_SCHEMA.md](../../EPISODE_VECTOR_SCHEMA.md)
@@ -264,7 +264,7 @@ The pipeline writes to multiple layers depending on configuration flags:
 ### Gold Layer - FAISS Indices (Built separately via `build_all_indices()`)
 **Path**: `gold/indices/es_level_indices/{level_kind}/{direction}/{time_bucket}/`  
 **Content**: 32D compressed vectors (geometry-only) for live retrieval  
-**Built from**: Gold episodes (149D → 32D via compressor)
+**Built from**: Gold episodes ( → 32D via compressor)
 
 ---
 
@@ -280,7 +280,7 @@ Pipeline behavior is controlled by `backend/src/common/config.py`:
 
 ## References
 
-- **Episode Vectors (149D)**: [../../EPISODE_VECTOR_SCHEMA.md](../../EPISODE_VECTOR_SCHEMA.md)
+- **Episode Vectors ()**: [../../EPISODE_VECTOR_SCHEMA.md](../../EPISODE_VECTOR_SCHEMA.md)
 - **Research Context**: [../../RESEARCH.md](../../RESEARCH.md)
 - **Pipelines**: [pipelines/es_pipeline.py](pipelines/es_pipeline.py)
 - **Registry**: [pipelines/registry.py](pipelines/registry.py)

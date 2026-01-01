@@ -10,7 +10,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# Feature classification per Analyst Opinion + 144D architecture
+# Feature classification per Analyst Opinion +  architecture
 PASSTHROUGH_FEATURES = {
     'fuel_effect', 'fuel_effect_encoded', 'barrier_state', 'barrier_state_encoded', 
     'sweep_detected', 'or_active'

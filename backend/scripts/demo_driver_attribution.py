@@ -64,7 +64,7 @@ def load_episode_data(version: str, start_date: str, end_date: str):
     
     print(f"Loaded {len(episodes_df)} episodes from {start_date} to {end_date}")
     
-    # Reconstruct episode vectors (to get full 144D)
+    # Reconstruct episode vectors (to get full )
     # We need signals + state tables
     state_dir = Path('data/silver/state/es_level_state') / f'version={version}'
     signals_dir = Path('data/bronze/futures/es/levels') / f'version={version}'
@@ -134,15 +134,15 @@ def main():
     historical_stats = compute_historical_stats(predictable_vectors)
     
     # Create attributor
-    # Note: The trained model uses only 5 stream features, not full 144D
-    # For full 144D attribution, we'd need a 144D model
-    print("\nNote: Current model uses 5 stream features, not full 144D vector.")
+    # Note: The trained model uses only 5 stream features, not full 
+    # For full  attribution, we'd need a  model
+    print("\nNote: Current model uses 5 stream features, not full  vector.")
     print("For demo purposes, showing concept with stream-only model.")
     
     # We'll create a dummy full-vector model for demonstration
-    # In production, you'd train a real RandomForest on 144D
+    # In production, you'd train a real RandomForest on 
     from sklearn.ensemble import RandomForestClassifier
-    print("\nTraining demo 144D model for attribution (5 trees, fast)...")
+    print("\nTraining demo  model for attribution (5 trees, fast)...")
     
     y = (predictable_df['outcome_4min'] == 'BREAK').astype(int).values
     
@@ -207,7 +207,7 @@ def main():
             'break_rate': float((predictable_df['outcome_4min'] == 'BREAK').mean()),
             'model_path': str(model_path),
             'demo_mode': True,
-            'note': 'This is a demo with fast-fitted model. Production would use trained 144D model.'
+            'note': 'This is a demo with fast-fitted model. Production would use trained  model.'
         },
         'examples': []
     }
@@ -245,7 +245,7 @@ def main():
     print(f"  - Percentiles contextualize current values vs historical")
     
     print(f"\nNext steps:")
-    print(f"  1. Train full 144D model (not just 5 stream features)")
+    print(f"  1. Train full  model (not just 5 stream features)")
     print(f"  2. Integrate into real-time signal generation")
     print(f"  3. Display drivers in UI dashboard")
 

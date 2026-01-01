@@ -2,7 +2,7 @@
 
 **Created**: 2025-12-31  
 **Status**: Implementation Ready  
-**Goal**: Transform 144D ML predictions into actionable trader intelligence
+**Goal**: Transform  ML predictions into actionable trader intelligence
 
 ---
 
@@ -23,7 +23,7 @@ This system adds **explainability and context** to the Pentaview level break/rej
 ### 1. Driver Attribution Module
 **File**: `backend/src/ml/driver_attribution.py`
 
-**Purpose**: Decomposes 144D predictions into trader-understandable drivers
+**Purpose**: Decomposes  predictions into trader-understandable drivers
 
 **Key Classes**:
 - `DriverAttributor`: Main attribution engine
@@ -48,7 +48,7 @@ attributor = DriverAttributor(
     historical_stats=stats_dict
 )
 
-attribution = attributor.explain(episode_vector_144d)
+attribution = attributor.explain(episode_vector_)
 
 # Output
 print(f"P(BREAK): {attribution.p_break:.1%}")
@@ -350,7 +350,7 @@ uv run python -m scripts.discover_feature_interactions \
   --version v4.0.0 --horizon 4min \
   --output-json data/ml/feature_interactions.json
 
-# 4. Train 144D model (if not already done)
+# 4. Train  model (if not already done)
 # See PENTAVIEW_RESEARCH.md "Train New Model" section
 ```
 
@@ -358,7 +358,7 @@ uv run python -m scripts.discover_feature_interactions \
 - `data/ml/time_stratification.json`
 - `data/ml/level_specificity.json`
 - `data/ml/feature_interactions.json`
-- `data/ml/break_predictor_144d.joblib` (trained model)
+- `data/ml/break_predictor_.joblib` (trained model)
 
 ---
 
@@ -403,7 +403,7 @@ from src.ml.driver_attribution import DriverAttributor
 import joblib
 
 # Load at startup
-model_artifact = joblib.load('data/ml/break_predictor_144d.joblib')
+model_artifact = joblib.load('data/ml/break_predictor_.joblib')
 historical_stats = joblib.load('data/ml/historical_stats_v4.0.0.joblib')
 
 attributor = DriverAttributor(
@@ -628,7 +628,7 @@ uv run python -m scripts.demo_driver_attribution \
 - [ ] Validate driver mappings still accurate
 
 ### Monthly Tasks
-- [ ] Retrain 144D model with full historical data
+- [ ] Retrain  model with full historical data
 - [ ] Update feature importance rankings
 - [ ] Revise dashboard based on trader usage patterns
 
@@ -637,7 +637,7 @@ uv run python -m scripts.demo_driver_attribution \
 ## Success Metrics
 
 ### Model Performance
-- AUC ≥ 0.85 on predictable segment (144D model)
+- AUC ≥ 0.85 on predictable segment ( model)
 - Calibration error < 10% (predicted vs actual BREAK rate)
 - Effective N ≥ 15 for real-time signals
 
@@ -655,8 +655,8 @@ uv run python -m scripts.demo_driver_attribution \
 
 ## FAQ
 
-**Q: Why 144D vector instead of just 5 streams?**  
-A: 144D achieves 0.868 AUC vs 0.722 for streams. The extra dimensions capture GEX, barrier evolution, flow acceleration that streams don't fully represent.
+**Q: Why  vector instead of just 5 streams?**  
+A:  achieves 0.868 AUC vs 0.722 for streams. The extra dimensions capture GEX, barrier evolution, flow acceleration that streams don't fully represent.
 
 **Q: Do I need to run ALL the analysis scripts?**  
 A: For production, yes. For demo/testing, just the driver attribution is enough. Stratification and interactions inform UI display but aren't required for basic signal.
