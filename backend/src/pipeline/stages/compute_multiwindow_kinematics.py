@@ -51,7 +51,7 @@ def compute_multiwindow_kinematics(
         DataFrame with multi-window kinematic features
     """
     if windows_minutes is None:
-        windows_minutes = [1, 3, 5, 10, 20]  # Up to 20min per user requirement
+        windows_minutes = [1, 2, 3, 5, 10, 20]  # Multi-scale per RESEARCH.md
     
     if signals_df.empty or ohlcv_df.empty:
         return signals_df

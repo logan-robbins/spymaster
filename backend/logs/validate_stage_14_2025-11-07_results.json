@@ -1,0 +1,18 @@
+{
+  "stage": "label_outcomes",
+  "stage_idx": 14,
+  "checks": {
+    "required_inputs_present": true,
+    "new_outputs_present": true,
+    "signals_df": {
+      "signals_df_type": true,
+      "required_columns_present": false
+    }
+  },
+  "warnings": [],
+  "errors": [
+    "signals_df missing outcome columns: ['outcome', 'strength_signed', 'strength_abs', 'excursion_favorable', 'excursion_adverse', 'excursion_max', 'excursion_min', 'time_to_break_1', 'time_to_bounce_1', 'outcome_2min', 'time_to_break_1_2min', 'time_to_bounce_1_2min', 'outcome_4min', 'time_to_break_1_4min', 'time_to_bounce_1_4min', 'outcome_8min', 'time_to_break_1_8min', 'time_to_bounce_1_8min']"
+  ],
+  "passed": false,
+  "date": "2025-11-07"
+}

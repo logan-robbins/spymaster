@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.pipeline.pipelines.es_pipeline import build_es_pipeline
 from src.common.config import CONFIG
 

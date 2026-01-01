@@ -37,16 +37,16 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 144  # Canonical spec: 144D vectors
+VECTOR_DIMENSION = 149  # Canonical spec: 149D vectors (per RESEARCH.md)
 
-# Vector section boundaries (144D)
+# Vector section boundaries (149D)
 VECTOR_SECTIONS = {
     'context_regime': (0, 25),       # 25 dims
-    'multiscale_dynamics': (25, 62), # 37 dims
-    'micro_history': (62, 97),       # 35 dims
-    'derived_physics': (97, 108),    # 11 dims
-    'online_trends': (108, 112),     # 4 dims
-    'trajectory_basis': (112, 144),  # 32 dims
+    'multiscale_dynamics': (25, 65), # 40 dims (added 2min momentum_trend, 2min barrier_delta)
+    'micro_history': (65, 100),      # 35 dims
+    'derived_physics': (100, 113),   # 13 dims (added call_tide, put_tide)
+    'online_trends': (113, 117),     # 4 dims
+    'trajectory_basis': (117, 149),  # 32 dims
 }
 
 # ─── Normalization Parameters ───

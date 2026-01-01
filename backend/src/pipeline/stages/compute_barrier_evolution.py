@@ -42,7 +42,7 @@ def compute_barrier_evolution(
         DataFrame with barrier evolution features
     """
     if windows_minutes is None:
-        windows_minutes = [1.0, 3.0, 5.0]
+        windows_minutes = [1.0, 2.0, 3.0, 5.0]  # Multi-scale per RESEARCH.md
     
     if signals_df.empty or not mbp10_snapshots:
         result = signals_df.copy()

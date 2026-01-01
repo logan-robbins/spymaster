@@ -14,25 +14,25 @@ from sklearn.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
-# Canonical Section Boundaries (144D standard)
+# Canonical Section Boundaries (149D per RESEARCH.md Phase 4.5)
 # Per src/ml/constants.py or episode_vector.py
 SECTIONS = {
     'A_CONTEXT': range(0, 25),
-    'B_DYNAMICS': range(25, 62), # 37 features (Physics)
-    'C_HISTORY': range(62, 97),
-    'D_DERIVED': range(97, 108),
-    'E_TRENDS': range(108, 112),
-    'F_GEOMETRY': range(112, 144) # 32 features (DCT)
+    'B_DYNAMICS': range(25, 65), # 40 features (Physics)
+    'C_HISTORY': range(65, 100),
+    'D_DERIVED': range(100, 113),
+    'E_TRENDS': range(113, 117),
+    'F_GEOMETRY': range(117, 149) # 32 features (DCT)
 }
 
 class VectorCompressor:
     """
-    Compresses the 144D raw vector into a 'Unified Field' vector.
+    Compresses the 149D raw vector into a 'Unified Field' vector.
     
     Strategies:
-    - 'identity': No change (144D) -> Baseline
-    - 'pca_physics': Compress Section B (37) -> 5 components. Keep rest.
-    - 'geometry_only': Keep Section F only.
+    - 'identity': No change (149D) -> Baseline
+    - 'pca_physics': Compress Section B (40) -> 5 components. Keep rest.
+    - 'geometry_only': Keep Section F only (32D per Phase 4).
     - 'weighted': Scale Physics * 0.2, Geometry * 1.0. 
     """
     
