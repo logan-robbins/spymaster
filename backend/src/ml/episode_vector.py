@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Vector dimensions: 144D per analyst opinion
 # Section boundaries defined in constants.py
-assert VECTOR_DIMENSION == 144, "Vector dimension must be 144"
+assert VECTOR_DIMENSION == 147, "Vector dimension must be 147"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -157,18 +157,18 @@ def construct_episode_vector(
         idx += 1
     
     # ─── SECTION B: Multi-Scale Dynamics (37 dims) ───
-    # Velocity (5)
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    # Velocity (6)
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         vector[idx] = current_bar.get(f'velocity_{scale}', 0.0)
         idx += 1
     
-    # Acceleration (5)
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    # Acceleration (6)
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         vector[idx] = current_bar.get(f'acceleration_{scale}', 0.0)
         idx += 1
     
-    # Jerk (5)
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    # Jerk (6)
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         vector[idx] = current_bar.get(f'jerk_{scale}', 0.0)
         idx += 1
     
@@ -361,11 +361,11 @@ def get_feature_names() -> List[str]:
     ])
     
     # Section B: Multi-Scale Dynamics (37)
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'velocity_{scale}')
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'acceleration_{scale}')
-    for scale in ['1min', '3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'jerk_{scale}')
     for scale in ['3min', '5min', '10min', '20min']:
         names.append(f'momentum_trend_{scale}')
@@ -542,10 +542,14 @@ def construct_episodes_from_events(
         cadence_seconds: State table cadence (default 30s)
     
     Returns:
-        Tuple of (vectors array [N × 144], metadata DataFrame [N rows])
+        Tuple of (
+            vectors array [N × 144], 
+            metadata DataFrame [N rows],
+            sequences array [N × 40 × 4]  (Raw trajectory for Transformer)
+        )
     """
     if events_df.empty:
-        return np.array([]), pd.DataFrame()
+        return np.array([]), pd.DataFrame(), np.array([])
     
     logger.info(f"Constructing 144D episode vectors from {len(events_df):,} events...")
     
@@ -574,6 +578,7 @@ def construct_episodes_from_events(
     vectors = []
     metadata_rows = []
     
+    sequences = []
     skipped_reasons = {'no_history': 0, 'vector_construction_failed': 0, 'normalization_failed': 0}
     
     for i, event in events_sorted.iterrows():
@@ -630,6 +635,20 @@ def construct_episodes_from_events(
         
         vectors.append(normalized_vector)
         
+        # Extract raw sequence (40, 4)
+        seq_array = np.zeros((40, 4), dtype=np.float32)
+        for t, bar in enumerate(trajectory_window):
+            # 0: d_atr
+            seq_array[t, 0] = bar.get('distance_signed_atr', 0.0) or 0.0
+            # 1: ofi_60s
+            seq_array[t, 1] = bar.get('ofi_60s', 0.0) or 0.0
+            # 2: barrier_delta_liq_log
+            bl = bar.get('barrier_delta_liq', 0.0) or 0.0
+            seq_array[t, 2] = np.log1p(abs(bl)) * np.sign(bl)
+            # 3: tape_imbalance
+            seq_array[t, 3] = bar.get('tape_imbalance', 0.0) or 0.0
+        sequences.append(seq_array)
+        
         # Build metadata row
         minutes_since_open = event.get('minutes_since_open', 0.0)
         time_bucket = assign_time_bucket(minutes_since_open)
@@ -673,19 +692,22 @@ def construct_episodes_from_events(
         metadata_rows.append(metadata_row)
     
     vectors_array = np.array(vectors, dtype=np.float32)
+    sequences_array = np.array(sequences, dtype=np.float32)
     metadata_df = pd.DataFrame(metadata_rows)
     
     logger.info(f"  Constructed {len(vectors_array):,} episode vectors (144 dims)")
+    logger.info(f"  Constructed {len(sequences_array):,} raw sequences (40x4)")
     logger.info(f"  Skipped: no_history={skipped_reasons['no_history']}, vector_failed={skipped_reasons['vector_construction_failed']}, norm_failed={skipped_reasons['normalization_failed']}")
     
-    return vectors_array, metadata_df
+    return vectors_array, metadata_df, sequences_array
 
 
 def save_episodes(
     vectors: np.ndarray,
     metadata: pd.DataFrame,
     output_dir: Path,
-    date: pd.Timestamp
+    date: pd.Timestamp,
+    sequences: np.ndarray = None
 ) -> Dict[str, Path]:
     """
     Save episode vectors and metadata.
@@ -693,6 +715,7 @@ def save_episodes(
     Output structure:
         gold/episodes/es_level_episodes/
         ├── vectors/date=YYYY-MM-DD/episodes.npy (144D)
+        ├── sequences/date=YYYY-MM-DD/sequences.npy (40x4 Raw)
         └── metadata/date=YYYY-MM-DD/metadata.parquet
     
     Args:
@@ -700,6 +723,7 @@ def save_episodes(
         metadata: Episode metadata DataFrame
         output_dir: Base output directory (gold/episodes/es_level_episodes/)
         date: Trading date
+        sequences: Optional raw sequences array [N × 40 × 4]
     
     Returns:
         Dict with paths to saved files
@@ -710,9 +734,12 @@ def save_episodes(
     # Create date-partitioned directories
     vectors_dir = output_dir / 'vectors' / f'date={date_str}'
     metadata_dir = output_dir / 'metadata' / f'date={date_str}'
+    sequences_dir = output_dir / 'sequences' / f'date={date_str}'
     
     vectors_dir.mkdir(parents=True, exist_ok=True)
     metadata_dir.mkdir(parents=True, exist_ok=True)
+    if sequences is not None:
+        sequences_dir.mkdir(parents=True, exist_ok=True)
     
     # Save vectors as numpy array
     vectors_path = vectors_dir / 'episodes.npy'
@@ -726,7 +753,16 @@ def save_episodes(
     logger.info(f"  Vectors: {vectors_path}")
     logger.info(f"  Metadata: {metadata_path}")
     
-    return {
+    result = {
         'vectors': vectors_path,
         'metadata': metadata_path
     }
+
+    # Save sequences if provided
+    if sequences is not None:
+        sequences_path = sequences_dir / 'sequences.npy'
+        np.save(sequences_path, sequences)
+        logger.info(f"  Sequences: {sequences_path}")
+        result['sequences'] = sequences_path
+    
+    return result

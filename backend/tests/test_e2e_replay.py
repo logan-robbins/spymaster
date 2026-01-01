@@ -385,7 +385,7 @@ class TestSilverCompactionIntegration:
         # Step 2: Run Silver compaction
         compactor = SilverCompactor(data_root=temp_data_root)
         compactor.compact_date(
-            date='2024-12-16',  # The date in synthetic trades
+            date='2025-12-16',  # The date in synthetic trades
             schema='futures.trades',
             partition_value='ES'
         )

@@ -8,7 +8,7 @@ Per STREAMS.md Section 7.3:
 
 Usage:
     uv run python -m scripts.build_projection_dataset \
-        --start 2024-11-01 --end 2024-12-31 \
+        --start 2025-11-01 --end 2025-12-31 \
         --lookback 20 --horizon 10
 """
 import argparse

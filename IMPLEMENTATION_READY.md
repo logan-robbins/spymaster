@@ -280,6 +280,21 @@ gold/indices/es_level_indices/version={canonical_version}/
 └── config.json
 ```
 
+### 8.6 Vector Compression (Optimization Phase)
+
+**Implementation**: `backend/src/ml/vector_compressor.py` and `backend/src/ml/index_builder.py`
+
+While the canonical Episode Vector (Stage 17) preserves all 144 dimensions (Source of Truth), the runtime index (Stage 19) applies **Vector Compression** to optimize calibration reliability.
+
+**Current Strategy**: `geometry_only`
+- **Logic**: Selects only Section F (Trajectory Basis, 32 dims).
+- **Reasoning**: Ablation studies (Phase 4) proved that microstructure physics features (Sections B, C, D) introduce excessive noise ("Similarity Inversion") at the 5-minute decision horizon. Geometry (DCT Shape) provides the most robust path-dependency signal.
+- **Result**: Runtime vectors are 32-dimensional.
+- **Pipeline Integration**:
+    - `index_builder.py` applies compression before adding to FAISS.
+    - `compressor.pkl` is saved to the index directory.
+    - `retrieval_engine.py` loads `compressor.pkl` and transforms live query vectors on-the-fly.
+
 ---
 
 ## 3. Outcome Label Contract

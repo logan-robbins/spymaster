@@ -184,7 +184,7 @@ class PentaviewAblationStudy:
     def __init__(
         self,
         data_root: Path = Path("data"),
-        model_dir: Path = Path("data/ml/projection_models"),
+        model_dir: Path = Path("data/ml/projection_models_fixed"),
         output_dir: Path = Path("data/ml/ablation_pentaview")
     ):
         self.data_root = data_root

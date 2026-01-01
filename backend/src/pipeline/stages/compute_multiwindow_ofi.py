@@ -46,19 +46,58 @@ def compute_multiwindow_ofi(
     # Build MBP-10 time series
     mbp_times = np.array([mbp.ts_event_ns for mbp in mbp10_snapshots], dtype=np.int64)
     
-    # Pre-compute OFI for each snapshot
-    # OFI = Δbid_size - Δask_size (simplified)
-    # Full OFI requires tracking order book changes
-    # For now, use bid-ask imbalance as proxy
+    # Pre-compute OFI derived from MBP transitions
+    # True OFI = Order Flow at best bid/ask
+    ofi_times = []
+    ofi_values = []
     
-    mbp_imbalances = []
-    for mbp in mbp10_snapshots:
-        bid_depth = sum(level.bid_sz for level in mbp.levels[:5])  # Top 5
-        ask_depth = sum(level.ask_sz for level in mbp.levels[:5])
-        imbalance = bid_depth - ask_depth
-        mbp_imbalances.append(imbalance)
-    
-    mbp_imbalances = np.array(mbp_imbalances, dtype=np.float64)
+    if len(mbp10_snapshots) > 1:
+        prev_mbp = mbp10_snapshots[0]
+        # Sort snapshots by time to be safe
+        sorted_snapshots = sorted(mbp10_snapshots, key=lambda x: x.ts_event_ns)
+        
+        for curr_mbp in sorted_snapshots[1:]:
+            # Simplified OFI at Top of Book
+            # OFI = q_b_t * I(b_t >= b_t-1) - q_b_t-1 * I(b_t <= b_t-1)
+            #     - q_a_t * I(a_t <= a_t-1) + q_a_t-1 * I(a_t >= a_t-1)
+            
+            # Extract top level
+            b_t = curr_mbp.levels[0].bid_px
+            q_b_t = curr_mbp.levels[0].bid_sz
+            a_t = curr_mbp.levels[0].ask_px
+            q_a_t = curr_mbp.levels[0].ask_sz
+            
+            b_prev = prev_mbp.levels[0].bid_px
+            q_b_prev = prev_mbp.levels[0].bid_sz
+            a_prev = prev_mbp.levels[0].ask_px
+            q_a_prev = prev_mbp.levels[0].ask_sz
+            
+            ofi_bid = 0.0
+            if b_t > b_prev:
+                ofi_bid = q_b_t
+            elif b_t < b_prev:
+                ofi_bid = -q_b_prev
+            else: # b_t == b_prev
+                ofi_bid = q_b_t - q_b_prev
+                
+            ofi_ask = 0.0
+            if a_t < a_prev:
+                ofi_ask = q_a_t
+            elif a_t > a_prev:
+                ofi_ask = -q_a_prev
+            else: # a_t == a_prev
+                ofi_ask = q_a_t - q_a_prev
+                
+            # Net OFI = Bid inflow - Ask inflow
+            net_ofi = ofi_bid - ofi_ask
+            
+            ofi_times.append(curr_mbp.ts_event_ns)
+            ofi_values.append(net_ofi)
+            
+            prev_mbp = curr_mbp
+            
+    ofi_times = np.array(ofi_times, dtype=np.int64)
+    ofi_values = np.array(ofi_values, dtype=np.float64)
     
     n = len(signals_df)
     signal_ts = signals_df['ts_ns'].values
@@ -76,15 +115,22 @@ def compute_multiwindow_ofi(
             ts = signal_ts[i]
             start_ts = ts - lookback_ns
             
-            # Find MBP snapshots in window
-            mask = (mbp_times >= start_ts) & (mbp_times <= ts)
+            # Find OFI events in window
+            # Use searchsorted for speed
+            start_idx = np.searchsorted(ofi_times, start_ts, side='right')
+            end_idx = np.searchsorted(ofi_times, ts, side='right')
             
-            if mask.sum() > 0:
-                # Integrated OFI (cumulative imbalance in window)
-                ofi_window[i] = mbp_imbalances[mask].sum()
+            if end_idx > start_idx:
+                window_flows = ofi_values[start_idx:end_idx]
                 
-                # Average imbalance (normalized by snapshot count)
-                ofi_near_level[i] = mbp_imbalances[mask].mean()
+                # Integrated OFI (Flow)
+                ofi_window[i] = np.sum(window_flows)
+                
+                # For "near level" we might want density, but sticking to 
+                # original request: "Average imbalance" -> "Average Flow Rate"?
+                # Actually, the original code computed "Average Imbalance" (OBI).
+                # To capture "Pressure Intensity", mean flow per event is reasonable.
+                ofi_near_level[i] = np.mean(window_flows)
         
         # Add to result with window suffix
         suffix = f'_{int(window_sec)}s'

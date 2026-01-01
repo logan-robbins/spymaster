@@ -83,7 +83,7 @@ class ConstructEpisodesStage(BaseStage):
             }
         
         # Construct episodes
-        vectors, metadata = construct_episodes_from_events(
+        vectors, metadata, sequences = construct_episodes_from_events(
             events_df=signals_df,
             state_df=state_df,
             normalization_stats=normalization_stats
@@ -122,17 +122,21 @@ class ConstructEpisodesStage(BaseStage):
                 date_part = date_partition(ctx.date)
                 vectors_date_dir = output_dir / "vectors" / date_part
                 metadata_date_dir = output_dir / "metadata" / date_part
+                sequences_date_dir = output_dir / "sequences" / date_part
                 if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True):
                     if vectors_date_dir.exists():
                         shutil.rmtree(vectors_date_dir)
                     if metadata_date_dir.exists():
                         shutil.rmtree(metadata_date_dir)
+                    if sequences_date_dir.exists():
+                        shutil.rmtree(sequences_date_dir)
 
                 episodes_output = save_episodes(
                     vectors=vectors,
                     metadata=metadata,
                     output_dir=output_dir,
                     date=date,
+                    sequences=sequences
                 )
 
         return {

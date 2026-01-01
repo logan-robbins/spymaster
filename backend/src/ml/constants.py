@@ -37,16 +37,16 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 144  # Updated from 111 to 144
+VECTOR_DIMENSION = 147  # Updated to 147 (6 scales: 1,2,3,5,10,20min)
 
-# Vector section boundaries (144D)
+# Vector section boundaries (147D)
 VECTOR_SECTIONS = {
-    'context_regime': (0, 25),       # 25 dims (removed redundant level_kind/direction)
-    'multiscale_dynamics': (25, 62), # 37 dims
-    'micro_history': (62, 97),       # 35 dims (7 features × 5 bars)
-    'derived_physics': (97, 108),    # 11 dims (added 2 new features)
-    'online_trends': (108, 112),     # 4 dims
-    'trajectory_basis': (112, 144),  # 32 dims (4 series × 8 DCT coeffs)
+    'context_regime': (0, 25),       # 25 dims
+    'multiscale_dynamics': (25, 65), # 40 dims (18 kinematic + 22 other)
+    'micro_history': (65, 100),      # 35 dims
+    'derived_physics': (100, 111),   # 11 dims
+    'online_trends': (111, 115),     # 4 dims
+    'trajectory_basis': (115, 147),  # 32 dims
 }
 
 # ─── Normalization Parameters ───
