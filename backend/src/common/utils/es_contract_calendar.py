@@ -106,6 +106,68 @@ def get_front_month_contract_code(date: str) -> str:
     return contract_code
 
 
+def get_active_contracts(date: str) -> list[str]:
+    """
+    Get all active ES contracts for a date (handles rollover overlap).
+    
+    During the 8-day rollover period, returns BOTH the expiring contract
+    and the next contract. Otherwise returns just the front month.
+    
+    Args:
+        date: Date string (YYYY-MM-DD)
+    
+    Returns:
+        List of contract codes (e.g., ['ESM5', 'ESU5'])
+    """
+    dt = datetime.strptime(date, '%Y-%m-%d')
+    year = dt.year
+    contract_months = [3, 6, 9, 12]
+    
+    # Find next contract expiration
+    expirations = []
+    for month in contract_months:
+        exp_date = get_third_friday(year, month)
+        if exp_date >= dt:
+            expirations.append((month, year, exp_date))
+            
+    if not expirations:
+        for month in contract_months:
+            exp_date = get_third_friday(year + 1, month)
+            expirations.append((month, year + 1, exp_date))
+            
+    expirations.sort(key=lambda x: x[2])
+    
+    current_month, current_year, current_exp = expirations[0]
+    
+    # Calculate rollover start (8 days before expiry)
+    roll_start = current_exp - timedelta(days=8)
+    
+    contracts = []
+    
+    # Always include the current front month (contracts[0])
+    # Note: get_front_month_contract_code switches strictly at roll_date.
+    # Here we want inclusive logic.
+    
+    # 1. Current expiring contract (until it expires)
+    if dt <= current_exp:
+        code_1 = f"ES{MONTH_CODES[current_month]}{str(current_year)[-1]}"
+        contracts.append(code_1)
+        
+    # 2. If we are in or past rollover window, include NEXT contract
+    if dt >= roll_start:
+        if len(expirations) > 1:
+            next_month, next_year, _ = expirations[1]
+        else:
+            next_idx = (contract_months.index(current_month) + 1) % 4
+            next_month = contract_months[next_idx]
+            next_year = current_year + 1 if next_idx == 0 else current_year
+            
+        code_2 = f"ES{MONTH_CODES[next_month]}{str(next_year)[-1]}"
+        contracts.append(code_2)
+        
+    return contracts
+
+
 def validate_contract_for_date(contract: str, date: str) -> Tuple[bool, str]:
     """
     Validate if a contract is the expected front-month for a date.
