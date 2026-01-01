@@ -105,11 +105,7 @@ class RunManifestManager:
             data_root: Root directory for data lake
             mode: Run mode (live, replay, sim)
         """
-        self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'data',
-            'lake'
-        )
+        self.data_root = data_root or CONFIG.DATA_ROOT
         self.mode = mode
         
         # Manifest storage

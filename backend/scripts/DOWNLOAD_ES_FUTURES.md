@@ -174,8 +174,8 @@ uv run python -m scripts.backfill_bronze_futures \
 ```
 
 This reads the DBN files and writes to Bronze layer:
-- `data/lake/bronze/futures/trades/symbol=ES/date=*/`
-- `data/lake/bronze/futures/mbp10/symbol=ES/date=*/`
+- `data/bronze/futures/trades/symbol=ES/date=*/`
+- `data/bronze/futures/mbp10/symbol=ES/date=*/`
 
 ---
 

@@ -53,17 +53,23 @@ class LoadSilverFeaturesStage(BaseStage):
         # Alternative: Could save OHLCV to Silver or load from checkpoint
         from src.io.bronze import BronzeReader
         reader = BronzeReader(data_root=data_root)
-        trades = reader.read_futures_trades('ES', date)
+        from src.pipeline.stages.load_bronze import futures_trades_from_df
+        trades_df = reader.read_futures_trades('ES', date)
+        trades_objs = futures_trades_from_df(trades_df)
         
-        from src.pipeline.stages.build_spx_ohlcv import build_ohlcv
-        ohlcv_1min = build_ohlcv(trades, freq='1min')
+        from src.pipeline.stages.build_spx_ohlcv import build_spx_ohlcv_from_es
+        ohlcv_1min = build_spx_ohlcv_from_es(trades_objs, date=date, freq='1min')
+        ohlcv_2min = build_spx_ohlcv_from_es(trades_objs, date=date, freq='2min')
         
-        self.logger.info(f"Loaded Silver features: {len(signals_df)} signals")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Loaded Silver features: {len(signals_df)} signals")
         
         return {
             'signals_df': signals_df,
             'signals': signals_df,  # For pipeline.run() return
             'ohlcv_1min': ohlcv_1min,
+            'ohlcv_2min': ohlcv_2min,
             'date': date
         }
 

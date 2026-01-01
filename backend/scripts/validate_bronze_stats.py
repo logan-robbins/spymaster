@@ -174,13 +174,13 @@ def main() -> int:
         "--bronze-root",
         type=str,
         default=None,
-        help="Override Bronze root (defaults to backend/data/lake/bronze)"
+        help="Override Bronze root (defaults to backend/data/bronze)"
     )
     args = parser.parse_args()
 
     dates = [d.strip() for d in args.dates.split(",") if d.strip()]
     bronze_root = Path(args.bronze_root) if args.bronze_root else (
-        Path(__file__).resolve().parents[1] / "data" / "lake" / "bronze"
+        Path(__file__).resolve().parents[1] / "data" / "bronze"
     )
 
     print(f"Bronze root: {bronze_root}")

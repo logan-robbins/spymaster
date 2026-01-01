@@ -270,7 +270,7 @@ class TestBronzeWriterIntegration:
     @pytest.fixture
     def temp_data_root(self, tmp_path):
         """Create temp directory for Bronze output."""
-        return str(tmp_path / "lake")
+        return str(tmp_path / "data")
 
     def test_bronze_writer_creates_files(self, temp_data_root):
         """Bronze writer should create Parquet files from ES events."""
@@ -349,7 +349,7 @@ class TestSilverCompactionIntegration:
     @pytest.fixture
     def temp_data_root(self, tmp_path):
         """Create temp directory for data lake."""
-        return str(tmp_path / "lake")
+        return str(tmp_path / "data")
 
     def test_compact_bronze_to_silver(self, temp_data_root):
         """Silver compactor should dedupe and sort Bronze data."""

@@ -374,11 +374,7 @@ class GoldReader:
         Args:
             data_root: Root directory for data lake
         """
-        self.data_root = data_root or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'data',
-            'lake'
-        )
+        self.data_root = data_root or CONFIG.DATA_ROOT
         self.gold_root = os.path.join(self.data_root, 'gold')
         self._duckdb = None
 

@@ -576,7 +576,7 @@ def main():
     parser.add_argument(
         '--input', '-i',
         type=str,
-        default='data/lake/gold/training/signals_production.parquet',
+        default='data/gold/training/signals_production.parquet',
         help='Path to signals parquet file'
     )
     parser.add_argument(

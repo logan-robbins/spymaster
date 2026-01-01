@@ -35,11 +35,11 @@ This document is **for AI coding agents only**. It is a **concrete, breaking/ato
 
 ## Canonical Root (MUST CHANGE)
 
-Set the ONLY canonical lake root to:
-- `CONFIG.DATA_ROOT == <repo>/backend/data/lake`
+Set the ONLY canonical data root to:
+- `CONFIG.DATA_ROOT == <repo>/backend/data`
 
 Required:
-- delete all code paths that assume `data/` or `data/lake/` inconsistently
+- delete all code paths that compute or assume a data root outside of `CONFIG.DATA_ROOT`
 - after refactor, **no module** computes its own root by walking directories; it always uses `CONFIG.DATA_ROOT` (or `StageContext.config["DATA_ROOT"]`).
 
 ## Canonical Lake Layout (FINAL)
@@ -122,8 +122,8 @@ No `data/ml/...` paths remain after refactor.
 These are mandatory breaking replacements. After refactor, OLD paths must not appear anywhere.
 
 ### Bronze
-- OLD: `data/lake/bronze/futures/trades/...` → NEW: `bronze/{instrument}/futures/trades/schema=v1/contract=.../date=.../hour=.../`
-- OLD: `data/lake/bronze/options/trades/...` → NEW: `bronze/{instrument}/options/trades/schema=v1/underlying=.../date=.../hour=.../`
+- OLD: `data/bronze/futures/trades/...` → NEW: `bronze/{instrument}/futures/trades/schema=v1/contract=.../date=.../hour=.../`
+- OLD: `data/bronze/options/trades/...` → NEW: `bronze/{instrument}/options/trades/schema=v1/underlying=.../date=.../hour=.../`
 
 ### Silver
 - OLD: `silver/features/es_pipeline/version=.../date=.../signals.parquet`
@@ -207,7 +207,7 @@ Files to modify (non-exhaustive):
 Rules:
 - Bronze paths must be written to `bronze/{instrument}/{product}/{dataset}/...`
 - Partition keys must be correct per product (see above).
-- Delete any assumptions that bronze root is `data/lake/bronze` vs `data/bronze`. Use **only** `CONFIG.DATA_ROOT/bronze`.
+- Delete any assumptions about bronze root pathing. Use **only** `CONFIG.DATA_ROOT/bronze`.
 
 Concrete required changes:
 - `BronzeWriter` must:
@@ -553,7 +553,6 @@ Update any service that loads models/indices:
 ## Codebase Search/Replace Targets (agents must eliminate)
 
 Agents must ripgrep and remove all occurrences of these substrings (they indicate legacy layout):
-- `data/lake/`
 - `/data/gold/` (if it bypasses resolver)
 - `/data/silver/` (if it bypasses resolver)
 - `es_pipeline`
@@ -698,7 +697,7 @@ PipelineManifest must be directly translatable into a metadata-driven Azure Data
 **Concrete mismatches you should resolve (docs + implementation)**
 These aren’t “philosophical”—they’re the specific deltas between the current repo’s documented usage and the enterprise target.
 README path examples conflict with ENTERPRISE.md
-README.md still uses legacy-ish paths like data/lake/silver/state/es_level_state/... and gold/episodes/es_level_episodes/..., and data/ml/... for projection models.
+README.md still uses paths like data/silver/state/es_level_state/... and gold/episodes/es_level_episodes/..., and data/ml/... for projection models.
 Decision: after the refactor, update README to only reference the resolver-backed instrument-first layout (and remove data/ml references).
 Versioning language needs one consistent rule
 README emphasizes “Canonical Version 3.1.0”; ENTERPRISE.md uses pipeline_version examples like 4.5.0.
@@ -739,7 +738,7 @@ Decision (Azure-friendly): keep the layout and dataset boundaries stable now; yo
 - Inference services load:
   - models from `models/{instrument}/...`
   - indices from `gold/{instrument}/index_building/...`
-No code references old roots/strings (data/lake/, data/ml/, es_pipeline, es_level_*).
+No code references old roots/strings (data/ml/, es_pipeline, es_level_*).
 All reads/writes go through LakePathResolver.
 Every pipeline run is parameterized by instrument, pipeline_id, pipeline_version, and date/date-range.
 Every stage is runnable in isolation and is deterministic/idempotent for a given (instrument, pipeline_version, date).

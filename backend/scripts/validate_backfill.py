@@ -210,8 +210,8 @@ def main() -> int:
     if args.data_root:
         reader = BronzeReader(data_root=args.data_root)
     else:
-        # Default to backend/data/lake
-        data_root = Path(__file__).resolve().parents[1] / "data" / "lake"
+        # Default to backend/data
+        data_root = Path(__file__).resolve().parents[1] / "data"
         reader = BronzeReader(data_root=str(data_root))
     
     log(f"Bronze root: {reader.bronze_root}")

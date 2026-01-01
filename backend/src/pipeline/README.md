@@ -14,7 +14,7 @@
 
 ### 2. Bronze Layer (Normalized, Partitioned)
 - **Written by**: `BronzeWriter` (streaming from NATS)
-- **Location**: `data/lake/bronze/futures/` and `data/lake/bronze/options/`
+- **Location**: `data/bronze/futures/` and `data/bronze/options/`
 - **Partitioning**: `symbol=ES/date=YYYY-MM-DD/hour=HH/`
 - **Content**: Normalized trades and MBP-10 snapshots (all trading hours)
 - **Format**: Parquet with ZSTD compression

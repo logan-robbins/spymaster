@@ -60,7 +60,7 @@ class ESOptionsDownloader:
         if data_root:
             self.data_root = Path(data_root)
         else:
-            self.data_root = _backend_dir / 'data' / 'lake'
+            self.data_root = _backend_dir / 'data'
         
         self.bronze_root = self.data_root / 'bronze'
         self.raw_root = _backend_dir / 'data' / 'raw' / 'databento' / 'spx_options'

@@ -40,7 +40,7 @@ def get_available_dates() -> Set[str]:
 
 def get_processed_dates() -> Set[str]:
     """Get dates already in Bronze layer."""
-    bronze_dir = Path(__file__).parent.parent / 'data' / 'lake' / 'bronze' / 'futures' / 'trades' / 'symbol=ES'
+    bronze_dir = Path(__file__).parent.parent / 'data' / 'bronze' / 'futures' / 'trades' / 'symbol=ES'
     
     if not bronze_dir.exists():
         return set()

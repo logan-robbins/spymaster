@@ -22,7 +22,7 @@ def test_required_columns_present_in_parquet():
     This is a template test - replace with actual data path once available.
     """
     # Template: load actual parquet when available
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     required_identity = {"event_id", "ts_ns", "date", "symbol"}
     required_labels = {"outcome", "tradeable_2", "strength_signed"}
@@ -45,7 +45,7 @@ def test_outcome_distribution_is_balanced():
     model training issues.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     # outcome_counts = df["outcome"].value_counts(normalize=True)
     
     # Validate no class is below 10% representation
@@ -66,7 +66,7 @@ def test_feature_coverage_matches_expectations():
     - gamma_exposure: 100% non-null (required)
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     # Check critical features exist
     # assert "gamma_exposure" in df.columns
@@ -87,7 +87,7 @@ def test_no_infinite_values_in_features():
     Infinite values will cause model training to fail.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     # feature_set = select_features(df, stage="stage_b", ablation="full")
     
     # for col in feature_set.numeric:
@@ -104,7 +104,7 @@ def test_timestamps_are_chronologically_sorted():
     Walk-forward splits require chronological ordering.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     # Check ts_ns is monotonically increasing within each date
     # for date in df["date"].unique():
@@ -122,7 +122,7 @@ def test_categorical_values_are_valid():
     Invalid categories will cause one-hot encoding issues.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     # expected_outcomes = {"BREAK", "BOUNCE", "CHOP", "UNDEFINED"}
     # actual_outcomes = set(df["outcome"].unique())
@@ -144,7 +144,7 @@ def test_date_range_has_sufficient_samples():
     Need at least 10 samples per date for meaningful training.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     # samples_per_date = df.groupby("date").size()
     
     # for date, count in samples_per_date.items():
@@ -161,7 +161,7 @@ def test_label_consistency():
     - If outcome == CHOP, then tradeable_2 should be 0
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     # tradeable_chop = df[(df["tradeable_2"] == 1) & (df["outcome"] == "CHOP")]
     # assert len(tradeable_chop) == 0, \
@@ -181,7 +181,7 @@ def test_feature_correlations_are_reasonable():
     Highly correlated features (r > 0.95) may indicate redundancy.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     # feature_set = select_features(df, stage="stage_b", ablation="full")
     
     # numeric_df = df[feature_set.numeric].select_dtypes(include=[np.number])
@@ -209,7 +209,7 @@ def test_stage_a_vs_stage_b_sample_sizes():
     Stage A may have fewer samples if barrier/tape data is unavailable for some periods.
     """
     # Template: load actual data
-    # df = pd.read_parquet("data/lake/gold/training/signals_production.parquet")
+    # df = pd.read_parquet("data/gold/training/signals_production.parquet")
     
     # stage_a_features = select_features(df, stage="stage_a", ablation="full")
     # stage_b_features = select_features(df, stage="stage_b", ablation="full")
