@@ -10,6 +10,7 @@ from src.ml.feasibility_gate import FeasibilityGate
 from src.ml.feasibility_gate import FeasibilityGate
 from src.ml.retrieval_engine import SimilarityQueryEngine, EpisodeQuery
 from src.ml.tree_inference import TreeModelBundle
+from src.ml.episode_vector import get_feature_names
 
 
 class ViewportInferenceEngine:
@@ -57,6 +58,26 @@ class ViewportInferenceEngine:
         features_matrix = features_df[feature_cols].to_numpy(dtype=np.float64)
         count = len(features_df)
 
+        # Get canonical vector features for retrieval (separate from Tree features)
+        vector_cols = get_feature_names()
+        # Ensure all columns exist, fill missing with 0.0
+        # If columns are missing, it means FeatureBuilder isn't producing them yet (e.g. DCTs)
+        # We must be robust to this during migration.
+        # Efficiently build the vector matrix:
+        missing_cols = [c for c in vector_cols if c not in features_df.columns]
+        if missing_cols:
+             # Add missing columns as 0.0
+             # Efficient way: concat? or assign? 
+             # Assigning in loop is slow.
+             # Create a zero DF and update?
+             # Or just ignore robustness and crash/warn?
+             # For speed, let's assume they exist or handle cleanly.
+             pass
+             
+        # Extract vector matrix
+        # Re-index to ensure order matches get_feature_names()
+        vector_matrix = features_df.reindex(columns=vector_cols, fill_value=0.0).to_numpy(dtype=np.float64)
+
         def _col_or_none(name: str):
             return features_df[name].to_numpy() if name in features_df.columns else None
 
@@ -96,7 +117,8 @@ class ViewportInferenceEngine:
         ts_ns = _col_or_none("ts_ns")
 
         for i in range(count):
-            feature_vector = features_matrix[i]
+            feature_vector = vector_matrix[i]
+            # tree_vector = features_matrix[i] # If we needed it individually
             level_kind_name_val = level_kind_name[i] if level_kind_name is not None else None
             direction_val = direction[i] if direction is not None else "UP"
 

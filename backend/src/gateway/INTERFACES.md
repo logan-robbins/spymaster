@@ -117,23 +117,28 @@ Each level is transformed by `_normalize_level_signal`:
     "confluence_level": int,            # 0-10 hierarchical scale
     "confluence_level_name": str,       # ULTRA_PREMIUM, PREMIUM, STRONG, MODERATE, CONSOLIDATION
     
-    # ML Predictions (merged from viewport)
+    // ML Predictions (merged from viewport)
+    // NOTE: Predictions use GEOMETRY-ONLY kNN (32D DCT shape matching)
+    // Physics features are provided for context but NOT used in retrieval
+    // See: RESEARCH.md Phase 4 (Geometry ECE: 2.4% vs Physics ECE: 21%)
     "ml_predictions": {
-        "p_tradeable_2": float,         # P(tradeable)
-        "p_break": float,               # P(break | tradeable)
-        "p_bounce": float,              # P(bounce | tradeable)
-        "strength_signed": float,       # Predicted signed strength
-        "strength_abs": float,          # Predicted absolute strength
-        "utility_score": float,         # Overall utility score
-        "stage": str,                   # "stage_a" or "stage_b"
-        "time_to_threshold": {          # Time-to-threshold predictions
+        "p_tradeable_2": float,         // P(tradeable)
+        "p_break": float,               // P(break | tradeable) - GEOMETRY-BASED
+        "p_bounce": float,              // P(bounce | tradeable) - GEOMETRY-BASED
+        "strength_signed": float,       // Predicted signed strength
+        "strength_abs": float,          // Predicted absolute strength
+        "utility_score": float,         // Overall utility score
+        "stage": str,                   // "stage_a" or "stage_b"
+        "time_to_threshold": {          // Time-to-threshold predictions
             "t1": {"60": float, "120": float},
             "t2": {"60": float, "120": float}
         },
-        "retrieval": {                  # kNN retrieval predictions
+        "retrieval": {                  // kNN retrieval predictions (GEOMETRY-ONLY)
             "p_break": float,
-            "similarity": float,
-            "entropy": float
+            "similarity": float,        // Geometric similarity (32D DCT space)
+            "entropy": float,
+            "n_neighbors": int,         // Sample size
+            "feature_set": "geometry_only"  // Explicit: 32D trajectory basis only
         }
     }
 }

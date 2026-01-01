@@ -27,6 +27,7 @@ from src.common.event_types import (
 from src.core.market_state import MarketState
 from src.core.level_signal_service import LevelSignalService
 from src.core.greek_enricher import GreekEnricher
+from src.core.feature_historian import FeatureHistorian
 
 
 class CoreService:
@@ -88,6 +89,9 @@ class CoreService:
             trading_date=trading_date
         )
 
+        # Initialize Feature Historian (for real-time vector construction)
+        self.feature_historian = FeatureHistorian(self.market_state)
+
         # Optional viewport scoring (Phase 3)
         self.viewport_scoring_service = None
         if os.getenv("VIEWPORT_SCORING_ENABLED", "false").lower() == "true":
@@ -134,7 +138,8 @@ class CoreService:
                 feature_builder=feature_builder,
                 stage_a_engine=stage_a_engine,
                 stage_b_engine=stage_b_engine,
-                trading_date=self.level_signal_service._trading_date
+                trading_date=self.level_signal_service._trading_date,
+                feature_historian=self.feature_historian
             )
         
         # Snap loop control
@@ -341,6 +346,16 @@ class CoreService:
             try:
                 # Compute level signals
                 payload = self.level_signal_service.compute_level_signals()
+
+                # Update Feature Historian (roughly every 30s)
+                ts_now = self.market_state.get_current_ts_ns()
+                self.feature_historian.update(
+                    ts_ns=ts_now,
+                    active_levels=self.level_signal_service.level_universe.get_levels(self.market_state),
+                    barrier_engine=self.level_signal_service.barrier_engine,
+                    tape_engine=self.level_signal_service.tape_engine
+                )
+                
                 if self.viewport_scoring_service is not None:
                     viewport_targets = self.viewport_scoring_service.score_viewport()
                     payload["viewport"] = {

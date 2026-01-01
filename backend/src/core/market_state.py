@@ -364,18 +364,18 @@ class MarketState:
             self._current_2m_start_ns = two_min_start_ns
             self._current_2m_close_spy = spx_price
 
-    def get_recent_minute_closes(self, lookback_minutes: int) -> List[float]:
+    def get_recent_minute_closes(self, lookback_minutes: int) -> List[Tuple[int, float]]:
         """
-        Return the most recent minute closes (ES points).
+        Return the most recent minute closes (ts_ns, price).
 
         The list is ordered oldest->newest and includes the current in-progress minute close.
         """
         if lookback_minutes <= 0:
             return []
 
-        closes: List[float] = [close for _, close in self._minute_closes]
-        if self._current_minute_close_spy is not None:
-            closes.append(self._current_minute_close_spy)
+        closes: List[Tuple[int, float]] = list(self._minute_closes)
+        if self._current_minute_close_spy is not None and self._current_minute_start_ns is not None:
+            closes.append((self._current_minute_start_ns, self._current_minute_close_spy))
         return closes[-lookback_minutes:]
 
     def get_recent_minute_bars(self, lookback_minutes: int) -> List[MinuteBar]:
@@ -440,8 +440,10 @@ class MarketState:
         closes = self.get_recent_minute_closes(window_minutes + 1)
         if len(closes) < 3:
             return None
-
-        returns = np.diff(np.array(closes, dtype=np.float64))
+        
+        # Extract prices from (ts, price) tuples
+        prices = [c[1] for c in closes]
+        returns = np.diff(np.array(prices, dtype=np.float64))
         if len(returns) < 2:
             return None
         if len(returns) > window_minutes:

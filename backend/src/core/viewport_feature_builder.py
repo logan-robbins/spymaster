@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import math
+import numpy as np
 
 from .barrier_engine import BarrierEngine, Direction as BarrierDirection
 from .tape_engine import TapeEngine
@@ -12,6 +13,8 @@ from .fuel_engine import FuelEngine
 from .level_universe import Level
 from .market_state import MarketState, SmaContext
 from src.common.config import CONFIG
+from src.ml.episode_vector import compute_dct_coefficients
+from src.core.feature_historian import FeatureHistorian
 
 
 @dataclass
@@ -42,7 +45,8 @@ class ViewportFeatureBuilder:
         market_state: MarketState,
         universe: List[Level],
         ts_ns: Optional[int] = None,
-        trading_date: Optional[str] = None
+        trading_date: Optional[str] = None,
+        historian: Optional[FeatureHistorian] = None
     ) -> FeatureRow:
         ts_ns = ts_ns if ts_ns is not None else market_state.get_current_ts_ns()
         spot = market_state.get_spot()
@@ -71,6 +75,7 @@ class ViewportFeatureBuilder:
             market_state=market_state,
             exp_date_filter=trading_date
         )
+        kinematics = self._compute_kinematics(level.price, direction, market_state)
 
         confluence = self._compute_confluence(level, universe)
 
@@ -123,6 +128,12 @@ class ViewportFeatureBuilder:
             "sma_200_slope_5bar": sma_context.sma_200_slope_5bar,
             "sma_400_slope_5bar": sma_context.sma_400_slope_5bar,
             "sma_spread": sma_context.sma_spread,
+        }
+        # Merge kinematics (Section B)
+        row.update(kinematics)
+
+        # Continues Section B/C
+        row.update({
             "approach_velocity": approach_velocity,
             "approach_bars": approach_bars,
             "approach_distance": approach_distance,
@@ -143,7 +154,41 @@ class ViewportFeatureBuilder:
             "fuel_effect": fuel_metrics.effect.value,
             "gamma_exposure": gamma_exposure,
             "gamma_bucket": gamma_bucket
-        }
+        })
+
+        # ─── SECTION F: Trajectory Basis (DCT) ───
+        # Retrieve trajectories from historian and compute DCT
+        if historian is not None:
+             trajectories = historian.get_trajectories(level.id)
+             # Map keys to series names
+             # 'distance_signed_atr' -> 'd_atr'
+             # 'ofi_60s' -> 'ofi_60s'
+             # 'barrier_delta_liq_log' -> 'barrier_delta_liq_log'
+             # 'tape_imbalance' -> 'tape_imbalance'
+             
+             # Name mapping for series in vector
+             series_map = {
+                 'd_atr': 'distance_signed_atr',
+                 'ofi_60s': 'ofi_60s',
+                 'barrier_delta_liq_log': 'barrier_delta_liq_log',
+                 'tape_imbalance': 'tape_imbalance'
+             }
+             
+             for name, key in series_map.items():
+                 series = trajectories.get(key)
+                 if series is not None:
+                     coeffs = compute_dct_coefficients(series, n_coeffs=8)
+                     for k in range(8):
+                         row[f'dct_{name}_c{k}'] = float(coeffs[k])
+                 else:
+                     # Fill zeros if missing
+                     for k in range(8):
+                         row[f'dct_{name}_c{k}'] = 0.0
+        else:
+             # Fill zeros if no historian (e.g. cold start / dry run)
+             for name in ['d_atr', 'ofi_60s', 'barrier_delta_liq_log', 'tape_imbalance']:
+                 for k in range(8):
+                     row[f'dct_{name}_c{k}'] = 0.0
 
         row.update(mean_reversion)
         self._apply_sparse_transforms(row)
@@ -197,9 +242,13 @@ class ViewportFeatureBuilder:
         }
 
     def _approach_context(self, direction: str, market_state: MarketState) -> tuple[float, int, float]:
-        closes = market_state.get_recent_minute_closes(self.config.LOOKBACK_MINUTES)
-        if len(closes) < 2:
+        closes_with_ts = market_state.get_recent_minute_closes(self.config.LOOKBACK_MINUTES)
+        if len(closes_with_ts) < 2:
             return 0.0, 0, 0.0
+            
+        # Extract prices
+        closes = [c[1] for c in closes_with_ts]
+        
         price_change = closes[-1] - closes[0]
         minutes = len(closes)
         if direction == "UP":
@@ -328,8 +377,11 @@ class ViewportFeatureBuilder:
         closes = market_state.get_recent_minute_closes(window + 1)
         if len(closes) < 2:
             return None
+        
+        # Extract prices
+        prices = [c[1] for c in closes]
 
-        changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        changes = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
         if not changes:
             return None
         if len(changes) > window:
@@ -376,4 +428,84 @@ class ViewportFeatureBuilder:
                 row[f"{col}_atr"] = value / (atr + eps)
             row[f"{col}_pct"] = value / (spot + eps)
 
+
         row["level_price_pct"] = (row["level_price"] - spot) / (spot + eps)
+
+    def _compute_kinematics(self, level_price: float, direction: str, market_state: MarketState) -> Dict[str, float]:
+        """
+        Compute multi-window kinematics (Velocity, Accel, Jerk) for Section B.
+        Windows: 1, 2, 3, 5, 10, 20 min.
+        """
+        # Get history for max window (20m) -> 21 points for 20m diffs
+        history = market_state.get_recent_minute_closes(lookback_minutes=21)
+        
+        if not history:
+             return self._empty_kinematics()
+
+        ts_array = np.array([h[0] for h in history], dtype=np.float64) / 1e9
+        price_array = np.array([h[1] for h in history], dtype=np.float64)
+        
+        # Direction sign for level-frame coordinates
+        dir_sign = 1 if direction == "UP" else -1
+        
+        p_series = dir_sign * (price_array - level_price)
+        
+        results = {}
+        windows = [1, 2, 3, 5, 10, 20]
+        
+        current_ts = ts_array[-1]
+        
+        for w in windows:
+            # Filter history to window
+            window_seconds = w * 60
+            start_ts = current_ts - window_seconds
+            
+            mask = ts_array >= (start_ts - 0.1) # Tolerance
+            
+            t_win = ts_array[mask]
+            p_win = p_series[mask]
+            
+            if len(t_win) < 2:
+                results[f'velocity_{w}min'] = 0.0
+                results[f'acceleration_{w}min'] = 0.0
+                results[f'jerk_{w}min'] = 0.0
+                continue
+                
+            # Normalize t to start at 0
+            t_norm = t_win - t_win[0]
+            
+            # Velocity: Linear Slope
+            if len(t_norm) >= 2:
+                 coeffs_v = np.polyfit(t_norm, p_win, 1)
+                 results[f'velocity_{w}min'] = float(coeffs_v[0])
+            else:
+                 results[f'velocity_{w}min'] = 0.0
+                 
+            # Acceleration: Quadratic (d=2)
+            if len(t_norm) >= 3:
+                 coeffs_a = np.polyfit(t_norm, p_win, 2)
+                 results[f'acceleration_{w}min'] = float(2.0 * coeffs_a[0])
+            else:
+                 results[f'acceleration_{w}min'] = 0.0
+                 
+            # Jerk: Cubic (d=3)
+            if len(t_norm) >= 4:
+                 coeffs_j = np.polyfit(t_norm, p_win, 3)
+                 results[f'jerk_{w}min'] = float(6.0 * coeffs_j[0])
+            else:
+                 results[f'jerk_{w}min'] = 0.0
+                 
+        for w in [3, 5, 10, 20]:
+            results[f'momentum_trend_{w}min'] = results.get(f'acceleration_{w}min', 0.0)
+            
+        return results
+
+    def _empty_kinematics(self) -> Dict[str, float]:
+        res = {}
+        for w in [1, 2, 3, 5, 10, 20]:
+            res[f'velocity_{w}min'] = 0.0
+            res[f'acceleration_{w}min'] = 0.0
+            res[f'jerk_{w}min'] = 0.0
+        for w in [3, 5, 10, 20]:
+             res[f'momentum_trend_{w}min'] = 0.0
+        return res
