@@ -184,12 +184,14 @@ class PentaviewAblationStudy:
     def __init__(
         self,
         data_root: Path = Path("data"),
-        model_dir: Path = Path("data/ml/projection_models_fixed"),
-        output_dir: Path = Path("data/ml/ablation_pentaview")
+        model_dir: Path = Path("data/ml/projection_models_v4"),
+        output_dir: Path = Path("data/ml/ablation_pentaview"),
+        canonical_version: str = "v4.0.0"
     ):
         self.data_root = data_root
         self.model_dir = model_dir
         self.output_dir = output_dir
+        self.canonical_version = canonical_version
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         self.stream_names = ['sigma_p', 'sigma_m', 'sigma_f', 'sigma_b', 'sigma_r']
@@ -203,8 +205,8 @@ class PentaviewAblationStudy:
         models = {}
         
         for stream in self.stream_names:
-            # Expected naming: projection_sigma_p_v30s_20251115_20251215.joblib
-            pattern = f"projection_{stream}_v30s_*.joblib"
+            # Expected naming: projection_sigma_p_v30s_v4.joblib or projection_sigma_p_v30s_*.joblib
+            pattern = f"projection_{stream}_*.joblib"
             model_files = list(self.model_dir.glob(pattern))
             
             if not model_files:
@@ -226,7 +228,7 @@ class PentaviewAblationStudy:
         date_partition = f"date={date}_00:00:00"
         stream_path = (
             self.data_root / "gold" / "streams" / "pentaview" /
-            "version=3.1.0" / date_partition / "stream_bars.parquet"
+            f"version={self.canonical_version}" / date_partition / "stream_bars.parquet"
         )
         
         if not stream_path.exists():

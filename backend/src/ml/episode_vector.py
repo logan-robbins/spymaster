@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Vector dimensions: 144D per analyst opinion
 # Section boundaries# Check dimension consistency at module load
-assert VECTOR_DIMENSION == 149, "Vector dimension must be 149"
+assert VECTOR_DIMENSION == 152, "Vector dimension must be 152"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -263,20 +263,25 @@ def construct_episode_vector(
     idx += 1
     
     # Market Tide (Net Premium Flow) - Log Normalization
-    vector[idx] = clip(row, "fuel_yield", -10.0, 10.0)
+    vector[idx] = np.clip(current_bar.get("fuel_yield", 0.0), -10.0, 10.0)
     idx += 1
-    vector[idx] = clip(row, "fuel_call_tide_log", -10.0, 10.0)
+    vector[idx] = np.clip(current_bar.get("fuel_call_tide_log", 0.0), -10.0, 10.0)
     idx += 1
-    vector[idx] = clip(row, "fuel_put_tide_log", -10.0, 10.0)
+    vector[idx] = np.clip(current_bar.get("fuel_put_tide_log", 0.0), -10.0, 10.0)
     idx += 1
-    vector[idx] = clip(row, "gamma_exposure", -5.0, 5.0)
+    vector[idx] = np.clip(current_bar.get("gamma_exposure", 0.0), -5.0, 5.0)
     idx += 1
 
-    feature_val = row.get('fuel_effect_encoded', 0.0)
+    feature_val = current_bar.get('fuel_effect_encoded', 0.0)
     if not isinstance(feature_val, (int, float)):
         feature_val = 0.0 # Default fallback
     vector[idx] = feature_val
     idx += 1
+    
+    # Missing Feature Fix: Barrier State Encoded
+    vector[idx] = encode_barrier_state(current_bar.get('barrier_state', 'NEUTRAL'))
+    idx += 1
+    
     vector[idx] = current_bar.get('barrier_replenishment_ratio', 0.0)
     idx += 1
     vector[idx] = 1.0 if current_bar.get('sweep_detected', False) else 0.0

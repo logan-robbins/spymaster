@@ -37,16 +37,17 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 149  # Updated to 149 (Added Market Tide: call/put premium flow)
+# ─── Episode Vector Dimensions ───
+VECTOR_DIMENSION = 152  # Updated to 152 (149 + 3 extra kinematics scales + 1 missed barrier state fix)
 
-# Vector section boundaries (149D)
+# Vector section boundaries (152D)
 VECTOR_SECTIONS = {
     'context_regime': (0, 25),       # 25 dims
     'multiscale_dynamics': (25, 65), # 40 dims
     'micro_history': (65, 100),      # 35 dims
-    'derived_physics': (100, 113),   # 13 dims (Added call_tide, put_tide)
-    'online_trends': (113, 117),     # 4 dims
-    'trajectory_basis': (117, 149),  # 32 dims
+    'derived_physics': (100, 116),   # 16 dims (Added mass/force proxies, tide, barrier state)
+    'online_trends': (116, 120),     # 4 dims
+    'trajectory_basis': (120, 152),  # 32 dims
 }
 
 # ─── Normalization Parameters ───
