@@ -736,8 +736,8 @@ export class SmartChartComponent implements OnInit, AfterViewInit {
       switch (l.kind) {
         case 'VWAP':
           return showVWAP;
-        case 'SMA_200':
-        case 'SMA_400':
+        case 'SMA_90':
+        case 'EMA_20':
           return showSMAs;
         case 'PM_HIGH':
         case 'PM_LOW':

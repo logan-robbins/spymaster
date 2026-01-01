@@ -255,9 +255,9 @@ def test_data_schema_documentation():
         "bars_since_open": "int32",
         
         # Mean reversion
-        "sma_200": "float64",
-        "sma_400": "float64",
-        "dist_to_sma_200": "float64",
+        "sma_90": "float64",
+        "ema_20": "float64",
+        "dist_to_sma_90": "float64",
         
         # Confluence
         "confluence_count": "int32",

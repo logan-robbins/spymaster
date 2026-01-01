@@ -7,7 +7,7 @@ This is the authoritative schema for pipeline output validation.
 Architecture: ES futures (spot + liquidity) + ES 0DTE options (gamma)
 Inference: Event-driven (zone entry + adaptive cadence)
 Features: 182 columns (10 identity + 108 engineered features + 64 labels)
-Levels: 6 kinds (PM/OR high/low + SMA_200/400)
+Levels: 6 kinds (PM/OR high/low + SMA_90/EMA_20)
 Outcome: Triple-barrier with volatility-scaled barrier, multi-timeframe (2min/4min/8min)
 RTH: 09:30-13:30 ET (first 4 hours)
 """
@@ -170,10 +170,10 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('dist_to_or_high_atr', pa.float64(), False),
     ('dist_to_or_low', pa.float64(), False),
     ('dist_to_or_low_atr', pa.float64(), False),
-    ('dist_to_sma_200', pa.float64(), False),
-    ('dist_to_sma_200_atr', pa.float64(), False),
-    ('dist_to_sma_400', pa.float64(), False),
-    ('dist_to_sma_400_atr', pa.float64(), False),
+    ('dist_to_sma_90', pa.float64(), False),
+    ('dist_to_sma_90_atr', pa.float64(), False),
+    ('dist_to_ema_20', pa.float64(), False),
+    ('dist_to_ema_20_atr', pa.float64(), False),
     ('dist_to_tested_level', pa.float64(), False),
     ('level_stacking_2pt', pa.int8(), False),
     ('level_stacking_5pt', pa.int8(), False),
@@ -225,8 +225,8 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('distance_signed_pct', pa.float64(), False),
     ('dist_to_pm_high_pct', pa.float64(), False),
     ('dist_to_pm_low_pct', pa.float64(), False),
-    ('dist_to_sma_200_pct', pa.float64(), False),
-    ('dist_to_sma_400_pct', pa.float64(), False),
+    ('dist_to_sma_90_pct', pa.float64(), False),
+    ('dist_to_ema_20_pct', pa.float64(), False),
     ('approach_distance_atr', pa.float64(), False),
     ('approach_distance_pct', pa.float64(), False),
     ('level_price_pct', pa.float64(), False),

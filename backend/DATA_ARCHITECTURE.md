@@ -98,7 +98,7 @@ Stage 1-4: Load & Sessionize
   - SessionizeStage (compute minutes_since_open relative to 09:30 ET)
     ↓
 Stage 5-6: Level Universe
-  - GenerateLevelsStage (6 level kinds: PM/OR high/low + SMA_200/400)
+  - GenerateLevelsStage (6 level kinds: PM/OR high/low + SMA_90/EMA_20)
   - DetectInteractionZonesStage (event-driven zone entry, not candle-gated)
     ↓
 Stage 7-13: Physics Features (Multi-Window + Single-Window)
@@ -230,7 +230,7 @@ NATS (market.futures.*, market.options.*)       [WORKING - tested with replay]
 - **Approach Context**: 5 features (atr, approach_velocity, approach_bars, approach_distance, prior_touches)
 - **Session Timing**: 2 features (minutes_since_open, bars_since_open)
 - **Sparse Transforms**: 4 features (wall_ratio_nonzero/log, barrier_delta_liq_nonzero/log)
-- **Normalized Features**: 11 features (spot, distance_signed + pct/atr, dist_to_pm_high_pct, dist_to_pm_low_pct, dist_to_sma_200_pct, dist_to_sma_400_pct, approach_distance_{atr,pct}, level_price_pct)
+- **Normalized Features**: 11 features (spot, distance_signed + pct/atr, dist_to_pm_high_pct, dist_to_pm_low_pct, dist_to_sma_90_pct, dist_to_ema_20_pct, approach_distance_{atr,pct}, level_price_pct)
 - **Attempt Clustering**: 6 features (attempt_index, attempt_cluster_id, barrier_replenishment_trend, barrier_delta_liq_trend, tape_velocity_trend, tape_imbalance_trend)
 - **Episode Identity**: 2 features (episode_id, approach_direction)
 - **Dwell/Persistence**: 4 features (time_in_zone_total, time_in_zone_last_60s, time_in_zone_last_300s, fraction_in_zone_last_20m)
@@ -332,8 +332,8 @@ Generated levels from ES futures (**6 level kinds** total):
 | **PM_LOW** | Pre-market low (04:00-09:30 ET) | ES futures |
 | **OR_HIGH** | Opening range high (09:30-09:45 ET) | ES futures |
 | **OR_LOW** | Opening range low (09:30-09:45 ET) | ES futures |
-| **SMA_200** | 200-period moving average (2-min bars) | ES futures |
-| **SMA_400** | 400-period moving average (2-min bars) | ES futures |
+| **SMA_90** | 90-period moving average (2-min bars) | ES futures |
+| **EMA_20** | 20-period exponential moving average (2-min bars) | ES futures |
 
 ### Feature Categories (Core Physics Features)
 
@@ -365,7 +365,7 @@ Generated levels from ES futures (**6 level kinds** total):
 - **Weight**: 0.3x in ML models (gamma is 0.04-0.17% of ES volume - Cboe/SpotGamma studies)
 
 **Level Distances** (16 features - STRUCTURAL CONTEXT):
-- `dist_to_{pm_high,pm_low,or_high,or_low,sma_200,sma_400}` + `_atr` variants
+- `dist_to_{pm_high,pm_low,or_high,or_low,sma_90,ema_20}` + `_atr` variants
 - `dist_to_tested_level`
 - `level_stacking_{2,5,10}pt`
 - **Purpose**: Position within structural level framework
@@ -427,7 +427,7 @@ Pipeline behavior controlled by `backend/src/common/config.py` (single source of
 | **Outcome Labels** | Volatility-scaled barrier (vol window + horizon); applied at episode level |
 | **Multi-Window Lookback** | 1-20min kinematics, 30s-5min OFI, 1-5min barrier - encode "setup shape" for kNN retrieval |
 | **Base Physics Windows** | W_b/W_t/W_g - engine lookback windows (see `src/common/config.py`) |
-| **Level Selection** | use_pm/use_or/use_sma_200/use_sma_400 (see `src/common/config.py`) |
+| **Level Selection** | use_pm/use_or/use_sma_90/use_ema_20 (see `src/common/config.py`) |
 
 **Inference Model**: Continuous episode-based (250-500ms while in-zone)
 

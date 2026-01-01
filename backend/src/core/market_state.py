@@ -291,8 +291,8 @@ class MarketState:
             self._current_minute_low_spy = None
             self._current_2m_start_ns = None
             self._current_2m_close_spy = None
-            self._sma_200 = None
-            self._sma_400 = None
+            self._sma_90 = None
+            self._ema_20 = None
 
         # --- Premarket + opening range ---
         minutes_since_midnight = dt_et.hour * 60 + dt_et.minute

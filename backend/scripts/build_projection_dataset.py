@@ -140,8 +140,8 @@ def _encode_level_kind(level_kind: str) -> float:
         'PM_LOW': 1.0,
         'OR_HIGH': 2.0,
         'OR_LOW': 3.0,
-        'SMA_200': 4.0,
-        'SMA_400': 5.0
+        'SMA_90': 4.0,
+        'EMA_20': 5.0
     }
     return mapping.get(level_kind, 0.0)
 

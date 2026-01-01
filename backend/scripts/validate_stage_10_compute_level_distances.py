@@ -142,7 +142,7 @@ class Stage10Validator:
 
         self.logger.info(f"  Total signals: {len(signals_df):,}")
 
-        level_types = ['pm_high', 'pm_low', 'or_high', 'or_low', 'sma_200', 'sma_400']
+        level_types = ['pm_high', 'pm_low', 'or_high', 'or_low', 'sma_90', 'ema_20']
         distance_cols = []
         for level_type in level_types:
             distance_cols.append(f'dist_to_{level_type}')

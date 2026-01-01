@@ -17,7 +17,7 @@
 - Strike listing: CME schedule varies by moneyness/time-to-expiry (5/10/50/100-point intervals; dynamic 5-point additions); GEX bands aggregate across listed strikes within point bands
 - Modeling barrier: volatility-scaled (point-band based, no fixed strike count)
 - Time window: 09:30-13:30 ET (first 4 hours)
-- Level types: 6 only (PM High/Low, OR High/Low, SMA200, SMA400)
+- Level types: 6 only (PM High/Low, OR High/Low, SMA_90, EMA_20)
 
 ---
 
@@ -114,7 +114,7 @@
 
 **Key Responsibilities**:
 - Maintain market state (ES MBP-10, trades, ES option flow)
-- Generate level universe (6 level kinds: PM/OR high/low + SMA_200/400)
+- Generate level universe (6 level kinds: PM/OR high/low + SMA_90/EMA_20)
 - Compute barrier physics (VACUUM, WALL, ABSORPTION from ES depth)
 - Compute tape physics (ES trade imbalance, velocity, sweep detection)
 - Compute fuel physics (ES 0DTE option dealer gamma, AMPLIFY vs DAMPEN)
@@ -280,8 +280,8 @@
 - **PM_LOW**: Pre-market low (04:00-09:30 ET) from ES futures
 - **OR_HIGH**: Opening range high (09:30-09:45 ET) from ES futures
 - **OR_LOW**: Opening range low (09:30-09:45 ET) from ES futures
-- **SMA_200**: 200-period moving average on 2-min ES bars
-- **SMA_400**: 400-period moving average on 2-min ES bars
+- **SMA_90**: 90-period moving average on 2-min ES bars
+- **EMA_20**: 20-period exponential moving average on 2-min ES bars
 
 **Total**: 6 level kinds (4 structural extremes + 2 moving averages)
 
@@ -297,7 +297,7 @@
 
 **Key Responsibilities**:
 - Timing context detection (first 15 minutes, bars since open)
-- Structural level identification (PM high/low, SMA-200/400)
+- Structural level identification (PM high/low, SMA-90/EMA-20)
 - Level proximity detection
 
 **Key Components**:

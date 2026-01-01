@@ -146,7 +146,7 @@ These are the raw “market physics” signals. The frontend **does not** derive
 export interface LevelSignal {
   id: string;                    // stable ID across time (used for hover, gamma velocity tracking)
   level_price: number;
-  level_kind_name: string;       // e.g. PM_HIGH, VWAP, SMA_200, CALL_WALL...
+  level_kind_name: string;       // e.g. PM_HIGH, VWAP, SMA_90, CALL_WALL...
   direction: "UP" | "DOWN";      // UP = resistance context, DOWN = support context
   distance: number;              // abs(spot - level_price) in dollars
 
@@ -190,7 +190,7 @@ export interface LevelSignal {
 The frontend uses `level_kind_name` as a **semantic key** (weighting + labeling). Expected values include:
 
 - Structural: `PM_HIGH`, `PM_LOW`, `OR_HIGH`, `OR_LOW`, `SESSION_HIGH`, `SESSION_LOW`
-- Dynamic: `VWAP`, `SMA_200`, `SMA_400`
+- Dynamic: `VWAP`, `SMA_90`, `EMA_20`
 - Options-derived: `CALL_WALL`, `PUT_WALL`
 - Utility: `ROUND`, `STRIKE`
 
@@ -351,7 +351,7 @@ class ConfluenceEngine:
         spot: float,
         pm_high: float, pm_low: float,
         or_high: float, or_low: float,
-        sma_200: float, sma_400: float,
+        sma_90: float, ema_20: float,
         call_wall: float, put_wall: float,
         fuel_effect: str,
         ts_ns: int

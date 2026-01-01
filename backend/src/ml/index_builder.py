@@ -19,7 +19,7 @@ except ImportError:
 
 
 # Constants per IMPLEMENTATION_READY.md Section 8
-LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 DIRECTIONS = ['UP', 'DOWN']
 TIME_BUCKETS = ['T0_15', 'T15_30', 'T30_60', 'T60_120', 'T120_180']
 MIN_PARTITION_SIZE = 100  # Don't create index for tiny partitions
@@ -108,8 +108,8 @@ def build_faiss_index(
         # Product quantization for large corpora
         nlist = min(4096, max(16, N // 100))
         # m must divide D evenly. D=144, divisors: 2, 3, 4, 6, 8, 9, 12, 16, 18, 24, 36, 48, 72
-        # Use m=3 for minimal compression, or pad D to 112 for m=8
-        # For now, use m=3 (37 subvectors)
+        # Use m=3 for minimal compression
+        # For now, use m=3 (48 subvectors)
         m = 3
         quantizer = faiss.IndexFlatIP(D)
         index = faiss.IndexIVFPQ(quantizer, D, nlist, m, 8)

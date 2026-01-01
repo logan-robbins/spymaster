@@ -33,11 +33,11 @@ SEQ_FEATURE_COLUMNS = [
     "close",
     "return",
     "volatility",
-    "dist_to_sma_200",
-    "dist_to_sma_400",
+    "dist_to_sma_90",
+    "dist_to_ema_20",
     "sma_spread",
-    "sma_200_slope_5bar",
-    "sma_400_slope_5bar",
+    "sma_90_slope_5bar",
+    "ema_20_slope_5bar",
 ]
 
 
@@ -148,23 +148,23 @@ def _build_ohlcv_features(date: str) -> pd.DataFrame:
     )
 
     if not ohlcv_2m.empty:
-        ohlcv_2m["sma_200"] = ohlcv_2m["close"].rolling(200).mean()
-        ohlcv_2m["sma_400"] = ohlcv_2m["close"].rolling(400).mean()
+        ohlcv_2m["sma_90"] = ohlcv_2m["close"].rolling(90).mean()
+        ohlcv_2m["ema_20"] = ohlcv_2m["close"].ewm(span=20, adjust=False).mean()
         short_bars = max(1, CONFIG.SMA_SLOPE_SHORT_BARS)
         short_minutes = short_bars * 2
-        ohlcv_2m["sma_200_slope_5bar"] = (
-            ohlcv_2m["sma_200"] - ohlcv_2m["sma_200"].shift(short_bars)
+        ohlcv_2m["sma_90_slope_5bar"] = (
+            ohlcv_2m["sma_90"] - ohlcv_2m["sma_90"].shift(short_bars)
         ) / short_minutes
-        ohlcv_2m["sma_400_slope_5bar"] = (
-            ohlcv_2m["sma_400"] - ohlcv_2m["sma_400"].shift(short_bars)
+        ohlcv_2m["ema_20_slope_5bar"] = (
+            ohlcv_2m["ema_20"] - ohlcv_2m["ema_20"].shift(short_bars)
         ) / short_minutes
 
         sma_cols = [
             "timestamp",
-            "sma_200",
-            "sma_400",
-            "sma_200_slope_5bar",
-            "sma_400_slope_5bar",
+            "sma_90",
+            "ema_20",
+            "sma_90_slope_5bar",
+            "ema_20_slope_5bar",
         ]
         ohlcv_1m = pd.merge_asof(
             ohlcv_1m.sort_values("timestamp"),
@@ -173,9 +173,9 @@ def _build_ohlcv_features(date: str) -> pd.DataFrame:
             direction="backward",
         )
 
-    ohlcv_1m["dist_to_sma_200"] = ohlcv_1m["close"] - ohlcv_1m.get("sma_200", np.nan)
-    ohlcv_1m["dist_to_sma_400"] = ohlcv_1m["close"] - ohlcv_1m.get("sma_400", np.nan)
-    ohlcv_1m["sma_spread"] = ohlcv_1m.get("sma_200", np.nan) - ohlcv_1m.get("sma_400", np.nan)
+    ohlcv_1m["dist_to_sma_90"] = ohlcv_1m["close"] - ohlcv_1m.get("sma_90", np.nan)
+    ohlcv_1m["dist_to_ema_20"] = ohlcv_1m["close"] - ohlcv_1m.get("ema_20", np.nan)
+    ohlcv_1m["sma_spread"] = ohlcv_1m.get("sma_90", np.nan) - ohlcv_1m.get("ema_20", np.nan)
 
     ohlcv_1m[SEQ_FEATURE_COLUMNS] = ohlcv_1m[SEQ_FEATURE_COLUMNS].fillna(0.0)
 

@@ -176,13 +176,13 @@ class TestExperimentRunner:
             outcome=OutcomeLabel.CHOP,
         ))
         
-        # 5 SMA_200 signals: 2 bounces, 3 breaks
+        # 5 SMA_90 signals: 2 bounces, 3 breaks
         for i in range(2):
             signals.append(LevelSignalV1(
                 event_id=f"sma_bounce_{i}",
                 ts_event_ns=1700000000000000000 + (i+10) * 1000000000,
                 level_price=399.50,
-                level_kind=LevelKind.SMA_200,
+                level_kind=LevelKind.SMA_90,
                 wall_ratio=1.8,
                 gamma_exposure=500.0,
                 tape_velocity=8.0,
@@ -194,7 +194,7 @@ class TestExperimentRunner:
                 event_id=f"sma_break_{i}",
                 ts_event_ns=1700000000000000000 + (i+12) * 1000000000,
                 level_price=399.50,
-                level_kind=LevelKind.SMA_200,
+                level_kind=LevelKind.SMA_90,
                 wall_ratio=0.3,
                 gamma_exposure=-200.0,
                 tape_velocity=15.0,
@@ -226,7 +226,7 @@ class TestExperimentRunner:
                 event_id=f"rest_of_day_{i}",
                 ts_event_ns=1700000000000000000 + (i+5) * 1000000000,
                 level_price=400.00,
-                level_kind=LevelKind.SMA_200,
+                level_kind=LevelKind.SMA_90,
                 is_first_15m=False,
                 wall_ratio=1.0,
                 outcome=OutcomeLabel.BOUNCE if i < 2 else OutcomeLabel.BREAK,
@@ -260,11 +260,11 @@ class TestExperimentRunner:
         assert pm_high["break_rate"] == 0.2
         assert pm_high["chop_rate"] == 0.1
         
-        # Check SMA_200 stats (2 bounces, 3 breaks out of 5)
-        sma_200 = results["SMA_200"]
-        assert sma_200["count"] == 5
-        assert sma_200["bounce_rate"] == 0.4
-        assert sma_200["break_rate"] == 0.6
+        # Check SMA_90 stats (2 bounces, 3 breaks out of 5)
+        sma_90 = results["SMA_90"]
+        assert sma_90["count"] == 5
+        assert sma_90["bounce_rate"] == 0.4
+        assert sma_90["break_rate"] == 0.6
     
     def test_simple_backtest_empty_signals(self):
         """Test backtest with no signals."""
@@ -428,7 +428,7 @@ class TestResearchIntegration:
             direction=Direction.RESISTANCE,
             distance=0.05,
             is_first_15m=True,
-            dist_to_sma_200=2.50,
+            dist_to_sma_90=2.50,
             wall_ratio=2.5,
             replenishment_speed_ms=45.0,
             gamma_exposure=1500.0,

@@ -40,6 +40,11 @@ def compute_approach_context(
     if signals_df.empty or ohlcv_df.empty:
         return signals_df
 
+    required_cols = {'ts_ns', 'level_price', 'direction'}
+    missing = required_cols - set(signals_df.columns)
+    if missing:
+        raise ValueError(f"signals_df missing required columns for approach context: {sorted(missing)}")
+
     # Prepare OHLCV data for fast lookup
     ohlcv = ohlcv_df.copy()
     if isinstance(ohlcv.index, pd.DatetimeIndex):
@@ -129,7 +134,9 @@ def compute_approach_context(
 
         # Approach velocity: price change per minute
         price_change = hist_close[-1] - hist_close[0]
-        time_minutes = len(hist_close)  # Each bar is 1 minute
+        time_minutes = (ohlcv_ts[end_idx - 1] - ohlcv_ts[start_idx]) / (60.0 * 1e9)
+        if time_minutes <= 0:
+            time_minutes = max(len(hist_close) - 1, 1)
 
         if direction == 'UP':
             # Approaching resistance from below - positive velocity = moving up toward level
@@ -314,15 +321,17 @@ def add_normalized_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     atr = result['atr'].astype(np.float64).to_numpy()
     eps = 1e-6
 
-    result['distance_signed'] = result['level_price'].astype(np.float64) - spot
+    result['distance_signed'] = spot - result['level_price'].astype(np.float64)
 
     distance_cols = [
         'distance',
         'distance_signed',
         'dist_to_pm_high',
         'dist_to_pm_low',
-        'dist_to_sma_200',
-        'dist_to_sma_400',
+        'dist_to_or_high',
+        'dist_to_or_low',
+        'dist_to_sma_90',
+        'dist_to_ema_20',
         'confluence_min_distance',
         'approach_distance'
     ]
@@ -366,11 +375,21 @@ class ComputeApproachFeaturesStage(BaseStage):
 
         # Attach ATR to signals if not already present
         if 'atr' not in signals_df.columns:
+            if 'ts_ns' not in signals_df.columns:
+                raise ValueError("signals_df missing ts_ns; cannot align ATR.")
+            if ohlcv_df.empty:
+                raise ValueError("ohlcv_1min is empty; cannot align ATR.")
+            if 'ts_ns' not in ohlcv_df.columns:
+                raise ValueError("ohlcv_1min missing ts_ns; cannot align ATR.")
+            if atr_series is None or len(atr_series) == 0:
+                raise ValueError("ATR series missing; compute ATR before approach features.")
+
             # Match signals to OHLCV bars by timestamp to get ATR
+            ohlcv_df = ohlcv_df.copy()
             ohlcv_df['atr_val'] = atr_series
             signals_with_atr = pd.merge_asof(
                 signals_df.sort_values('ts_ns'),
-                ohlcv_df[['ts_ns', 'atr_val']].rename(columns={'atr_val': 'atr'}),
+                ohlcv_df[['ts_ns', 'atr_val']].sort_values('ts_ns').rename(columns={'atr_val': 'atr'}),
                 on='ts_ns',
                 direction='backward'
             )

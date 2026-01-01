@@ -78,10 +78,10 @@
 | dist_to_or_high_atr | double | Signed distance (spot - OR_HIGH) normalized by ATR |
 | dist_to_or_low | double | Signed distance (spot - OR_LOW) |
 | dist_to_or_low_atr | double | Signed distance (spot - OR_LOW) normalized by ATR |
-| dist_to_sma_200 | double | Signed distance (spot - SMA_200) |
-| dist_to_sma_200_atr | double | Signed distance (spot - SMA_200) normalized by ATR |
-| dist_to_sma_400 | double | Signed distance (spot - SMA_400) |
-| dist_to_sma_400_atr | double | Signed distance (spot - SMA_400) normalized by ATR |
+| dist_to_sma_90 | double | Signed distance (spot - SMA_90) |
+| dist_to_sma_90_atr | double | Signed distance (spot - SMA_90) normalized by ATR |
+| dist_to_ema_20 | double | Signed distance (spot - EMA_20) |
+| dist_to_ema_20_atr | double | Signed distance (spot - EMA_20) normalized by ATR |
 | dist_to_tested_level | double | Distance to tested level (points) |
 | level_stacking_2pt | int8 | Count of levels within 2 points |
 | level_stacking_5pt | int8 | Count of levels within 5 points |
@@ -116,13 +116,13 @@
 | barrier_delta_liq_nonzero | int8 | Indicator barrier_delta_liq != 0 |
 | barrier_delta_liq_log | double | Signed log transform of barrier_delta_liq |
 | spot | double | Spot price at event |
-| distance_signed | double | Signed level distance (level - spot) |
+| distance_signed | double | Signed level distance (spot - level) |
 | distance_signed_atr | double | distance_signed normalized by ATR |
 | distance_signed_pct | double | distance_signed normalized by spot |
 | dist_to_pm_high_pct | double | dist_to_pm_high normalized by spot |
 | dist_to_pm_low_pct | double | dist_to_pm_low normalized by spot |
-| dist_to_sma_200_pct | double | dist_to_sma_200 normalized by spot |
-| dist_to_sma_400_pct | double | dist_to_sma_400 normalized by spot |
+| dist_to_sma_90_pct | double | dist_to_sma_90 normalized by spot |
+| dist_to_ema_20_pct | double | dist_to_ema_20 normalized by spot |
 | approach_distance_atr | double | approach_distance normalized by ATR |
 | approach_distance_pct | double | approach_distance normalized by spot |
 | level_price_pct | double | Level price normalized by spot |

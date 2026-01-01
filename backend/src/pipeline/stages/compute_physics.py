@@ -141,7 +141,23 @@ def compute_physics_batch(
             barrier_states[i] = barrier_metrics_result.state.value
             barrier_delta_liq[i] = barrier_metrics_result.delta_liq
             barrier_replen[i] = barrier_metrics_result.replenishment_ratio
-            wall_ratios[i] = barrier_metrics_result.depth_in_zone / 5000.0 if barrier_metrics_result.depth_in_zone else 0.0
+            depth_in_zone = barrier_metrics_result.depth_in_zone
+            if depth_in_zone:
+                ts_now_ns = row.get('ts_ns', market_state.get_current_ts_ns())
+                mbp_history = market_state.get_es_mbp10_in_window(ts_now_ns, CONFIG.W_b)
+                bid_sizes = []
+                ask_sizes = []
+                for mbp in mbp_history:
+                    for level in mbp.levels:
+                        bid_sizes.append(level.bid_sz)
+                        ask_sizes.append(level.ask_sz)
+                if bid_sizes and ask_sizes:
+                    avg_depth = (np.mean(bid_sizes) + np.mean(ask_sizes)) / 2.0
+                else:
+                    avg_depth = 0.0
+                wall_ratios[i] = depth_in_zone / (avg_depth + 1e-6)
+            else:
+                wall_ratios[i] = 0.0
         except:
             barrier_states[i] = 'NEUTRAL'
 

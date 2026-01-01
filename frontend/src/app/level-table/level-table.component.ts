@@ -128,7 +128,7 @@ import { DataStreamService, LevelSignal } from '../data-stream.service';
     .kind-PM_HIGH, .kind-PM_LOW { background: #10b981; color: white; }
     .kind-OR_HIGH, .kind-OR_LOW { background: #14b8a6; color: white; }
     .kind-SESSION_HIGH, .kind-SESSION_LOW { background: #22c55e; color: white; }
-    .kind-SMA_200, .kind-SMA_400 { background: #64748b; color: white; }
+    .kind-SMA_90, .kind-EMA_20 { background: #64748b; color: white; }
 
     .direction-DOWN { color: #10b981; }
     .direction-UP { color: #ef4444; }

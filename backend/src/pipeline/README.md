@@ -132,7 +132,7 @@ Each stage declares required inputs via `required_inputs`:
 Structural levels used for event generation:
 - **PM_HIGH/PM_LOW**: Pre-market high/low (04:00-09:30 ET)
 - **OR_HIGH/OR_LOW**: Opening range high/low (09:30-09:45 ET)
-- **SMA_200/SMA_400**: Moving averages on 2-min bars (warmup required)
+- **SMA_90/EMA_20**: Moving averages on 2-min bars (warmup required)
 
 Dynamic series (context-only) include session highs/lows, VWAP, and call/put walls.
 

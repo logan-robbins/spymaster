@@ -72,7 +72,7 @@ def create_test_scenarios() -> Dict[str, pd.Series]:
     # ========== FLOW DIVERGENCE ==========
     scenarios['flow_divergence'] = pd.Series({
         'timestamp': pd.Timestamp('2025-12-16 10:15:00'),
-        'level_kind': 'SMA_200',
+        'level_kind': 'SMA_90',
         'direction': 'UP',
         'sigma_p': 0.10,
         'sigma_p_slope': 0.02,
@@ -112,7 +112,7 @@ def create_test_scenarios() -> Dict[str, pd.Series]:
     # ========== LOW QUALITY SETUP ==========
     scenarios['low_quality'] = pd.Series({
         'timestamp': pd.Timestamp('2025-12-16 10:45:00'),
-        'level_kind': 'SMA_400',
+        'level_kind': 'EMA_20',
         'direction': 'UP',
         'sigma_p': 0.25,
         'sigma_p_slope': 0.03,

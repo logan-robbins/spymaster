@@ -114,15 +114,15 @@ class ViewportFeatureBuilder:
             "direction": direction,
             "direction_sign": direction_sign,
             "distance": distance,
-            "distance_signed": level.price - spot,
+            "distance_signed": spot - level.price,
             "atr": atr,
             "is_first_15m": is_first_15m,
-            "dist_to_pm_high": (level.price - pm_high) if pm_high is not None else None,
-            "dist_to_pm_low": (level.price - pm_low) if pm_low is not None else None,
+            "dist_to_pm_high": (spot - pm_high) if pm_high is not None else None,
+            "dist_to_pm_low": (spot - pm_low) if pm_low is not None else None,
             "sma_90": sma_90,
             "ema_20": ema_20,
-            "dist_to_sma_90": (level.price - sma_90) if sma_90 is not None else None,
-            "dist_to_ema_20": (level.price - ema_20) if ema_20 is not None else None,
+            "dist_to_sma_90": (spot - sma_90) if sma_90 is not None else None,
+            "dist_to_ema_20": (spot - ema_20) if ema_20 is not None else None,
             "sma_90_slope": sma_context.sma_90_slope,
             "ema_20_slope": sma_context.ema_20_slope,
             "sma_90_slope_5bar": sma_context.sma_90_slope_5bar,
@@ -210,9 +210,7 @@ class ViewportFeatureBuilder:
             "SESSION_HIGH": 0.6,
             "SESSION_LOW": 0.6,
             "CALL_WALL": 1.0,
-            "PUT_WALL": 1.0,
-            "SMA_200": 0.5, # Added
-            "SMA_400": 0.5  # Added
+            "PUT_WALL": 1.0
         }
         band = self.config.CONFLUENCE_BAND
         distances = []
@@ -333,10 +331,10 @@ class ViewportFeatureBuilder:
     ) -> Dict[str, Optional[float]]:
         if sma_context is None:
             return {
-                "mean_reversion_pressure_200": None,
-                "mean_reversion_pressure_400": None,
-                "mean_reversion_velocity_200": None,
-                "mean_reversion_velocity_400": None
+                "mean_reversion_pressure_90": None,
+                "mean_reversion_pressure_20": None,
+                "mean_reversion_velocity_90": None,
+                "mean_reversion_velocity_20": None
             }
 
         dist_to_sma_90 = None

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Vector dimensions: 144D per analyst opinion
 # Section boundaries# Check dimension consistency at module load
-assert VECTOR_DIMENSION == 152, "Vector dimension must be 152"
+assert VECTOR_DIMENSION == 144, "Vector dimension must be 144"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -138,8 +138,8 @@ def construct_episode_vector(
     idx += 1
     vector[idx] = current_bar.get('attempt_index', 0)
     idx += 1
-    # Handle time_since_last_touch (may be null in state table)
-    time_since_last = current_bar.get('time_since_last_touch', 0.0)
+    # Handle time_since_last_touch_sec (may be null in state table)
+    time_since_last = current_bar.get('time_since_last_touch_sec', 0.0)
     if time_since_last is None or (isinstance(time_since_last, float) and np.isnan(time_since_last)):
         time_since_last = 0.0  # Default: no prior touch (or very first touch)
     vector[idx] = float(time_since_last)
@@ -195,17 +195,12 @@ def construct_episode_vector(
         vector[idx] = current_bar.get(f'barrier_delta_{scale}', 0.0)
         idx += 1
     
-    # Barrier pct change (3)
-    for scale in ['1min', '3min', '5min']:
-        vector[idx] = current_bar.get(f'barrier_pct_change_{scale}', 0.0)
-        idx += 1
-    
     # Approach dynamics (3)
-    vector[idx] = current_bar.get('dist_to_or_low_atr', 0.0)
+    vector[idx] = current_bar.get('approach_velocity', 0.0)
     idx += 1
-    vector[idx] = current_bar.get('dist_to_sma_90_atr', 0.0)
+    vector[idx] = current_bar.get('approach_bars', 0.0)
     idx += 1
-    vector[idx] = current_bar.get('dist_to_ema_20_atr', 0.0)
+    vector[idx] = current_bar.get('approach_distance_atr', 0.0)
     idx += 1
     
     # ─── SECTION C: Micro-History (35 dims) ───
@@ -262,22 +257,6 @@ def construct_episode_vector(
     vector[idx] = force_proxy
     idx += 1
     
-    # Market Tide (Net Premium Flow) - Log Normalization
-    vector[idx] = np.clip(current_bar.get("fuel_yield", 0.0), -10.0, 10.0)
-    idx += 1
-    vector[idx] = np.clip(current_bar.get("fuel_call_tide_log", 0.0), -10.0, 10.0)
-    idx += 1
-    vector[idx] = np.clip(current_bar.get("fuel_put_tide_log", 0.0), -10.0, 10.0)
-    idx += 1
-    vector[idx] = np.clip(current_bar.get("gamma_exposure", 0.0), -5.0, 5.0)
-    idx += 1
-
-    feature_val = current_bar.get('fuel_effect_encoded', 0.0)
-    if not isinstance(feature_val, (int, float)):
-        feature_val = 0.0 # Default fallback
-    vector[idx] = feature_val
-    idx += 1
-    
     # Missing Feature Fix: Barrier State Encoded
     vector[idx] = encode_barrier_state(current_bar.get('barrier_state', 'NEUTRAL'))
     idx += 1
@@ -297,7 +276,8 @@ def construct_episode_vector(
     
     # Analyst addition: flow_alignment
     d_atr = current_bar.get('distance_signed_atr', 0.0)
-    flow_alignment = ofi_60s * (-np.sign(d_atr))  # positive = flow aligned with approach
+    approach_sign = -np.sign(d_atr)  # positive when approaching from below
+    flow_alignment = ofi_60s * approach_sign  # positive = flow aligned with approach
     vector[idx] = flow_alignment
     idx += 1
     
@@ -394,8 +374,6 @@ def get_feature_names() -> List[str]:
     names.append('ofi_acceleration')
     for scale in ['1min', '3min', '5min']:
         names.append(f'barrier_delta_{scale}')
-    for scale in ['1min', '3min', '5min']:
-        names.append(f'barrier_pct_change_{scale}')
     names.extend(['approach_velocity', 'approach_bars', 'approach_distance_atr'])
     
     # Section C: Micro-History (35) - 7 features × 5 bars with LOG transforms
@@ -411,8 +389,6 @@ def get_feature_names() -> List[str]:
     names.extend([
         'predicted_accel', 'accel_residual', 'force_mass_ratio',
         'mass_proxy', 'force_proxy',
-        "fuel_yield", "fuel_call_tide_log", "fuel_put_tide_log",
-        "gamma_exposure", "fuel_effect_encoded",
         'barrier_state_encoded', 'barrier_replenishment_ratio',
         'sweep_detected', 'tape_log_ratio', 'tape_log_total',
         'flow_alignment'
@@ -478,9 +454,10 @@ def compute_emission_weight(
     # Velocity weight: clip to [0.2, 1.0]
     velocity_w = np.clip(abs(approach_velocity) / 2.0, 0.2, 1.0)
     
-    # OFI alignment
+    # OFI alignment (positive when flow supports approach direction)
     ofi_sign = np.sign(ofi_60s)
-    approach_sign = np.sign(level_price - spot)  # positive if approaching from below
+    distance_signed = spot - level_price
+    approach_sign = -np.sign(distance_signed)  # positive if approaching from below
     ofi_aligned = (ofi_sign == approach_sign) or (ofi_sign == 0)
     ofi_w = 1.0 if ofi_aligned else 0.6
     
@@ -600,12 +577,36 @@ def construct_episodes_from_events(
     
     sequences = []
     skipped_reasons = {'no_history': 0, 'vector_construction_failed': 0, 'normalization_failed': 0}
+
+    # Track recency between interaction events for the same level (seconds).
+    # This feeds `time_since_last_touch_sec` used by the setup-quality proxy and the 144D vector.
+    last_touch_ts_ns: Dict[Tuple[str, int], int] = {}
     
     for i, event in events_sorted.iterrows():
         event_ts = event['timestamp']
         level_kind = event['level_kind']
         level_price = event['level_price']
         direction = event.get('direction', 'UP')
+
+        # Compute time since last interaction for this level (any direction).
+        # Key by (level_kind, price_cents) for determinism.
+        try:
+            event_ts_ns = event.get('ts_ns')
+            if event_ts_ns is None or (isinstance(event_ts_ns, float) and np.isnan(event_ts_ns)):
+                event_ts_ns = int(pd.Timestamp(event_ts).value)
+            else:
+                event_ts_ns = int(event_ts_ns)
+        except Exception:
+            event_ts_ns = int(pd.Timestamp(event_ts).value)
+
+        level_price_cents = int(round(float(level_price) * 100))
+        touch_key = (str(level_kind), level_price_cents)
+        prev_ts_ns = last_touch_ts_ns.get(touch_key)
+        if prev_ts_ns is None:
+            time_since_last_touch_sec = 900.0  # Default: treat first touch as "not recent"
+        else:
+            time_since_last_touch_sec = max(0.0, (event_ts_ns - prev_ts_ns) / 1e9)
+        last_touch_ts_ns[touch_key] = event_ts_ns
         
         # Get state history for this level_kind
         level_state = state_sorted[state_sorted['level_kind'] == level_kind]
@@ -621,7 +622,28 @@ def construct_episodes_from_events(
         
         # Micro-history: Take last 5 state samples (2.5 minutes)
         history_buffer = history_states.tail(5).to_dict('records')
-        current_bar = history_buffer[-1] if history_buffer else event.to_dict()
+        current_bar = history_buffer[-1] if history_buffer else {}
+
+        # IMPORTANT: Anchor features should come from the event row when available.
+        # The state table is forward-filled but may omit some event-only columns (e.g., 2-min kinematics),
+        # which would otherwise become zeros in the 144D vector.
+        current_bar = dict(current_bar) if isinstance(current_bar, dict) else {}
+        current_bar['time_since_last_touch_sec'] = time_since_last_touch_sec
+
+        try:
+            event_dict = event.to_dict()
+            for k, v in event_dict.items():
+                if v is None:
+                    continue
+                try:
+                    if isinstance(v, float) and np.isnan(v):
+                        continue
+                except Exception:
+                    pass
+                current_bar[k] = v
+        except Exception:
+            # Non-fatal: fall back to state-derived anchor features
+            pass
         
         # Trajectory window: Take last 40 state samples (20 minutes @ 30s cadence)
         trajectory_window = history_states.tail(40).to_dict('records')

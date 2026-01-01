@@ -65,7 +65,7 @@ def synthetic_signals_df() -> pd.DataFrame:
         "level_price": np.random.choice([683.0, 684.0, 685.0, 686.0, 687.0], n_samples),
         "level_kind": np.random.randint(0, 13, n_samples),
         "level_kind_name": np.random.choice(
-            ["PM_HIGH", "PM_LOW", "ROUND", "STRIKE", "VWAP", "SMA_200"], 
+            ["PM_HIGH", "PM_LOW", "ROUND", "STRIKE", "VWAP", "SMA_90"], 
             n_samples
         ),
         "direction": np.random.choice(["UP", "DOWN"], n_samples),
@@ -94,23 +94,23 @@ def synthetic_signals_df() -> pd.DataFrame:
     
     # Mean reversion columns
     data.update({
-        "sma_200": np.random.uniform(682.0, 688.0, n_samples),
-        "sma_400": np.random.uniform(680.0, 686.0, n_samples),
-        "dist_to_sma_200": np.random.uniform(-2.0, 2.0, n_samples),
-        "dist_to_sma_400": np.random.uniform(-3.0, 3.0, n_samples),
-        "dist_to_sma_200_atr": np.random.uniform(-5.0, 5.0, n_samples),
-        "dist_to_sma_200_pct": np.random.uniform(-0.005, 0.005, n_samples),
-        "dist_to_sma_400_atr": np.random.uniform(-5.0, 5.0, n_samples),
-        "dist_to_sma_400_pct": np.random.uniform(-0.005, 0.005, n_samples),
-        "sma_200_slope": np.random.uniform(-0.1, 0.1, n_samples),
-        "sma_400_slope": np.random.uniform(-0.1, 0.1, n_samples),
-        "sma_200_slope_5bar": np.random.uniform(-0.15, 0.15, n_samples),
-        "sma_400_slope_5bar": np.random.uniform(-0.15, 0.15, n_samples),
+        "sma_90": np.random.uniform(682.0, 688.0, n_samples),
+        "ema_20": np.random.uniform(680.0, 686.0, n_samples),
+        "dist_to_sma_90": np.random.uniform(-2.0, 2.0, n_samples),
+        "dist_to_ema_20": np.random.uniform(-3.0, 3.0, n_samples),
+        "dist_to_sma_90_atr": np.random.uniform(-5.0, 5.0, n_samples),
+        "dist_to_sma_90_pct": np.random.uniform(-0.005, 0.005, n_samples),
+        "dist_to_ema_20_atr": np.random.uniform(-5.0, 5.0, n_samples),
+        "dist_to_ema_20_pct": np.random.uniform(-0.005, 0.005, n_samples),
+        "sma_90_slope": np.random.uniform(-0.1, 0.1, n_samples),
+        "ema_20_slope": np.random.uniform(-0.1, 0.1, n_samples),
+        "sma_90_slope_5bar": np.random.uniform(-0.15, 0.15, n_samples),
+        "ema_20_slope_5bar": np.random.uniform(-0.15, 0.15, n_samples),
         "sma_spread": np.random.uniform(-2.0, 5.0, n_samples),
-        "mean_reversion_pressure_200": np.random.uniform(-3.0, 3.0, n_samples),
-        "mean_reversion_pressure_400": np.random.uniform(-3.0, 3.0, n_samples),
-        "mean_reversion_velocity_200": np.random.uniform(-0.1, 0.1, n_samples),
-        "mean_reversion_velocity_400": np.random.uniform(-0.1, 0.1, n_samples),
+        "mean_reversion_pressure_90": np.random.uniform(-3.0, 3.0, n_samples),
+        "mean_reversion_pressure_20": np.random.uniform(-3.0, 3.0, n_samples),
+        "mean_reversion_velocity_90": np.random.uniform(-0.1, 0.1, n_samples),
+        "mean_reversion_velocity_20": np.random.uniform(-0.1, 0.1, n_samples),
     })
     
     # Confluence columns

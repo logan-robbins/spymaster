@@ -149,7 +149,7 @@ Generates 500 samples matching `features.json` schema with realistic properties:
 - **Identity**: event_id, ts_ns, date, symbol
 - **Level**: spot, level_price, level_kind_name, direction, distance
 - **Context**: is_first_15m, bars_since_open, PM high/low distances
-- **Mean Reversion**: SMA-200/400, slopes, spreads
+- **Mean Reversion**: SMA-90/EMA-20, slopes, spreads
 - **Confluence**: count, weighted score, min distance
 - **Barrier Physics**: barrier_state, delta_liq, replenishment_ratio, wall_ratio
 - **Tape Physics**: imbalance, velocity, sweep_detected
@@ -318,4 +318,3 @@ will be validated with actual data in production.
 - 📝 Data quality: 11 template tests (activate with real data)
 
 **Total**: 36/36 automated tests passing + 11 data quality templates ready
-

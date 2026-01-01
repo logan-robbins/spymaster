@@ -14,6 +14,7 @@ import numpy as np
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.event_types import MBP10
+from src.common.config import CONFIG
 
 
 def compute_multiwindow_ofi(
@@ -50,12 +51,13 @@ def compute_multiwindow_ofi(
     # True OFI = Order Flow at best bid/ask
     ofi_times = []
     ofi_values = []
+    ofi_mid_prices = []
     
     if len(mbp10_snapshots) > 1:
-        prev_mbp = mbp10_snapshots[0]
         # Sort snapshots by time to be safe
         sorted_snapshots = sorted(mbp10_snapshots, key=lambda x: x.ts_event_ns)
-        
+        prev_mbp = sorted_snapshots[0]
+
         for curr_mbp in sorted_snapshots[1:]:
             # Simplified OFI at Top of Book
             # OFI = q_b_t * I(b_t >= b_t-1) - q_b_t-1 * I(b_t <= b_t-1)
@@ -93,14 +95,18 @@ def compute_multiwindow_ofi(
             
             ofi_times.append(curr_mbp.ts_event_ns)
             ofi_values.append(net_ofi)
+            mid_px = (b_t + a_t) / 2.0 if b_t and a_t else np.nan
+            ofi_mid_prices.append(mid_px)
             
             prev_mbp = curr_mbp
             
     ofi_times = np.array(ofi_times, dtype=np.int64)
     ofi_values = np.array(ofi_values, dtype=np.float64)
+    ofi_mid_prices = np.array(ofi_mid_prices, dtype=np.float64)
     
     n = len(signals_df)
     signal_ts = signals_df['ts_ns'].values
+    level_prices = signals_df['level_price'].values.astype(np.float64)
     
     result = signals_df.copy()
     
@@ -114,6 +120,7 @@ def compute_multiwindow_ofi(
         for i in range(n):
             ts = signal_ts[i]
             start_ts = ts - lookback_ns
+            level = level_prices[i]
             
             # Find OFI events in window
             # Use searchsorted for speed
@@ -122,15 +129,18 @@ def compute_multiwindow_ofi(
             
             if end_idx > start_idx:
                 window_flows = ofi_values[start_idx:end_idx]
+                window_prices = ofi_mid_prices[start_idx:end_idx]
                 
                 # Integrated OFI (Flow)
                 ofi_window[i] = np.sum(window_flows)
                 
-                # For "near level" we might want density, but sticking to 
-                # original request: "Average imbalance" -> "Average Flow Rate"?
-                # Actually, the original code computed "Average Imbalance" (OBI).
-                # To capture "Pressure Intensity", mean flow per event is reasonable.
-                ofi_near_level[i] = np.mean(window_flows)
+                # Near-level OFI: only include events when mid is within monitor band
+                band = CONFIG.MONITOR_BAND
+                near_mask = np.isfinite(window_prices) & (np.abs(window_prices - level) <= band)
+                if np.any(near_mask):
+                    ofi_near_level[i] = np.mean(window_flows[near_mask])
+                else:
+                    ofi_near_level[i] = 0.0
         
         # Add to result with window suffix
         suffix = f'_{int(window_sec)}s'
@@ -176,4 +186,3 @@ class ComputeMultiWindowOFIStage(BaseStage):
         )
         
         return {'signals_df': signals_df}
-

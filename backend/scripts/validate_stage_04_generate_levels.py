@@ -4,12 +4,12 @@ Validate Stage 4: GenerateLevels
 Goals:
 1. Generate PM_HIGH/PM_LOW from premarket bars (04:00-09:30 ET)
 2. Generate OR_HIGH/OR_LOW from opening range (09:30-09:45 ET)
-3. Generate SMA_200/SMA_400 from 2min bars with warmup
+3. Generate SMA_90/EMA_20 from 2min bars with warmup
 4. Create static_level_info (static levels only)
 5. Create dynamic_levels (per-bar level values)
 
 Validation Checks:
-- All 6 level kinds present (PM_HIGH/LOW, OR_HIGH/LOW, SMA_200/400)
+- All 6 level kinds present (PM_HIGH/LOW, OR_HIGH/LOW, SMA_90/EMA_20)
 - PM levels computed from premarket data
 - OR levels from first 15 minutes
 - SMA values reasonable (within price range)
@@ -150,7 +150,7 @@ class Stage4Validator:
         checks['levels_generated'] = True
         
         # Check for required level kinds
-        expected_kinds = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+        expected_kinds = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
         found_kinds = set(level_info.kind_names)
         
         missing_kinds = [k for k in expected_kinds if k not in found_kinds]
@@ -202,8 +202,8 @@ class Stage4Validator:
                 self.logger.info(f"  ✅ OR_HIGH > OR_LOW (spread: {spread:.2f} points)")
         
         # Check SMA values are within reasonable range
-        sma_200_prices = [p for p, n in zip(level_info.prices, level_info.kind_names) if n == 'SMA_200']
-        sma_400_prices = [p for p, n in zip(level_info.prices, level_info.kind_names) if n == 'SMA_400']
+        sma_90_prices = [p for p, n in zip(level_info.prices, level_info.kind_names) if n == 'SMA_90']
+        ema_20_prices = [p for p, n in zip(level_info.prices, level_info.kind_names) if n == 'EMA_20']
         
         # Get price range from ohlcv for reference
         if 'ohlcv_1min' in ctx.data:
@@ -211,27 +211,27 @@ class Stage4Validator:
             price_min = ohlcv_1min['low'].min()
             price_max = ohlcv_1min['high'].max()
             
-            if sma_200_prices:
-                sma_200 = sma_200_prices[0]
-                if sma_200 < price_min - 50 or sma_200 > price_max + 50:
-                    checks['sma_200_range'] = False
-                    warning = f"SMA_200 ({sma_200:.2f}) far from price range ({price_min:.2f}-{price_max:.2f})"
+            if sma_90_prices:
+                sma_90 = sma_90_prices[0]
+                if sma_90 < price_min - 50 or sma_90 > price_max + 50:
+                    checks['sma_90_range'] = False
+                    warning = f"SMA_90 ({sma_90:.2f}) far from price range ({price_min:.2f}-{price_max:.2f})"
                     self.results['warnings'].append(warning)
                     self.logger.warning(f"  ⚠️  {warning}")
                 else:
-                    checks['sma_200_range'] = True
-                    self.logger.info(f"  ✅ SMA_200 within reasonable range")
+                    checks['sma_90_range'] = True
+                    self.logger.info(f"  ✅ SMA_90 within reasonable range")
             
-            if sma_400_prices:
-                sma_400 = sma_400_prices[0]
-                if sma_400 < price_min - 50 or sma_400 > price_max + 50:
-                    checks['sma_400_range'] = False
-                    warning = f"SMA_400 ({sma_400:.2f}) far from price range ({price_min:.2f}-{price_max:.2f})"
+            if ema_20_prices:
+                ema_20 = ema_20_prices[0]
+                if ema_20 < price_min - 50 or ema_20 > price_max + 50:
+                    checks['ema_20_range'] = False
+                    warning = f"EMA_20 ({ema_20:.2f}) far from price range ({price_min:.2f}-{price_max:.2f})"
                     self.results['warnings'].append(warning)
                     self.logger.warning(f"  ⚠️  {warning}")
                 else:
-                    checks['sma_400_range'] = True
-                    self.logger.info(f"  ✅ SMA_400 within reasonable range")
+                    checks['ema_20_range'] = True
+                    self.logger.info(f"  ✅ EMA_20 within reasonable range")
         
         self.results['checks']['level_info'] = checks
     
@@ -274,7 +274,7 @@ class Stage4Validator:
         self.logger.info(f"  Dynamic level series: {level_keys}")
         
         # Expected series
-        expected_series = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_200', 'SMA_400']
+        expected_series = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
         missing_series = [k for k in expected_series if k not in level_keys]
         
         if missing_series:
@@ -379,4 +379,3 @@ def main():
 if __name__ == "__main__":
     import sys
     sys.exit(main())
-

@@ -102,7 +102,7 @@ Build Streams: 5 canonical (Σ_M, Σ_F, Σ_B, Σ_D, Σ_S) + 2 merged (Σ_P, Σ_R
 Compute Derivatives: EMA smooth + slope/curvature/jerk for 4 streams
         ↓
 Output:  gold/streams/pentaview/version=3.1.0/date=YYYY-MM-DD/stream_bars.parquet (32 columns)
-         (437 bars for 5 levels: OR_HIGH, OR_LOW, PM_LOW, SMA_200, SMA_400)
+         (437 bars for 5 levels: OR_HIGH, OR_LOW, PM_LOW, SMA_90, EMA_20)
 ```
 
 ### State Table → Stream Mapping (Quick Reference)
@@ -839,7 +839,7 @@ bar_index:             int32
 symbol:                string      # "ES"
 
 # Context
-level_kind:            string      # {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_200, SMA_400, ...}
+level_kind:            string      # {PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90, EMA_20, ...}
 direction:             string      # {UP, DOWN}
 time_bucket:           string      # {T0_15, T15_30, ...}
 level_price:           float64
@@ -1617,7 +1617,7 @@ divergence:          [0.021, 0.300]
 alignment_adj:       [-0.274, 0.204]
 ```
 
-✅ **Output**: 437 stream bars across 5 levels (OR_HIGH, OR_LOW, PM_LOW, SMA_200, SMA_400)
+✅ **Output**: 437 stream bars across 5 levels (OR_HIGH, OR_LOW, PM_LOW, SMA_90, EMA_20)
 ✅ **Performance**: 3,972 bars/sec (0.11s for 437 bars)
 ✅ **No NaN values** in output
 ✅ **File size**: ~12 KB/day (437 rows × 32 cols)

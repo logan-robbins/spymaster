@@ -290,12 +290,12 @@ FEATURE_GROUPS_TA = [
         name="sma_context",
         description="Moving average positioning",
         columns=[
-            "sma_200",
-            "sma_400",
-            "sma_200_slope",
-            "sma_400_slope",
-            "dist_to_sma_200",
-            "dist_to_sma_400",
+            "sma_90",
+            "ema_20",
+            "sma_90_slope",
+            "ema_20_slope",
+            "dist_to_sma_90",
+            "dist_to_ema_20",
         ]
     ),
     FeatureGroup(
