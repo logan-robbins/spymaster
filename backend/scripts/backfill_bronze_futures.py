@@ -1,11 +1,15 @@
 """
 Backfill Bronze futures trades + MBP-10 from DBN files.
 
+Supports parallel processing with process isolation (OOM-safe).
+Each date is processed in a separate process to prevent memory accumulation.
+
 Usage:
     cd backend/
     uv run python -m scripts.backfill_bronze_futures --date 2025-12-16
     uv run python -m scripts.backfill_bronze_futures --dates 2025-12-16,2025-12-17
     uv run python -m scripts.backfill_bronze_futures --all
+    uv run python -m scripts.backfill_bronze_futures --all --workers 4  # Parallel execution
 """
 
 import argparse
