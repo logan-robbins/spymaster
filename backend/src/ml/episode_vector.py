@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 # Vector dimensions: 144D per analyst opinion
-# Section boundaries defined in constants.py
-assert VECTOR_DIMENSION == 147, "Vector dimension must be 147"
+# Section boundaries# Check dimension consistency at module load
+assert VECTOR_DIMENSION == 149, "Vector dimension must be 149"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -262,7 +262,20 @@ def construct_episode_vector(
     vector[idx] = force_proxy
     idx += 1
     
-    vector[idx] = encode_barrier_state(current_bar.get('barrier_state', 'NEUTRAL'))
+    # Market Tide (Net Premium Flow) - Log Normalization
+    vector[idx] = clip(row, "fuel_yield", -10.0, 10.0)
+    idx += 1
+    vector[idx] = clip(row, "fuel_call_tide_log", -10.0, 10.0)
+    idx += 1
+    vector[idx] = clip(row, "fuel_put_tide_log", -10.0, 10.0)
+    idx += 1
+    vector[idx] = clip(row, "gamma_exposure", -5.0, 5.0)
+    idx += 1
+
+    feature_val = row.get('fuel_effect_encoded', 0.0)
+    if not isinstance(feature_val, (int, float)):
+        feature_val = 0.0 # Default fallback
+    vector[idx] = feature_val
     idx += 1
     vector[idx] = current_bar.get('barrier_replenishment_ratio', 0.0)
     idx += 1
@@ -393,6 +406,8 @@ def get_feature_names() -> List[str]:
     names.extend([
         'predicted_accel', 'accel_residual', 'force_mass_ratio',
         'mass_proxy', 'force_proxy',
+        "fuel_yield", "fuel_call_tide_log", "fuel_put_tide_log",
+        "gamma_exposure", "fuel_effect_encoded",
         'barrier_state_encoded', 'barrier_replenishment_ratio',
         'sweep_detected', 'tape_log_ratio', 'tape_log_total',
         'flow_alignment'

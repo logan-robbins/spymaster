@@ -42,6 +42,8 @@ class FuelMetrics:
     """Output of fuel engine computation"""
     effect: FuelEffect
     net_dealer_gamma: float  # Negative = dealers short gamma (AMPLIFY)
+    call_tide: float  # Market Tide: Net premium flow into Calls (Bullish)
+    put_tide: float   # Market Tide: Net premium flow into Puts (Bearish)
     call_wall: Optional[GammaWall]
     put_wall: Optional[GammaWall]
     hvl: Optional[float]  # High Volatility Line (gamma flip level)
@@ -114,6 +116,10 @@ class FuelEngine:
         
         # Compute net dealer gamma near level
         net_dealer_gamma = sum(flow.net_gamma_flow for flow in flows)
+
+        # Compute Market Tide (Net Premium Flow)
+        call_tide = sum(flow.net_premium_flow for flow in flows if flow.right == 'C')
+        put_tide = sum(flow.net_premium_flow for flow in flows if flow.right == 'P')
         
         # Build gamma by strike for analysis
         gamma_by_strike = self._aggregate_gamma_by_strike(flows)
@@ -135,6 +141,8 @@ class FuelEngine:
         return FuelMetrics(
             effect=effect,
             net_dealer_gamma=net_dealer_gamma,
+            call_tide=call_tide,
+            put_tide=put_tide,
             call_wall=call_wall,
             put_wall=put_wall,
             hvl=hvl,
@@ -147,6 +155,8 @@ class FuelEngine:
         return FuelMetrics(
             effect=FuelEffect.NEUTRAL,
             net_dealer_gamma=0.0,
+            call_tide=0.0,
+            put_tide=0.0,
             call_wall=None,
             put_wall=None,
             hvl=None,

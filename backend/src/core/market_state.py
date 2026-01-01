@@ -44,6 +44,7 @@ class OptionFlowAggregate:
     exp_date: str
     cumulative_volume: int = 0
     cumulative_premium: float = 0.0
+    net_premium_flow: float = 0.0  # Market Tide: Signed premium flow (Aggressor * Price * Size)
     net_delta_flow: float = 0.0
     net_gamma_flow: float = 0.0
     abs_gamma_exposure: float = 0.0  # Absolute gamma regardless of direction
@@ -644,6 +645,7 @@ class MarketState:
         # Update aggregate
         agg.cumulative_volume += trade.size
         agg.cumulative_premium += premium
+        agg.net_premium_flow += (premium * customer_sign)  # Add signed premium flow
         agg.net_delta_flow += delta_notional
         agg.net_gamma_flow += dealer_gamma_change  # net DEALER gamma
         agg.last_price = trade.price
@@ -686,6 +688,7 @@ class MarketState:
             snapshot[ticker] = {
                 "cumulative_volume": agg.cumulative_volume,
                 "cumulative_premium": agg.cumulative_premium,
+                "net_premium_flow": agg.net_premium_flow,
                 "last_price": agg.last_price,
                 "net_delta_flow": agg.net_delta_flow,
                 "net_gamma_flow": agg.net_gamma_flow,
