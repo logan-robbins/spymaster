@@ -42,7 +42,7 @@
 ### Phase 3: "Glass Box" Implementation (Current Standard)
 *   **Goal:** Operationalize Phase 2 insights.
 *   **Implementation:**
-    *   **Vector:** 144D composite (Geometry + Physics). We keep Physics because we *want* to see the velocity context, even if it predicts poorly.
+    *   **Vector:** 149D composite (Geometry + Physics). We keep Physics because we *want* to see the velocity context, even if it predicts poorly.
     *   **Output:** Expose `context_metrics` (Base Rates, Volatility) directly to the user.
     *   **Architecture:** `SimilarityQueryEngine` is the Source of Truth.
 *   **Status:** **LIVE / DEPLOYED (v3.1.0).**
@@ -67,19 +67,19 @@
 
 ## 3. The Vector Architecture (The "Snapshot")
 
-The 144-dimensional vector is the core "genetic code" of a market setup. It is designed to capture **Invisible Physics**.
+The 149-dimensional vector is the core "genetic code" of a market setup. It is designed to capture **Invisible Physics**.
 
 | Section | Dims | Purpose | Agent Note |
 |:---|:---|:---|:---|
 | **A: Context** | 25 | Regime (Time of day, active levels, nearby structure) | "Where are we?" |
 | **B: Dynamics** | 40 | **Physics**. Multi-scale (1, 2, 3, 5, 10, 20min). Validated via 10s High-Res bars. | "How fast are we moving?" |
 | **C: History** | 35 | Micro-history (last 5 bars). Log-transformed Delta Liq. | "What just happened?" |
-| **D: Derived** | 11 | **Force/Mass**. Ratio of Order Flow (Force) to Limit Book (Mass). | "How 'heavy' is the move?" |
+| **D: Derived** | 13 | **Force/Mass/Tide**. Ratio of Order Flow (Force) to Limit Book (Mass) + **Market Tide** (Premium Flow). | "How 'heavy' is the move?" |
 | **E: Trends** | 4 | Online trend slopes. | "Is pressure building?" |
 | **F: Trajectory** | 32 | **Geometry**. DCT Coefficients of Price/OFI shapes. | "What does the path look like?" (The robust signal) |
 
 **Critical Constraint:**
-*   **Do not change the vector dimensions** without retraining the indices. FAISS is rigid (144D).
+*   **Do not change the vector dimensions** without retraining the indices. FAISS is rigid (149D).
 *   **DCT Basis:** Section F uses discrete cosine transform to encode shape frequency. This is our most robust feature set.
 
 ---
@@ -101,8 +101,10 @@ We are now optimizing the **Quality of the Mirror**.
 *   **Experiment:** Comparison of 147D High-Res Physics (10s bars) vs 32D Geometry (DCT).
 *   **Result:**
     *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
+    *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
     *   **Physics:** 69.1% Accuracy, **-17.0% Calibration** (Inverted).
 *   **Conclusion:** Physics features are valid but **Non-Linear**. kNN cannot use them effectively.
+*   **Phase 4.5 Update:** "Market Tide" (Net Premium Flow) added to Vector (149D) to capture explicit Money Flow conviction.
 *   **Next Step:** Phase 5 (Transformers) to learn the interaction.
 
 **Q4: The "Unified Field Theory" (Holistic Vector)**

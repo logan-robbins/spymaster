@@ -13,7 +13,7 @@
 - **Ablation Result (Dec 31):**
     - **Geometry (Shape):** 71.8% Accuracy, **+19.6% Calibration** (Robust/Linear).
     - **Physics (Velocity/Force):** 69.1% Accuracy, **-17.0% Calibration** (Inverted/Non-Linear).
-    - **Combined (147D):** 69.4% Accuracy. Physics "dilutes" Geometry.
+    - **Combined (149D):** 69.4% Accuracy (Pre-Tide). Physics "dilutes" Geometry.
 - **The "Context Discovery":**
     - Physics helps for *Regime* levels (PM High: +6.5%).
     - Physics hurts for *Structural* levels (SMA 200: -11.3%).
@@ -76,14 +76,14 @@
     - Push apart opposite-outcome pairs.
 3.  **Result:** A 32D embedding that clusters by *Dynamics-Adjusted Outcome*.
 
-### Step 4: Integration (147D Hyrbid)
+### Step 4: Integration (149D Hybrid)
 **Strategy:**
-- We do **NOT** replace the whole 147D vector.
+- We do **NOT** replace the whole 149D vector.
 - we replace **Section F (Trajectory Basis, 32 dims)** with the **Neural Embedding (32 dims)**.
 - **Result:**
-    - Sections A-E (Regime, Physics, History): Explicit Human-Readable Features (115 dims).
+    - Sections A-E (Regime, Physics, History, **Market Tide**): Explicit Human-Readable Features (117 dims).
     - Section F (Trajectory): Neural "Black Box" encoding of Shape+Physics interaction (32 dims).
-    - Total: 147D.
+    - Total: 149D.
 
 ---
 
