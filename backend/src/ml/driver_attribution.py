@@ -1,7 +1,7 @@
 """
 Driver Attribution Module for Level Break/Reject Predictions
 
-Decomposes 144D episode vector predictions into trader-understandable driver components.
+Decomposes  episode vector predictions into trader-understandable driver components.
 Quantifies which physics domains are pushing toward BREAK vs REJECT.
 
 Usage:
@@ -238,7 +238,7 @@ class DriverAttributor:
         Generate driver attribution for a single episode prediction.
         
         Args:
-            episode_vector: 144D episode vector (raw, pre-scaling)
+            episode_vector:  episode vector (raw, pre-scaling)
             p_break: Pre-computed break probability (will compute if None)
             top_k: Number of top drivers to return per category
         

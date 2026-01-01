@@ -14,20 +14,20 @@
 
 - This iteration is **research-only** and focused on **PM_HIGH/PM_LOW/OR_HIGH/OR_LOW**.
 - **Did not modify retrieval strategy** (FAISS partitions / kNN query logic).
-- Goal: make the **144D episode vector** + Pentaview streams **usable for attribution** (no schema drift), and ship a repeatable **episode-level** driver report for future agents.
+- Goal: make the **episode vector** + Pentaview streams **usable for attribution** (no schema drift), and ship a repeatable **episode-level** driver report for future agents.
 
 ### Why This Was Needed (Schema Drift + Invalid Attribution)
 
 Observed on existing stored v4.0.0 episode vectors:
 - `episodes.npy` had **NaNs** in some dimensions.
-- The 3 “approach dynamics” dims inside the 144D vector were being populated with **unrelated distance features** (mapping bug), producing misleading coefficients/attribution.
+- The 3 “approach dynamics” dims inside the  vector were being populated with **unrelated distance features** (mapping bug), producing misleading coefficients/attribution.
 - Pentaview `direction` inference from `distance_signed_atr` was **sign-flipped** (UP vs DOWN), making joins on `(timestamp, level_kind, direction)` unreliable.
 
 Net: any “which features explain BREAK vs REJECT” analysis could be garbage unless vector+join semantics were corrected.
 
 ### Changes Made (Code)
 
-**1) Fix 144D vector semantics at episode construction time**
+**1) Fix vector semantics at episode construction time**
 - File: `backend/src/ml/episode_vector.py`
 - Key fixes:
   - `construct_episode_vector()` now writes:
@@ -81,7 +81,7 @@ From `data/ml/level_break_drivers_PMOR_v4_h4.json`:
 - Overall (PM/OR, BREAK/REJECT only):
   - `n = 992`
   - `break_rate ≈ 0.194` *(NOTE: CHOP excluded, so this is conditional)*
-  - `AUC (LODO) ≈ 0.80` using the full 144D vector
+  - `AUC (LODO) ≈ 0.80` using the full  vector
 - Predictable segment (per 2025-12-31 discovery):
   - direction=UP AND level_kind in {PM_LOW, OR_LOW} AND time_bucket != T0_15
   - `n = 275`, `break_rate ≈ 0.60` *(CHOP excluded)*
@@ -163,7 +163,7 @@ Most level interactions are **deterministic REJECT (68%)**. Edge exists only in 
 |-------------|-----|-----------|---------------------|
 | sigma_s only (1 feat) | 0.679 | 61.3% | 60.4% |
 | All 7 streams | 0.722 | 61.5% | 63.7% |
-| **Full 144D vector** | **0.868** | **71.6%** | **76.2%** |
+| **Full  vector** | **0.868** | **71.6%** | **76.2%** |
 
 **Base rate**: 45.5% → Model achieves **+15-27% edge** over random
 
@@ -309,229 +309,6 @@ Trained Model
 
 ---
 
-## Production Model Usage
-
-```python
-import joblib
-import numpy as np
-
-# Load model
-artifact = joblib.load('data/ml/break_predictor_v1.joblib')
-model = artifact['model']
-scaler = artifact['scaler']
-features = artifact['features']  # ['sigma_s', 'sigma_r', 'sigma_b_slope', 'sigma_p_slope', 'sigma_d']
-
-def generate_signal(level_kind, direction, streams):
-    """
-    Generate BREAK/REJECT signal for a level interaction.
-    
-    Args:
-        level_kind: 'PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW'
-        direction: 'UP' or 'DOWN'
-        streams: dict with sigma_s, sigma_r, sigma_b_slope, sigma_p_slope, sigma_d
-    
-    Returns:
-        dict with signal, probability, confidence
-    """
-    # Rule-based for deterministic cases
-    if direction == 'DOWN':
-        return {'signal': 'REJECT', 'p_break': 0.01, 'confidence': 'VERY_HIGH', 'method': 'rule'}
-    
-    if level_kind in ['PM_HIGH', 'OR_HIGH']:
-        return {'signal': 'REJECT', 'p_break': 0.04, 'confidence': 'VERY_HIGH', 'method': 'rule'}
-    
-    # Model-based for LOW levels + UP direction
-    X = [[streams['sigma_s'], streams['sigma_r'], streams['sigma_b_slope'], 
-          streams['sigma_p_slope'], streams['sigma_d']]]
-    X_scaled = scaler.transform(X)
-    p_break = model.predict_proba(X_scaled)[0, 1]
-    
-    if p_break >= 0.6:
-        confidence = 'HIGH'
-        signal = 'BREAK'
-    elif p_break >= 0.5:
-        confidence = 'MODERATE'
-        signal = 'BREAK'
-    else:
-        confidence = 'MODERATE'
-        signal = 'REJECT'
-    
-    return {
-        'signal': signal,
-        'p_break': round(p_break, 3),
-        'confidence': confidence,
-        'method': 'model',
-        'edge': f"+{(p_break - 0.455) * 100:.1f}%" if signal == 'BREAK' else None
-    }
-```
-
----
-
-## Commands to Reproduce Analysis
-
-### 1. Verify True Episode Count
-
-```bash
-cd backend
-uv run python -c "
-import pandas as pd
-from pathlib import Path
-
-episodes_dir = Path('data/gold/episodes/es_level_episodes/version=v4.0.0/metadata')
-all_meta = [pd.read_parquet(d / 'metadata.parquet') for d in sorted(episodes_dir.glob('date=*'))]
-episodes = pd.concat(all_meta, ignore_index=True)
-
-print(f'TRUE episode count: {len(episodes):,}')
-print(f'Unique dates: {episodes[\"date\"].nunique()}')
-print(f'Episodes per day: {len(episodes) / episodes[\"date\"].nunique():.1f}')
-print()
-print('Outcome distribution (4min):')
-print(episodes['outcome_4min'].value_counts())
-"
-```
-
-### 2. Analyze Predictable Segment
-
-```bash
-cd backend
-uv run python -c "
-import pandas as pd
-from pathlib import Path
-
-episodes_dir = Path('data/gold/episodes/es_level_episodes/version=v4.0.0/metadata')
-all_meta = [pd.read_parquet(d / 'metadata.parquet') for d in sorted(episodes_dir.glob('date=*'))]
-episodes = pd.concat(all_meta, ignore_index=True)
-
-# Filter to predictable segment
-predictable = episodes[
-    (episodes['direction'] == 'UP') &
-    (episodes['level_kind'].isin(['PM_LOW', 'OR_LOW'])) &
-    (~episodes['time_bucket'].isin(['T0_15']))
-]
-
-print(f'Predictable segment: {len(predictable)} episodes')
-print(f'BREAK rate: {(predictable[\"outcome_4min\"] == \"BREAK\").mean()*100:.1f}%')
-print()
-print(predictable['outcome_4min'].value_counts())
-"
-```
-
-### 3. Train New Model
-
-```bash
-cd backend
-uv run python -c "
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score, StratifiedKFold
-import joblib
-
-# Load streams
-stream_dir = Path('data/gold/streams/pentaview/version=v4.0.0')
-all_streams = []
-for date_dir in sorted(stream_dir.glob('date=*')):
-    stream_path = date_dir / 'stream_bars.parquet'
-    if stream_path.exists():
-        all_streams.append(pd.read_parquet(stream_path))
-streams_df = pd.concat(all_streams, ignore_index=True)
-
-# Load episodes
-episodes_dir = Path('data/gold/episodes/es_level_episodes/version=v4.0.0/metadata')
-all_meta = [pd.read_parquet(d / 'metadata.parquet') for d in sorted(episodes_dir.glob('date=*'))]
-episodes = pd.concat(all_meta, ignore_index=True)
-
-# Predictable segment
-predictable = episodes[
-    (episodes['direction'] == 'UP') &
-    (episodes['level_kind'].isin(['PM_LOW', 'OR_LOW'])) &
-    (~episodes['time_bucket'].isin(['T0_15']))
-].copy()
-predictable['is_break'] = (predictable['outcome_4min'] == 'BREAK').astype(int)
-predictable['ts_str'] = predictable['timestamp'].astype(str)
-streams_df['ts_str'] = streams_df['timestamp'].astype(str)
-
-merged = predictable.merge(streams_df, on=['ts_str', 'level_kind'], how='left')
-
-# Features
-features = ['sigma_s', 'sigma_r', 'sigma_b_slope', 'sigma_p_slope', 'sigma_d']
-X = merged[features].fillna(0).values
-y = merged['is_break'].values
-
-# Train
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-model = RandomForestClassifier(n_estimators=100, max_depth=5, class_weight='balanced', random_state=42)
-
-# CV score
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-scores = cross_val_score(model, X_scaled, y, cv=cv, scoring='roc_auc')
-print(f'CV AUC: {scores.mean():.3f} +/- {scores.std():.3f}')
-
-# Train final
-model.fit(X_scaled, y)
-
-# Save
-artifact = {
-    'model': model,
-    'scaler': scaler,
-    'features': features,
-    'base_rate': y.mean(),
-    'segment': 'UP + LOW_LEVELS + post_T0_15',
-    'trained_on': len(y),
-}
-joblib.dump(artifact, 'data/ml/break_predictor_v1.joblib')
-print('Model saved to data/ml/break_predictor_v1.joblib')
-"
-```
-
-### 4. Evaluate Stream Correlations
-
-```bash
-cd backend
-uv run python -c "
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from scipy import stats
-
-# Load and merge data
-stream_dir = Path('data/gold/streams/pentaview/version=v4.0.0')
-all_streams = [pd.read_parquet(d / 'stream_bars.parquet') for d in sorted(stream_dir.glob('date=*')) if (d / 'stream_bars.parquet').exists()]
-streams_df = pd.concat(all_streams, ignore_index=True)
-
-episodes_dir = Path('data/gold/episodes/es_level_episodes/version=v4.0.0/metadata')
-all_meta = [pd.read_parquet(d / 'metadata.parquet') for d in sorted(episodes_dir.glob('date=*'))]
-episodes = pd.concat(all_meta, ignore_index=True)
-
-predictable = episodes[
-    (episodes['direction'] == 'UP') &
-    (episodes['level_kind'].isin(['PM_LOW', 'OR_LOW'])) &
-    (~episodes['time_bucket'].isin(['T0_15']))
-].copy()
-predictable['is_break'] = (predictable['outcome_4min'] == 'BREAK').astype(int)
-predictable['ts_str'] = predictable['timestamp'].astype(str)
-streams_df['ts_str'] = streams_df['timestamp'].astype(str)
-
-merged = predictable.merge(streams_df, on=['ts_str', 'level_kind'], how='left')
-
-# Correlations
-stream_features = ['sigma_s', 'sigma_r', 'sigma_b_slope', 'sigma_p_slope', 'sigma_d', 'sigma_m', 'sigma_f', 'sigma_p']
-y = merged['is_break']
-
-print('Stream correlations with BREAK:')
-for feat in stream_features:
-    if feat in merged.columns:
-        vals = merged[feat].dropna()
-        labels = y.loc[vals.index]
-        corr, p = stats.pointbiserialr(labels, vals)
-        sig = '***' if p < 0.001 else ('**' if p < 0.01 else ('*' if p < 0.05 else ''))
-        print(f'  {feat:<15} r={corr:+.3f} p={p:.4f}{sig}')
-"
-```
 
 ---
 

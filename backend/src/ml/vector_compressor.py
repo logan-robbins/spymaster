@@ -14,7 +14,7 @@ from sklearn.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
-# Canonical Section Boundaries (149D per RESEARCH.md Phase 4.5)
+# Canonical Section Boundaries ( per RESEARCH.md Phase 4.5)
 # Per src/ml/constants.py or episode_vector.py
 SECTIONS = {
     'A_CONTEXT': range(0, 25),
@@ -27,10 +27,10 @@ SECTIONS = {
 
 class VectorCompressor:
     """
-    Compresses the 149D raw vector into a 'Unified Field' vector.
+    Compresses the  raw vector into a 'Unified Field' vector.
     
     Strategies:
-    - 'identity': No change (149D) -> Baseline
+    - 'identity': No change () -> Baseline
     - 'pca_physics': Compress Section B (40) -> 5 components. Keep rest.
     - 'geometry_only': Keep Section F only (32D per Phase 4).
     - 'weighted': Scale Physics * 0.2, Geometry * 1.0. 

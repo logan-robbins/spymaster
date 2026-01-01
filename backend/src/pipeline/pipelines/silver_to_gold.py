@@ -5,7 +5,7 @@ Transforms Silver features into Gold episode vectors for production retrieval.
 
 Stages 0-1 (renumbered from original 17-18):
 - Materializes 30s state table from RTH-filtered signals
-- Constructs 149D episode vectors with DCT trajectory basis
+- Constructs  episode vectors with DCT trajectory basis
 - Generates raw 40×4 sequences for Transformer training
 
 Input: Silver features from bronze_to_silver pipeline
@@ -81,14 +81,14 @@ def build_silver_to_gold_pipeline() -> Pipeline:
     Stage sequence (0-indexed, stages 0-1):
     0. LoadSilverFeatures (read from Silver layer)
     1. MaterializeStateTable (30s cadence state for episode construction)
-    2. ConstructEpisodes (149D vectors with DCT trajectory basis)
+    2. ConstructEpisodes ( vectors with DCT trajectory basis)
     
     Input:
         silver/features/es_pipeline/version={version}/date=YYYY-MM-DD/signals.parquet
     
     Output:
         gold/episodes/es_level_episodes/version={version}/
-        ├── vectors/date=YYYY-MM-DD/episodes.npy (149D)
+        ├── vectors/date=YYYY-MM-DD/episodes.npy ()
         ├── metadata/date=YYYY-MM-DD/metadata.parquet
         └── sequences/date=YYYY-MM-DD/sequences.npy (40×4)
     

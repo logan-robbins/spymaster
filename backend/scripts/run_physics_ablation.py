@@ -35,7 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Feature Definitions
-# Dynamically loaded from constants to support 147D (or any future version)
+# Dynamically loaded from constants to support  (or any future version)
 def get_indices(section_name: str) -> List[int]:
     start, end = VECTOR_SECTIONS[section_name]
     return list(range(start, end))
@@ -109,7 +109,7 @@ def run_ablation_pass(
         feature_indices=feature_indices  # PASS MASK HERE
     )
     
-    # 2. Retrieve (Bypass SimilarityQueryEngine to skip attribution which assumes 144D)
+    # 2. Retrieve (Bypass SimilarityQueryEngine to skip attribution which assumes )
     index_manager = IndexManager(index_dir)
     
     # Apply mask to test vectors too

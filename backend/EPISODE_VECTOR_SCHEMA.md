@@ -1,4 +1,4 @@
-# Episode Vector Schema (v4.5.0 - 149D per RESEARCH.md Phase 4.5)
+# Episode Vector Schema (v4.5.0 -  per RESEARCH.md Phase 4.5)
 
 **Path**: `gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy`
 
@@ -8,7 +8,7 @@
 
 **Data Flow**:
 1. **Bronze → Silver**: `bronze_to_silver` pipeline (stages 0-16) produces Silver features (~142 columns)
-2. **Silver → Gold**: `silver_to_gold` pipeline (stages 0-2) produces 149D episode vectors
+2. **Silver → Gold**: `silver_to_gold` pipeline (stages 0-2) produces  episode vectors
 
 **Notation in tables**:
 - `B2S.N` = `bronze_to_silver` pipeline, stage N
@@ -236,7 +236,7 @@
 
 ## Compression for FAISS Storage
 
-**Source of Truth**: 149D vectors stored in `gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy`
+**Source of Truth**:  vectors stored in `gold/episodes/es_level_episodes/vectors/date=YYYY-MM-DD/episodes.npy`
 
 **FAISS Storage**: 32D compressed vectors (Geometry Only - Section F indices 117-148)
 

@@ -1,7 +1,7 @@
 """
 Validate Stage 17: ConstructEpisodes (stage_idx=17)
 
-UPDATED Dec 2025: Now validates 144D vectors with DCT trajectory basis
+UPDATED Dec 2025: Now validates  vectors with DCT trajectory basis
 
 Goals:
 1. Construct 144-dimensional episode vectors from events + state table

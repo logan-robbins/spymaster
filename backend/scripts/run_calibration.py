@@ -1,6 +1,6 @@
 """
 Calibration Baseline Runner.
-Computes Expected Calibration Error (ECE) for the current Production Vector (144D).
+Computes Expected Calibration Error (ECE) for the current Production Vector ().
 Uses Leave-One-Out (LOO) retrieval on the full corpus.
 """
 import sys
@@ -141,7 +141,7 @@ def main():
     logger.info(f"Processing plot...")
     cal_engine.plot_reliability_curve(
         cal_result, 
-        title=f"Baseline Calibration (144D Vector)\nECE={cal_result.ece:.4f}",
+        title=f"Baseline Calibration ( Vector)\nECE={cal_result.ece:.4f}",
         save_path=plot_path
     )
     
