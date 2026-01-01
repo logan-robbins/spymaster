@@ -39,7 +39,12 @@ class InitMarketStateStage(BaseStage):
 
         # Load trades and find spot price (ES points)
         spot_price = None
+        active_contract = None
+        
         for trade in trades:
+            if active_contract is None:
+                active_contract = trade.symbol
+                
             market_state.update_es_trade(trade)
             if 3000 < trade.price < 10000:
                 spot_price = trade.price
@@ -53,6 +58,16 @@ class InitMarketStateStage(BaseStage):
 
         # Load options with vectorized Greeks
         if not option_trades_df.empty:
+            # Filter options to match active futures contract (avoids basis mismatch during rollover)
+            if active_contract:
+                # e.g. "ESM5 C6000" -> "ESM5"
+                opt_contracts = option_trades_df['option_symbol'].astype(str).str.split(' ').str[0]
+                total_opts = len(option_trades_df)
+                option_trades_df = option_trades_df[opt_contracts == active_contract].copy()
+                if len(option_trades_df) < total_opts:
+                    # Logging (if we had a logger here)
+                    pass
+
             delta_arr, gamma_arr = compute_greeks_for_dataframe(
                 df=option_trades_df,
                 spot=spot_price,

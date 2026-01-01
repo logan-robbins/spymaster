@@ -510,13 +510,54 @@ class BronzeReader:
         end_ns: Optional[int] = None
     ) -> pd.DataFrame:
         """Read option trades from Bronze."""
-        return self._read_schema(
+        trades = self._read_schema(
             'options/trades',
             f'underlying={underlying}',
             date,
             start_ns,
             end_ns
         )
+        
+        if trades.empty:
+            return trades
+            
+        # Try to read Open Interest from statistics
+        try:
+            stats = self._read_schema(
+                'options/statistics',
+                f'underlying={underlying}',
+                date,
+                None, # Read all stats for the day
+                None
+            )
+            
+            if not stats.empty and 'open_interest' in stats.columns:
+                # Deduplicate stats: Keep latest OI per option symbol
+                # Sort by timestamp to ensure we get the latest update
+                latest_stats = (
+                    stats.sort_values('ts_event_ns')
+                    .groupby('option_symbol', as_index=False)
+                    .agg({'open_interest': 'last'})
+                )
+                
+                # Merge efficiently
+                # Left join to preserve all trades
+                trades = trades.merge(
+                    latest_stats[['option_symbol', 'open_interest']], 
+                    on='option_symbol', 
+                    how='left'
+                )
+                
+                # Fill missing OI with 0 (or could try to infer, but 0 is safer)
+                trades['open_interest'] = trades['open_interest'].fillna(0)
+            else:
+                trades['open_interest'] = 0.0
+                
+        except Exception as e:
+            print(f"WARNING: Failed to merge Open Interest: {e}")
+            trades['open_interest'] = 0.0
+            
+        return trades
 
     def read_futures_trades(
         self,

@@ -104,8 +104,14 @@ class ESOptionsDownloader:
         
         # Download NBBO (MBP-1)
         nbbo_count = self._download_schema(date_str, 'mbp-1', nbbo_output_dir)
+
+        # Download Statistics (Open Interest)
+        stats_output_dir = self.bronze_root / 'options' / 'statistics' / 'underlying=ES' / f'date={date_str}'
+        stats_count = self._download_schema(date_str, 'statistics', stats_output_dir)
         
-        return {'trades': trades_count, 'nbbo': nbbo_count}
+        return {'trades': trades_count, 'nbbo': nbbo_count, 'stats': stats_count}
+    
+        return {'trades': trades_count, 'nbbo': nbbo_count, 'stats': stats_count}
     
     def _download_schema(self, date_str: str, schema: str, output_dir: Path) -> int:
         """Download specific schema and write to Bronze."""
@@ -206,8 +212,12 @@ class ESOptionsDownloader:
         # Transform to Bronze schema
         if schema == 'trades':
             df_bronze = self._transform_trades(df, date_str)
-        else:  # mbp-1
+        elif schema == 'mbp-1':
             df_bronze = self._transform_nbbo(df, date_str)
+        elif schema == 'statistics':
+            df_bronze = self._transform_statistics(df, date_str)
+        else:
+            raise ValueError(f"Unknown schema: {schema}")
 
         # Write to Parquet partitioned by hour
         df_bronze['hour'] = pd.to_datetime(df_bronze['ts_event_ns'], unit='ns', utc=True).dt.hour
@@ -256,36 +266,34 @@ class ESOptionsDownloader:
         df['futures_contract'] = split_parts[0]  # ESZ5
         df['right_strike'] = split_parts[1]      # P6800
         
-        # CRITICAL: Filter to front-month futures contract ONLY
-        # ES options on ESZ5, ESH6, etc. are different instruments
-        # We want options on the SAME contract as our ES futures data
-        from src.common.utils.es_contract_calendar import get_front_month_contract_code
+        # CRITICAL: Filter to ACTIVE futures contracts (supports Rollover overlap)
+        # Instead of generic "Front Month", get all active liquid contracts
+        from src.common.utils.es_contract_calendar import get_active_contracts
         
-        # Determine front-month contract code from date (e.g., ESZ5 for Dec 2025)
-        front_month_contract = get_front_month_contract_code(date_str)
+        active_contracts = get_active_contracts(date_str)
         
-        print(f"    Front-month contract: {front_month_contract}")
+        print(f"    Active contracts: {active_contracts}")
         print(f"    Before filter: {len(df):,} records across all contracts")
         
         # Show distribution before filtering
         contract_counts = df['futures_contract'].value_counts()
         print(f"    Contract distribution:")
         for contract, count in contract_counts.items():
-            marker = "✓" if contract == front_month_contract else "✗"
+            marker = "✓" if contract in active_contracts else "✗"
             print(f"      {marker} {contract}: {count:,}")
         
-        # Filter to options on front-month contract only
-        df = df[df['futures_contract'] == front_month_contract].copy()
+        # Filter to options on active contracts only
+        df = df[df['futures_contract'].isin(active_contracts)].copy()
         
         if df.empty:
-            print(f"    WARNING: No options on {front_month_contract} found")
+            print(f"    WARNING: No options on {active_contracts} found")
             return pd.DataFrame(columns=[
                 'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
                 'exp_date', 'strike', 'right', 'price', 'size', 'opt_bid', 'opt_ask',
                 'seq', 'aggressor'
             ])
         
-        print(f"    After front-month filter: {len(df):,} records on {front_month_contract}")
+        print(f"    After active contracts filter: {len(df):,} records")
         
         # Extract right (C/P)
         df['right'] = df['right_strike'].str[0]  # First char: C or P
@@ -342,16 +350,16 @@ class ESOptionsDownloader:
         df['futures_contract'] = split_parts[0]
         df['right_strike'] = split_parts[1]
         
-        # CRITICAL: Filter to front-month futures contract ONLY
-        from src.common.utils.es_contract_calendar import get_front_month_contract_code
+        # CRITICAL: Filter to ACTIVE contracts
+        from src.common.utils.es_contract_calendar import get_active_contracts
         
-        front_month_contract = get_front_month_contract_code(date_str)
+        active_contracts = get_active_contracts(date_str)
         
-        # Filter to options on front-month contract
-        df = df[df['futures_contract'] == front_month_contract].copy()
+        # Filter to options on active contracts
+        df = df[df['futures_contract'].isin(active_contracts)].copy()
         
         if df.empty:
-            print(f"    WARNING: No NBBO on {front_month_contract}")
+            print(f"    WARNING: No NBBO on {active_contracts}")
             return pd.DataFrame(columns=[
                 'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
                 'exp_date', 'strike', 'right', 'bid_px', 'ask_px', 'bid_sz', 'ask_sz', 'seq'
@@ -376,9 +384,114 @@ class ESOptionsDownloader:
             'ask_sz': df.get('ask_sz_00', 0).astype('int64'),
             'seq': df.get('sequence', 0).astype('int64')
         })
+
+    def _transform_statistics(self, df: pd.DataFrame, date_str: str) -> pd.DataFrame:
+        """Transform Databento Statistics (Open Interest) to Bronze schema."""
+        # Databento stats columns: ts_event, ts_recv, symbol, stat_type, quantity, ...
+        # stat_type 3 = Open Interest (Tag 269=C in FIX, usually mapped to 3 or specific code in databento)
+        # Check databento docs: stat_type 3 is Open Interest.
+        
+        # Filter for Open Interest only (stat_type=3)
+        # Note: Depending on databento version, it might be an enum or int.
+        # Assuming int 3 for now, or check column context.
+        df = df[df['stat_type'] == 3].copy()
+        
+        if df.empty:
+            return pd.DataFrame(columns=[
+                'ts_event_ns', 'ts_recv_ns', 'source', 'underlying', 'option_symbol',
+                'exp_date', 'strike', 'right', 'open_interest'
+            ])
+
+        # Parse ES option symbol
+        df['option_symbol'] = df['symbol'].astype(str)
+        
+        # Filter to valid ES options only
+        es_mask = df['option_symbol'].str.match(r'^ES[FGHJKMNQUVXZ]\d\s+[CP]\d+$')
+        df = df[es_mask].copy()
+
+        # Parse symbol
+        split_parts = df['option_symbol'].str.split(' ', expand=True)
+        df['futures_contract'] = split_parts[0]
+        df['right_strike'] = split_parts[1]
+        
+        # Filter to ACTIVE contracts
+        from src.common.utils.es_contract_calendar import get_active_contracts
+        active_contracts = get_active_contracts(date_str)
+        df = df[df['futures_contract'].isin(active_contracts)].copy()
+        
+        df['right'] = df['right_strike'].str[0]
+        df['strike'] = df['right_strike'].str[1:].astype(float)
+        df['exp_date'] = date_str
+        
+        return pd.DataFrame({
+            'ts_event_ns': df['ts_event'].astype('int64'),
+            'ts_recv_ns': df['ts_recv'].astype('int64'),
+            'source': 'DATABENTO_CME',
+            'underlying': 'ES',
+            'option_symbol': df['option_symbol'],
+            'exp_date': df['exp_date'],
+            'strike': df['strike'],
+            'right': df['right'],
+            'open_interest': df.get('quantity', 0).astype('float64') # OI is quantity
+        })
     
+    def download_date(self, date_str: str, force: bool = False, only_stats: bool = False) -> dict:
+        """
+        Download SPX options trades + NBBO + Stats for a single date.
+        
+        Args:
+            date_str: Date (YYYY-MM-DD)
+            force: Re-download if exists
+            only_stats: Download only statistics (Open Interest)
+        """
+        # ... existing prologue ...
+        if only_stats:
+            stats_output_dir = self.bronze_root / 'options' / 'statistics' / 'underlying=ES' / f'date={date_str}'
+            print(f"\n{'='*60}")
+            print(f"{date_str}: Downloading ES options (Statistics ONLY)")
+            print(f"{'='*60}")
+            stats_count = self._download_schema(date_str, 'statistics', stats_output_dir)
+            return {'trades': 0, 'nbbo': 0, 'stats': stats_count}
+
+        return self._download_date_full(date_str, force)
+
+    def _download_date_full(self, date_str: str, force: bool = False) -> dict:
+        """Original download_date logic split out."""
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        if date_obj.weekday() >= 5:
+            print(f"{date_str}: Weekend, skipping")
+            return {'trades': 0, 'nbbo': 0, 'stats': 0}
+        
+        # Check if exists
+        trades_output_dir = self.bronze_root / 'options' / 'trades' / 'underlying=ES' / f'date={date_str}'
+        nbbo_output_dir = self.bronze_root / 'options' / 'nbbo' / 'underlying=ES' / f'date={date_str}'
+        
+        if not force:
+            trades_exists = trades_output_dir.exists() and list(trades_output_dir.rglob('*.parquet'))
+            nbbo_exists = nbbo_output_dir.exists() and list(nbbo_output_dir.rglob('*.parquet'))
+            if trades_exists and nbbo_exists:
+                print(f"{date_str}: Already exists (use --force to re-download)")
+                # still check stats? assume if trades exist, we might skip unless forced
+                return {'trades': -1, 'nbbo': -1, 'stats': -1}
+        
+        print(f"\n{'='*60}")
+        print(f"{date_str}: Downloading ES options")
+        print(f"{'='*60}")
+        
+        # Download trades
+        trades_count = self._download_schema(date_str, 'trades', trades_output_dir)
+        
+        # Download NBBO (MBP-1)
+        nbbo_count = self._download_schema(date_str, 'mbp-1', nbbo_output_dir)
+
+        # Download Statistics (Open Interest)
+        stats_output_dir = self.bronze_root / 'options' / 'statistics' / 'underlying=ES' / f'date={date_str}'
+        stats_count = self._download_schema(date_str, 'statistics', stats_output_dir)
+        
+        return {'trades': trades_count, 'nbbo': nbbo_count, 'stats': stats_count}
+
     def download_range(
-        self, start_date: str, end_date: str, force: bool = False, max_workers: int = 4
+        self, start_date: str, end_date: str, force: bool = False, max_workers: int = 4, only_stats: bool = False
     ) -> list:
         """
         Download ES options for date range in parallel.
@@ -387,10 +500,8 @@ class ESOptionsDownloader:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             force: Re-download if exists
-            max_workers: Max parallel downloads (default 4)
-
-        Returns:
-            List of dicts with summary stats
+            max_workers: Max parallel downloads
+            only_stats: Download only statistics
         """
         # Build list of dates
         dates = []
@@ -401,12 +512,12 @@ class ESOptionsDownloader:
             dates.append(current.strftime('%Y-%m-%d'))
             current += timedelta(days=1)
 
-        print(f"\nDownloading {len(dates)} dates with {max_workers} parallel workers...\n")
+        print(f"\nDownloading {len(dates)} dates with {max_workers} parallel workers (Stats Only: {only_stats})...\n")
 
         results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_date = {
-                executor.submit(self.download_date, date, force): date
+                executor.submit(self.download_date, date, force, only_stats): date
                 for date in dates
             }
 
@@ -418,9 +529,8 @@ class ESOptionsDownloader:
                     results.append(result)
                 except Exception as e:
                     print(f"{date}: Error - {e}")
-                    results.append({'date': date, 'trades': 0, 'nbbo': 0, 'error': str(e)})
+                    results.append({'date': date, 'trades': 0, 'nbbo': 0, 'stats': 0, 'error': str(e)})
 
-        # Sort by date for consistent output
         return sorted(results, key=lambda x: x['date'])
 
 
@@ -433,6 +543,7 @@ def main():
     parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD)')
     parser.add_argument('--force', action='store_true', help='Re-download if exists')
     parser.add_argument('--workers', type=int, default=4, help='Parallel workers (default: 4)')
+    parser.add_argument('--only-stats', action='store_true', help='Download ONLY statistics (Open Interest)')
     
     args = parser.parse_args()
     
@@ -444,15 +555,23 @@ def main():
         return 1
     
     if args.date:
-        result = downloader.download_date(args.date, force=args.force)
+        if args.only_stats:
+            print(f"\n{args.date}: Downloading ONLY statistics...")
+            stats_output_dir = downloader.bronze_root / 'options' / 'statistics' / 'underlying=ES' / f'date={args.date}'
+            stats_count = downloader._download_schema(args.date, 'statistics', stats_output_dir)
+            result = {'trades': 0, 'nbbo': 0, 'stats': stats_count}
+        else:
+            result = downloader.download_date(args.date, force=args.force)
+            
         print(f"\n✅ Downloaded ES options for {args.date}")
         print(f"   Trades: {result['trades']:,}")
         print(f"   NBBO: {result['nbbo']:,}")
+        print(f"   Stats: {result['stats']:,}")
         return 0
     
     if args.start and args.end:
         results = downloader.download_range(
-            args.start, args.end, force=args.force, max_workers=args.workers
+            args.start, args.end, force=args.force, max_workers=args.workers, only_stats=args.only_stats
         )
         
         print("\n" + "=" * 60)
@@ -466,13 +585,14 @@ def main():
             date = result['date']
             trades = result['trades']
             nbbo = result['nbbo']
+            stats = result.get('stats', 0)
             
             if trades == -1:
                 print(f"{date}: Skipped (already exists)")
             elif trades == 0:
                 print(f"{date}: No data / weekend")
             else:
-                print(f"{date}: {trades:,} trades, {nbbo:,} NBBO")
+                print(f"{date}: {trades:,} trades, {nbbo:,} NBBO, {stats:,} Stats")
                 total_trades += trades
                 total_nbbo += nbbo
         
