@@ -261,8 +261,7 @@ To add new features to models:
 - **Data Architecture**: [../../DATA_ARCHITECTURE.md](../../DATA_ARCHITECTURE.md) (Bronze/Silver/Gold)
 - **Feature manifests**: [../common/schemas/feature_manifest.py](../common/schemas/feature_manifest.py)
 - **Feature sets**: [feature_sets.py](feature_sets.py)
-- **Silver builder**: [../lake/silver_feature_builder.py](../lake/silver_feature_builder.py)
-- **Gold curator**: [../lake/gold_curator.py](../lake/gold_curator.py)
+- **Data paths**: [../common/data_paths.py](../common/data_paths.py)
 - **Core interface**: [../core/INTERFACES.md](../core/INTERFACES.md) (viewport output)
 
 ---

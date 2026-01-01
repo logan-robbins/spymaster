@@ -6,7 +6,14 @@ bypassing slow DataFrame conversion. Then converts to Bronze Parquet in a separa
 
 Usage:
     cd backend
+    # Download all schemas
     uv run python scripts/download_es_options_fast.py --start 2025-10-29 --end 2025-10-31 --workers 8
+    
+    # Download only statistics
+    uv run python scripts/download_es_options_fast.py --start 2025-06-01 --end 2025-12-31 --workers 8 --schemas statistics
+    
+    # Download specific schemas
+    uv run python scripts/download_es_options_fast.py --start 2025-06-01 --end 2025-12-31 --workers 8 --schemas "mbp-1,statistics"
 """
 
 import argparse
@@ -108,8 +115,19 @@ def main():
     parser.add_argument('--start', required=True)
     parser.add_argument('--end', required=True)
     parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--schemas', type=str, default='trades,mbp-1,statistics',
+                        help='Comma-separated schemas to download (default: all)')
     
     args = parser.parse_args()
+    
+    # Parse schemas
+    requested_schemas = [s.strip() for s in args.schemas.split(',')]
+    valid_schemas = {'trades', 'mbp-1', 'statistics'}
+    schemas_to_download = [s for s in requested_schemas if s in valid_schemas]
+    
+    if not schemas_to_download:
+        print(f"❌ No valid schemas specified. Valid options: {valid_schemas}")
+        return 1
     
     # Generate dates
     dates = []
@@ -122,13 +140,13 @@ def main():
         current += timedelta(days=1)
     
     print(f"Downloading {len(dates)} dates to DBN format...")
+    print(f"Schemas: {', '.join(schemas_to_download)}\n")
     
     downloader = FastESOptionsDownloader()
     
-    # Download all three schemas
-    downloader.download_dates(dates, 'trades', args.workers)
-    downloader.download_dates(dates, 'mbp-1', args.workers)
-    downloader.download_dates(dates, 'statistics', args.workers)
+    # Download requested schemas
+    for schema in schemas_to_download:
+        downloader.download_dates(dates, schema, args.workers)
     
     print(f"\n✅ DBN files saved to: {downloader.raw_dir}")
     print(f"\nNext: Convert DBN to Bronze Parquet")

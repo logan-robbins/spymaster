@@ -8,7 +8,7 @@ import numpy as np
 from datetime import time
 
 from src.pipeline.core.stage import BaseStage, StageContext
-from src.common.lake_paths import canonical_state_dir, date_partition
+from src.common.data_paths import canonical_state_dir, date_partition
 
 logger = logging.getLogger(__name__)
 

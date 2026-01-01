@@ -1,5 +1,5 @@
 """
-Data lake path helpers.
+Data path helpers for silver/gold layers.
 
 Provides hive-style partition directory helpers (e.g., version=..., date=...).
 Used to keep canonical output locations consistent across pipeline runs.

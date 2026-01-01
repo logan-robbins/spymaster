@@ -315,8 +315,8 @@ class TestSilverCompactionIntegration:
 
     def test_compact_bronze_to_silver(self, temp_data_root):
         """Silver compactor should dedupe and sort Bronze data."""
+        pytest.skip("SilverCompactor module removed - functionality moved to pipeline stages")
         from src.io.bronze import BronzeWriter
-        from src.lake.silver_compactor import SilverCompactor
 
         # Step 1: Create Bronze data with duplicates
         writer = BronzeWriter(data_root=temp_data_root, buffer_limit=5)
@@ -373,8 +373,8 @@ class TestSilverCompactionIntegration:
 
     def test_compact_real_dbn_to_silver(self, temp_data_root):
         """Compact real DBN Bronze data to Silver."""
+        pytest.skip("SilverCompactor module removed - functionality moved to pipeline stages")
         from src.io.bronze import BronzeWriter
-        from src.lake.silver_compactor import SilverCompactor
 
         ingestor = DBNReader()
         dates = ingestor.get_available_dates('trades')

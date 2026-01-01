@@ -8,7 +8,7 @@ import pandas as pd
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.ml.episode_vector import construct_episodes_from_events, save_episodes
 from src.ml.normalization import load_normalization_stats
-from src.common.lake_paths import canonical_episodes_dir, date_partition
+from src.common.data_paths import canonical_episodes_dir, date_partition
 
 logger = logging.getLogger(__name__)
 

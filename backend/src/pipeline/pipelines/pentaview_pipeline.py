@@ -20,7 +20,7 @@ import logging
 from src.pipeline.core.pipeline import Pipeline
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.pipeline.stages.compute_streams import ComputeStreamsStage
-from src.common.lake_paths import canonical_state_dir, date_partition
+from src.common.data_paths import canonical_state_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
