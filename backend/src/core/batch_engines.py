@@ -69,6 +69,7 @@ class VectorizedMarketData:
     strike_volume: Dict[float, int]
     call_gamma: Dict[float, float]
     put_gamma: Dict[float, float]
+    strike_premium: Dict[float, float]  # Net premium flow by strike
 
     # Price converter (ES futures = ES options, no conversion)
     spx_to_es_ratio: float = 1.0  # ES = ES (same underlying)
@@ -143,10 +144,13 @@ def build_vectorized_market_data(
     call_gamma = defaultdict(float)
     put_gamma = defaultdict(float)
 
+    strike_premium = defaultdict(float)  # Store net_premium_flow by strike
+    
     for (strike, right, exp_date), flow in option_flows.items():
         if exp_date == date:
             strike_gamma[strike] += flow.net_gamma_flow
             strike_volume[strike] += flow.cumulative_volume
+            strike_premium[strike] += flow.net_premium_flow  # Aggregate premium flow
             if right == 'C':
                 call_gamma[strike] += flow.net_gamma_flow
             else:
@@ -165,7 +169,8 @@ def build_vectorized_market_data(
         strike_gamma=dict(strike_gamma),
         strike_volume=dict(strike_volume),
         call_gamma=dict(call_gamma),
-        put_gamma=dict(put_gamma)
+        put_gamma=dict(put_gamma),
+        strike_premium=dict(strike_premium)
     )
 
 
@@ -602,22 +607,36 @@ def compute_fuel_metrics_batch(
         strike_range: Strike range around level
 
     Returns:
-        Dict with arrays: gamma_exposure, fuel_effect
+        Dict with arrays: gamma_exposure, fuel_effect, call_tide, put_tide
     """
     n = len(level_prices)
 
     gamma_exposures = np.zeros(n, dtype=np.float64)
     fuel_effects = np.empty(n, dtype=object)
+    call_tides = np.zeros(n, dtype=np.float64)
+    put_tides = np.zeros(n, dtype=np.float64)
 
     # Pre-convert strikes to array for fast lookup
     strikes = np.array(list(market_data.strike_gamma.keys()))
     gamma_values = np.array(list(market_data.strike_gamma.values()))
+    
+    # Extract call/put gamma for premium flow calculation
+    call_strikes = np.array(list(market_data.call_gamma.keys()))
+    call_gamma_values = np.array(list(market_data.call_gamma.values()))
+    put_strikes = np.array(list(market_data.put_gamma.keys()))
+    put_gamma_values = np.array(list(market_data.put_gamma.values()))
+    
+    # Extract premium flows
+    premium_strikes = np.array(list(market_data.strike_premium.keys()))
+    premium_values = np.array(list(market_data.strike_premium.values()))
 
     if len(strikes) == 0:
         fuel_effects[:] = 'NEUTRAL'
         return {
             'gamma_exposure': gamma_exposures,
-            'fuel_effect': fuel_effects
+            'fuel_effect': fuel_effects,
+            'call_tide': call_tides,
+            'put_tide': put_tides
         }
 
     for i in range(n):
@@ -634,6 +653,21 @@ def compute_fuel_metrics_batch(
         net_gamma = gamma_values[mask].sum()
         gamma_exposures[i] = net_gamma
 
+        # Compute call/put tide (premium flow)
+        if len(call_strikes) > 0:
+            call_mask = np.abs(call_strikes - level) <= strike_range
+            # Match premium flows for calls
+            call_premium_mask = np.isin(premium_strikes, call_strikes[call_mask])
+            if call_premium_mask.any():
+                call_tides[i] = premium_values[call_premium_mask].sum()
+                
+        if len(put_strikes) > 0:
+            put_mask = np.abs(put_strikes - level) <= strike_range
+            # Match premium flows for puts
+            put_premium_mask = np.isin(premium_strikes, put_strikes[put_mask])
+            if put_premium_mask.any():
+                put_tides[i] = premium_values[put_premium_mask].sum()
+
         # Classify effect
         if net_gamma < -10000:
             fuel_effects[i] = 'AMPLIFY'
@@ -644,7 +678,9 @@ def compute_fuel_metrics_batch(
 
     return {
         'gamma_exposure': gamma_exposures,
-        'fuel_effect': fuel_effects
+        'fuel_effect': fuel_effects,
+        'call_tide': call_tides,
+        'put_tide': put_tides
     }
 
 

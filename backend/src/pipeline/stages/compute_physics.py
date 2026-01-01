@@ -105,6 +105,8 @@ def compute_physics_batch(
             result['sweep_detected'] = np.zeros(n, dtype=bool)
             result['fuel_effect'] = fuel_metrics['fuel_effect']
             result['gamma_exposure'] = fuel_metrics['gamma_exposure']
+            result['call_tide'] = fuel_metrics.get('call_tide', np.zeros(n, dtype=np.float64))
+            result['put_tide'] = fuel_metrics.get('put_tide', np.zeros(n, dtype=np.float64))
 
             return result
 
@@ -124,6 +126,8 @@ def compute_physics_batch(
     sweep_detected = np.zeros(n, dtype=bool)
     fuel_effects = np.empty(n, dtype=object)
     gamma_exposure = np.zeros(n, dtype=np.float64)
+    call_tides = np.zeros(n, dtype=np.float64)
+    put_tides = np.zeros(n, dtype=np.float64)
 
     for i in range(n):
         row = touches_df.iloc[i]
@@ -182,6 +186,8 @@ def compute_physics_batch(
             )
             fuel_effects[i] = fuel_metrics_result.effect.value
             gamma_exposure[i] = fuel_metrics_result.net_dealer_gamma
+            call_tides[i] = fuel_metrics_result.call_tide
+            put_tides[i] = fuel_metrics_result.put_tide
         except:
             fuel_effects[i] = 'NEUTRAL'
 
@@ -197,6 +203,8 @@ def compute_physics_batch(
     result['sweep_detected'] = sweep_detected
     result['fuel_effect'] = fuel_effects
     result['gamma_exposure'] = gamma_exposure
+    result['call_tide'] = call_tides
+    result['put_tide'] = put_tides
 
     return result
 

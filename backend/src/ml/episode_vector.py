@@ -1,4 +1,4 @@
-"""Episode vector construction - Updated to 144D with DCT basis per Analyst Opinion."""
+"""Episode vector construction - 149D per RESEARCH.md (Phase 4.5 with Market Tide)."""
 import logging
 from typing import List, Dict, Any, Tuple
 import numpy as np
@@ -17,9 +17,9 @@ from src.ml.constants import (
 logger = logging.getLogger(__name__)
 
 
-# Vector dimensions: 144D per analyst opinion
-# Section boundaries# Check dimension consistency at module load
-assert VECTOR_DIMENSION == 144, "Vector dimension must be 144"
+# Vector dimensions: 149D per RESEARCH.md
+# Section boundaries verified at module load
+assert VECTOR_DIMENSION == 149, "Vector dimension must be 149 per RESEARCH.md"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -81,13 +81,13 @@ def construct_episode_vector(
     level_price: float
 ) -> np.ndarray:
     """
-    Construct 144-dimensional episode vector with DCT trajectory basis.
+    Construct 149-dimensional episode vector with DCT trajectory basis.
     
-    Per Analyst Opinion:
-    - Section A: Context + Regime (25 dims) - removed redundant level_kind/direction
-    - Section B: Multi-Scale Dynamics (37 dims) - multi-window kinematics at T=0
+    Per RESEARCH.md Phase 4.5:
+    - Section A: Context + Regime (25 dims)
+    - Section B: Multi-Scale Dynamics (40 dims) - 1,2,3,5,10,20min kinematics + OFI + barrier evolution
     - Section C: Micro-History (35 dims) - 5-bar history with LOG-TRANSFORMED features
-    - Section D: Derived Physics (11 dims) - added mass_proxy, force_proxy, flow_alignment
+    - Section D: Derived Physics (13 dims) - force/mass ratios + Market Tide (call_tide, put_tide)
     - Section E: Online Trends (4 dims) - rolling trends
     - Section F: Trajectory Basis (32 dims) - 4 series × 8 DCT coefficients
     
@@ -98,7 +98,7 @@ def construct_episode_vector(
         level_price: Level price being tested
     
     Returns:
-        Raw (unnormalized) 144-dimensional vector
+        Raw (unnormalized) 149-dimensional vector
     """
     vector = np.zeros(VECTOR_DIMENSION, dtype=np.float32)
     idx = 0
@@ -156,7 +156,8 @@ def construct_episode_vector(
         vector[idx] = current_bar.get(f, 0.0)
         idx += 1
     
-    # ─── SECTION B: Multi-Scale Dynamics (37 dims) ───
+    # ─── SECTION B: Multi-Scale Dynamics (40 dims) ───
+    # Per RESEARCH.md: "Multi-scale (1, 2, 3, 5, 10, 20min)"
     # Velocity (6)
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         vector[idx] = current_bar.get(f'velocity_{scale}', 0.0)
@@ -172,8 +173,8 @@ def construct_episode_vector(
         vector[idx] = current_bar.get(f'jerk_{scale}', 0.0)
         idx += 1
     
-    # Momentum trend (4)
-    for scale in ['3min', '5min', '10min', '20min']:
+    # Momentum trend (6) - ADDED 1min, 2min per RESEARCH.md
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         vector[idx] = current_bar.get(f'momentum_trend_{scale}', 0.0)
         idx += 1
     
@@ -190,8 +191,8 @@ def construct_episode_vector(
     vector[idx] = current_bar.get('ofi_acceleration', 0.0)
     idx += 1
     
-    # Barrier delta (3)
-    for scale in ['1min', '3min', '5min']:
+    # Barrier delta (4) - ADDED 2min per RESEARCH.md multi-scale spec
+    for scale in ['1min', '2min', '3min', '5min']:
         vector[idx] = current_bar.get(f'barrier_delta_{scale}', 0.0)
         idx += 1
     
@@ -281,6 +282,12 @@ def construct_episode_vector(
     vector[idx] = flow_alignment
     idx += 1
     
+    # Market Tide (Phase 4.5) - Net Premium Flow into Calls/Puts
+    vector[idx] = current_bar.get('call_tide', 0.0)
+    idx += 1
+    vector[idx] = current_bar.get('put_tide', 0.0)
+    idx += 1
+    
     # ─── SECTION E: Online Trends (4 dims) ───
     vector[idx] = current_bar.get('barrier_replenishment_trend', 0.0)
     idx += 1
@@ -341,7 +348,7 @@ def get_feature_names() -> List[str]:
     """
     Get ordered list of feature names matching vector indices.
     
-    Returns list of 144 feature names for normalization.
+    Returns list of 149 feature names for normalization.
     """
     names = []
     
@@ -358,21 +365,21 @@ def get_feature_names() -> List[str]:
         'call_gex_above_2strike', 'put_gex_below_2strike'
     ])
     
-    # Section B: Multi-Scale Dynamics (37)
+    # Section B: Multi-Scale Dynamics (40) - Updated per RESEARCH.md
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'velocity_{scale}')
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'acceleration_{scale}')
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'jerk_{scale}')
-    for scale in ['3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:  # ADDED 1min, 2min
         names.append(f'momentum_trend_{scale}')
     for scale in ['30s', '60s', '120s', '300s']:
         names.append(f'ofi_{scale}')
     for scale in ['30s', '60s', '120s', '300s']:
         names.append(f'ofi_near_level_{scale}')
     names.append('ofi_acceleration')
-    for scale in ['1min', '3min', '5min']:
+    for scale in ['1min', '2min', '3min', '5min']:  # ADDED 2min
         names.append(f'barrier_delta_{scale}')
     names.extend(['approach_velocity', 'approach_bars', 'approach_distance_atr'])
     
@@ -385,13 +392,14 @@ def get_feature_names() -> List[str]:
         for t in range(5):
             names.append(f'{feature}_t{t}')
     
-    # Section D: Derived Physics (11) - added mass_proxy, force_proxy, flow_alignment
+    # Section D: Derived Physics (13) - Phase 4.5: added call_tide, put_tide
     names.extend([
         'predicted_accel', 'accel_residual', 'force_mass_ratio',
         'mass_proxy', 'force_proxy',
         'barrier_state_encoded', 'barrier_replenishment_ratio',
         'sweep_detected', 'tape_log_ratio', 'tape_log_total',
-        'flow_alignment'
+        'flow_alignment',
+        'call_tide', 'put_tide'  # Market Tide (Phase 4.5)
     ])
     
     # Section E: Online Trends (4)
@@ -524,10 +532,10 @@ def construct_episodes_from_events(
     """
     Construct episode vectors and metadata from event table and state table.
     
-    Updated for 144D with DCT trajectory basis:
+    Updated for 149D with Market Tide (Phase 4.5):
     - For each event (anchor), extract 5-bar micro-history from state table
     - Extract 40-bar (20-minute) trajectory window for DCT computation
-    - Construct raw 144-dim vector
+    - Construct raw 149-dim vector (includes call_tide, put_tide)
     - Normalize vector
     - Compute labels and emission weight
     - Return vectors array and metadata DataFrame
@@ -540,7 +548,7 @@ def construct_episodes_from_events(
     
     Returns:
         Tuple of (
-            vectors array [N × 144], 
+            vectors array [N × 149], 
             metadata DataFrame [N rows],
             sequences array [N × 40 × 4]  (Raw trajectory for Transformer)
         )
@@ -548,7 +556,7 @@ def construct_episodes_from_events(
     if events_df.empty:
         return np.array([]), pd.DataFrame(), np.array([])
     
-    logger.info(f"Constructing 144D episode vectors from {len(events_df):,} events...")
+    logger.info(f"Constructing 149D episode vectors from {len(events_df):,} events...")
     
     # Sort state table by timestamp and level_kind for efficient lookup
     state_sorted = state_df.sort_values(['level_kind', 'timestamp']).copy()
@@ -737,7 +745,7 @@ def construct_episodes_from_events(
     sequences_array = np.array(sequences, dtype=np.float32)
     metadata_df = pd.DataFrame(metadata_rows)
     
-    logger.info(f"  Constructed {len(vectors_array):,} episode vectors (144 dims)")
+    logger.info(f"  Constructed {len(vectors_array):,} episode vectors (149 dims)")
     logger.info(f"  Constructed {len(sequences_array):,} raw sequences (40x4)")
     logger.info(f"  Skipped: no_history={skipped_reasons['no_history']}, vector_failed={skipped_reasons['vector_construction_failed']}, norm_failed={skipped_reasons['normalization_failed']}")
     
@@ -756,12 +764,12 @@ def save_episodes(
     
     Output structure:
         gold/episodes/es_level_episodes/
-        ├── vectors/date=YYYY-MM-DD/episodes.npy (144D)
+        ├── vectors/date=YYYY-MM-DD/episodes.npy (149D)
         ├── sequences/date=YYYY-MM-DD/sequences.npy (40x4 Raw)
         └── metadata/date=YYYY-MM-DD/metadata.parquet
     
     Args:
-        vectors: Episode vectors array [N × 144]
+        vectors: Episode vectors array [N × 149]
         metadata: Episode metadata DataFrame
         output_dir: Base output directory (gold/episodes/es_level_episodes/)
         date: Trading date

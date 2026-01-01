@@ -1,5 +1,7 @@
 """
-Validate Stage 14: LabelOutcomes (v3.0.0 - First-Crossing Semantics)
+Validate Stage 15: LabelOutcomes (First-Crossing Semantics)
+
+NOTE: LabelOutcomesStage is at index 15, not 14, due to three BuildOHLCVStages (1min, 10s, 2min).
 
 Goals:
 1. Compute multi-timeframe outcome labels (2/4/8 min) using first-crossing
@@ -7,9 +9,9 @@ Goals:
 3. Generate ATR-normalized excursion metrics
 4. Preserve signal identity and row count
 
-Outcome Semantics (UPDATED):
+Outcome Semantics:
 - BREAK: Price crossed 1 ATR in direction of approach
-- REJECT: Price reversed 1 ATR in opposite direction (was "BOUNCE")
+- REJECT: Price reversed 1 ATR in opposite direction
 - CHOP: Neither threshold crossed within horizon
 
 Validation Checks:
@@ -17,7 +19,7 @@ Validation Checks:
 - signals_df output exists and has required outcome columns
 - Row count matches input
 - Outcome values within expected set {BREAK, REJECT, CHOP}
-- New fields present: excursion_favorable, excursion_adverse
+- Fields present: excursion_favorable, excursion_adverse
 """
 
 import argparse
@@ -45,14 +47,14 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage14Validator:
-    """Validator for LabelOutcomes stage."""
+class Stage15Validator:
+    """Validator for LabelOutcomes stage (index 15)."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
             'stage': 'label_outcomes',
-            'stage_idx': 14,
+            'stage_idx': 15,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -62,7 +64,7 @@ class Stage14Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 14: LabelOutcomes for {date}")
+        self.logger.info(f"Validating Stage 15: LabelOutcomes for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -77,9 +79,9 @@ class Stage14Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 14 Validation: PASSED")
+            self.logger.info("✅ Stage 15 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 14 Validation: FAILED")
+            self.logger.error("❌ Stage 15 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -213,7 +215,7 @@ class Stage14Validator:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 14: LabelOutcomes')
+    parser = argparse.ArgumentParser(description='Validate Stage 15: LabelOutcomes')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--log-file', type=str, default=None, help='Log file path')
@@ -225,35 +227,35 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_14_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_15_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 14 validation for {args.date}")
+    logger.info(f"Starting Stage 15 validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 14
-        logger.info("Running through LabelOutcomes stage...")
+        # Run pipeline through stage 15
+        logger.info("Running through LabelOutcomes stage (index 15)...")
         pipeline = build_es_pipeline()
 
         pipeline.run(
             date=args.date,
             checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=14,
-            stop_at_stage=14
+            resume_from_stage=15,
+            stop_at_stage=15
         )
 
         # Load checkpoint
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=14)
+        ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=15)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")
             return 1
 
         # Validate
-        validator = Stage14Validator(logger)
+        validator = Stage15Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -261,7 +263,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_14_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_15_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)
