@@ -1,7 +1,7 @@
 """
 Validate Stage 15: LabelOutcomes (First-Crossing Semantics)
 
-NOTE: LabelOutcomesStage is at index 15, not 14, due to three BuildOHLCVStages (1min, 10s, 2min).
+Pipeline: bronze_to_silver (stage 15 of 17 total stages)
 
 Goals:
 1. Compute multi-timeframe outcome labels (2/4/8 min) using first-crossing
@@ -31,7 +31,7 @@ from typing import Dict, Any
 import numpy as np
 import pandas as pd
 
-from src.pipeline.pipelines.es_pipeline import build_es_pipeline
+from src.pipeline.pipelines.bronze_to_silver import build_bronze_to_silver_pipeline
 
 
 def setup_logging(log_file: str):
@@ -234,18 +234,8 @@ def main():
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 15
-        logger.info("Running through LabelOutcomes stage (index 15)...")
-        pipeline = build_es_pipeline()
-
-        pipeline.run(
-            date=args.date,
-            checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=15,
-            stop_at_stage=15
-        )
-
-        # Load checkpoint
+        # Load checkpoint directly (es_pipeline checkpoints still valid)
+        logger.info("Loading LabelOutcomes checkpoint (stage_idx 15)...")
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
         ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=15)

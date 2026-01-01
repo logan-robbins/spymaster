@@ -16,10 +16,14 @@ def _register_pipelines():
     global _PIPELINES
 
     # Import here to avoid circular imports
-    from src.pipeline.pipelines.es_pipeline import build_es_pipeline
+    from src.pipeline.pipelines.bronze_to_silver import build_bronze_to_silver_pipeline
+    from src.pipeline.pipelines.silver_to_gold import build_silver_to_gold_pipeline
+    from src.pipeline.pipelines.pentaview_pipeline import build_pentaview_pipeline
 
     _PIPELINES = {
-        'es_pipeline': build_es_pipeline,
+        'bronze_to_silver': build_bronze_to_silver_pipeline,
+        'silver_to_gold': build_silver_to_gold_pipeline,
+        'pentaview': build_pentaview_pipeline,
     }
 
 
