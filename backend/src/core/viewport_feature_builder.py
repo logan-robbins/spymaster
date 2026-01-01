@@ -153,7 +153,9 @@ class ViewportFeatureBuilder:
             "sweep_detected": tape_metrics.sweep.detected,
             "fuel_effect": fuel_metrics.effect.value,
             "gamma_exposure": gamma_exposure,
-            "gamma_bucket": gamma_bucket
+            "gamma_bucket": gamma_bucket,
+            "fuel_call_tide": fuel_metrics.call_tide,
+            "fuel_put_tide": fuel_metrics.put_tide
         })
 
         # ─── SECTION F: Trajectory Basis (DCT) ───
@@ -392,7 +394,7 @@ class ViewportFeatureBuilder:
 
     @staticmethod
     def _apply_sparse_transforms(row: Dict[str, Any]) -> None:
-        for col in ("wall_ratio", "barrier_delta_liq"):
+        for col in ("wall_ratio", "barrier_delta_liq", "fuel_call_tide", "fuel_put_tide"):
             value = row.get(col)
             if value is None or not math.isfinite(value):
                 row[f"{col}_nonzero"] = None
