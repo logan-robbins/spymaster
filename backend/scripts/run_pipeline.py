@@ -1,330 +1,186 @@
 """
-Run ES pipeline with optional checkpointing support.
+Run ES pipelines with optional checkpointing support.
 
-Provides a single canonical entrypoint for full or incremental runs.
+Supports both Bronze→Silver and Silver→Gold pipelines.
 
 Usage:
-    # Run full pipeline with checkpointing
+    # Run Bronze→Silver (feature engineering)
     uv run python -m scripts.run_pipeline \
+      --pipeline bronze_to_silver \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
-      --canonical-version 3.1.0
+      --write-outputs
     
-    # Run first 3 stages only
+    # Run Silver→Gold (episode construction)  
     uv run python -m scripts.run_pipeline \
+      --pipeline silver_to_gold \
       --date 2025-12-16 \
-      --checkpoint-dir data/checkpoints \
-      --canonical-version 3.1.0 \
-      --stop-at-stage 2
+      --write-outputs
     
-    # Resume from stage 3 (loads stage 2 checkpoint)
+    # Run date range (weekdays only)
     uv run python -m scripts.run_pipeline \
-      --date 2025-12-16 \
-      --checkpoint-dir data/checkpoints \
-      --canonical-version 3.1.0 \
-      --resume-from-stage 3
-    
-    # List available checkpoints
-    uv run python -m scripts.run_pipeline \
-      --date 2025-12-16 \
-      --checkpoint-dir data/checkpoints \
-      --list
-    
-    # Clear checkpoints for date
-    uv run python -m scripts.run_pipeline \
-      --date 2025-12-16 \
-      --checkpoint-dir data/checkpoints \
-      --clear
-
-    # Run full pipeline for a date range (weekdays only by default)
-    uv run python -m scripts.run_pipeline \
+      --pipeline bronze_to_silver \
       --start 2025-12-16 \
       --end 2025-12-20 \
-      --checkpoint-dir data/checkpoints \
-      --canonical-version 3.1.0
+      --workers 4 \
+      --write-outputs
 """
 
 import argparse
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
-from src.pipeline.pipelines.es_pipeline import build_es_pipeline
+from src.pipeline.pipelines.registry import get_pipeline, list_available_pipelines
 from src.pipeline.core.checkpoint import CheckpointManager
 
 
-def list_checkpoints(checkpoint_dir: str, date: str):
-    """List available checkpoints for a date."""
-    manager = CheckpointManager(checkpoint_dir)
-    checkpoints = manager.list_checkpoints("es_pipeline", date)
-    
-    if not checkpoints:
-        print(f"No checkpoints found for {date}")
-        return
-    
-    print(f"\nAvailable checkpoints for {date}:")
-    print(f"{'='*80}")
-    print(f"{'Idx':<5} {'Stage Name':<30} {'Time':<10} {'Outputs':<10}")
-    print(f"{'-'*80}")
-    
-    for cp in checkpoints:
-        idx = cp['stage_idx']
-        name = cp['stage_name']
-        elapsed = f"{cp['elapsed_time']:.2f}s"
-        outputs = len(cp['outputs'])
-        print(f"{idx:<5} {name:<30} {elapsed:<10} {outputs:<10}")
-    
-    print(f"{'='*80}\n")
-
-
-def clear_checkpoints(checkpoint_dir: str, date: str):
-    """Clear checkpoints for a date."""
-    manager = CheckpointManager(checkpoint_dir)
-    
-    response = input(f"Clear all checkpoints for {date}? [y/N]: ")
-    if response.lower() == 'y':
-        manager.clear_checkpoints("es_pipeline", date)
-        print(f"Checkpoints cleared for {date}")
-    else:
-        print("Cancelled")
-
-
-def inspect_stage_output(checkpoint_dir: str, date: str, stage_idx: int):
-    """Load and inspect a stage's output."""
-    import pandas as pd
-    
-    manager = CheckpointManager(checkpoint_dir)
-    ctx = manager.load_checkpoint("es_pipeline", date, stage_idx)
-    
-    if ctx is None:
-        print(f"Checkpoint not found for stage {stage_idx}")
-        return
-    
-    print(f"\n{'='*80}")
-    print(f"Stage {stage_idx} Outputs:")
-    print(f"{'='*80}\n")
-    
-    for key, value in ctx.data.items():
-        if isinstance(value, pd.DataFrame):
-            print(f"{key}: DataFrame")
-            print(f"  Shape: {value.shape}")
-            print(f"  Columns: {list(value.columns)[:10]}")
-            if len(value.columns) > 10:
-                print(f"    ... and {len(value.columns)-10} more")
-            print(f"  Head:\n{value.head(3)}\n")
-        
-        elif isinstance(value, pd.Series):
-            print(f"{key}: Series")
-            print(f"  Length: {len(value)}")
-            print(f"  Head:\n{value.head(3)}\n")
-        
-        elif isinstance(value, list):
-            print(f"{key}: list")
-            print(f"  Length: {len(value)}")
-            if value:
-                print(f"  First item type: {type(value[0]).__name__}")
-        
-        elif isinstance(value, dict):
-            print(f"{key}: dict")
-            print(f"  Keys: {list(value.keys())[:10]}")
-        
-        else:
-            print(f"{key}: {type(value).__name__}")
-    
-    print(f"{'='*80}\n")
-
-
 def build_date_list(
-    date: Optional[str],
-    start_date: Optional[str],
-    end_date: Optional[str],
-    include_weekends: bool
+    single_date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    include_weekends: bool = False
 ) -> List[str]:
-    """Resolve a single date or a date range into a list of dates."""
-    if date and (start_date or end_date):
-        raise ValueError("Use --date or --start/--end, not both")
-
-    if date:
-        return [date]
-
-    if not start_date or not end_date:
-        raise ValueError("Provide --date or both --start and --end")
-
+    """Build list of dates to process."""
+    if single_date:
+        return [single_date]
+    
+    if not (start_date and end_date):
+        raise ValueError("Must provide either --date or --start/--end")
+    
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
-    if start > end:
-        raise ValueError("--start must be on or before --end")
-
+    
     dates = []
-    current = start
-    while current <= end:
-        if include_weekends or current.weekday() < 5:
-            dates.append(current.strftime("%Y-%m-%d"))
-        current += timedelta(days=1)
-
-    if not dates:
-        raise ValueError("Date range produced no dates to process")
-
+    curr = start
+    while curr <= end:
+        if include_weekends or curr.weekday() < 5:
+            dates.append(curr.strftime("%Y-%m-%d"))
+        curr += timedelta(days=1)
+    
     return dates
 
 
+def run_single_date(
+    pipeline_name: str,
+    date: str,
+    checkpoint_dir: str,
+    canonical_version: str,
+    data_root: str,
+    write_outputs: bool,
+    overwrite_partitions: bool,
+    resume_from_stage: int = None,
+    stop_at_stage: int = None
+) -> dict:
+    """Run pipeline for a single date (worker function for parallel execution)."""
+    try:
+        pipeline = get_pipeline(pipeline_name)
+        start_t = time.time()
+        
+        result_df = pipeline.run(
+            date=date,
+            checkpoint_dir=checkpoint_dir,
+            canonical_version=canonical_version,
+            data_root=data_root,
+            write_outputs=write_outputs,
+            overwrite_partitions=overwrite_partitions,
+            resume_from_stage=resume_from_stage,
+            stop_at_stage=stop_at_stage,
+            log_level=40  # ERROR only to reduce noise in parallel runs
+        )
+        
+        elapsed = time.time() - start_t
+        return {
+            "date": date,
+            "success": True,
+            "rows": len(result_df) if result_df is not None else 0,
+            "elapsed": elapsed
+        }
+    except Exception as e:
+        return {
+            "date": date,
+            "success": False,
+            "error": str(e)
+        }
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run ES pipeline (optional checkpointing)",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
-    )
-    
-    parser.add_argument(
-        '--date',
-        type=str,
-        help='Date to process (YYYY-MM-DD)'
-    )
-
-    parser.add_argument(
-        '--start',
-        dest='start_date',
-        type=str,
-        help='Start date for batch run (YYYY-MM-DD)'
-    )
-
-    parser.add_argument(
-        '--end',
-        dest='end_date',
-        type=str,
-        help='End date for batch run (YYYY-MM-DD)'
-    )
-
-    parser.add_argument(
-        '--include-weekends',
-        action='store_true',
-        help='Include weekends when running a date range'
-    )
-    
-    parser.add_argument(
-        '--checkpoint-dir',
-        type=str,
-        default=None,
-        help='Directory for checkpoints (default: data/checkpoints)'
-    )
-
-    parser.add_argument(
-        '--canonical-version',
-        type=str,
-        default=None,
-        help='Canonical output version for lake paths (default: pipeline.version)'
-    )
-
-    parser.add_argument(
-        '--data-root',
-        type=str,
-        default=None,
-        help='Override lake DATA_ROOT for this run (default: CONFIG.DATA_ROOT)'
-    )
-
-    parser.add_argument(
-        '--write-outputs',
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help='Write canonical outputs to the lake (silver/features, silver/state, gold/episodes)'
-    )
-
-    parser.add_argument(
-        '--overwrite-partitions',
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help='Overwrite date partitions when writing outputs (recommended for reruns)'
-    )
-    
-    parser.add_argument(
-        '--resume-from-stage',
-        type=int,
-        default=None,
-        help='Resume from stage N (0-based, loads stage N-1 checkpoint)'
-    )
-    
-    parser.add_argument(
-        '--stop-at-stage',
-        type=int,
-        default=None,
-        help='Stop after stage N (0-based, for debugging)'
-    )
-    
-    parser.add_argument(
-        '--list',
-        action='store_true',
-        help='List available checkpoints for date'
-    )
-    
-    parser.add_argument(
-        '--clear',
-        action='store_true',
-        help='Clear checkpoints for date'
-    )
-    
-    parser.add_argument(
-        '--inspect',
-        type=int,
-        default=None,
-        metavar='STAGE_IDX',
-        help='Inspect outputs from stage N'
-    )
+    parser = argparse.ArgumentParser(description="Run ES Pipeline")
+    parser.add_argument("--pipeline", default="bronze_to_silver", 
+                       help="Pipeline name (bronze_to_silver, silver_to_gold, pentaview)")
+    parser.add_argument("--date", type=str, help="Single date (YYYY-MM-DD)")
+    parser.add_argument("--start", type=str, help="Start date for range (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, help="End date for range (YYYY-MM-DD)")
+    parser.add_argument("--checkpoint-dir", default="data/checkpoints", help="Checkpoint directory")
+    parser.add_argument("--canonical-version", default="4.5.0", help="Canonical version")
+    parser.add_argument("--data-root", default=None, help="Data root override")
+    parser.add_argument("--write-outputs", action="store_true", help="Write to Silver/Gold layers")
+    parser.add_argument("--no-overwrite", action="store_true", help="Don't overwrite existing partitions")
+    parser.add_argument("--resume-from-stage", type=int, default=None, help="Resume from stage_idx")
+    parser.add_argument("--stop-at-stage", type=int, default=None, help="Stop after stage_idx")
+    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers (enables parallel mode)")
+    parser.add_argument("--include-weekends", action="store_true", help="Include weekends in date range")
+    parser.add_argument("--list-pipelines", action="store_true", help="List available pipelines")
     
     args = parser.parse_args()
     
-    # Set default checkpoint dir
-    if args.checkpoint_dir is None and not (args.list or args.clear or args.inspect):
-        backend_dir = Path(__file__).parent.parent
-        args.checkpoint_dir = str(backend_dir / 'data' / 'checkpoints')
-    
-    # Handle management commands
-    if args.list:
-        if not args.checkpoint_dir:
-            print("Error: --checkpoint-dir required for --list")
-            return 1
-        if not args.date:
-            print("Error: --date required for --list")
-            return 1
-        list_checkpoints(args.checkpoint_dir, args.date)
+    if args.list_pipelines:
+        pipelines = list_available_pipelines()
+        print("Available pipelines:")
+        for p in pipelines:
+            print(f"  - {p}")
         return 0
     
-    if args.clear:
-        if not args.checkpoint_dir:
-            print("Error: --checkpoint-dir required for --clear")
-            return 1
-        if not args.date:
-            print("Error: --date required for --clear")
-            return 1
-        clear_checkpoints(args.checkpoint_dir, args.date)
-        return 0
-    
-    if args.inspect is not None:
-        if not args.checkpoint_dir:
-            print("Error: --checkpoint-dir required for --inspect")
-            return 1
-        if not args.date:
-            print("Error: --date required for --inspect")
-            return 1
-        inspect_stage_output(args.checkpoint_dir, args.date, args.inspect)
-        return 0
-
+    # Build date list
     try:
-        dates = build_date_list(
-            args.date,
-            args.start_date,
-            args.end_date,
-            args.include_weekends
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}")
+        dates = build_date_list(args.date, args.start, args.end, args.include_weekends)
+    except ValueError as e:
+        print(f"Error: {e}")
         return 1
     
-    # Run pipeline
+    # Parallel mode
+    if args.workers and len(dates) > 1:
+        print(f"Running {args.pipeline} pipeline for {len(dates)} dates with {args.workers} workers...")
+        
+        results = []
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = {
+                executor.submit(
+                    run_single_date,
+                    args.pipeline,
+                    d,
+                    args.checkpoint_dir,
+                    args.canonical_version,
+                    args.data_root,
+                    args.write_outputs,
+                    not args.no_overwrite,
+                    args.resume_from_stage,
+                    args.stop_at_stage
+                ): d for d in dates
+            }
+            
+            for future in as_completed(futures):
+                res = future.result()
+                if res["success"]:
+                    print(f"✅ {res['date']}: {res['rows']} rows ({res['elapsed']:.1f}s)")
+                else:
+                    print(f"❌ {res['date']}: FAILED - {res['error']}")
+                results.append(res)
+        
+        failed = sum(1 for r in results if not r["success"])
+        return 1 if failed > 0 else 0
+    
+    # Sequential mode
+    pipeline = get_pipeline(args.pipeline)
+    
     if len(dates) == 1:
-        print(f"Running ES pipeline for {dates[0]}")
+        print(f"Running {args.pipeline} pipeline for {dates[0]}")
     else:
-        print(f"Running ES pipeline for {len(dates)} dates: {dates[0]} -> {dates[-1]}")
+        print(f"Running {args.pipeline} pipeline for {len(dates)} dates: {dates[0]} -> {dates[-1]}")
+    
     if args.checkpoint_dir:
         print(f"Checkpoints: {args.checkpoint_dir}")
     if args.resume_from_stage is not None:
@@ -333,15 +189,13 @@ def main():
         print(f"Stopping at stage_idx: {args.stop_at_stage}")
     print()
     
-    pipeline = build_es_pipeline()
-    processed = 0
-
     for idx, run_date in enumerate(dates, 1):
         print(f"\n{'='*60}")
-        print(f"[{idx}/{len(dates)}] Running pipeline for {run_date}")
+        print(f"[{idx}/{len(dates)}] Running {args.pipeline} for {run_date}")
         print(f"{'='*60}\n")
+        
         try:
-            signals_df = pipeline.run(
+            result_df = pipeline.run(
                 date=run_date,
                 checkpoint_dir=args.checkpoint_dir,
                 resume_from_stage=args.resume_from_stage,
@@ -349,22 +203,18 @@ def main():
                 canonical_version=args.canonical_version,
                 data_root=args.data_root,
                 write_outputs=args.write_outputs,
-                overwrite_partitions=args.overwrite_partitions,
+                overwrite_partitions=not args.no_overwrite,
             )
+            
+            print(f"\n✅ Pipeline completed for {run_date}")
+            print(f"Result: {len(result_df):,} rows")
+            
         except Exception as e:
-            print(f"\nPipeline failed for {run_date}: {e}")
+            print(f"\n❌ Pipeline failed for {run_date}: {e}")
             import traceback
             traceback.print_exc()
             return 1
-
-        print(f"\nPipeline completed successfully for {run_date}")
-        print(f"Final signals: {len(signals_df):,} rows")
-        processed += 1
-
-    if processed != len(dates):
-        print(f"\nProcessed {processed}/{len(dates)} dates")
-        return 1
-
+    
     return 0
 
 
