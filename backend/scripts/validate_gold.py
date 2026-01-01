@@ -101,6 +101,13 @@ def validate_date(date: str) -> Dict:
                 result["status"] = "FAIL"
                 result["issues"].append("OFI features (49-52) are ALL ZEROS")
                 
+            # Check Microstructure (Index 41: Vacuum)
+            # Should have SOME non-zero values if backfill worked
+            vacuum_col = vectors[:, 41]
+            if np.all(vacuum_col == 0) and count > 0:
+                 result["issues"].append("Vacuum feature (41) is ALL ZEROS")
+                 if result["status"] == "PASS": result["status"] = "WARN"
+                
     except Exception as e:
         result["status"] = "FAIL"
         result["issues"].append(f"Crash: {str(e)}")

@@ -76,8 +76,8 @@
 | 38 | jerk_2min | B2S.8 | Level-frame jerk over 2min window |
 | 39 | jerk_3min | B2S.8 | Level-frame jerk over 3min window |
 | 40 | jerk_5min | B2S.8 | Level-frame jerk over 5min window |
-| 41 | jerk_10min | B2S.8 | Level-frame jerk over 10min window |
-| 42 | jerk_20min | B2S.8 | Level-frame jerk over 20min window |
+| 41 | vacuum_duration_ms | B2S.micro | Duration (ms) liquidity < threshold (Vacuum) **(NEW)** |
+| 42 | replenishment_latency_ms | B2S.micro | Time (ms) to refill after trade **(NEW)** |
 | 43 | momentum_trend_1min | B2S.8 | Momentum trend proxy over 1min window **(NEW)** |
 | 44 | momentum_trend_2min | B2S.8 | Momentum trend proxy over 2min window **(NEW)** |
 | 45 | momentum_trend_3min | B2S.8 | Momentum trend proxy over 3min window |

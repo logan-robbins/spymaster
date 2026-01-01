@@ -25,6 +25,7 @@ from src.pipeline.stages.detect_interaction_zones import DetectInteractionZonesS
 from src.pipeline.stages.compute_physics import ComputePhysicsStage
 from src.pipeline.stages.compute_multiwindow_kinematics import ComputeMultiWindowKinematicsStage
 from src.pipeline.stages.compute_multiwindow_ofi import ComputeMultiWindowOFIStage
+from src.pipeline.stages.compute_microstructure import ComputeMicrostructureStage
 from src.pipeline.stages.compute_barrier_evolution import ComputeBarrierEvolutionStage
 from src.pipeline.stages.compute_level_distances import ComputeLevelDistancesStage
 from src.pipeline.stages.compute_gex_features import ComputeGEXFeaturesStage
@@ -74,6 +75,7 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
             ComputePhysicsStage(),
             ComputeMultiWindowKinematicsStage(),
             ComputeMultiWindowOFIStage(),
+            ComputeMicrostructureStage(),  # New Microstructure layer (Vacuum/Latency)
             ComputeBarrierEvolutionStage(),
             ComputeLevelDistancesStage(),
             ComputeGEXFeaturesStage(),

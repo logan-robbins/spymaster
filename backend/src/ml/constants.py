@@ -71,7 +71,7 @@ HORIZONS = {
 PRIMARY_HORIZON = '4min'
 
 # ─── State Table ───
-STATE_CADENCE_SEC = 30
+STATE_CADENCE_SEC = 15  # 15s "Goldilocks" cadence per Microstructure Research
 SESSION_START_HOUR = 9
 SESSION_START_MIN = 30
 SESSION_END_HOUR = 12

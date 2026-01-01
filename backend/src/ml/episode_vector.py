@@ -169,9 +169,15 @@ def construct_episode_vector(
         idx += 1
     
     # Jerk (6)
-    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min']:
         vector[idx] = current_bar.get(f'jerk_{scale}', 0.0)
         idx += 1
+    
+    # Microstructure Features (2) - REPLACED jerk_10min/20min (Indices 41, 42)
+    vector[idx] = current_bar.get('vacuum_duration_ms', 0.0)
+    idx += 1
+    vector[idx] = current_bar.get('replenishment_latency_ms', 0.0)
+    idx += 1
     
     # Momentum trend (6) - ADDED 1min, 2min per RESEARCH.md
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
@@ -370,8 +376,12 @@ def get_feature_names() -> List[str]:
         names.append(f'velocity_{scale}')
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
         names.append(f'acceleration_{scale}')
-    for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
+    for scale in ['1min', '2min', '3min', '5min']:
         names.append(f'jerk_{scale}')
+    # Microstructure (indices 41, 42)
+    names.append('vacuum_duration_ms')
+    names.append('replenishment_latency_ms')
+
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:  # ADDED 1min, 2min
         names.append(f'momentum_trend_{scale}')
     for scale in ['30s', '60s', '120s', '300s']:
