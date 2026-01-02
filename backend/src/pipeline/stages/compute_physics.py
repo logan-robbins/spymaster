@@ -278,6 +278,7 @@ class ComputePhysicsStage(BaseStage):
         touches_df = ctx.data['touches_df']
         market_state = ctx.data['market_state']
         trades = ctx.data['trades']
+        mbp10_snapshots = ctx.data['mbp10_snapshots']
         option_trades_df = ctx.data.get('option_trades_df')
         
         n_touches = len(touches_df)

@@ -94,9 +94,7 @@ def main():
 
     # Define Audit Periods
     periods = {
-        "June (Early)": ["2025-06-05", "2025-06-06", "2025-06-09"],
-        "August (Mid)": ["2025-08-20", "2025-08-21", "2025-08-22"],
-        "Sept (Late)":   ["2025-09-23", "2025-09-24", "2025-09-25"]  # Sept 30 is a Tuesday
+        'Test Day': ['2025-06-05'],
     }
 
     features_to_audit = [

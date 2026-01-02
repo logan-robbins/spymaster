@@ -127,6 +127,8 @@ class InitMarketStateStage(BaseStage):
 
     def _load_options_to_market_state(
         self,
+        market_state: MarketState,
+        option_trades_df: pd.DataFrame
     ):
         """Load options into MarketState. Returns list of OptionTrade objects."""
         last_price_map = {}
