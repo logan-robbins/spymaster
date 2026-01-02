@@ -9,7 +9,7 @@ from src.core.barrier_engine import BarrierEngine, Direction as BarrierDirection
 from src.core.tape_engine import TapeEngine
 from src.core.fuel_engine import FuelEngine
 from src.core.market_state import MarketState
-from src.common.event_types import FuturesTrade, MBP10
+from src.common.event_types import FuturesTrade, MBP10, OptionTrade
 from src.common.config import CONFIG
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,8 @@ def compute_physics_batch(
     fuel_engine: FuelEngine,
     exp_date: str,
     trades: List[FuturesTrade] = None,
-    mbp10_snapshots: List[MBP10] = None
+    mbp10_snapshots: List[MBP10] = None,
+    option_trades_df: pd.DataFrame = None
 ) -> pd.DataFrame:
     """
     Compute physics metrics for all touches in batch.
@@ -40,6 +41,7 @@ def compute_physics_batch(
         exp_date: Expiration date for options
         trades: Optional raw trades for vectorized processing
         mbp10_snapshots: Optional MBP-10 snapshots for vectorized processing
+        option_trades_df: Optional raw option trades DF for vectorized processing
 
     Returns:
         DataFrame with physics columns added
@@ -64,6 +66,7 @@ def compute_physics_batch(
                 trades=trades,
                 mbp10_snapshots=mbp10_snapshots or [],
                 option_flows=market_state.option_flows,
+                option_trades_df=option_trades_df,
                 date=exp_date
             )
 
@@ -86,9 +89,9 @@ def compute_physics_batch(
                 zone_es_ticks=CONFIG.BARRIER_ZONE_ES_TICKS
             )
 
-            # Compute fuel metrics (vectorized)
+            # Compute fuel metrics (vectorized) with timestamp filtering
             fuel_metrics = compute_fuel_metrics_batch(
-                level_prices, vmd,
+                touch_ts_ns, level_prices, vmd,
                 strike_range=CONFIG.FUEL_STRIKE_RANGE
             )
 
@@ -275,11 +278,13 @@ class ComputePhysicsStage(BaseStage):
         touches_df = ctx.data['touches_df']
         market_state = ctx.data['market_state']
         trades = ctx.data['trades']
-        mbp10_snapshots = ctx.data['mbp10_snapshots']
-
+        option_trades_df = ctx.data.get('option_trades_df')
+        
         n_touches = len(touches_df)
         logger.info(f"  Computing physics for {n_touches:,} touches...")
-        logger.debug(f"    Using {len(trades):,} trades, {len(mbp10_snapshots):,} MBP-10 snapshots")
+        # Check if df is valid
+        num_opts = len(option_trades_df) if option_trades_df is not None else 0
+        logger.debug(f"    Using {len(trades):,} trades, {len(mbp10_snapshots):,} MBP-10 snapshots, {num_opts:,} option trades")
 
         signals_df = compute_physics_batch(
             touches_df=touches_df,
@@ -289,7 +294,8 @@ class ComputePhysicsStage(BaseStage):
             fuel_engine=self.fuel_engine,
             exp_date=None, # Disable 0DTE filter to allow all loaded options (e.g. ESZ5 in Oct)
             trades=trades,
-            mbp10_snapshots=mbp10_snapshots
+            mbp10_snapshots=mbp10_snapshots,
+            option_trades_df=option_trades_df
         )
 
         # Log barrier state distribution

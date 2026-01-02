@@ -19,7 +19,8 @@ from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
 from collections import defaultdict
 
-from src.common.event_types import FuturesTrade, MBP10, Aggressor
+import pandas as pd
+from src.common.event_types import FuturesTrade, MBP10, Aggressor, OptionTrade
 from src.common.config import CONFIG
 
 
@@ -47,24 +48,22 @@ except ImportError:
 @dataclass
 class VectorizedMarketData:
     """
-    Pre-processed market data for vectorized queries.
-
-    Trades and depth organized for O(1) time-window lookups.
+    Efficient struct-of-arrays market data for batch processing.
     """
-    # ES Trades (sorted by timestamp)
-    trade_ts_ns: np.ndarray          # int64
-    trade_prices: np.ndarray         # float64 (ES prices)
-    trade_sizes: np.ndarray          # int64
-    trade_aggressors: np.ndarray     # int8 (1=BUY, -1=SELL, 0=MID)
+    # ES Trades (Sorted by time)
+    trade_ts_ns: np.ndarray          # int64, shape (N,)
+    trade_prices: np.ndarray         # float64, shape (N,)
+    trade_sizes: np.ndarray          # int32, shape (N,)
+    trade_aggressors: np.ndarray     # int8, shape (N,)
 
-    # ES MBP-10 snapshots (sorted by timestamp)
-    mbp_ts_ns: np.ndarray            # int64
+    # ES MBP-10 Snapshots (Sorted by time)
+    mbp_ts_ns: np.ndarray            # int64, shape (n,)
     mbp_bid_prices: np.ndarray       # float64, shape (n, 10)
     mbp_bid_sizes: np.ndarray        # int64, shape (n, 10)
     mbp_ask_prices: np.ndarray       # float64, shape (n, 10)
     mbp_ask_sizes: np.ndarray        # int64, shape (n, 10)
 
-    # Option flows by strike (pre-aggregated)
+    # Option flows by strike (pre-aggregated) - DEPRECATED, use raw_option_flows
     strike_gamma: Dict[float, float]
     strike_volume: Dict[float, int]
     call_gamma: Dict[float, float]
@@ -72,6 +71,16 @@ class VectorizedMarketData:
     strike_premium: Dict[float, float]  # Net premium flow by strike
     call_premium: Dict[float, float]
     put_premium: Dict[float, float]
+    
+    # Raw option flows for dynamic replay (Arrays sorted by time)
+    raw_option_flows: Dict[Tuple[float, str, str], Any]  # Backup (original dict)
+    
+    # Efficient Option Trade Arrays
+    opt_ts_ns: np.ndarray            # int64
+    opt_strikes: np.ndarray          # float64
+    opt_is_call: np.ndarray          # bool (True=Call, False=Put)
+    opt_premium: np.ndarray          # float64 (signed)
+    opt_net_gamma: np.ndarray        # float64 (signed)
 
 
 
@@ -80,25 +89,37 @@ def build_vectorized_market_data(
     trades: List[FuturesTrade],
     mbp10_snapshots: List[MBP10],
     option_flows: Dict[Tuple[float, str, str], Any],
-    date: str
+    date: str = None,
+    option_trades_df: pd.DataFrame = None
 ) -> VectorizedMarketData:
     """
-    Convert raw data to vectorized format for batch processing.
-
-    Pre-computes all lookup structures for O(1) queries.
+    Build efficient arrays from raw objects.
+    
+    Args:
+        trades: List of futures trades
+        mbp10_snapshots: List of MBP-10 snapshots
+        option_flows: Dictionary of aggregated option flows (Backup)
+        date: Expiration date string
+        option_trades_df: DataFrame of option trades with greeks/aggressor
     """
     # Convert trades to numpy arrays
     n_trades = len(trades)
-    trade_ts_ns = np.empty(n_trades, dtype=np.int64)
-    trade_prices = np.empty(n_trades, dtype=np.float64)
-    trade_sizes = np.empty(n_trades, dtype=np.int64)
-    trade_aggressors = np.empty(n_trades, dtype=np.int8)
+    trade_ts_ns = np.zeros(n_trades, dtype=np.int64)
+    trade_prices = np.zeros(n_trades, dtype=np.float64)
+    trade_sizes = np.zeros(n_trades, dtype=np.int32)
+    trade_aggressors = np.zeros(n_trades, dtype=np.int8)
 
-    for i, trade in enumerate(trades):
-        trade_ts_ns[i] = trade.ts_event_ns
-        trade_prices[i] = trade.price
-        trade_sizes[i] = trade.size
-        trade_aggressors[i] = trade.aggressor.value if hasattr(trade.aggressor, 'value') else 0
+    for i, t in enumerate(trades):
+        trade_ts_ns[i] = t.ts_event_ns
+        trade_prices[i] = t.price
+        trade_sizes[i] = t.size
+        # Map Aggressor enum to int
+        agg_val = 0
+        if t.aggressor == Aggressor.BUY:
+            agg_val = 1
+        elif t.aggressor == Aggressor.SELL:
+            agg_val = -1
+        trade_aggressors[i] = agg_val
 
     # Sort by timestamp
     sort_idx = np.argsort(trade_ts_ns)
@@ -109,15 +130,16 @@ def build_vectorized_market_data(
 
     # Convert MBP-10 to numpy arrays
     n_mbp = len(mbp10_snapshots)
-    mbp_ts_ns = np.empty(n_mbp, dtype=np.int64)
+    mbp_ts_ns = np.zeros(n_mbp, dtype=np.int64)
     mbp_bid_prices = np.zeros((n_mbp, 10), dtype=np.float64)
     mbp_bid_sizes = np.zeros((n_mbp, 10), dtype=np.int64)
     mbp_ask_prices = np.zeros((n_mbp, 10), dtype=np.float64)
     mbp_ask_sizes = np.zeros((n_mbp, 10), dtype=np.int64)
 
-    for i, mbp in enumerate(mbp10_snapshots):
-        mbp_ts_ns[i] = mbp.ts_event_ns
-        for j, level in enumerate(mbp.levels[:10]):
+    for i, m in enumerate(mbp10_snapshots):
+        mbp_ts_ns[i] = m.ts_event_ns
+        for j, level in enumerate(m.levels):
+            if j >= 10: break
             mbp_bid_prices[i, j] = level.bid_px
             mbp_bid_sizes[i, j] = level.bid_sz
             mbp_ask_prices[i, j] = level.ask_px
@@ -131,7 +153,7 @@ def build_vectorized_market_data(
     mbp_ask_prices = mbp_ask_prices[sort_idx]
     mbp_ask_sizes = mbp_ask_sizes[sort_idx]
 
-    # Pre-aggregate option flows by strike
+    # Pre-aggregate option flows by strike (Legacy/Backup)
     strike_gamma = defaultdict(float)
     strike_volume = defaultdict(int)
     call_gamma = defaultdict(float)
@@ -153,12 +175,34 @@ def build_vectorized_market_data(
                 put_gamma[strike] += flow.net_gamma_flow
                 put_premium[strike] += flow.net_premium_flow
 
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    # Sort strikes by premium magnitude
-    sorted_prem = sorted(strike_premium.items(), key=lambda x: abs(x[1]), reverse=True)[:5]
-    logger.info(f"DEBUG: Top 5 Premium Strikes: {sorted_prem} (Spot ~6925?)")
+    # Process Option Trades DataFrame into Arrays
+    if option_trades_df is not None and not option_trades_df.empty:
+        # Ensure sorted by time
+        if not option_trades_df['ts_event_ns'].is_monotonic_increasing:
+             option_trades_df = option_trades_df.sort_values('ts_event_ns')
+             
+        opt_ts_ns = option_trades_df['ts_event_ns'].values.astype(np.int64)
+        opt_strikes = option_trades_df['strike'].values.astype(np.float64)
+        opt_is_call = (option_trades_df['right'] == 'C').values
+        
+        aggressors = option_trades_df['aggressor'].values.astype(float) # -1, 0, 1
+        sizes = option_trades_df['size'].values.astype(float)
+        prices = option_trades_df['price'].values.astype(float)
+        gammas = option_trades_df['gamma'].fillna(0.0).values.astype(float)
+        
+        # Calculate signed flows
+        # Net Premium = Price * Size * 100 * Aggressor (Customer flow)
+        opt_premium = prices * sizes * 100.0 * aggressors
+        
+        # Net Dealer Gamma = Gamma * Size * 100 * (-Aggressor)
+        opt_net_gamma = gammas * sizes * 100.0 * (-aggressors)
+        
+    else:
+        opt_ts_ns = np.array([], dtype=np.int64)
+        opt_strikes = np.array([], dtype=np.float64)
+        opt_is_call = np.array([], dtype=bool)
+        opt_premium = np.array([], dtype=np.float64)
+        opt_net_gamma = np.array([], dtype=np.float64)
 
     return VectorizedMarketData(
         trade_ts_ns=trade_ts_ns,
@@ -176,7 +220,13 @@ def build_vectorized_market_data(
         put_gamma=dict(put_gamma),
         strike_premium=dict(strike_premium),
         call_premium=dict(call_premium),
-        put_premium=dict(put_premium)
+        put_premium=dict(put_premium),
+        raw_option_flows=option_flows,
+        opt_ts_ns=opt_ts_ns,
+        opt_strikes=opt_strikes,
+        opt_is_call=opt_is_call,
+        opt_premium=opt_premium,
+        opt_net_gamma=opt_net_gamma
     )
 
 
@@ -289,6 +339,154 @@ def _compute_tape_metrics_batch_numba(
                 velocities[i] = numerator / denominator
 
     return imbalances, buy_vols, sell_vols, velocities
+
+
+def compute_fuel_metrics_batch(
+    touch_ts_ns: np.ndarray,
+    level_prices: np.ndarray,
+    market_data: VectorizedMarketData,
+    strike_range: float = 100.0
+) -> Dict[str, np.ndarray]:
+    """
+    Compute Fuel Engine metrics (Market Tide) for a batch of touches.
+    Uses efficient sort-and-scan replay of raw option trades.
+    """
+    n = len(touch_ts_ns)
+    
+    # Pre-allocate results
+    gamma_exposure = np.zeros(n, dtype=np.float64)
+    fuel_effect = np.full(n, 'NEUTRAL', dtype=object)
+    call_tide = np.zeros(n, dtype=np.float64)
+    put_tide = np.zeros(n, dtype=np.float64) # Separate tide metrics
+
+    # Sort touches by time to enable linear scan
+    perm = np.argsort(touch_ts_ns)
+    sorted_ts = touch_ts_ns[perm]
+    sorted_levels = level_prices[perm]
+    
+    # Prepare Option Trade Data
+    opt_ts = market_data.opt_ts_ns
+    if len(opt_ts) == 0:
+        # No option trades, return empty
+        return {
+            'gamma_exposure': gamma_exposure,
+            'fuel_effect': fuel_effect,
+            'call_tide': call_tide,
+            'put_tide': put_tide
+        }
+
+    opt_strikes = market_data.opt_strikes
+    opt_premium = market_data.opt_premium
+    opt_is_call = market_data.opt_is_call
+    # opt_net_gamma = market_data.opt_net_gamma # Not used for Tide but maybe for GEX?
+    # For now, Tide uses Premium. Gamma logic uses pre-computed aggregates usually,
+    # but for "Dynamic" features we might want dynamic Gamma too.
+    # The existing 'gamma_exposure' iterates 'strike_gamma' dict which is STATIC.
+    # To fix Gamma Exposure 84% scaling, we should make IT dynamic too?
+    # User request was Market Tide (Premium). I'll focus on Tide first.
+    # Gamma Exposure is typically less volatile intraday? Or maybe it is.
+    # Let's keep Gamma Exposure as is (Static) or verify if I should fix both.
+    # "resolve Market Tide similarity inversion... dynamic per touch event".
+    # I'll focus on Call/Put Tide.
+
+    # Map unique strikes to indices for fast accumulation
+    unique_strikes = np.unique(opt_strikes)
+    sorted_strikes = np.sort(unique_strikes)
+    strike_to_idx = {s: i for i, s in enumerate(sorted_strikes)}
+    
+    # Vectorize trade strike mapping
+    # np.searchsorted finds indices where elements should be inserted to maintain order
+    # Since opt_strikes are in sorted_strikes, this gives the index.
+    trade_strike_indices = np.searchsorted(sorted_strikes, opt_strikes)
+    
+    # Accumulators
+    n_strikes = len(sorted_strikes)
+    acc_call_prem = np.zeros(n_strikes, dtype=np.float64)
+    acc_put_prem = np.zeros(n_strikes, dtype=np.float64)
+    
+    trade_idx = 0
+    num_trades = len(opt_ts)
+    
+    # Linear Scan Replay
+    for i in range(n):
+        target_ts = sorted_ts[i]
+        level = sorted_levels[i]
+        
+        # Advance trades up to target_ts
+        # Note: opt_ts is sorted from build_vectorized_market_data
+        while trade_idx < num_trades and opt_ts[trade_idx] <= target_ts:
+            s_idx = trade_strike_indices[trade_idx]
+            prem = opt_premium[trade_idx]
+            is_c = opt_is_call[trade_idx]
+            
+            if is_c:
+                acc_call_prem[s_idx] += prem
+            else:
+                acc_put_prem[s_idx] += prem
+            
+            trade_idx += 1
+            
+        # Calculate Tide for this touch (Sum near level)
+        # Find range of relevant strikes [level - range, level + range]
+        # Searchsorted allows fast range finding in sorted_strikes array
+        
+        low_strike = level - strike_range
+        high_strike = level + strike_range
+        
+        idx_start = np.searchsorted(sorted_strikes, low_strike, side='left')
+        idx_end = np.searchsorted(sorted_strikes, high_strike, side='right')
+        
+        # Slicing is fast
+        if idx_end > idx_start:
+            c_val = np.sum(acc_call_prem[idx_start:idx_end])
+            p_val = np.sum(acc_put_prem[idx_start:idx_end])
+            
+            call_tide[perm[i]] = c_val
+            put_tide[perm[i]] = p_val
+            
+    # Existing Gamma logic (Static, derived from daily aggregates)
+    # The user didn't explicitly ask to fix 'gamma_exposure' dynamism, only Market Tide.
+    # I will leave gamma_exposure using the static dicts efficiently.
+    # Logic copied from previous implementation for gamma exposure:
+    
+    # Extract arrays for vectorized gamma calc
+    # Can't easily vectorize dictionary lookup with varying keys.
+    # Fallback to per-touch loop over nearby strikes?
+    # Or just loop `perm` (touches) again?
+    
+    # Gamma Exposure = Net Dealer Gamma near level?
+    # Or Total Gamma? Default implementation uses 'strike_gamma' dict.
+    strike_gamma = market_data.strike_gamma
+    
+    for i in range(n):
+        lvl = level_prices[i]
+        # Sum gamma for strikes near level (Static)
+        # Iterate relevant strikes?
+        # If strike_gamma is sparse, iteration is fast.
+        g_val = 0.0
+        # Optimization: use pre-sorted keys of strike_gamma?
+        # For now, simplistic loop is what was there.
+        # But 'compute_fuel_metrics_batch' logic in Step 1680 iterate 'market_data.raw_option_flows'.
+        # I should iterate 'strike_gamma' keys.
+        for k, v in strike_gamma.items():
+             if abs(k - lvl) <= strike_range:
+                 g_val += v
+        gamma_exposure[i] = g_val
+        
+        # Fuel Effect
+        if g_val < -100000: # Threshold
+            fuel_effect[i] = 'AMPLIFY'
+        elif g_val > 100000:
+            fuel_effect[i] = 'DAMPEN'
+        else:
+            fuel_effect[i] = 'NEUTRAL'
+            
+    return {
+        'gamma_exposure': gamma_exposure,
+        'fuel_effect': fuel_effect,
+        'call_tide': call_tide,
+        'put_tide': put_tide
+    }
 
 
 def compute_tape_metrics_batch(
@@ -600,6 +798,7 @@ def compute_barrier_metrics_batch(
 # =============================================================================
 
 def compute_fuel_metrics_batch(
+    touch_ts_ns: np.ndarray,  # Touch timestamps for dynamic filtering
     level_prices: np.ndarray,  # ES prices
     market_data: VectorizedMarketData,
     strike_range: float = 2.0
@@ -649,28 +848,31 @@ def compute_fuel_metrics_batch(
 
     for i in range(n):
         level = level_prices[i]
-
-        # Find strikes in range
-        mask = np.abs(strikes - level) <= strike_range
-
-        if not mask.any():
-            fuel_effects[i] = 'NEUTRAL'
-            continue
-
-        # Sum gamma in range
-        net_gamma = gamma_values[mask].sum()
-        gamma_exposures[i] = net_gamma
-
-        # Compute call/put tide (premium flow) - use separated premiums
-        if len(call_premium_strikes) > 0:
-            call_mask = np.abs(call_premium_strikes - level) <= strike_range
-            if call_mask.any():
-                call_tides[i] = call_premium_values[call_mask].sum()
+        ts_ns = touch_ts_ns[i]
+        
+        # Filter option flows by timestamp (only flows that existed at touch time)
+        call_premium_sum = 0.0
+        put_premium_sum = 0.0
+        net_gamma = 0.0
+        
+        for (strike, right, exp_date), flow in market_data.raw_option_flows.items():
+            # Skip flows that haven't happened yet
+            if flow.last_timestamp_ns > ts_ns:
+                continue
                 
-        if len(put_premium_strikes) > 0:
-            put_mask = np.abs(put_premium_strikes - level) <= strike_range
-            if put_mask.any():
-                put_tides[i] = put_premium_values[put_mask].sum()
+            # Check if strike is in range
+            if abs(strike - level) <= strike_range:
+                net_gamma += flow.net_gamma_flow
+                
+                # Accumulate premium by right
+                if right == 'C':
+                    call_premium_sum += flow.net_premium_flow
+                elif right == 'P':
+                    put_premium_sum += flow.net_premium_flow
+        
+        gamma_exposures[i] = net_gamma
+        call_tides[i] = call_premium_sum
+        put_tides[i] = put_premium_sum
 
         # Classify effect
         if net_gamma < -10000:

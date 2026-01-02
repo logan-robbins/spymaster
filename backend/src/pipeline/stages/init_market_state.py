@@ -108,10 +108,16 @@ class InitMarketStateStage(BaseStage):
             option_trades_df['gamma'] = gamma_arr
             
             logger.info(f"DEBUG: Loading {len(option_trades_df)} options into MarketState...")
-            self._load_options_to_market_state(
+            option_trades_df = self._load_options_to_market_state(
                 market_state, option_trades_df
             )
             logger.info(f"DEBUG: MarketState now has {len(market_state.option_flows)} aggregated flows.")
+        else:
+            # Empty DF with correct columns if no trades
+            option_trades_df = pd.DataFrame(columns=[
+                'ts_event_ns', 'strike', 'right', 'price', 
+                'size', 'aggressor', 'delta', 'gamma'
+            ])
 
         return {
             'market_state': market_state,
@@ -121,12 +127,12 @@ class InitMarketStateStage(BaseStage):
 
     def _load_options_to_market_state(
         self,
-        market_state: MarketState,
-        option_trades_df: pd.DataFrame
     ):
-        """Load options into MarketState."""
+        """Load options into MarketState. Returns list of OptionTrade objects."""
         last_price_map = {}
         last_aggr_map = {}
+        
+        processed_data = []
 
         # Sort by timestamp to ensure correct tick test order
         if 'ts_event_ns' in option_trades_df.columns:
@@ -195,6 +201,17 @@ class InitMarketStateStage(BaseStage):
                     seq=row.get('seq')
                 )
 
+                processed_data.append({
+                    'ts_event_ns': trade.ts_event_ns,
+                    'strike': trade.strike,
+                    'right': trade.right,
+                    'price': trade.price,
+                    'size': trade.size,
+                    'aggressor': aggressor_enum.value,
+                    'delta': row['delta'],
+                    'gamma': row['gamma']
+                })
+                
                 market_state.update_option_trade(
                     trade,
                     delta=row['delta'],
@@ -205,3 +222,5 @@ class InitMarketStateStage(BaseStage):
                 if idx == 0:
                      print(f"Error loading option trade: {e}")
                 continue
+        
+        return pd.DataFrame(processed_data)
