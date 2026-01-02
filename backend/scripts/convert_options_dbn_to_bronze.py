@@ -56,18 +56,35 @@ def convert_dbn_to_bronze(dbn_file: Path, output_dir: Path, schema: str, date_st
             'seq': df.get('sequence', 0).astype('int64'),
         })
     elif schema == 'statistics':
-        # Extract expiration date, strike, and right from instrument_id if available
-        # For simplicity, use raw symbol which contains this info
+        # Statistics schema uses 'quantity' for open interest
+        # Parse strike and right from symbol (format: "ESZ6 P3650")
+        def parse_symbol(sym):
+            """Extract strike and right from option symbol."""
+            try:
+                parts = str(sym).split()
+                if len(parts) >= 2:
+                    right_strike = parts[1]  # e.g., "P3650"
+                    right = right_strike[0]  # "P" or "C"
+                    strike = float(right_strike[1:])  # "3650" -> 3650.0
+                    return strike, right
+            except:
+                pass
+            return 0.0, ''
+        
+        parsed = df['symbol'].apply(parse_symbol)
+        strikes = [p[0] for p in parsed]
+        rights = [p[1] for p in parsed]
+        
         df_out = pd.DataFrame({
             'ts_event_ns': df['ts_event'].astype('int64'),
             'ts_recv_ns': df['ts_recv'].astype('int64'),
             'source': 'DATABENTO_CME',
             'underlying': 'ES',
             'option_symbol': df['symbol'].astype(str),
-            'exp_date': df.get('expiration', pd.NaT),
-            'strike': df.get('strike_price', 0).astype('float64'),
-            'right': df.get('instrument_class', '').astype(str),
-            'open_interest': df.get('open_interest', 0).astype('float64'),
+            'exp_date': pd.NaT,  # Would need contract calendar to resolve
+            'strike': pd.Series(strikes, dtype='float64'),
+            'right': pd.Series(rights, dtype='str'),
+            'open_interest': df['quantity'].astype('float64'),
         })
     else:
         raise ValueError(f"Unknown schema: {schema}")
