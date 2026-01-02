@@ -60,8 +60,8 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     # Build force proxy (combination of OFI + tape)
     force = np.zeros(len(signals_df), dtype=np.float64)
     
-    if 'integrated_ofi' in signals_df.columns:
-        force += signals_df['integrated_ofi'].fillna(0).values
+    if 'ofi_60s' in signals_df.columns:
+        force += signals_df['ofi_60s'].fillna(0).values
     
     if 'tape_imbalance' in signals_df.columns:
         # Scale tape imbalance to consistent units
@@ -93,6 +93,8 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     result['predicted_accel'] = predicted_accel
     result['accel_residual'] = accel_residual
     result['force_mass_ratio'] = force_mass_ratio
+    result['force_proxy'] = force
+    result['mass_proxy'] = mass
     
     # Flow alignment: OFI aligned with approach direction
     # Per EPISODE_VECTOR_SCHEMA.md Section D, index 110

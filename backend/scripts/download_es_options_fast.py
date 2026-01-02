@@ -7,7 +7,7 @@ bypassing slow DataFrame conversion. Then converts to Bronze Parquet in a separa
 Usage:
     cd backend
     # Download all schemas
-    uv run python scripts/download_es_options_fast.py --start 2025-10-29 --end 2025-10-31 --workers 8
+    uv run python scripts/download_es_options_fast.py --start 2025-10-29 --end 2025-09-30 --workers 8
     
     # Download only statistics
     uv run python scripts/download_es_options_fast.py --start 2025-06-01 --end 2025-12-31 --workers 8 --schemas statistics

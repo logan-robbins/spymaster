@@ -85,7 +85,7 @@ class Config:
     # - Hedging flows are balanced (not directional drivers)
     # - Effect on ES: pinning/chop near strikes, NOT sustained breaks
     # - Liquidity (order book) + Tape (directional flow) are primary drivers
-    FUEL_STRIKE_RANGE: float = 15.0  # consider strikes within ±15 points
+    FUEL_STRIKE_RANGE: float = 50.0  # (Widened from 15.0) consider strikes within ±50 points
     DEALER_FLOW_STRIKE_RANGE: float = 15.0  # strike range for dealer flow velocity
     USE_GAMMA_BUCKET_FILTER: bool = False  # Disable gamma regime filtering in kNN (gamma effects too small)
     GAMMA_FEATURE_WEIGHT: float = 0.3  # Downweight gamma features in ML training (vs 1.0 for liquidity/tape)

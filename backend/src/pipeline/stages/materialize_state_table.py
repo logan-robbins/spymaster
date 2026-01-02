@@ -240,6 +240,8 @@ def materialize_state_table(
                 'call_gex_above_2strike', 'put_gex_below_2strike',
                 # Physics
                 'predicted_accel', 'accel_residual', 'force_mass_ratio', 'flow_alignment',
+                # Market Tide (Phase 4.5)
+                'call_tide', 'put_tide',
                 # Touch/attempt
                 'attempt_index', 'or_active',
                 # Per-level touch features (48 total: 6 levels × 8 metrics)

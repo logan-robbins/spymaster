@@ -58,15 +58,44 @@ class InitMarketStateStage(BaseStage):
 
         # Load options with vectorized Greeks
         if not option_trades_df.empty:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Log contract distribution
+            opt_contracts_all = option_trades_df['option_symbol'].astype(str).str.split(' ').str[0]
+            dist = opt_contracts_all.value_counts().to_dict()
+            logger.info(f"DEBUG: Found {len(option_trades_df)} options. Active contract: {active_contract}")
+            logger.info(f"DEBUG: Option contract distribution: {dist}")
+            
             # Filter options to match active futures contract (avoids basis mismatch during rollover)
-            if active_contract:
+            if active_contract and active_contract != "ES":
                 # e.g. "ESM5 C6000" -> "ESM5"
                 opt_contracts = option_trades_df['option_symbol'].astype(str).str.split(' ').str[0]
                 total_opts = len(option_trades_df)
                 option_trades_df = option_trades_df[opt_contracts == active_contract].copy()
-                if len(option_trades_df) < total_opts:
-                    # Logging (if we had a logger here)
-                    pass
+                logger.info(f"DEBUG: Filtered options from {total_opts} to {len(option_trades_df)} using contract {active_contract}")
+
+            # Parse strike and right if missing (fallback for Polygon/Bronze irregularities)
+            if 'strike' not in option_trades_df.columns or 'right' not in option_trades_df.columns:
+                 try:
+                    # Expect format "SYMBOL RightStrike" e.g. "ESH6 C6000" or "ESZ5 P5900"
+                    # Split by space
+                    parts = option_trades_df['option_symbol'].astype(str).str.split(' ', expand=True)
+                    if parts.shape[1] >= 2:
+                        # part 1 is "C6000" or "P5900"
+                        option_trades_df['right'] = parts[1].str[0]  # 'C' or 'P'
+                        option_trades_df['strike'] = pd.to_numeric(parts[1].str[1:], errors='coerce')
+                        
+                        # Log strike stats
+                        valid_strikes = option_trades_df['strike'].dropna()
+                    else:
+                        # Fallback/Fail safe
+                        option_trades_df['strike'] = 0.0
+                        option_trades_df['right'] = 'C'
+                 except Exception as e:
+                    # Log error if possible, or skip
+                    option_trades_df['strike'] = 0.0
+                    option_trades_df['right'] = 'C'
 
             delta_arr, gamma_arr = compute_greeks_for_dataframe(
                 df=option_trades_df,
@@ -77,10 +106,12 @@ class InitMarketStateStage(BaseStage):
             option_trades_df = option_trades_df.copy()
             option_trades_df['delta'] = delta_arr
             option_trades_df['gamma'] = gamma_arr
-
+            
+            logger.info(f"DEBUG: Loading {len(option_trades_df)} options into MarketState...")
             self._load_options_to_market_state(
                 market_state, option_trades_df
             )
+            logger.info(f"DEBUG: MarketState now has {len(market_state.option_flows)} aggregated flows.")
 
         return {
             'market_state': market_state,
@@ -94,17 +125,57 @@ class InitMarketStateStage(BaseStage):
         option_trades_df: pd.DataFrame
     ):
         """Load options into MarketState."""
+        last_price_map = {}
+        last_aggr_map = {}
+
+        # Sort by timestamp to ensure correct tick test order
+        if 'ts_event_ns' in option_trades_df.columns:
+            option_trades_df = option_trades_df.sort_values('ts_event_ns')
+
         for idx in range(len(option_trades_df)):
             try:
                 row = option_trades_df.iloc[idx]
                 aggressor_val = row.get('aggressor', 0)
+                
+                # Check directly if column exists or is NaN
+                has_aggressor_col = 'aggressor' in option_trades_df.columns
+                
+                aggressor_enum = Aggressor.MID
+                
+                if has_aggressor_col and not (pd.isna(aggressor_val) or aggressor_val == '<NA>'):
+                    try:
+                        val = int(aggressor_val)
+                    except:
+                        val = 0
+                    if val in (1, -1, 0):
+                        aggressor_enum = Aggressor(val)
 
-                if hasattr(aggressor_val, 'value'):
-                    aggressor_enum = aggressor_val
+                # Fallback: Tick Test if Aggressor is MID/Missing
+                if aggressor_enum == Aggressor.MID:
+                    sym = row['option_symbol']
+                    price = float(row['price'])
+                    prev_price = last_price_map.get(sym)
+                    
+                    if prev_price is not None:
+                        if price > prev_price:
+                            aggressor_enum = Aggressor.BUY
+                        elif price < prev_price:
+                            aggressor_enum = Aggressor.SELL
+                        else:
+                            # Equal price: Use previous aggressor (or MID if none)
+                            aggressor_enum = last_aggr_map.get(sym, Aggressor.MID)
+                    else:
+                        # First trade: Assume MID or infer? 
+                        # Without bid/ask, we can't tell. Leave as MID.
+                        pass
+                    
+                    last_price_map[sym] = price
+                    last_aggr_map[sym] = aggressor_enum
                 else:
-                    aggressor_enum = Aggressor(
-                        int(aggressor_val) if aggressor_val and aggressor_val != '<NA>' else 0
-                    )
+                    # Update maps strictly
+                    sym = row['option_symbol']
+                    last_price_map[sym] = float(row['price'])
+                    last_aggr_map[sym] = aggressor_enum
 
                 trade = OptionTrade(
                     ts_event_ns=int(row['ts_event_ns']),
@@ -112,7 +183,7 @@ class InitMarketStateStage(BaseStage):
                     source=row.get('source', 'polygon_rest'),
                     underlying=row.get('underlying', 'ES'),
                     option_symbol=row['option_symbol'],
-                    exp_date=str(row['exp_date']),
+                    exp_date=str(row.get('exp_date', row.get('date'))), # Fallback usage
                     strike=float(row['strike']),
                     right=row['right'],
                     price=float(row['price']),
@@ -129,5 +200,8 @@ class InitMarketStateStage(BaseStage):
                     delta=row['delta'],
                     gamma=row['gamma']
                 )
-            except Exception:
+            except Exception as e:
+                # Log first error only to avoid spam
+                if idx == 0:
+                     print(f"Error loading option trade: {e}")
                 continue
