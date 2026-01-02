@@ -17,9 +17,9 @@ from src.ml.constants import (
 logger = logging.getLogger(__name__)
 
 
-# Vector dimensions:  per RESEARCH.md
+# Vector dimensions: 183-dim per EPISODE_VECTOR_SCHEMA.md v4.5.0
 # Section boundaries verified at module load
-assert VECTOR_DIMENSION == 149, "Vector dimension must be 149 per RESEARCH.md"
+assert VECTOR_DIMENSION == 183, "Vector dimension must be 183 per EPISODE_VECTOR_SCHEMA.md"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -81,10 +81,10 @@ def construct_episode_vector(
     level_price: float
 ) -> np.ndarray:
     """
-    Construct 149-dimensional episode vector with DCT trajectory basis.
+    Construct 183-dimensional episode vector with DCT trajectory basis.
     
-    Per RESEARCH.md Phase 4.5:
-    - Section A: Context + Regime (25 dims)
+    Per EPISODE_VECTOR_SCHEMA.md v4.5.0:
+    - Section A: Context + Regime (59 dims) - includes 36 per-level touch features
     - Section B: Multi-Scale Dynamics (40 dims) - 1,2,3,5,10,20min kinematics + OFI + barrier evolution
     - Section C: Micro-History (35 dims) - 5-bar history with LOG-TRANSFORMED features
     - Section D: Derived Physics (13 dims) - force/mass ratios + Market Tide (call_tide, put_tide)
@@ -98,12 +98,12 @@ def construct_episode_vector(
         level_price: Level price being tested
     
     Returns:
-        Raw (unnormalized) 149-dimensional vector
+        Raw (unnormalized) 183-dimensional vector
     """
     vector = np.zeros(VECTOR_DIMENSION, dtype=np.float32)
     idx = 0
     
-    # ─── SECTION A: Context + Regime (25 dims) ───
+    # ─── SECTION A: Context + Regime (59 dims) ───
     # Note: level_kind and direction are partition keys (redundant to encode)
     vector[idx] = current_bar.get('minutes_since_open', 0.0)
     idx += 1
@@ -133,27 +133,45 @@ def construct_episode_vector(
             vector[idx] = val if val is not None else 0.0
         idx += 1
     
-    # Touch/attempt (3)
-    vector[idx] = current_bar.get('prior_touches', 0)
-    idx += 1
+    # Touch/attempt (1)
     vector[idx] = current_bar.get('attempt_index', 0)
     idx += 1
-    # Handle time_since_last_touch_sec (may be null in state table)
-    time_since_last = current_bar.get('time_since_last_touch_sec', 0.0)
-    if time_since_last is None or (isinstance(time_since_last, float) and np.isnan(time_since_last)):
-        time_since_last = 0.0  # Default: no prior touch (or very first touch)
-    vector[idx] = float(time_since_last)
-    idx += 1
     
-    # GEX features (8)
+    # GEX features (9)
     vector[idx] = current_bar.get('gamma_exposure', 0.0)
     idx += 1
-    vector[idx] = encode_fuel_effect(current_bar.get('fuel_effect', 'NEUTRAL'))
+    vector[idx] = current_bar.get('fuel_effect_encoded', 0.0)
     idx += 1
     for f in ['gex_ratio', 'gex_asymmetry', 'net_gex_2strike',
               'gex_above_1strike', 'gex_below_1strike', 
               'call_gex_above_2strike', 'put_gex_below_2strike']:
         vector[idx] = current_bar.get(f, 0.0)
+        idx += 1
+    
+    # ─── Per-Level Touch Features (36 dims) ───
+    # Cross-level market structure context (6 levels × 6 features each)
+    level_names = ['pm_high', 'pm_low', 'or_high', 'or_low', 'sma_90', 'ema_20']
+    for level in level_names:
+        vector[idx] = current_bar.get(f'{level}_touches_from_above', 0)
+        idx += 1
+        vector[idx] = current_bar.get(f'{level}_touches_from_below', 0)
+        idx += 1
+        vector[idx] = current_bar.get(f'{level}_defended_touches_from_above', 0)
+        idx += 1
+        vector[idx] = current_bar.get(f'{level}_defended_touches_from_below', 0)
+        idx += 1
+        
+        # Handle time_since (may be NaN)
+        time_above = current_bar.get(f'{level}_time_since_touch_from_above_sec', 0.0)
+        if time_above is None or (isinstance(time_above, float) and np.isnan(time_above)):
+            time_above = 0.0
+        vector[idx] = float(time_above)
+        idx += 1
+        
+        time_below = current_bar.get(f'{level}_time_since_touch_from_below_sec', 0.0)
+        if time_below is None or (isinstance(time_below, float) and np.isnan(time_below)):
+            time_below = 0.0
+        vector[idx] = float(time_below)
         idx += 1
     
     # ─── SECTION B: Multi-Scale Dynamics (40 dims) ───
