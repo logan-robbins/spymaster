@@ -137,6 +137,16 @@ class LoadBronzeStage(BaseStage):
         if trades_df.empty:
             raise ValueError(f"No ES trades found for {ctx.date}")
 
+        # Filter out MicroES (MES) contamination
+        # ES futures trade in ~5000-7000 range; MES at 1/10th scale (~50-70)
+        # Robust filter: Keep only prices in realistic ES range
+        raw_count = len(trades_df)
+        trades_df = trades_df[(trades_df['price'] >= 3000) & (trades_df['price'] <= 10000)]
+        filtered_count = raw_count - len(trades_df)
+        
+        if filtered_count > 0:
+            logger.info(f"    Filtered {filtered_count:,} MES/outlier trades ({filtered_count/raw_count*100:.2f}%)")
+
         trades = futures_trades_from_df(trades_df)
         logger.info(f"    ES trades: {len(trades):,} records")
 

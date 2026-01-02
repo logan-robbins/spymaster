@@ -317,26 +317,34 @@ def _compute_tape_metrics_batch_numba(
         if total > 0:
             imbalances[i] = (buy_vol - sell_vol) / float(total)
 
-        # Compute velocity using linear regression (all trades in window)
-        n_window = end_idx - start_idx
-        if n_window >= 2:
+        # Compute velocity using trades within price band (consistent with buy/sell volumes)
+        # This measures flow velocity AT THE LEVEL, not global market momentum
+        # Count trades in band
+        n_in_band = 0
+        for j in range(start_idx, end_idx):
+            if abs(trade_prices[j] - level) <= band_es:
+                n_in_band += 1
+        
+        if n_in_band >= 2:
             # Compute means
             t_sum = 0.0
             p_sum = 0.0
             for j in range(start_idx, end_idx):
-                t_sum += trade_ts_ns[j] / 1e9
-                p_sum += trade_prices[j]
-            t_mean = t_sum / n_window
-            p_mean = p_sum / n_window
+                if abs(trade_prices[j] - level) <= band_es:
+                    t_sum += trade_ts_ns[j] / 1e9
+                    p_sum += trade_prices[j]
+            t_mean = t_sum / n_in_band
+            p_mean = p_sum / n_in_band
 
             # Compute slope
             numerator = 0.0
             denominator = 0.0
             for j in range(start_idx, end_idx):
-                dt = trade_ts_ns[j] / 1e9 - t_mean
-                dp = trade_prices[j] - p_mean
-                numerator += dt * dp
-                denominator += dt * dt
+                if abs(trade_prices[j] - level) <= band_es:
+                    dt = trade_ts_ns[j] / 1e9 - t_mean
+                    dp = trade_prices[j] - p_mean
+                    numerator += dt * dp
+                    denominator += dt * dt
 
             if denominator > 1e-10:
                 velocities[i] = numerator / denominator
@@ -348,7 +356,8 @@ def compute_fuel_metrics_batch(
     touch_ts_ns: np.ndarray,
     level_prices: np.ndarray,
     market_data: VectorizedMarketData,
-    strike_range: float = 100.0
+    strike_range: float = 100.0,
+    split_range: float = 25.0
 ) -> Dict[str, np.ndarray]:
     """
     Compute Fuel Engine metrics (Market Tide) for a batch of touches.
@@ -422,11 +431,11 @@ def compute_fuel_metrics_batch(
             if np.any(m):
                 put_tide[i] = np.sum(w_prem[m])
                 
-            # ─── Split Tide (±5.0 range / 1 Strike) ───
-            # Above: (Level, Level + 5.0]
-            mask_above = (w_strikes > level) & (w_strikes <= level + 5.0)
-            # Below: [Level - 5.0, Level)
-            mask_below = (w_strikes < level) & (w_strikes >= level - 5.0)
+            # ─── Split Tide (configurable range, default ±25.0) ───
+            # Above: (Level, Level + split_range]
+            mask_above = (w_strikes > level) & (w_strikes <= level + split_range)
+            # Below: [Level - split_range, Level)
+            mask_below = (w_strikes < level) & (w_strikes >= level - split_range)
             
             # Call Above
             m = mask_above & (w_is_call == 1)
@@ -546,9 +555,10 @@ def compute_tape_metrics_batch(
             if total > 0:
                 imbalances[i] = (buy_vol - sell_vol) / total
 
-            # Velocity
-            time_trades = market_data.trade_ts_ns[time_mask]
-            price_trades = market_data.trade_prices[time_mask]
+            # Velocity - use SAME price mask as buy/sell volumes for level-specific flow
+            # This measures price slope of trades NEAR THE LEVEL, not global market
+            time_trades = market_data.trade_ts_ns[mask]  # Changed from time_mask to mask
+            price_trades = market_data.trade_prices[mask]
 
             if len(time_trades) >= 2:
                 times = time_trades.astype(np.float64) / 1e9

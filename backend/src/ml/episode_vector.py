@@ -459,7 +459,6 @@ def get_feature_names() -> List[str]:
         'barrier_state_encoded', 'barrier_replenishment_ratio',
         'sweep_detected', 'tape_log_ratio', 'tape_log_total',
         'flow_alignment',
-        'flow_alignment',
         'call_tide', 'put_tide',  # Market Tide (Phase 4.5)
         # Market Tide Splits (Phase 4.6)
         'call_tide_above_5pt', 'call_tide_below_5pt',

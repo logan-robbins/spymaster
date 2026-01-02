@@ -16,13 +16,18 @@ def compute_multiwindow_ofi(
     Compute integrated OFI at multiple lookback windows using Vectorized Prefix Sums.
     
     Optimization Strategy:
-    1. Global Features (Total OFI): Calculated via global cumulative sum + searchsorted.
-       Complexity: O(N_signals * log(N_ticks))
-    
-    2. Spatial Features (Near/Above/Below Level): Grouped by Level Price.
+    1. Spatial Features (All): Grouped by Level Price.
        Instead of filtering ticks for every signal (N_signals * Window_Size),
        we filter ticks ONCE per unique level (N_levels * N_ticks) and use cumsum.
        Complexity: O(N_levels * N_ticks + N_signals)
+    
+    Spatial Band Ranges (consistent with Tide features):
+    - Total OFI: Within ±50pt of level (CONFIG.FUEL_STRIKE_RANGE)
+    - Near Level: Within ±25pt of level (CONFIG.TIDE_SPLIT_RANGE)
+    - Above: (Level, Level + 25pt]
+    - Below: [Level - 25pt, Level)
+    
+    Note: Total should approximately equal sum of above + below when all data is present.
        
     Args:
         signals_df: DataFrame with signals
@@ -134,30 +139,11 @@ def compute_multiwindow_ofi(
     signal_ts = signals_df['ts_ns'].values.astype(np.int64)
     signal_levels = signals_df['level_price'].values.astype(np.float64)
     
-    # A. Global Features (Total OFI) - Can be done for all signals at once
-    # --------------------------------------------------------------------
-    for w in windows_seconds:
-        lookback_ns = int(w * 1e9)
-        start_ts = signal_ts - lookback_ns
-        
-        # Find indices
-        # timestamps is sorted
-        idx_start = np.searchsorted(timestamps, start_ts, side='right')
-        idx_end = np.searchsorted(timestamps, signal_ts, side='right')
-        
-        # Safe indexing (handle 0)
-        # cumsum has same length as timestamps
-        # val = global_cumsum[idx_end-1] - global_cumsum[idx_start-1]
-        # Wait, simple differential:
-        val_end = np.zeros(n_signals)
-        mask_e = idx_end > 0
-        val_end[mask_e] = global_cumsum[idx_end[mask_e] - 1]
-        
-        val_start = np.zeros(n_signals)
-        mask_s = idx_start > 0
-        val_start[mask_s] = global_cumsum[idx_start[mask_s] - 1]
-        
-        feature_cols[f'ofi_{int(w)}s'] = val_end - val_start
+    # A. Total OFI Features - Spatially Filtered (per level, like Tide)
+    # ------------------------------------------------------------------
+    # Total OFI now uses spatial filtering within ±50pt range (matching FUEL_STRIKE_RANGE)
+    # This allows proper decomposition: total ≈ near_level (since near uses same ±25pt range)
+    # NOTE: We compute total OFI per-level in section B below alongside other spatial features
 
     # B. Spatial Features (Near/Above/Below) - Group by Level
     # -------------------------------------------------------
@@ -174,33 +160,38 @@ def compute_multiwindow_ofi(
         
         # 1. Create Spatial Masks for this Level (Once per Level)
         # -----------------------------------------------------
-        band = CONFIG.MONITOR_BAND
-        band_5pt = 5.0
+        # Use same ranges as Tide features for consistency
+        band_total = CONFIG.FUEL_STRIKE_RANGE  # 50.0 pt (±10 strikes, total range)
+        band_split = CONFIG.TIDE_SPLIT_RANGE   # 25.0 pt (±5 strikes, split ranges)
         
-        # Near Level: |Mid - Level| <= Band
-        # Note: mid_prices may have NaNs, use fill or safe comparison
-        # isfinite check done via boolean indexing usually, here use np.where
         valid_px = np.isfinite(mid_prices)
         
+        # Total: Within ±50pt (matches Tide total range)
+        mask_total = np.zeros_like(mid_prices, dtype=bool)
+        mask_total[valid_px] = np.abs(mid_prices[valid_px] - lvl) <= band_total
+        
+        # Near Level: Within ±25pt (captures most activity, matches tide split range)
         mask_near = np.zeros_like(mid_prices, dtype=bool)
-        mask_near[valid_px] = np.abs(mid_prices[valid_px] - lvl) <= band
+        mask_near[valid_px] = np.abs(mid_prices[valid_px] - lvl) <= band_split
         
+        # Above: (Level, Level + 25pt] (exclusive of level)
         mask_above = np.zeros_like(mid_prices, dtype=bool)
-        mask_above[valid_px] = (mid_prices[valid_px] > lvl) & (mid_prices[valid_px] <= lvl + band_5pt)
+        mask_above[valid_px] = (mid_prices[valid_px] > lvl) & (mid_prices[valid_px] <= lvl + band_split)
         
+        # Below: [Level - 25pt, Level) (exclusive of level)
         mask_below = np.zeros_like(mid_prices, dtype=bool)
-        mask_below[valid_px] = (mid_prices[valid_px] < lvl) & (mid_prices[valid_px] >= lvl - band_5pt)
+        mask_below[valid_px] = (mid_prices[valid_px] < lvl) & (mid_prices[valid_px] >= lvl - band_split)
         
         # 2. Create Cumulative Sums for Spatial Filters
         # ---------------------------------------------
-        # Values where mask is False become 0, contributing nothing to sum
+        # Total OFI (sum within ±50pt range)
+        cum_total = np.cumsum(np.where(mask_total, ofi_values, 0.0))
+        
+        # Near level OFI (mean within ±25pt range)
         cum_near = np.cumsum(np.where(mask_near, ofi_values, 0.0))
-        # For 'near level' we usually want AVERAGE flow? Or Sum?
-        # Original code: "np.mean(window_flows[near_mask])"
-        # Prefix sum calculates SUM. For MEAN, we need Count of valid ticks too.
-        # Compute Count Cumsum
         cum_count_near = np.cumsum(mask_near.astype(int))
         
+        # Above/Below OFI (sum in respective bands)
         cum_above = np.cumsum(np.where(mask_above, ofi_values, 0.0))
         cum_below = np.cumsum(np.where(mask_below, ofi_values, 0.0))
         
@@ -227,7 +218,11 @@ def compute_multiwindow_ofi(
             
             suffix = f'_{int(w)}s'
             
-            # Near Level (Mean)
+            # Total (Sum within ±50pt)
+            sum_total = get_diff(cum_total, idx_start, idx_end)
+            feature_cols[f'ofi{suffix}'][subset_indices] = sum_total
+            
+            # Near Level (Mean within ±25pt)
             sum_near = get_diff(cum_near, idx_start, idx_end)
             cnt_near = get_diff(cum_count_near, idx_start, idx_end)
             
@@ -238,7 +233,7 @@ def compute_multiwindow_ofi(
             
             feature_cols[f'ofi_near_level{suffix}'][subset_indices] = mean_near
             
-            # Above/Below (Sum)
+            # Above/Below (Sum in respective ±25pt bands)
             sum_above = get_diff(cum_above, idx_start, idx_end)
             feature_cols[f'ofi_above_5pt{suffix}'][subset_indices] = sum_above
             

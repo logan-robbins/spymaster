@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from src.common.config import CONFIG
-from src.pipeline.pipelines.es_pipeline import build_es_pipeline
+from src.pipeline.pipelines.bronze_to_silver import build_bronze_to_silver_pipeline
 from src.pipeline.stages.detect_interaction_zones import compute_deterministic_event_id
 
 
@@ -347,6 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description='Validate Stage 5: DetectInteractionZones')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
+    parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
     parser.add_argument('--log-file', type=str, default=None, help='Log file path')
     parser.add_argument('--output', type=str, default=None, help='Output JSON file for results')
 
@@ -374,10 +375,10 @@ def main():
             stop_at_stage=5
         )
 
-        # Load checkpoint
+        # Load checkpoint from stage (should already exist from pipeline run)
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("es_pipeline", args.date, stage_idx=5)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=5)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")

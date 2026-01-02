@@ -101,6 +101,10 @@ def run_single_date(
             "elapsed": elapsed
         }
     except Exception as e:
+        # Explicitly log error to stderr to catch silent failures
+        import traceback
+        sys.stderr.write(f"Worker failed for {date}: {e}\n")
+        traceback.print_exc(file=sys.stderr)
         return {
             "date": date,
             "success": False,
