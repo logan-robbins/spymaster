@@ -11,7 +11,7 @@ It compares the predictive power, similarity scaling (Q1->Q4), and Calibration E
 Usage:
     uv run python scripts/run_physics_ablation.py \\
         --start-date 2025-10-20 \\
-        --end-date 2025-10-31 \\
+        --end-date 2025-09-30 \\
         --version 4.5.0
 """
 

@@ -10,18 +10,17 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
 - **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_90/EMA_20)
-- **Outcomes**: BREAK/REJECT/CHOP (first-crossing semantics, 1.0 ATR threshold)
-- **Episode Vectors**: N dimensions (Source) → 32 dimensions (Runtime Index/Geometry Only)
-- **Zone Threshold**: 2.0 ATR for approach detection
-- **Retrieval**: FAISS similarity search (60 partitions: 6 levels × 2 directions × 5 time buckets)
+- **Outcomes**: BREAK/REJECT/CHOP 
+- **Episode Vectors**: N dimensions (Source) 
+- **Retrieval**: FAISS similarity search 
 - **Pipeline**: N stages (bronze → silver → gold → indices)
 
 ---
 
 ## Quick Start
 
-**Current Data Range**: June 2 - October 31, 2025 (110 trading days)  
-**Pipeline Range** (with 3-day warmup): June 5 - October 31, 2025 (107 days)
+**Current Data Range**: June 2 - Sept 30, 2025 (110 trading days)  
+**Pipeline Range** (with 3-day warmup): June 5 - Sept 30, 2025 (107 days)
 
 ### 1. Setup Environment
 
@@ -65,10 +64,10 @@ cd backend
 
 # Step 1: Download ES options DBN files (trades, NBBO, statistics)
 # Downloads to: data/raw/databento/options/
-# Current complete data range: June 2 - October 31, 2025
+# Current complete data range: June 2 - September 30, 2025
 uv run python scripts/download_es_options_fast.py \
   --start 2025-06-02 \
-  --end 2025-10-31 \
+  --end 2025-09-30 \
   --workers 8
 
 # Step 2: Convert DBN files to Bronze Parquet
@@ -91,10 +90,10 @@ uv run python -m scripts.backfill_bronze_futures --all --workers 4
 **Note**: If you don't have ES futures DBN files locally, download them first using:
 ```bash
 cd backend
-# Current complete data range: June 2 - October 31, 2025
+# Current complete data range: June 2 - September 30, 2025
 uv run python scripts/download_es_futures_fast.py \
   --start 2025-06-02 \
-  --end 2025-10-31 \
+  --end 2025-09-30 \
   --workers 4
 ```
 
@@ -118,19 +117,60 @@ uv run python scripts/validate_backfill.py --date 2025-06-20
 
 ### 3. Run Pipeline
 
+#### 3a. Bronze → Silver (Feature Engineering)
+
 ```bash
 cd backend
 
-# Run pipeline (18 stages) and write canonical lake outputs under a versioned hierarchy
-# (rerunning the same version overwrites the date partitions by default)
-# Complete data range: June 5 - October 31, 2025 (with 3-day warmup from June 2)
-uv run python -m scripts.run_pipeline --start 2025-06-05 --end 2025-10-31 --canonical-version 4.0.0
+# Run Bronze→Silver pipeline (17 stages: 0-16) with 8 parallel workers
+# Complete data range: June 5 - September 30, 2025 (107 days)
+# Use nohup to run in background without blocking
+nohup uv run python -m scripts.run_pipeline \
+  --pipeline bronze_to_silver \
+  --start 2025-06-05 \
+  --end 2025-09-30 \
+  --workers 8 \
+  --write-outputs \
+  --canonical-version 4.0.0 \
+  > logs/bronze_to_silver_8workers.out 2>&1 &
 
-# Optional: enable incremental checkpointing / resume support
-uv run python -m scripts.run_pipeline --date 2025-06-20 --checkpoint-dir data/checkpoints --canonical-version 4.0.0
+# Monitor progress
+tail -f logs/bronze_to_silver_8workers.out
 
-# Validate pipeline output
+# Check completion status
+grep -E "✅|❌" logs/bronze_to_silver_8workers.out | tail -20
+```
+
+#### 3b. Silver → Gold (Episode Construction)
+
+```bash
+cd backend
+
+# Run Silver→Gold pipeline (3 stages: 0-2) with 8 parallel workers
+# Constructs 183-dim episode vectors with DCT trajectory encoding
+nohup uv run python -m scripts.run_pipeline \
+  --pipeline silver_to_gold \
+  --start 2025-06-05 \
+  --end 2025-09-30 \
+  --workers 8 \
+  --write-outputs \
+  --canonical-version 4.0.0 \
+  > logs/silver_to_gold_8workers.out 2>&1 &
+
+# Monitor progress
+tail -f logs/silver_to_gold_8workers.out
+```
+
+#### 3c. Validate Pipeline Output
+
+```bash
+cd backend
+
+# Validate specific date
 uv run python scripts/validate_es_pipeline.py --date 2025-06-20
+
+# Validate date range
+uv run python scripts/validate_es_pipeline.py --start 2025-06-05 --end 2025-09-30
 ```
 
 ### 4. Build Retrieval System
@@ -188,7 +228,7 @@ cd backend
 
 # 1. Compute normalization statistics (60-day lookback)
 uv run python -m scripts.compute_stream_normalization \
-  --lookback-days 60 --end-date 2025-10-31
+  --lookback-days 60 --end-date 2025-09-30
 
 # 2. Run Pentaview pipeline (compute streams for a date)
 uv run python -m scripts.run_pentaview_pipeline \
@@ -199,7 +239,7 @@ uv run python -m scripts.validate_pentaview --date 2025-09-15
 
 # 4. Build projection training dataset
 uv run python -m scripts.build_projection_dataset \
-  --start 2025-06-05 --end 2025-10-31 \
+  --start 2025-06-05 --end 2025-09-30 \
   --streams sigma_p,sigma_m,sigma_f,sigma_b,sigma_r
 
 # 5. Train projection models
@@ -288,7 +328,7 @@ uv run python scripts/validate_stage_16_materialize_state_table.py --date 2025-0
 uv run python scripts/validate_stage_17_construct_episodes.py --date 2025-09-15
 
 # Batch validation
-uv run python scripts/validate_es_pipeline.py --start 2025-06-05 --end 2025-10-31
+uv run python scripts/validate_es_pipeline.py --start 2025-06-05 --end 2025-09-30
 ```
 
 ---

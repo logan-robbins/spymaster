@@ -35,6 +35,8 @@ ROBUST_FEATURES = {
     # GEX
     'gex_asymmetry', 'gex_ratio', 'net_gex_2strike', 'gamma_exposure',
     'gex_above_1strike', 'gex_below_1strike', 'call_gex_above_2strike', 'put_gex_below_2strike',
+    # Market Tide (Phase 4.5) - Premium flow is heavy-tailed, use robust scaling
+    'call_tide', 'put_tide',
     # Trends
     'barrier_replenishment_trend', 'barrier_delta_liq_trend', 'tape_velocity_trend', 'tape_imbalance_trend'
 }

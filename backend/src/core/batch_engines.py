@@ -70,6 +70,8 @@ class VectorizedMarketData:
     call_gamma: Dict[float, float]
     put_gamma: Dict[float, float]
     strike_premium: Dict[float, float]  # Net premium flow by strike
+    call_premium: Dict[float, float]
+    put_premium: Dict[float, float]
 
 
 
@@ -136,16 +138,27 @@ def build_vectorized_market_data(
     put_gamma = defaultdict(float)
 
     strike_premium = defaultdict(float)  # Store net_premium_flow by strike
+    call_premium = defaultdict(float)
+    put_premium = defaultdict(float)
     
     for (strike, right, exp_date), flow in option_flows.items():
-        if exp_date == date:
+        if date is None or exp_date == date:
             strike_gamma[strike] += flow.net_gamma_flow
             strike_volume[strike] += flow.cumulative_volume
             strike_premium[strike] += flow.net_premium_flow  # Aggregate premium flow
             if right == 'C':
                 call_gamma[strike] += flow.net_gamma_flow
+                call_premium[strike] += flow.net_premium_flow
             else:
                 put_gamma[strike] += flow.net_gamma_flow
+                put_premium[strike] += flow.net_premium_flow
+
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Sort strikes by premium magnitude
+    sorted_prem = sorted(strike_premium.items(), key=lambda x: abs(x[1]), reverse=True)[:5]
+    logger.info(f"DEBUG: Top 5 Premium Strikes: {sorted_prem} (Spot ~6925?)")
 
     return VectorizedMarketData(
         trade_ts_ns=trade_ts_ns,
@@ -161,7 +174,9 @@ def build_vectorized_market_data(
         strike_volume=dict(strike_volume),
         call_gamma=dict(call_gamma),
         put_gamma=dict(put_gamma),
-        strike_premium=dict(strike_premium)
+        strike_premium=dict(strike_premium),
+        call_premium=dict(call_premium),
+        put_premium=dict(put_premium)
     )
 
 
@@ -617,9 +632,11 @@ def compute_fuel_metrics_batch(
     put_strikes = np.array(list(market_data.put_gamma.keys()))
     put_gamma_values = np.array(list(market_data.put_gamma.values()))
     
-    # Extract premium flows
-    premium_strikes = np.array(list(market_data.strike_premium.keys()))
-    premium_values = np.array(list(market_data.strike_premium.values()))
+    # Extract premium flows (separated by right)
+    call_premium_strikes = np.array(list(market_data.call_premium.keys()))
+    call_premium_values = np.array(list(market_data.call_premium.values()))
+    put_premium_strikes = np.array(list(market_data.put_premium.keys()))
+    put_premium_values = np.array(list(market_data.put_premium.values()))
 
     if len(strikes) == 0:
         fuel_effects[:] = 'NEUTRAL'
@@ -644,20 +661,16 @@ def compute_fuel_metrics_batch(
         net_gamma = gamma_values[mask].sum()
         gamma_exposures[i] = net_gamma
 
-        # Compute call/put tide (premium flow)
-        if len(call_strikes) > 0:
-            call_mask = np.abs(call_strikes - level) <= strike_range
-            # Match premium flows for calls
-            call_premium_mask = np.isin(premium_strikes, call_strikes[call_mask])
-            if call_premium_mask.any():
-                call_tides[i] = premium_values[call_premium_mask].sum()
+        # Compute call/put tide (premium flow) - use separated premiums
+        if len(call_premium_strikes) > 0:
+            call_mask = np.abs(call_premium_strikes - level) <= strike_range
+            if call_mask.any():
+                call_tides[i] = call_premium_values[call_mask].sum()
                 
-        if len(put_strikes) > 0:
-            put_mask = np.abs(put_strikes - level) <= strike_range
-            # Match premium flows for puts
-            put_premium_mask = np.isin(premium_strikes, put_strikes[put_mask])
-            if put_premium_mask.any():
-                put_tides[i] = premium_values[put_premium_mask].sum()
+        if len(put_premium_strikes) > 0:
+            put_mask = np.abs(put_premium_strikes - level) <= strike_range
+            if put_mask.any():
+                put_tides[i] = put_premium_values[put_mask].sum()
 
         # Classify effect
         if net_gamma < -10000:

@@ -61,7 +61,7 @@
     *   **Geometry Only:** Best Calibration (**0.248 ECE**), confirming it as the most stable baseline.
     *   **Market Tide:** Massive **Similarity Inversion** (-86.2%). High similarity matches in "Net Premium Flow" predicted *worse* than random.
 *   **Conclusion:** Physics carries the signal, Geometry provides the safety. Market Tide is a powerful but non-linear feature that cannot be used for direct similarity search (Requires Transformers/Learned Encodings).
-*   **Reproduction:** Run `uv run python scripts/run_physics_ablation.py --start-date 2025-10-20 --end-date 2025-10-31 --version 4.0.0`
+*   **Reproduction:** Run `uv run python scripts/run_physics_ablation.py --start-date 2025-10-20 --end-date 2025-09-30 --version 4.0.0`
 
 ### Phase 5: Neural Representation (The "Walker" to "Runner" Evolution)
 *   **Goal:** Move from "Rigid Geometry" (DCT) to "Learned Geometry" (Transformer).

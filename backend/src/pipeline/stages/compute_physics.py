@@ -287,7 +287,7 @@ class ComputePhysicsStage(BaseStage):
             barrier_engine=self.barrier_engine,
             tape_engine=self.tape_engine,
             fuel_engine=self.fuel_engine,
-            exp_date=ctx.date,
+            exp_date=None, # Disable 0DTE filter to allow all loaded options (e.g. ESZ5 in Oct)
             trades=trades,
             mbp10_snapshots=mbp10_snapshots
         )

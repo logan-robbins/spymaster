@@ -28,7 +28,7 @@ def main():
         output_dir=output_dir,
         lookback_days=120
     )
-    stage.set_end_date('2025-10-31')
+    stage.set_end_date('2025-09-30')
     
     result = stage.execute()
     print(f"Success! Stats saved to: {result['output_file']}")
