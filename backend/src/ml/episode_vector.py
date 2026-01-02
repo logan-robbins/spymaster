@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Vector dimensions: 183-dim per EPISODE_VECTOR_SCHEMA.md v4.5.0
 # Section boundaries verified at module load
-assert VECTOR_DIMENSION == 183, "Vector dimension must be 183 per EPISODE_VECTOR_SCHEMA.md"
+assert VECTOR_DIMENSION == 195, "Vector dimension must be 195 per EPISODE_VECTOR_SCHEMA.md (Phase 4.6)"
 
 
 def encode_fuel_effect(fuel_effect: str) -> float:
@@ -215,6 +215,13 @@ def construct_episode_vector(
     vector[idx] = current_bar.get('ofi_acceleration', 0.0)
     idx += 1
     
+    # OFI Splits (8 dims) - Added Phase 4.6
+    for scale in ['30s', '60s', '120s', '300s']:
+        vector[idx] = current_bar.get(f'ofi_above_5pt_{scale}', 0.0)
+        idx += 1
+        vector[idx] = current_bar.get(f'ofi_below_5pt_{scale}', 0.0)
+        idx += 1
+    
     # Barrier delta (4) - ADDED 2min per RESEARCH.md multi-scale spec
     for scale in ['1min', '2min', '3min', '5min']:
         vector[idx] = current_bar.get(f'barrier_delta_{scale}', 0.0)
@@ -310,6 +317,16 @@ def construct_episode_vector(
     vector[idx] = current_bar.get('call_tide', 0.0)
     idx += 1
     vector[idx] = current_bar.get('put_tide', 0.0)
+    idx += 1
+    
+    # Market Tide Splits (4 dims) - Added Phase 4.6
+    vector[idx] = current_bar.get('call_tide_above_5pt', 0.0)
+    idx += 1
+    vector[idx] = current_bar.get('call_tide_below_5pt', 0.0)
+    idx += 1
+    vector[idx] = current_bar.get('put_tide_above_5pt', 0.0)
+    idx += 1
+    vector[idx] = current_bar.get('put_tide_below_5pt', 0.0)
     idx += 1
     
     # ─── SECTION E: Online Trends (4 dims) ───
@@ -417,6 +434,11 @@ def get_feature_names() -> List[str]:
     for scale in ['30s', '60s', '120s', '300s']:
         names.append(f'ofi_near_level_{scale}')
     names.append('ofi_acceleration')
+    
+    # OFI Splits
+    for scale in ['30s', '60s', '120s', '300s']:
+        names.append(f'ofi_above_5pt_{scale}')
+        names.append(f'ofi_below_5pt_{scale}')
     for scale in ['1min', '2min', '3min', '5min']:  # ADDED 2min
         names.append(f'barrier_delta_{scale}')
     names.extend(['approach_velocity', 'approach_bars', 'approach_distance_atr'])
@@ -437,7 +459,11 @@ def get_feature_names() -> List[str]:
         'barrier_state_encoded', 'barrier_replenishment_ratio',
         'sweep_detected', 'tape_log_ratio', 'tape_log_total',
         'flow_alignment',
-        'call_tide', 'put_tide'  # Market Tide (Phase 4.5)
+        'flow_alignment',
+        'call_tide', 'put_tide',  # Market Tide (Phase 4.5)
+        # Market Tide Splits (Phase 4.6)
+        'call_tide_above_5pt', 'call_tide_below_5pt',
+        'put_tide_above_5pt', 'put_tide_below_5pt'
     ])
     
     # Section E: Online Trends (4)

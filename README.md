@@ -119,6 +119,8 @@ grep -E "✅|❌" logs/{log_name}.out | tail -20
 ```bash
 cd backend
 
+uv run python scripts/compute_normalization_stats.py  
+
 # Run Silver→Gold pipeline  with 8 parallel workers
 nohup uv run python -m scripts.run_pipeline \
   --pipeline silver_to_gold \

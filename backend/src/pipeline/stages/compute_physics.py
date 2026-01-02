@@ -111,6 +111,10 @@ def compute_physics_batch(
             result['call_tide'] = fuel_metrics.get('call_tide', np.zeros(n, dtype=np.float64))
             result['put_tide'] = fuel_metrics.get('put_tide', np.zeros(n, dtype=np.float64))
             
+            # Split Tide Features (Phase 4.6)
+            for feat in ['call_tide_above_5pt', 'call_tide_below_5pt', 'put_tide_above_5pt', 'put_tide_below_5pt']:
+                result[feat] = fuel_metrics.get(feat, np.zeros(n, dtype=np.float64))
+            
             # Encode barrier_state and fuel_effect to numeric
             # Per EPISODE_VECTOR_SCHEMA.md Section D
             barrier_state_map = {

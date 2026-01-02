@@ -146,6 +146,47 @@ def compute_multiwindow_ofi(
         suffix = f'_{int(window_sec)}s'
         result[f'ofi{suffix}'] = ofi_window
         result[f'ofi_near_level{suffix}'] = ofi_near_level
+        
+        # Spatially Banded OFI (Consistent with Options Strikes: ±5pt)
+        # We use strict inequalities (> level) to separate Above vs Below
+        ofi_above = np.zeros(n, dtype=np.float64)
+        ofi_below = np.zeros(n, dtype=np.float64)
+        
+        band_width = 5.0 # Points (Standard ES Strike Width)
+        
+        for i in range(n):
+            ts = signal_ts[i]
+            start_ts = ts - lookback_ns
+            level = level_prices[i]
+            
+            # Find OFI events in window
+            start_idx = np.searchsorted(ofi_times, start_ts, side='right')
+            end_idx = np.searchsorted(ofi_times, ts, side='right')
+            
+            if end_idx > start_idx:
+                w_flows = ofi_values[start_idx:end_idx]
+                w_prices = ofi_mid_prices[start_idx:end_idx]
+                
+                # Filter valid prices
+                valid_mask = np.isfinite(w_prices)
+                if not np.any(valid_mask):
+                    continue
+                    
+                p = w_prices[valid_mask]
+                f = w_flows[valid_mask]
+                
+                # Above: (Level, Level + 5]
+                mask_above = (p > level) & (p <= level + band_width)
+                if np.any(mask_above):
+                    ofi_above[i] = np.sum(f[mask_above])
+                    
+                # Below: [Level - 5, Level)
+                mask_below = (p < level) & (p >= level - band_width)
+                if np.any(mask_below):
+                    ofi_below[i] = np.sum(f[mask_below])
+        
+        result[f'ofi_above_5pt{suffix}'] = ofi_above
+        result[f'ofi_below_5pt{suffix}'] = ofi_below
     
     # Derived: OFI acceleration (is pressure building or fading?)
     # Compare short window vs long window
