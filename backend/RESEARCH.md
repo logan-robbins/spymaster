@@ -53,6 +53,16 @@
     *   **Geometry Only (32D):** ECE = **2.40%**.
 *   **Outcome:** **Geometry Only** is the Production Standard. We achieved near-perfect calibration for Open Range/Premarket levels (< 1.5% Error).
 
+### Phase 4.5: Vector Ablation Study (Jan 2026)
+*   **Context:** Validating the Phase 4 hypothesis on the new v4.0.0 dataset (Oct 20-31, 2025).
+*   **Experiment:** Comparing "Physics Only" vs "Geometry Only" vs "Market Tide".
+*   **Result:**
+    *   **Physics Only:** Highest Accuracy (**86.4%**), validating that Dynamics drivers were dominant in this period.
+    *   **Geometry Only:** Best Calibration (**0.248 ECE**), confirming it as the most stable baseline.
+    *   **Market Tide:** Massive **Similarity Inversion** (-86.2%). High similarity matches in "Net Premium Flow" predicted *worse* than random.
+*   **Conclusion:** Physics carries the signal, Geometry provides the safety. Market Tide is a powerful but non-linear feature that cannot be used for direct similarity search (Requires Transformers/Learned Encodings).
+*   **Reproduction:** Run `uv run python scripts/run_physics_ablation.py --start-date 2025-10-20 --end-date 2025-10-31 --version 4.0.0`
+
 ### Phase 5: Neural Representation (The "Walker" to "Runner" Evolution)
 *   **Goal:** Move from "Rigid Geometry" (DCT) to "Learned Geometry" (Transformer).
 *   **Hypothesis:** A **PatchTST Encoder** can learn non-linear patterns (Double Bottoms, etc.) that DCT misses, provided we have enough data (N > 10,000).
@@ -94,13 +104,13 @@ We are now optimizing the **Quality of the Mirror**.
 *   **Hypothesis:** Retrieval quality decays as the "Approach" gets stale.
 *   **Investigation:** Verify if `MONITOR_BAND` (currently 5.0 pts) is optimal. Should it be dynamic (ATR-based)?
 
-**Q3: Physics vs. Geometry (The Dec 31 Verdict)**
-*   **Experiment:** Comparison of  High-Res Physics (10s bars) vs 32D Geometry (DCT).
+**Q3: Physics vs. Geometry (The Jan 1 Verdict)**
+*   **Experiment:** Comparison of v4.5.0 Vectors (Physics/Tide vs Geometry).
 *   **Result:**
-    *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
-    *   **Geometry:** 71.8% Accuracy, **+19.6% Calibration** (Robust).
-    *   **Physics:** 69.1% Accuracy, **-17.0% Calibration** (Inverted).
-*   **Conclusion:** Physics features are valid but **Non-Linear**. kNN cannot use them effectively.
+    *   **Physics:** **86.4%** Accuracy (Winner), but 0.272 ECE.
+    *   **Geometry:** 82.2% Accuracy, **0.248 ECE** (Best Calibration).
+    *   **Market Tide:** **-86.2%** Scaling (Broken/Inverted).
+*   **Conclusion:** Physics is the superior *signal*, but Geometry is the superior *metric*. We must combine them carefully (or use Geometry for retrieval and Physics for re-ranking).
 *   **Phase 4.5 Update:** "Market Tide" (Net Premium Flow) added to Vector () to capture explicit Money Flow conviction.
 *   **Next Step:** Phase 5 (Transformers) to learn the interaction.
 

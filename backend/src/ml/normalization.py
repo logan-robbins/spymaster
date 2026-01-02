@@ -60,7 +60,7 @@ ZSCORE_FEATURES = {
 MINMAX_FEATURES = {
     'minutes_since_open', 'bars_since_open',
     'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
-    'prior_touches', 'attempt_index', 'approach_bars', 
+    'attempt_index', 'approach_bars', 
     'attempt_cluster_id_mod', 'time_since_last_touch_sec'
 }
 
@@ -70,7 +70,6 @@ CANONICAL_MINMAX_RANGES = {
     'level_stacking_2pt': (0.0, 6.0),
     'level_stacking_5pt': (0.0, 6.0),
     'level_stacking_10pt': (0.0, 6.0),
-    'prior_touches': (0.0, 10.0),
     'attempt_index': (0.0, 10.0),
     'approach_bars': (0.0, 40.0),
 }
@@ -463,7 +462,11 @@ class ComputeNormalizationStage:
         self.state_table_dir = Path(state_table_dir)
         self.output_dir = Path(output_dir)
         self.lookback_days = lookback_days
+        self.end_date = None
     
+    def set_end_date(self, date_str: str):
+        self.end_date = datetime.strptime(date_str, '%Y-%m-%d')
+
     def execute(self) -> Dict[str, Any]:
         """
         Execute normalization statistics computation.
@@ -474,7 +477,7 @@ class ComputeNormalizationStage:
         logger.info(f"Computing normalization statistics (lookback: {self.lookback_days} days)...")
         
         # Load historical state table data
-        end_date = datetime.now()
+        end_date = self.end_date if self.end_date else datetime.now()
         start_date = end_date - timedelta(days=self.lookback_days)
         
         logger.info(f"  Loading state table from {start_date.date()} to {end_date.date()}...")
