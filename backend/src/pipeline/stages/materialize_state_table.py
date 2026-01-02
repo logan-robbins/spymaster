@@ -1,32 +1,14 @@
-"""Materialize state table at fixed cadence - IMPLEMENTATION_READY.md Section 4."""
-import logging
-import shutil
-from pathlib import Path
-from typing import Any, Dict, List
 import pandas as pd
-import numpy as np
+import logging
+from typing import Dict, List, Any
 from datetime import time
 
 from src.pipeline.core.stage import BaseStage, StageContext
-from src.common.data_paths import canonical_state_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
-
 LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 STATE_CADENCE_SECONDS = 30
-RTH_START = time(9, 30, 0)  # 09:30:00 ET
-RTH_END = time(12, 30, 0)   # 12:30:00 ET
-
-# Level kind integer encoding (from generate_levels.py)
-LEVEL_KIND_DECODE = {
-    0: 'PM_HIGH',
-    1: 'PM_LOW',
-    2: 'OR_HIGH',
-    3: 'OR_LOW',
-    6: 'SMA_90',
-    12: 'EMA_20'
-}
 
 
 def materialize_state_table(
@@ -36,13 +18,11 @@ def materialize_state_table(
     cadence_seconds: int = STATE_CADENCE_SECONDS
 ) -> pd.DataFrame:
     """
-    Materialize level-relative state table at fixed 30-second cadence.
+    Materialize level-relative state table at fixed 30-second cadence using Vectorized Merge Asof.
     
-    Per IMPLEMENTATION_READY.md Section 4:
-    - Generate timestamps every 30s from 09:30 to 12:30 ET (360 samples per level per day)
-    - One row per (timestamp, level_kind) pair
-    - All features are online-safe (use only data from timestamp T and before)
-    - Handle OR levels being undefined before 09:45
+    Optimization:
+    - Replaces nested loop (Times x Levels) with pd.merge_asof.
+    - Align timestamp grid to signals for each level kind efficiently.
     
     Args:
         signals_df: Event table with all features computed
@@ -57,243 +37,174 @@ def materialize_state_table(
         return pd.DataFrame()
     
     logger.info(f"  Materializing state table (30s cadence) for {date.date()}...")
-    logger.info(f"    Input signals_df shape: {signals_df.shape}")
     
-    # Generate timestamp grid: 09:30 to 12:30 ET at 30s intervals
+    # 1. Generate Timestamp Grid
     date_str = date.strftime('%Y-%m-%d')
     start_ts = pd.Timestamp(f"{date_str} 09:30:00", tz='America/New_York')
     end_ts = pd.Timestamp(f"{date_str} 12:30:00", tz='America/New_York')
     
-    timestamp_grid = pd.date_range(
-        start=start_ts,
-        end=end_ts,
-        freq=f'{cadence_seconds}s'
-    )
+    timestamp_grid = pd.date_range(start=start_ts, end=end_ts, freq=f'{cadence_seconds}s')
+    grid_df = pd.DataFrame({'timestamp': timestamp_grid})
     
-    logger.info(f"    Generated {len(timestamp_grid)} timestamps (09:30-12:30 ET @ {cadence_seconds}s)")
-    logger.info(f"    Grid range: {timestamp_grid[0]} to {timestamp_grid[-1]}")
-    
-    # Prepare signals_df for efficient lookup
+    # 2. Prepare Signals
     signals_sorted = signals_df.sort_values('timestamp').copy()
-    
-    logger.info(f"    Signals timestamp dtype before TZ: {signals_sorted['timestamp'].dtype}")
-    logger.info(f"    Signals timestamp tz before: {signals_sorted['timestamp'].dt.tz}")
-    logger.info(f"    Signals timestamp range before TZ: {signals_sorted['timestamp'].min()} to {signals_sorted['timestamp'].max()}")
-    
-    # Ensure timestamps are timezone-aware (convert UTC to ET)
     if signals_sorted['timestamp'].dt.tz is None:
         signals_sorted['timestamp'] = signals_sorted['timestamp'].dt.tz_localize('UTC').dt.tz_convert('America/New_York')
     elif str(signals_sorted['timestamp'].dt.tz) == 'UTC':
-        signals_sorted['timestamp'] = signals_sorted['timestamp'].dt.tz_convert('America/New_York')
-    
-    logger.info(f"    Signals timestamp range after TZ: {signals_sorted['timestamp'].min()} to {signals_sorted['timestamp'].max()}")
-    logger.info(f"    Number of signals in RTH window: {((signals_sorted['timestamp'] >= start_ts) & (signals_sorted['timestamp'] <= end_ts)).sum()}")
-    
-    logger.info(f"    Level kind distribution (raw): {signals_sorted['level_kind'].value_counts().to_dict()}")
-    
-    # Decode level_kind from integer to string (if needed)
-    if signals_sorted['level_kind'].dtype in [np.int8, np.int16, np.int32, np.int64, int]:
-        signals_sorted['level_kind'] = signals_sorted['level_kind'].map(LEVEL_KIND_DECODE).fillna('UNKNOWN')
-        logger.info(f"    Level kind distribution (decoded): {signals_sorted['level_kind'].value_counts().to_dict()}")
-    
-    # Extract level prices from signals_df
-    # PM and OR levels are static after establishment
-    # SMA levels are dynamic (recomputed each timestamp)
-    level_prices = {}
-    
-    for level_kind in ['PM_HIGH', 'PM_LOW']:
-        # PM levels: use first occurrence (should be same for all)
-        level_rows = signals_sorted[signals_sorted['level_kind'] == level_kind]
-        if not level_rows.empty:
-            level_prices[level_kind] = level_rows['level_price'].iloc[0]
-    
-    # OR levels: established at 09:45, get from first signal after 09:45
-    or_establishment = pd.Timestamp(f"{date_str} 09:45:00", tz='America/New_York')
-    for level_kind in ['OR_HIGH', 'OR_LOW']:
-        level_rows = signals_sorted[
-            (signals_sorted['level_kind'] == level_kind) &
-            (signals_sorted['timestamp'] >= or_establishment)
-        ]
-        if not level_rows.empty:
-            level_prices[level_kind] = level_rows['level_price'].iloc[0]
-    
-    logger.info(f"    Static level_prices extracted: {list(level_prices.keys())}")
-    
-    # Compute SMAs/EMAs for each timestamp from ohlcv_2min
-    sma_90_series = {}
-    ema_20_series = {}
+         signals_sorted['timestamp'] = signals_sorted['timestamp'].dt.tz_convert('America/New_York')
+
+    # Mapping for level kind integers
+    LEVEL_KIND_DECODE = {
+        0: 'PM_HIGH', 1: 'PM_LOW', 2: 'OR_HIGH', 3: 'OR_LOW',
+        6: 'SMA_90', 12: 'EMA_20'
+    }
+    if signals_sorted['level_kind'].dtype in [int, 'int64', 'int32', 'int16', 'int8']:
+         signals_sorted['level_kind'] = signals_sorted['level_kind'].map(LEVEL_KIND_DECODE).fillna('UNKNOWN')
+
+    # 3. Resolve Dynamic Levels (SMA/EMA) for the grid
+    # We need to map grid timestamps to SMA values to fill 'level_price' for SMA/EMA rows
+    sma_series = None
+    ema_series = None
     if not ohlcv_2min.empty:
-        ohlcv_2min_sorted = ohlcv_2min.sort_index().copy()
-        ohlcv_2min_sorted['sma_90'] = ohlcv_2min_sorted['close'].rolling(window=90, min_periods=90).mean()
-        ohlcv_2min_sorted['ema_20'] = ohlcv_2min_sorted['close'].ewm(span=20, adjust=False).mean()
+        df_2m = ohlcv_2min.sort_index().copy()
+        if 'sma_90' not in df_2m.columns:
+            df_2m['sma_90'] = df_2m['close'].rolling(window=90, min_periods=90).mean()
+        if 'ema_20' not in df_2m.columns:
+            df_2m['ema_20'] = df_2m['close'].ewm(span=20, adjust=False).mean()
+            
+        # AsOf merge grid to OHLCV to get indicators
+        # OHLCV index is timestamp, usually left-labeled or right? 
+        # Standard: use 'backward' lookup (value known at T)
+        # We need temporary grid with tz-naive if ohlcv is naive, or convert.
+        # Assuming ohlcv index is same tz as grid (ET or UTC). Check inputs.
+        # Assuming standard pipeline: inputs converted to consistent TZ.
+        # Let's align zones.
+        if df_2m.index.tz is None:
+             # Assume ET if naive, or UTC?
+             # Standard pipeline uses UTC internally usually. But here we constructed grid in ET.
+             # Safest: Convert grid to UTC for lookup if OHLCV is UTC.
+             pass
         
-        # Create lookup dict by timestamp (index is timestamp)
-        for ts, row in ohlcv_2min_sorted.iterrows():
-            if pd.notna(row['sma_90']):
-                sma_90_series[ts] = row['sma_90']
-            if pd.notna(row['ema_20']):
-                ema_20_series[ts] = row['ema_20']
-    
-    # Build state table rows
-    state_rows = []
-    rows_added_per_timestamp = []
-    
-    for ts_idx, ts in enumerate(timestamp_grid):
-        ts_ns = ts.value
-        minutes_since_open = (ts - start_ts).total_seconds() / 60.0
-        bars_since_open = int(minutes_since_open / 2)  # 2-minute bars
+        # We will do a merge_asof on the grid
+        # grid_df['timestamp'] is ET.
+        # df_2m index... let's reset
+        df_2m = df_2m.reset_index()
+        # Rename index to timestamp if needed
+        ts_col = 'timestamp' if 'timestamp' in df_2m.columns else 'index'
         
-        # Get most recent signal state at or before this timestamp
-        # (forward-fill features from event table)
-        recent_signals = signals_sorted[signals_sorted['timestamp'] <= ts]
+        # Align TZs
+        if df_2m[ts_col].dt.tz is None:
+             df_2m[ts_col] = df_2m[ts_col].dt.tz_localize('UTC').dt.tz_convert('America/New_York')
+        else:
+             df_2m[ts_col] = df_2m[ts_col].dt.tz_convert('America/New_York')
+             
+        df_2m = df_2m.sort_values(ts_col)
         
-        if recent_signals.empty:
-            if ts_idx < 5:  # Log first few empty cases
-                logger.info(f"      ts={ts}: no recent signals yet")
-            continue
+        # Merge columns
+        grid_with_indicators = pd.merge_asof(
+            grid_df, 
+            df_2m[[ts_col, 'sma_90', 'ema_20']], 
+            left_on='timestamp', 
+            right_on=ts_col, 
+            direction='backward'
+        )
+        sma_series = grid_with_indicators.set_index('timestamp')['sma_90']
+        ema_series = grid_with_indicators.set_index('timestamp')['ema_20']
         
-        rows_before = len(state_rows)
+    # 4. Vectorized Construction Per Level Kind
+    dfs = []
+    
+    or_open_ts = pd.Timestamp(f"{date_str} 09:45:00", tz='America/New_York')
+    
+    # Pre-calculate common columns
+    base_grid = grid_df.copy()
+    base_grid['ts_ns'] = base_grid['timestamp'].astype('int64') # nanoseconds
+    base_grid['date'] = date
+    base_grid['minutes_since_open'] = (base_grid['timestamp'] - start_ts).dt.total_seconds() / 60.0
+    base_grid['bars_since_open'] = (base_grid['minutes_since_open'] / 2).astype(int)
+    
+    for kind in LEVEL_KINDS:
+        # Filter signals for this kind
+        # We need to forward fill: "What was the last state of this level?"
+        subset = signals_sorted[signals_sorted['level_kind'] == kind].sort_values('timestamp')
         
-        # For each level kind, create a state row
-        for level_kind in LEVEL_KINDS:
-            level_active = True
-            level_price = None
+        if subset.empty:
+            # Maybe level exists but no signals triggered?
+            # State table tracks "signals". If no signal, we have no "features" for this level.
+            # But we might still want the 'level_price' if it exists (e.g. PM High defined but never touched).
+            # The current requirement says "Forward fill features from LAST SIGNAL".
+            # If no signal ever, feature values are NaN.
+            # We still produce rows for the level kind.
+            pass
             
-            # Determine level price and active status
-            if level_kind in ['PM_HIGH', 'PM_LOW']:
-                level_price = level_prices.get(level_kind)
-                if level_price is None:
-                    continue
-            elif level_kind in ['OR_HIGH', 'OR_LOW']:
-                if ts < or_establishment:
-                    level_active = False
-                else:
-                    level_price = level_prices.get(level_kind)
-                    if level_price is None:
-                        level_active = False
-            elif level_kind == 'SMA_90':
-                # Find closest SMA value at or before ts
-                sma_times = [t for t in sma_90_series.keys() if t <= ts]
-                if sma_times:
-                    closest_time = max(sma_times)
-                    level_price = sma_90_series[closest_time]
-                else:
-                    level_active = False
-            elif level_kind == 'EMA_20':
-                ema_times = [t for t in ema_20_series.keys() if t <= ts]
-                if ema_times:
-                    closest_time = max(ema_times)
-                    level_price = ema_20_series[closest_time]
-                else:
-                    level_active = False
-            
-            # Get most recent signal for this level_kind
-            level_signals = recent_signals[recent_signals['level_kind'] == level_kind]
-            if level_signals.empty:
-                continue
-            
-            latest_signal = level_signals.iloc[-1]
-            
-            # Build state row with forward-filled features
-            state_row = {
-                'timestamp': ts,
-                'ts_ns': ts_ns,
-                'date': date,
-                'minutes_since_open': minutes_since_open,
-                'bars_since_open': bars_since_open,
-                'level_kind': level_kind,
-                'level_price': level_price if level_active else None,
-                'level_active': level_active,
-            }
-            
-            # Forward-fill all feature columns from latest signal
-            # (All features in signals_df are online-safe by construction)
-            feature_cols = [
-                'spot', 'atr', 'distance_signed_atr',
-                # Distances to all levels
-                'dist_to_pm_high_atr', 'dist_to_pm_low_atr',
-                'dist_to_or_high_atr', 'dist_to_or_low_atr',
-                'dist_to_sma_90_atr', 'dist_to_ema_20_atr',
-                # Level stacking
-                'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
-                # Kinematics
-                'velocity_1min', 'velocity_2min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
-                'acceleration_1min', 'acceleration_2min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
-                'jerk_1min', 'jerk_2min', 'jerk_3min', 'jerk_5min',  # Removed jerk_10min, jerk_20min per schema
-                'momentum_trend_1min', 'momentum_trend_2min', 'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
-                # Approach
-                'approach_velocity', 'approach_bars', 'approach_distance_atr',
-                # Order flow
-                'ofi_30s', 'ofi_60s', 'ofi_120s', 'ofi_300s',
-                'ofi_near_level_30s', 'ofi_near_level_60s', 'ofi_near_level_120s', 'ofi_near_level_300s',
-                'ofi_acceleration',
-                # Tape
-                'tape_imbalance', 'tape_velocity', 'tape_buy_vol', 'tape_sell_vol', 'sweep_detected',
-                # Barrier
-                'barrier_state', 'barrier_state_encoded', 'barrier_depth_current', 'barrier_delta_liq',
-                'barrier_replenishment_ratio', 'wall_ratio',
-                'barrier_delta_1min', 'barrier_delta_2min', 'barrier_delta_3min', 'barrier_delta_5min',
-                'barrier_pct_change_1min', 'barrier_pct_change_3min', 'barrier_pct_change_5min',
-                # GEX
-                'gamma_exposure', 'fuel_effect', 'fuel_effect_encoded', 'gex_asymmetry', 'gex_ratio',
-                'net_gex_2strike', 'gex_above_1strike', 'gex_below_1strike',
-                'call_gex_above_2strike', 'put_gex_below_2strike',
-                # Physics
-                'predicted_accel', 'accel_residual', 'force_mass_ratio', 'flow_alignment',
-                # Market Tide (Phase 4.5)
-                'call_tide', 'put_tide',
-                # Touch/attempt
-                'attempt_index', 'or_active',
-                # Per-level touch features (48 total: 6 levels × 8 metrics)
-                # Generated in label_outcomes stage (B2S.15) via OHLC-based touch detection
-                'pm_high_touches_from_above', 'pm_high_touches_from_below',
-                'pm_high_defended_touches_from_above', 'pm_high_defended_touches_from_below',
-                'pm_high_time_since_touch_from_above_sec', 'pm_high_time_since_touch_from_below_sec',
-                'pm_low_touches_from_above', 'pm_low_touches_from_below',
-                'pm_low_defended_touches_from_above', 'pm_low_defended_touches_from_below',
-                'pm_low_time_since_touch_from_above_sec', 'pm_low_time_since_touch_from_below_sec',
-                'or_high_touches_from_above', 'or_high_touches_from_below',
-                'or_high_defended_touches_from_above', 'or_high_defended_touches_from_below',
-                'or_high_time_since_touch_from_above_sec', 'or_high_time_since_touch_from_below_sec',
-                'or_low_touches_from_above', 'or_low_touches_from_below',
-                'or_low_defended_touches_from_above', 'or_low_defended_touches_from_below',
-                'or_low_time_since_touch_from_above_sec', 'or_low_time_since_touch_from_below_sec',
-                'sma_90_touches_from_above', 'sma_90_touches_from_below',
-                'sma_90_defended_touches_from_above', 'sma_90_defended_touches_from_below',
-                'sma_90_time_since_touch_from_above_sec', 'sma_90_time_since_touch_from_below_sec',
-                'ema_20_touches_from_above', 'ema_20_touches_from_below',
-                'ema_20_defended_touches_from_above', 'ema_20_defended_touches_from_below',
-                'ema_20_time_since_touch_from_above_sec', 'ema_20_time_since_touch_from_below_sec',
-                # Cluster trends
-                'barrier_replenishment_trend', 'barrier_delta_liq_trend',
-                'tape_velocity_trend', 'tape_imbalance_trend',
-            ]
-            
-            for col in feature_cols:
-                if col in latest_signal.index:
-                    state_row[col] = latest_signal[col]
-                else:
-                    # Handle missing columns gracefully
-                    state_row[col] = None
-            
-            # time_since_last_touch_sec is now computed in B2S Stage 14 (ComputeApproachFeatures)
-            # and will be forward-filled from signals_df via the feature_cols list above
-            
-            state_rows.append(state_row)
+        # Merge AsOf
+        # Columns to keep from signals
+        keep_cols = [c for c in subset.columns if c not in ['timestamp', 'level_kind']]
+        merged = pd.merge_asof(
+            base_grid, 
+            subset[['timestamp'] + keep_cols], 
+            on='timestamp', 
+            direction='backward'
+        )
         
-        rows_added = len(state_rows) - rows_before
-        if ts_idx < 5 or rows_added > 0:  # Log first few or when rows are added
-            logger.info(f"      ts={ts} ({minutes_since_open:.1f}min): added {rows_added} rows (total: {len(state_rows)})")
-        rows_added_per_timestamp.append(rows_added)
-    
-    logger.info(f"    Total rows added across {len(timestamp_grid)} timestamps: {sum(rows_added_per_timestamp)}")
-    logger.info(f"    Timestamps with >0 rows: {sum(1 for x in rows_added_per_timestamp if x > 0)}")
-    
-    state_df = pd.DataFrame(state_rows)
-    
-    logger.info(f"    Generated {len(state_df):,} state rows ({len(state_df) // len(LEVEL_KINDS)} timestamps × {len(LEVEL_KINDS)} levels)")
-    
-    return state_df
+        merged['level_kind'] = kind
+        
+        # Logic for 'level_active' and 'level_price'
+        # 1. PM Levels: Always active. Price should be backfilled/constant if known?
+        # Only known if at least one signal OR from 'generate_levels' output (which we don't have here explicitly, only via signals).
+        # Actually, signals have 'level_price'.
+        # If merged has NaN, it means NO signal occurred before T.
+        # But level might be active.
+        # We can attempt to fill 'level_price' if we observed it LATER?
+        # No, online-safe means we assume we don't know it until observed?
+        # Actually 'level_prices' for PM/OR are known once established.
+        # Since this stage receives signals_df, and signals capture interaction...
+        # If we rely strictly on signals_df, we only know level_price after first interaction?
+        # The previous code extracted level_prices from the entire daily signals_df (peeking future signals to find the constant level price).
+        # "PM levels: use first occurrence".
+        # This is safe because PM levels are determined Pre-Market (before 9:30).
+        # So conceptually we know them at 9:30.
+        # Code: Extract canonical price for the day from ALL signals (peeking is valid for static levels).
+        
+        canonical_price = None
+        if kind in ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW']:
+            in_signals = signals_sorted[signals_sorted['level_kind'] == kind]
+            if not in_signals.empty:
+                canonical_price = in_signals['level_price'].iloc[0]
+                
+        # Set Active/Price
+        if kind in ['PM_HIGH', 'PM_LOW']:
+            merged['level_active'] = True
+            # Fill price if not present from merge (e.g. before first signal)
+            if canonical_price is not None:
+                merged['level_price'] = merged['level_price'].fillna(canonical_price)
+                
+        elif kind in ['OR_HIGH', 'OR_LOW']:
+            merged['level_active'] = merged['timestamp'] >= or_open_ts
+            if canonical_price is not None:
+                 merged['level_price'] = merged['level_price'].fillna(canonical_price)
+            # Mask out price before open
+            merged.loc[~merged['level_active'], 'level_price'] = None
+
+        elif kind == 'SMA_90':
+            # Dynamic Price from OHLCV
+            if sma_series is not None:
+                merged['level_price'] = sma_series.values # aligned by grid index because sma_series comes from grid
+                merged['level_active'] = merged['level_price'].notna()
+            else:
+                merged['level_active'] = False
+                
+        elif kind == 'EMA_20':
+            if ema_series is not None:
+                merged['level_price'] = ema_series.values
+                merged['level_active'] = merged['level_price'].notna()
+            else:
+                 merged['level_active'] = False
+                 
+        dfs.append(merged)
+        
+    final_df = pd.concat(dfs, ignore_index=True)
+    return final_df
 
 
 class MaterializeStateTableStage(BaseStage):

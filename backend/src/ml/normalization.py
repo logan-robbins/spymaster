@@ -109,7 +109,7 @@ def classify_feature_method(feature_name: str) -> str:
             return 'robust'
         elif 'd_atr' in base_feature or 'distance' in base_feature:
             return 'zscore'
-        elif 'ofi' in base_feature or 'tape' in base_feature or 'gamma' in base_feature:
+        elif 'ofi' in base_feature or 'tape' in base_feature or 'gamma' in base_feature or 'tide' in base_feature:
             return 'robust'
         else:
             return 'robust'  # Default for micro-history
