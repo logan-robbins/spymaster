@@ -302,8 +302,37 @@
 
 **Cross-Level Context**: Section A (indices 23-70) captures what's happening at ALL 6 levels simultaneously - touch counts, defended counts, and temporal recency from both directions. This enables queries like "find setups where PM_HIGH was tested 3x from below while OR_LOW was defended 5x from above."
 
+**Dual-Horizon Outcomes**:
+- Each event has TWO outcome labels: `outcome_4min` and `outcome_8min`
+- **Not part of episode vectors** (they are labels, not features)
+- **Usage**: 
+  - Retrieval: Filter/label by `outcome_8min` (primary, confirmed)
+  - ML Training: Can train separate models for 4min (fast) vs 8min (confirmed) predictions
+  - Analysis: Compare 4min vs 8min agreement to measure outcome stability
+- **Retrieval partitions unchanged**: 60 indices (6 levels × 2 directions × 5 time_buckets)
+  - Outcome is NOT a partition key - it's what we're predicting/filtering on
+
 **Outcome Labels (Fixed-Point Thresholds)**:
-- **BREAK**: Price trades through level to far side by MONITOR_BAND (5.0 points) within 8 minutes
-- **REJECT**: Price moves away on near side by MONITOR_BAND before achieving BREAK
-- **CHOP**: Neither BREAK nor REJECT within 8 minutes
-- All thresholds use fixed points, not ATR-normalized, for stable cross-day comparison
+
+**Detection Hierarchy:**
+1. **MONITOR_BAND (5.0 pts)**: Zone entry threshold - start tracking approach
+2. **TOUCH_BAND (2.0 pts)**: True contact - OHLC range intersects ±2pt band around level
+3. **BREAK_REJECT_THRESHOLD (12.5 pts)**: Meaningful move - significant follow-through
+
+**Outcomes (Dual-Horizon):**
+- **BREAK**: Price trades through level to far side by 12.5+ points
+- **REJECT**: Price moves away on near side by 12.5+ points before achieving BREAK  
+- **CHOP**: Touched level (within TOUCH_BAND) but neither BREAK nor REJECT occurred
+
+**Horizons:**
+- **4min**: Fast signal (earlier decision)
+- **8min**: Confirmation (more data, primary for retrieval/labeling)
+
+**Semantic Example** (approaching PM_HIGH from below):
+- Zone entry at 6215 (PM_HIGH=6220, 5pt away)
+- Touch at 6218-6222 (OHLC intersects ±2pt band)
+- BREAK if high reaches 6232.5+ (12.5pt through level)
+- REJECT if drops to 6207.5- (12.5pt reversal) before BREAK
+- CHOP if touches but stays in 6207.5-6232.5 range
+
+All thresholds use fixed points (not ATR-normalized) for stable cross-day comparison.

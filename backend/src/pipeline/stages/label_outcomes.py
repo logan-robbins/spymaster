@@ -48,14 +48,14 @@ def label_outcomes(
     Returns:
         DataFrame with outcome labels, touch flags, and defended touch counts
     """
-    # Fixed horizons: 2min, 4min, 8min (8min primary per user spec)
-    confirmation_windows = [120, 240, 480]  # seconds
-    window_labels = ['2min', '4min', '8min']
+    # Fixed horizons: 4min (fast signal), 8min (confirmation)
+    confirmation_windows = [240, 480]  # seconds: 4min, 8min
+    window_labels = ['4min', '8min']
     
     # Fixed-point thresholds (from CONFIG)
-    break_threshold_points = CONFIG.MONITOR_BAND  # 5.0 points
-    reject_threshold_points = CONFIG.MONITOR_BAND  # 5.0 points
-    touch_band_points = CONFIG.TOUCH_BAND  # 2.0 points
+    break_threshold_points = CONFIG.BREAK_REJECT_THRESHOLD  # 12.5 points (meaningful follow-through)
+    reject_threshold_points = CONFIG.BREAK_REJECT_THRESHOLD  # 12.5 points
+    touch_band_points = CONFIG.TOUCH_BAND  # 2.0 points (for touch detection)
     
     if signals_df.empty or ohlcv_df.empty:
         return signals_df
