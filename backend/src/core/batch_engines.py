@@ -197,7 +197,10 @@ def build_vectorized_market_data(
         # Net Dealer Gamma = Gamma * Size * 100 * (-Aggressor)
         opt_net_gamma = gammas * sizes * 100.0 * (-aggressors)
         
+        print(f"DEBUG_VMD: Loaded {len(opt_ts_ns)} option trades. Sample TS: {opt_ts_ns[:3]}") # DEBUG
+        
     else:
+        print("DEBUG_VMD: No option trades loaded.") # DEBUG
         opt_ts_ns = np.array([], dtype=np.int64)
         opt_strikes = np.array([], dtype=np.float64)
         opt_is_call = np.array([], dtype=bool)
@@ -366,6 +369,11 @@ def compute_fuel_metrics_batch(
     
     # Prepare Option Trade Data
     opt_ts = market_data.opt_ts_ns
+    
+    if len(opt_ts) > 0 and len(sorted_ts) > 0:
+        print(f"DEBUG_FUEL: {n} touches (Range: {sorted_ts[0]}-{sorted_ts[-1]}).")
+        print(f"DEBUG_FUEL: {len(opt_ts)} trades (Range: {opt_ts[0]}-{opt_ts[-1]}).")
+    
     if len(opt_ts) == 0:
         # No option trades, return empty
         return {
@@ -797,97 +805,6 @@ def compute_barrier_metrics_batch(
 # VECTORIZED FUEL ENGINE
 # =============================================================================
 
-def compute_fuel_metrics_batch(
-    touch_ts_ns: np.ndarray,  # Touch timestamps for dynamic filtering
-    level_prices: np.ndarray,  # ES prices
-    market_data: VectorizedMarketData,
-    strike_range: float = 2.0
-) -> Dict[str, np.ndarray]:
-    """
-    Compute fuel metrics for all levels in batch.
-
-    Args:
-        level_prices: Level prices (ES)
-        market_data: Vectorized market data with pre-aggregated gamma
-        strike_range: Strike range around level
-
-    Returns:
-        Dict with arrays: gamma_exposure, fuel_effect, call_tide, put_tide
-    """
-    n = len(level_prices)
-
-    gamma_exposures = np.zeros(n, dtype=np.float64)
-    fuel_effects = np.empty(n, dtype=object)
-    call_tides = np.zeros(n, dtype=np.float64)
-    put_tides = np.zeros(n, dtype=np.float64)
-
-    # Pre-convert strikes to array for fast lookup
-    strikes = np.array(list(market_data.strike_gamma.keys()))
-    gamma_values = np.array(list(market_data.strike_gamma.values()))
-    
-    # Extract call/put gamma for premium flow calculation
-    call_strikes = np.array(list(market_data.call_gamma.keys()))
-    call_gamma_values = np.array(list(market_data.call_gamma.values()))
-    put_strikes = np.array(list(market_data.put_gamma.keys()))
-    put_gamma_values = np.array(list(market_data.put_gamma.values()))
-    
-    # Extract premium flows (separated by right)
-    call_premium_strikes = np.array(list(market_data.call_premium.keys()))
-    call_premium_values = np.array(list(market_data.call_premium.values()))
-    put_premium_strikes = np.array(list(market_data.put_premium.keys()))
-    put_premium_values = np.array(list(market_data.put_premium.values()))
-
-    if len(strikes) == 0:
-        fuel_effects[:] = 'NEUTRAL'
-        return {
-            'gamma_exposure': gamma_exposures,
-            'fuel_effect': fuel_effects,
-            'call_tide': call_tides,
-            'put_tide': put_tides
-        }
-
-    for i in range(n):
-        level = level_prices[i]
-        ts_ns = touch_ts_ns[i]
-        
-        # Filter option flows by timestamp (only flows that existed at touch time)
-        call_premium_sum = 0.0
-        put_premium_sum = 0.0
-        net_gamma = 0.0
-        
-        for (strike, right, exp_date), flow in market_data.raw_option_flows.items():
-            # Skip flows that haven't happened yet
-            if flow.last_timestamp_ns > ts_ns:
-                continue
-                
-            # Check if strike is in range
-            if abs(strike - level) <= strike_range:
-                net_gamma += flow.net_gamma_flow
-                
-                # Accumulate premium by right
-                if right == 'C':
-                    call_premium_sum += flow.net_premium_flow
-                elif right == 'P':
-                    put_premium_sum += flow.net_premium_flow
-        
-        gamma_exposures[i] = net_gamma
-        call_tides[i] = call_premium_sum
-        put_tides[i] = put_premium_sum
-
-        # Classify effect
-        if net_gamma < -10000:
-            fuel_effects[i] = 'AMPLIFY'
-        elif net_gamma > 10000:
-            fuel_effects[i] = 'DAMPEN'
-        else:
-            fuel_effects[i] = 'NEUTRAL'
-
-    return {
-        'gamma_exposure': gamma_exposures,
-        'fuel_effect': fuel_effects,
-        'call_tide': call_tides,
-        'put_tide': put_tides
-    }
 
 
 # =============================================================================

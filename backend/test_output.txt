@@ -1,0 +1,25 @@
+Testing Market Tide Replay Logic...
+VMD Arrays: 3 trades loaded.
+VMD opt_ts: [100 200 300]
+VMD opt_premium: [ 1000.  1000. -2000.]
+VMD opt_strikes: [4000. 4000. 4000.]
+Results:
+Call Tide: [0. 0. 0. 0.]
+Put Tide: [0. 0. 0. 0.]
+Traceback (most recent call last):
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/test_tide_replay.py", line 69, in <module>
+    test_replay_logic()
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/test_tide_replay.py", line 63, in test_replay_logic
+    np.testing.assert_allclose(metrics['call_tide'], expected_call, err_msg="Call Tide Mismatch")
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/numpy/testing/_private/utils.py", line 1711, in assert_allclose
+    assert_array_compare(compare, actual, desired, err_msg=str(err_msg),
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/numpy/testing/_private/utils.py", line 919, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Not equal to tolerance rtol=1e-07, atol=0
+Call Tide Mismatch
+Mismatched elements: 3 / 4 (75%)
+Max absolute difference among violations: 1000.
+Max relative difference among violations: 1.
+ ACTUAL: array([0., 0., 0., 0.])
+ DESIRED: array([    0.,  1000.,  1000., -1000.])
