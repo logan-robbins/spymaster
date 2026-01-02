@@ -151,10 +151,11 @@ class ComputeBarrierEvolutionStage(BaseStage):
         signals_df = ctx.data['signals_df']
         mbp10_snapshots = ctx.data.get('mbp10_snapshots', [])
         
+        # Per EPISODE_VECTOR_SCHEMA.md Section B: barrier_delta at 1, 2, 3, 5 min
         signals_df = compute_barrier_evolution(
             signals_df=signals_df,
             mbp10_snapshots=mbp10_snapshots,
-            windows_minutes=[1.0, 3.0, 5.0]
+            windows_minutes=[1.0, 2.0, 3.0, 5.0]
         )
         
         return {'signals_df': signals_df}

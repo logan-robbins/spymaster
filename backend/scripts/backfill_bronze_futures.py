@@ -227,7 +227,7 @@ def main() -> int:
     dbn = DBNReader()
     data_root = _resolve_data_root()
     trades_dates = set(dbn.get_available_dates("trades"))
-    mbp10_dates = set(dbn.get_available_dates("MBP-10"))
+    mbp10_dates = set(dbn.get_available_dates("mbp10"))
 
     available = sorted(trades_dates | mbp10_dates)
     dates = _parse_dates(args, available)

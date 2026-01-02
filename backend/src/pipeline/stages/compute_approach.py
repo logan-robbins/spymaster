@@ -67,9 +67,9 @@ def compute_approach_context(
     approach_velocity = np.zeros(n, dtype=np.float64)
     approach_bars = np.zeros(n, dtype=np.int32)
     approach_distance = np.zeros(n, dtype=np.float64)
-    prior_touches = np.zeros(n, dtype=np.int32)
     bars_since_open = np.zeros(n, dtype=np.int32)
     minutes_since_open = np.zeros(n, dtype=np.float32)
+    
 
     signal_ts = signals_df['ts_ns'].values.astype(np.int64)
     level_prices = signals_df['level_price'].values.astype(np.float64)
@@ -98,11 +98,7 @@ def compute_approach_context(
     minutes_since_open = compute_minutes_since_open(signal_ts, date_str)
     bars_since_open = compute_bars_since_open(signal_ts, date_str, bar_duration_minutes=1)
     
-    # Track touches per level for prior_touches calculation
-    # IMPORTANT: Only count RTH touches, and only when inside TOUCH_BAND.
-    session_start_ns = get_session_start_ns(date_str)
-    level_touch_counts = {}
-
+    # Compute approach dynamics for each signal
     for i in range(n):
         ts = signal_ts[i]
         start_ts = ts - lookback_ns
@@ -112,15 +108,6 @@ def compute_approach_context(
         # Find bars in lookback window using binary search
         start_idx = np.searchsorted(ohlcv_ts, start_ts, side='right')
         end_idx = np.searchsorted(ohlcv_ts, ts, side='right')
-
-        # Prior touches at this level
-        level_key = round(level, 2)
-        prior_touches[i] = level_touch_counts.get(level_key, 0)
-        touching = False
-        if entry_prices is not None:
-            touching = abs(entry_prices[i] - level) <= CONFIG.TOUCH_BAND
-        if touching and ts >= session_start_ns:
-            level_touch_counts[level_key] = level_touch_counts.get(level_key, 0) + 1
 
         if start_idx >= end_idx or end_idx > len(ohlcv_ts):
             continue
@@ -170,9 +157,11 @@ def compute_approach_context(
     result['approach_velocity'] = approach_velocity
     result['approach_bars'] = approach_bars
     result['approach_distance'] = approach_distance
-    result['prior_touches'] = prior_touches
     result['minutes_since_open'] = minutes_since_open
     result['bars_since_open'] = bars_since_open
+    
+    # or_active: Open Range active flag (1 if >= 15 min since open)
+    result['or_active'] = (minutes_since_open >= 15).astype(np.int32)
 
     return result
 

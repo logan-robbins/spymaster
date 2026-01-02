@@ -163,18 +163,17 @@ def compute_multiwindow_kinematics(
         suffix = f'_{window_min}min'
         result[f'velocity{suffix}'] = velocity
         result[f'acceleration{suffix}'] = acceleration
-        result[f'jerk{suffix}'] = jerk
         
-        # Derived: Momentum consistency (velocity trend)
-        if window_min > 1:
-            # Is velocity increasing or decreasing across the window?
-            # Positive trend = accelerating, negative = decelerating
-            v_start = velocity.copy()
-            v_end = velocity.copy()
-            # Compute velocity at start and end of window
-            # (simplified: just use the computed velocity as "end")
-            # For now, mark with acceleration as proxy
-            result[f'momentum_trend{suffix}'] = acceleration
+        # Jerk: Only compute for windows <= 5min per EPISODE_VECTOR_SCHEMA.md
+        if window_min <= 5:
+            result[f'jerk{suffix}'] = jerk
+        
+        # Derived: Momentum trend (velocity trend / acceleration proxy)
+        # Per EPISODE_VECTOR_SCHEMA.md Section B, indices 43-48 (1min through 20min)
+        # Is velocity increasing or decreasing across the window?
+        # Positive trend = accelerating, negative = decelerating
+        # For now, use acceleration as proxy for momentum trend
+        result[f'momentum_trend{suffix}'] = acceleration
     
     return result
 
