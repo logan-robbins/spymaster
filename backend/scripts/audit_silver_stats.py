@@ -105,7 +105,12 @@ def main():
         'velocity_1min',
         # Derived
         'force_proxy', 'mass_proxy',
-        'accel_residual', 'predicted_accel'  # From compute_force_mass
+        'accel_residual', 'predicted_accel',  # From compute_force_mass
+        # New Split Features
+        'ofi_above_5pt_30s',
+        'ofi_below_5pt_30s',
+        'call_tide_above_5pt',
+        'call_tide_below_5pt',
     ]
 
     for name, dates in periods.items():

@@ -359,141 +359,119 @@ def compute_fuel_metrics_batch(
     # Pre-allocate results
     gamma_exposure = np.zeros(n, dtype=np.float64)
     fuel_effect = np.full(n, 'NEUTRAL', dtype=object)
+    
+    # Tide Metrics (Total ±10.0)
     call_tide = np.zeros(n, dtype=np.float64)
-    put_tide = np.zeros(n, dtype=np.float64) # Separate tide metrics
+    put_tide = np.zeros(n, dtype=np.float64)
+    
+    # Split Tide Metrics (±5.0)
+    call_tide_above_5pt = np.zeros(n, dtype=np.float64)
+    call_tide_below_5pt = np.zeros(n, dtype=np.float64)
+    put_tide_above_5pt = np.zeros(n, dtype=np.float64)
+    put_tide_below_5pt = np.zeros(n, dtype=np.float64)
 
-    # Sort touches by time to enable linear scan
-    perm = np.argsort(touch_ts_ns)
-    sorted_ts = touch_ts_ns[perm]
-    sorted_levels = level_prices[perm]
-    
-    # Prepare Option Trade Data
+    # Option Data
     opt_ts = market_data.opt_ts_ns
+    opt_strikes = market_data.opt_strikes
+    opt_premium = market_data.opt_premium
+    opt_is_call = market_data.opt_is_call
     
-    if len(opt_ts) > 0 and len(sorted_ts) > 0:
-        print(f"DEBUG_FUEL: {n} touches (Range: {sorted_ts[0]}-{sorted_ts[-1]}).")
-        print(f"DEBUG_FUEL: {len(opt_ts)} trades (Range: {opt_ts[0]}-{opt_ts[-1]}).")
-    
-    if len(opt_ts) == 0:
-        # No option trades, return empty
+    if len(opt_ts) == 0 or n == 0:
         return {
             'gamma_exposure': gamma_exposure,
             'fuel_effect': fuel_effect,
             'call_tide': call_tide,
-            'put_tide': put_tide
+            'put_tide': put_tide,
+            'call_tide_above_5pt': call_tide_above_5pt,
+            'call_tide_below_5pt': call_tide_below_5pt,
+            'put_tide_above_5pt': put_tide_above_5pt,
+            'put_tide_below_5pt': put_tide_below_5pt
         }
 
-    opt_strikes = market_data.opt_strikes
-    opt_premium = market_data.opt_premium
-    opt_is_call = market_data.opt_is_call
-    # opt_net_gamma = market_data.opt_net_gamma # Not used for Tide but maybe for GEX?
-    # For now, Tide uses Premium. Gamma logic uses pre-computed aggregates usually,
-    # but for "Dynamic" features we might want dynamic Gamma too.
-    # The existing 'gamma_exposure' iterates 'strike_gamma' dict which is STATIC.
-    # To fix Gamma Exposure 84% scaling, we should make IT dynamic too?
-    # User request was Market Tide (Premium). I'll focus on Tide first.
-    # Gamma Exposure is typically less volatile intraday? Or maybe it is.
-    # Let's keep Gamma Exposure as is (Static) or verify if I should fix both.
-    # "resolve Market Tide similarity inversion... dynamic per touch event".
-    # I'll focus on Call/Put Tide.
-
-    # Map unique strikes to indices for fast accumulation
-    unique_strikes = np.unique(opt_strikes)
-    sorted_strikes = np.sort(unique_strikes)
-    strike_to_idx = {s: i for i, s in enumerate(sorted_strikes)}
+    # Window parameters
+    WINDOW_NS = 30_000_000_000  # 30 seconds
     
-    # Vectorize trade strike mapping
-    # np.searchsorted finds indices where elements should be inserted to maintain order
-    # Since opt_strikes are in sorted_strikes, this gives the index.
-    trade_strike_indices = np.searchsorted(sorted_strikes, opt_strikes)
-    
-    # Accumulators
-    n_strikes = len(sorted_strikes)
-    acc_call_prem = np.zeros(n_strikes, dtype=np.float64)
-    acc_put_prem = np.zeros(n_strikes, dtype=np.float64)
-    
-    trade_idx = 0
-    num_trades = len(opt_ts)
-    
-    # Linear Scan Replay
     for i in range(n):
-        target_ts = sorted_ts[i]
-        level = sorted_levels[i]
+        ts = touch_ts_ns[i]
+        level = level_prices[i]
         
-        # Advance trades up to target_ts
-        # Note: opt_ts is sorted from build_vectorized_market_data
-        while trade_idx < num_trades and opt_ts[trade_idx] <= target_ts:
-            s_idx = trade_strike_indices[trade_idx]
-            prem = opt_premium[trade_idx]
-            is_c = opt_is_call[trade_idx]
-            
-            if is_c:
-                acc_call_prem[s_idx] += prem
-            else:
-                acc_put_prem[s_idx] += prem
-            
-            trade_idx += 1
-            
-        # Calculate Tide for this touch (Sum near level)
-        # Find range of relevant strikes [level - range, level + range]
-        # Searchsorted allows fast range finding in sorted_strikes array
+        # Define Time Window [ts - 30s, ts]
+        start_ts = ts - WINDOW_NS
         
-        low_strike = level - strike_range
-        high_strike = level + strike_range
+        # Find window indices
+        # opt_ts is sorted
+        start_idx = np.searchsorted(opt_ts, start_ts, side='left')
+        end_idx = np.searchsorted(opt_ts, ts, side='right')
         
-        idx_start = np.searchsorted(sorted_strikes, low_strike, side='left')
-        idx_end = np.searchsorted(sorted_strikes, high_strike, side='right')
-        
-        # Slicing is fast
-        if idx_end > idx_start:
-            c_val = np.sum(acc_call_prem[idx_start:idx_end])
-            p_val = np.sum(acc_put_prem[idx_start:idx_end])
+        if end_idx > start_idx:
+            # Slice Data for Window
+            w_strikes = opt_strikes[start_idx:end_idx]
+            w_prem = opt_premium[start_idx:end_idx]
+            w_is_call = opt_is_call[start_idx:end_idx]
             
-            call_tide[perm[i]] = c_val
-            put_tide[perm[i]] = p_val
+            # ─── Total Tide (±10.0 range) ───
+            mask_total = np.abs(w_strikes - level) <= strike_range
             
-    # Existing Gamma logic (Static, derived from daily aggregates)
-    # The user didn't explicitly ask to fix 'gamma_exposure' dynamism, only Market Tide.
-    # I will leave gamma_exposure using the static dicts efficiently.
-    # Logic copied from previous implementation for gamma exposure:
-    
-    # Extract arrays for vectorized gamma calc
-    # Can't easily vectorize dictionary lookup with varying keys.
-    # Fallback to per-touch loop over nearby strikes?
-    # Or just loop `perm` (touches) again?
-    
-    # Gamma Exposure = Net Dealer Gamma near level?
-    # Or Total Gamma? Default implementation uses 'strike_gamma' dict.
+            # Call Total
+            m = mask_total & (w_is_call == 1)
+            if np.any(m):
+                call_tide[i] = np.sum(w_prem[m])
+                
+            # Put Total
+            m = mask_total & (w_is_call == 0)
+            if np.any(m):
+                put_tide[i] = np.sum(w_prem[m])
+                
+            # ─── Split Tide (±5.0 range / 1 Strike) ───
+            # Above: (Level, Level + 5.0]
+            mask_above = (w_strikes > level) & (w_strikes <= level + 5.0)
+            # Below: [Level - 5.0, Level)
+            mask_below = (w_strikes < level) & (w_strikes >= level - 5.0)
+            
+            # Call Above
+            m = mask_above & (w_is_call == 1)
+            if np.any(m):
+                call_tide_above_5pt[i] = np.sum(w_prem[m])
+            # Call Below
+            m = mask_below & (w_is_call == 1)
+            if np.any(m):
+                call_tide_below_5pt[i] = np.sum(w_prem[m])
+                
+            # Put Above
+            m = mask_above & (w_is_call == 0)
+            if np.any(m):
+                put_tide_above_5pt[i] = np.sum(w_prem[m])
+            # Put Below
+            m = mask_below & (w_is_call == 0)
+            if np.any(m):
+                put_tide_below_5pt[i] = np.sum(w_prem[m])
+
+    # ─── Gamma Exposure (Static) ───
     strike_gamma = market_data.strike_gamma
-    
     for i in range(n):
         lvl = level_prices[i]
-        # Sum gamma for strikes near level (Static)
-        # Iterate relevant strikes?
-        # If strike_gamma is sparse, iteration is fast.
         g_val = 0.0
-        # Optimization: use pre-sorted keys of strike_gamma?
-        # For now, simplistic loop is what was there.
-        # But 'compute_fuel_metrics_batch' logic in Step 1680 iterate 'market_data.raw_option_flows'.
-        # I should iterate 'strike_gamma' keys.
         for k, v in strike_gamma.items():
              if abs(k - lvl) <= strike_range:
                  g_val += v
         gamma_exposure[i] = g_val
         
-        # Fuel Effect
-        if g_val < -100000: # Threshold
+        if g_val < -100000:
             fuel_effect[i] = 'AMPLIFY'
         elif g_val > 100000:
             fuel_effect[i] = 'DAMPEN'
         else:
             fuel_effect[i] = 'NEUTRAL'
-            
+
     return {
         'gamma_exposure': gamma_exposure,
         'fuel_effect': fuel_effect,
         'call_tide': call_tide,
-        'put_tide': put_tide
+        'put_tide': put_tide,
+        'call_tide_above_5pt': call_tide_above_5pt,
+        'call_tide_below_5pt': call_tide_below_5pt,
+        'put_tide_above_5pt': put_tide_above_5pt,
+        'put_tide_below_5pt': put_tide_below_5pt
     }
 
 
