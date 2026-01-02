@@ -77,6 +77,7 @@ def run_single_date(
 ) -> dict:
     """Run pipeline for a single date (worker function for parallel execution)."""
     try:
+        from src.pipeline.pipelines.registry import get_pipeline
         pipeline = get_pipeline(pipeline_name)
         start_t = time.time()
         
@@ -144,9 +145,13 @@ def main():
     # Parallel mode
     if args.workers and len(dates) > 1:
         print(f"Running {args.pipeline} pipeline for {len(dates)} dates with {args.workers} workers...")
+        import multiprocessing
+        
+        # Use spawn context to avoid pickling complex global state (like logger modules)
+        ctx = multiprocessing.get_context("spawn")
         
         results = []
-        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as executor:
             futures = {
                 executor.submit(
                     run_single_date,
