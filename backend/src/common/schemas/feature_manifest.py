@@ -51,7 +51,7 @@ class Parameters:
     CONFIRMATION_WINDOW_SECONDS: int = 240  # Stage B confirmation
     
     # SMA warmup
-    SMA_WARMUP_DAYS: int = 3
+    SMA_WARMUP_DAYS: int = 1  # 1 day = ~690 bars >> 90 bars needed for SMA_90
     
     # Labeling
     LOOKFORWARD_MINUTES: int = 8

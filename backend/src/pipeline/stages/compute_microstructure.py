@@ -1,10 +1,17 @@
 """
-Microstructure features - Vacuum, Latency, and Velocity.
+Microstructure features - Vacuum and Replenishment Latency.
 
 Per Microstructure Research (Phase 5):
-- Vacuum Duration: Time (ms) with depth < threshold.
-- Replenishment Latency: Time (ms) to refill after trade.
-- Gamma Velocity: Rate of change of options delta.
+- Vacuum Duration: Time (ms) with depth < threshold at best bid/ask.
+- Replenishment Latency (Bid): Time (ms) for bid-side depth to recover after shock.
+  → Measures SUPPORT resilience (liquidity below price)
+- Replenishment Latency (Ask): Time (ms) for ask-side depth to recover after shock.
+  → Measures RESISTANCE resilience (liquidity above price)
+
+Algorithm based on academic literature (Obizhaeva-Wang model):
+- Liquidity shock = ≥30% depth drop in consecutive MBP snapshots
+- Recovery = depth returns to 90% of pre-shock baseline
+- Typical recovery: 5-10 seconds in liquid markets
 
 Designed for 15s "Goldilocks" cadence.
 """
@@ -18,41 +25,108 @@ from src.common.event_types import MBP10
 from src.common.config import CONFIG
 
 
+def _get_side_depth_10(mbp: MBP10, side: str) -> int:
+    """Sum depth across all 10 levels for one side (bid or ask)."""
+    if not mbp.levels:
+        return 0
+    total = 0
+    for level in mbp.levels:
+        if side == 'bid':
+            total += level.bid_sz
+        else:
+            total += level.ask_sz
+    return total
+
+
+def _compute_pre_shock_baseline(
+    sorted_snapshots: list,
+    mbp_times: np.ndarray,
+    trade_ts: int,
+    side: str,
+    pre_window_ns: int = 1_000_000_000  # 1 second
+) -> float:
+    """
+    Compute average depth on impacted side over pre_window before trade.
+    Per academic literature: use 1-5 second window.
+    """
+    start_ts = trade_ts - pre_window_ns
+    start_idx = np.searchsorted(mbp_times, start_ts, side='right')
+    end_idx = np.searchsorted(mbp_times, trade_ts, side='left')
+    
+    if end_idx <= start_idx:
+        return 0.0
+    
+    depths = []
+    for i in range(start_idx, end_idx):
+        mbp = sorted_snapshots[i]
+        depths.append(_get_side_depth_10(mbp, side))
+    
+    return np.mean(depths) if depths else 0.0
+
+
 def compute_microstructure_features(
     signals_df: pd.DataFrame,
     mbp10_snapshots: List[MBP10],
-    vacuum_threshold: int = 5,  # Contracts
-    restore_threshold: int = 20 # Contracts
+    trades: List = None,
+    vacuum_threshold: int = 5,  # Contracts at best level
+    restore_threshold: int = 20,  # Contracts at best level for vacuum
+    depletion_threshold: float = 0.50,  # 50% depth drop = liquidity shock
+    recovery_threshold: float = 0.90,  # 90% recovery = replenished
+    max_recovery_horizon_ns: int = 60_000_000_000  # 60 seconds max search
 ) -> pd.DataFrame:
     """
     Compute microstructure features by scanning high-frequency MBP stream
     and latching max values into signal windows.
     
+    Replenishment Latency Algorithm (per academic literature):
+    1. Detect liquidity shocks from consecutive MBP snapshots (≥30% depth drop)
+    2. Track BID and ASK sides separately:
+       - BID replenishment = support resilience (liquidity below price)
+       - ASK replenishment = resistance resilience (liquidity above price)
+    3. Measure time until depth recovers to 90% of pre-shock baseline
+    4. Use sum of all 10 levels (not just best bid/ask)
+    
     Args:
         signals_df: DataFrame with signals (15s cadence)
         mbp10_snapshots: List of raw MBP-10 snapshots
-        vacuum_threshold: low liquidity threshold (contracts)
-        restore_threshold: replenishment threshold (contracts)
+        trades: List of trades (unused, kept for API compatibility)
+        vacuum_threshold: low liquidity threshold at best level (contracts)
+        restore_threshold: vacuum replenishment threshold at best level (contracts)
+        depletion_threshold: % depth drop to qualify as liquidity shock (0.30 = 30%)
+        recovery_threshold: % of baseline to qualify as recovered (0.90 = 90%)
+        max_recovery_horizon_ns: max time to search for recovery (60s)
     
     Returns:
-        DataFrame with added microstructure columns
+        DataFrame with added columns:
+        - vacuum_duration_ms: max vacuum duration in 15s window
+        - replenishment_latency_bid_ms: max bid-side recovery time (support)
+        - replenishment_latency_ask_ms: max ask-side recovery time (resistance)
     """
     if signals_df.empty or not mbp10_snapshots:
         result = signals_df.copy()
         result['vacuum_duration_ms'] = 0.0
-        result['replenishment_latency_ms'] = 0.0
+        result['replenishment_latency_bid_ms'] = 0.0  # Support resilience (below price)
+        result['replenishment_latency_ask_ms'] = 0.0  # Resistance resilience (above price)
         return result
     
     # Sort snapshots by time
     sorted_snapshots = sorted(mbp10_snapshots, key=lambda mbp: mbp.ts_event_ns)
     mbp_times = np.array([mbp.ts_event_ns for mbp in sorted_snapshots], dtype=np.int64)
     
+    # Pre-index trades if available
+    trade_times = None
+    sorted_trades = None
+    if trades is not None and len(trades) > 0:
+        sorted_trades = sorted(trades, key=lambda t: t.ts_event_ns)
+        trade_times = np.array([t.ts_event_ns for t in sorted_trades], dtype=np.int64)
+    
     n = len(signals_df)
     signal_ts = signals_df['ts_ns'].values
     
     # Output arrays
     vacuum_durations = np.zeros(n, dtype=np.float64)
-    replenishment_latencies = np.zeros(n, dtype=np.float64)
+    replenishment_latencies_bid = np.zeros(n, dtype=np.float64)  # Support resilience
+    replenishment_latencies_ask = np.zeros(n, dtype=np.float64)  # Resistance resilience
     
     # Scan logic: 
     # For each signal row at T, scan window [T-15s, T]
@@ -64,7 +138,7 @@ def compute_microstructure_features(
         ts = signal_ts[i]
         start_ts = ts - window_ns
         
-        # Find raw events in this 15s window
+        # Find MBP events in this 15s window
         start_idx = np.searchsorted(mbp_times, start_ts, side='right')
         end_idx = np.searchsorted(mbp_times, ts, side='right')
         
@@ -109,14 +183,71 @@ def compute_microstructure_features(
                  
         vacuum_durations[i] = max_vacuum_ms
         
-        # ─── Replenishment Latency (Placeholder) ───
-        # Require trade data stream (not just MBP snapshots) to trigger "consumption"
-        # For now, we only latch Vacuum
-        replenishment_latencies[i] = 0.0 
+        # ─── Replenishment Latency (MBP-based Algorithm, Split by Side) ───
+        # Detect liquidity shocks directly from consecutive MBP depth drops
+        # Split by BID (support/below) and ASK (resistance/above)
+        # Per academic literature: shock = ≥30% depth drop, recovery = 90% of pre-shock
+        max_replen_bid_ms = 0.0  # Support resilience (bids = below price)
+        max_replen_ask_ms = 0.0  # Resistance resilience (asks = above price)
+        
+        # Need at least 2 snapshots in window to detect changes
+        if len(window_snapshots) >= 2:
+            for k in range(1, len(window_snapshots)):
+                prev_mbp = window_snapshots[k - 1]
+                curr_mbp = window_snapshots[k]
+                
+                if not prev_mbp.levels or not curr_mbp.levels:
+                    continue
+                
+                # Check for liquidity shock on EACH side separately
+                for side in ['bid', 'ask']:
+                    prev_depth = _get_side_depth_10(prev_mbp, side)
+                    curr_depth = _get_side_depth_10(curr_mbp, side)
+                    
+                    if prev_depth < 20:  # Skip if already thin (avoid noise)
+                        continue
+                    
+                    # Is this a liquidity shock? (depth dropped by ≥30%)
+                    depletion = 1 - (curr_depth / prev_depth)
+                    if depletion < 0.30:  # Threshold tuned for MBP granularity
+                        continue  # Not a shock
+                    
+                    shock_ts = curr_mbp.ts_event_ns
+                    recovery_target = prev_depth * recovery_threshold  # 90% of pre-shock
+                    recovery_limit = shock_ts + max_recovery_horizon_ns
+                    
+                    # Find this MBP's global index to scan forward
+                    shock_idx = start_idx + k
+                    
+                    # Scan forward for recovery
+                    replen_ts = None
+                    for j in range(shock_idx + 1, len(sorted_snapshots)):
+                        future_mbp = sorted_snapshots[j]
+                        if future_mbp.ts_event_ns > recovery_limit:
+                            break  # Exceeded max horizon
+                        
+                        future_depth = _get_side_depth_10(future_mbp, side)
+                        if future_depth >= recovery_target:
+                            replen_ts = future_mbp.ts_event_ns
+                            break
+                    
+                    # Calculate latency and track per-side
+                    if replen_ts is not None:
+                        latency_ms = (replen_ts - shock_ts) / 1e6
+                        if side == 'bid':
+                            if latency_ms > max_replen_bid_ms:
+                                max_replen_bid_ms = latency_ms
+                        else:  # ask
+                            if latency_ms > max_replen_ask_ms:
+                                max_replen_ask_ms = latency_ms
+        
+        replenishment_latencies_bid[i] = max_replen_bid_ms
+        replenishment_latencies_ask[i] = max_replen_ask_ms 
 
     result = signals_df.copy()
     result['vacuum_duration_ms'] = vacuum_durations
-    result['replenishment_latency_ms'] = replenishment_latencies
+    result['replenishment_latency_bid_ms'] = replenishment_latencies_bid  # Support resilience
+    result['replenishment_latency_ask_ms'] = replenishment_latencies_ask  # Resistance resilience
     
     return result
 
@@ -130,15 +261,17 @@ class ComputeMicrostructureStage(BaseStage):
     
     @property
     def required_inputs(self) -> List[str]:
-        return ['signals_df', 'mbp10_snapshots']
+        return ['signals_df', 'mbp10_snapshots', 'trades']
     
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df']
         mbp10_snapshots = ctx.data.get('mbp10_snapshots', [])
+        trades = ctx.data.get('trades', None)
         
         signals_df = compute_microstructure_features(
             signals_df=signals_df,
-            mbp10_snapshots=mbp10_snapshots
+            mbp10_snapshots=mbp10_snapshots,
+            trades=trades
         )
         
         return {'signals_df': signals_df}

@@ -71,7 +71,7 @@ class Config:
     WEAK_LOOKBACK: float = 1800.0  # 30 minutes
     
     # ========== Tape thresholds (ES points) ==========
-    TAPE_BAND: float = 0.50  # price band around level for tape imbalance (ES points)
+    TAPE_BAND: float = 4.0  # price band around level for tape imbalance (ES points, ±16 ticks)
     SWEEP_MIN_NOTIONAL: float = 500_000.0  # minimum notional for sweep detection (ES = $50/pt)
     SWEEP_MAX_GAP_MS: int = 100  # max gap between prints in a sweep cluster
     SWEEP_MIN_VENUES: int = 1    # ES only trades on CME so set to 1
@@ -86,6 +86,7 @@ class Config:
     # - Effect on ES: pinning/chop near strikes, NOT sustained breaks
     # - Liquidity (order book) + Tape (directional flow) are primary drivers
     FUEL_STRIKE_RANGE: float = 50.0  # (Widened from 15.0) consider strikes within ±50 points
+    TIDE_SPLIT_RANGE: float = 25.0   # Split Tide bands: ±25 points (5 strikes above/below level)
     DEALER_FLOW_STRIKE_RANGE: float = 15.0  # strike range for dealer flow velocity
     USE_GAMMA_BUCKET_FILTER: bool = False  # Disable gamma regime filtering in kNN (gamma effects too small)
     GAMMA_FEATURE_WEIGHT: float = 0.3  # Downweight gamma features in ML training (vs 1.0 for liquidity/tape)
@@ -96,7 +97,7 @@ class Config:
     SMA_SLOPE_SHORT_BARS: int = 5
     MEAN_REVERSION_VOL_WINDOW_MINUTES: int = 20
     MEAN_REVERSION_VELOCITY_WINDOW_MINUTES: int = 10
-    SMA_WARMUP_DAYS: int = 3
+    SMA_WARMUP_DAYS: int = 1  # 1 day = ~690 bars >> 90 bars needed for SMA_90
     
     # ========== Score weights ==========
     # Note: Gamma effects are small relative to ES futures liquidity (0.04-0.17% of volume)

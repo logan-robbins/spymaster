@@ -1,9 +1,12 @@
 import pandas as pd
 import logging
+import shutil
 from typing import Dict, List, Any
 from datetime import time
+from pathlib import Path
 
 from src.pipeline.core.stage import BaseStage, StageContext
+from src.common.data_paths import canonical_state_dir, date_partition
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +141,9 @@ def materialize_state_table(
             pass
             
         # Merge AsOf
-        # Columns to keep from signals
-        keep_cols = [c for c in subset.columns if c not in ['timestamp', 'level_kind']]
+        # Columns to keep from signals (exclude timestamp, level_kind, and temporal cols already in base_grid)
+        exclude_cols = ['timestamp', 'level_kind', 'ts_ns', 'date', 'minutes_since_open', 'bars_since_open']
+        keep_cols = [c for c in subset.columns if c not in exclude_cols]
         merged = pd.merge_asof(
             base_grid, 
             subset[['timestamp'] + keep_cols], 

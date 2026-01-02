@@ -92,7 +92,8 @@ def compute_physics_batch(
             # Compute fuel metrics (vectorized) with timestamp filtering
             fuel_metrics = compute_fuel_metrics_batch(
                 touch_ts_ns, level_prices, vmd,
-                strike_range=CONFIG.FUEL_STRIKE_RANGE
+                strike_range=CONFIG.FUEL_STRIKE_RANGE,
+                split_range=CONFIG.TIDE_SPLIT_RANGE
             )
 
             # Build result
