@@ -382,12 +382,22 @@ def get_feature_names() -> List[str]:
         'level_stacking_2pt', 'level_stacking_5pt', 'level_stacking_10pt',
         'dist_to_pm_high_atr', 'dist_to_pm_low_atr', 'dist_to_or_high_atr',
         'dist_to_or_low_atr', 'dist_to_sma_90_atr', 'dist_to_ema_20_atr',
-        'prior_touches', 'attempt_index', 'time_since_last_touch_sec',
+        'attempt_index', 
         'gamma_exposure', 'fuel_effect_encoded',
         'gex_ratio', 'gex_asymmetry', 'net_gex_2strike',
         'gex_above_1strike', 'gex_below_1strike',
         'call_gex_above_2strike', 'put_gex_below_2strike'
     ])
+    
+    # Per-Level Touch Features (36)
+    level_names = ['pm_high', 'pm_low', 'or_high', 'or_low', 'sma_90', 'ema_20']
+    for level in level_names:
+        names.append(f'{level}_touches_from_above')
+        names.append(f'{level}_touches_from_below')
+        names.append(f'{level}_defended_touches_from_above')
+        names.append(f'{level}_defended_touches_from_below')
+        names.append(f'{level}_time_since_touch_from_above_sec')
+        names.append(f'{level}_time_since_touch_from_below_sec')
     
     # Section B: Multi-Scale Dynamics (40) - Updated per RESEARCH.md
     for scale in ['1min', '2min', '3min', '5min', '10min', '20min']:
