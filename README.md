@@ -20,6 +20,9 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 
 ## Quick Start
 
+**Current Data Range**: June 2 - October 31, 2025 (110 trading days)  
+**Pipeline Range** (with 3-day warmup): June 5 - October 31, 2025 (107 days)
+
 ### 1. Setup Environment
 
 ```bash
@@ -61,10 +64,11 @@ ES FUTURES:
 cd backend
 
 # Step 1: Download ES options DBN files (trades, NBBO, statistics)
-# Downloads to: data/raw/es_options/
+# Downloads to: data/raw/databento/options/
+# Current complete data range: June 2 - October 31, 2025
 uv run python scripts/download_es_options_fast.py \
-  --start 2024-11-01 \
-  --end 2024-12-31 \
+  --start 2025-06-02 \
+  --end 2025-10-31 \
   --workers 8
 
 # Step 2: Convert DBN files to Bronze Parquet
@@ -87,9 +91,10 @@ uv run python -m scripts.backfill_bronze_futures --all --workers 4
 **Note**: If you don't have ES futures DBN files locally, download them first using:
 ```bash
 cd backend
+# Current complete data range: June 2 - October 31, 2025
 uv run python scripts/download_es_futures_fast.py \
-  --start 2024-11-01 \
-  --end 2024-12-31 \
+  --start 2025-06-02 \
+  --end 2025-10-31 \
   --workers 4
 ```
 
@@ -108,7 +113,7 @@ ls data/bronze/futures/trades/symbol=ES/ | head
 ls data/bronze/futures/mbp10/symbol=ES/ | head
 
 # Validate a specific date
-uv run python scripts/validate_backfill.py --date 2024-11-01
+uv run python scripts/validate_backfill.py --date 2025-06-20
 ```
 
 ### 3. Run Pipeline
@@ -118,13 +123,14 @@ cd backend
 
 # Run pipeline (18 stages) and write canonical lake outputs under a versioned hierarchy
 # (rerunning the same version overwrites the date partitions by default)
-uv run python -m scripts.run_pipeline --start 2024-11-01 --end 2024-12-31 --canonical-version 3.1.0
+# Complete data range: June 5 - October 31, 2025 (with 3-day warmup from June 2)
+uv run python -m scripts.run_pipeline --start 2025-06-05 --end 2025-10-31 --canonical-version 4.0.0
 
 # Optional: enable incremental checkpointing / resume support
-uv run python -m scripts.run_pipeline --date 2024-12-20 --checkpoint-dir data/checkpoints --canonical-version 3.1.0
+uv run python -m scripts.run_pipeline --date 2025-06-20 --checkpoint-dir data/checkpoints --canonical-version 4.0.0
 
 # Validate pipeline output
-uv run python scripts/validate_es_pipeline.py --date 2024-12-20
+uv run python scripts/validate_es_pipeline.py --date 2025-06-20
 ```
 
 ### 4. Build Retrieval System
@@ -138,7 +144,7 @@ from pathlib import Path
 from src.ml.normalization import ComputeNormalizationStage
 
 stage = ComputeNormalizationStage(
-    state_table_dir=Path('data/silver/state/es_level_state/version=3.1.0'),
+    state_table_dir=Path('data/silver/state/es_level_state/version=4.0.0'),
     output_dir=Path('data/gold/normalization'),
     lookback_days=60
 )
@@ -152,8 +158,8 @@ from pathlib import Path
 from src.ml.index_builder import BuildIndicesStage
 
 stage = BuildIndicesStage(
-    episodes_dir=Path('data/gold/episodes/es_level_episodes/version=3.1.0'),
-    output_dir=Path('data/gold/indices/es_level_indices/version=3.1.0')
+    episodes_dir=Path('data/gold/episodes/es_level_episodes/version=4.0.0'),
+    output_dir=Path('data/gold/indices/es_level_indices/version=4.0.0')
 )
 result = stage.execute()
 print(f'Built {result[\"n_partitions_built\"]} indices')
@@ -182,18 +188,18 @@ cd backend
 
 # 1. Compute normalization statistics (60-day lookback)
 uv run python -m scripts.compute_stream_normalization \
-  --lookback-days 60 --end-date 2024-12-31
+  --lookback-days 60 --end-date 2025-10-31
 
 # 2. Run Pentaview pipeline (compute streams for a date)
 uv run python -m scripts.run_pentaview_pipeline \
-  --date 2024-12-16
+  --date 2025-09-15
 
 # 3. Validate output
-uv run python -m scripts.validate_pentaview --date 2024-12-16
+uv run python -m scripts.validate_pentaview --date 2025-09-15
 
 # 4. Build projection training dataset
 uv run python -m scripts.build_projection_dataset \
-  --start 2024-11-01 --end 2024-12-31 \
+  --start 2025-06-05 --end 2025-10-31 \
   --streams sigma_p,sigma_m,sigma_f,sigma_b,sigma_r
 
 # 5. Train projection models
@@ -209,7 +215,7 @@ uv run python -m scripts.demo_state_machine
 
 ### Output
 
-**Stream Bars**: `gold/streams/pentaview/version=3.1.0/date=YYYY-MM-DD/stream_bars.parquet`
+**Stream Bars**: `gold/streams/pentaview/version=4.0.0/date=YYYY-MM-DD/stream_bars.parquet`
 - 32 columns: 5 canonical + 2 merged + 3 composites + derivatives
 - One row per 2-min bar per active level
 - All values bounded in [-1, +1]
@@ -230,8 +236,8 @@ uv run python -m scripts.demo_state_machine
 cd backend
 
 # Test on single date
-uv run python -m scripts.run_pentaview_pipeline --date 2024-12-16
-uv run python -m scripts.validate_pentaview --date 2024-12-16
+uv run python -m scripts.run_pentaview_pipeline --date 2025-09-15
+uv run python -m scripts.validate_pentaview --date 2025-09-15
 
 # Test projection model
 uv run python -m scripts.demo_projection
@@ -241,18 +247,6 @@ uv run python -m scripts.demo_state_machine
 ```
 
 **See [STREAMS.md](STREAMS.md) for complete specification.**
-
----
-
-## Documentation
-
-**📘 [IMPLEMENTATION_READY.md](IMPLEMENTATION_READY.md)**: **CANONICAL SPECIFICATION** - Complete system architecture, data contracts, algorithms, and validation  
-**[COMPONENTS.md](COMPONENTS.md)**: Component architecture and interface contracts  
-**[backend/DATA_ARCHITECTURE.md](backend/DATA_ARCHITECTURE.md)**: Data pipeline and storage architecture  
-**[backend/SILVER_SCHEMA.md](backend/SILVER_SCHEMA.md)**: Silver layer schema  
-**[backend/src/common/schemas/](backend/src/common/schemas/)**: PyArrow schema definitions  
-
-**Module Docs**: See `backend/src/{module}/README.md` for implementation details
 
 ---
 
@@ -266,7 +260,7 @@ docker-compose up nats -d
 
 # Terminal 2: Ingestion (replay mode for testing)
 cd backend
-export REPLAY_DATE=2024-12-16
+export REPLAY_DATE=2025-09-15
 uv run python -m src.ingestion.databento.replay
 
 # Terminal 3: Core service (with retrieval engine)
@@ -286,15 +280,15 @@ npm run start
 cd backend
 
 # Validate full pipeline for a date
-uv run python scripts/validate_es_pipeline.py --date 2024-12-20
+uv run python scripts/validate_es_pipeline.py --date 2025-09-15
 
 # Validate specific stages
-uv run python scripts/validate_stage_14_label_outcomes.py --date 2024-12-20
-uv run python scripts/validate_stage_16_materialize_state_table.py --date 2024-12-20
-uv run python scripts/validate_stage_17_construct_episodes.py --date 2024-12-20
+uv run python scripts/validate_stage_14_label_outcomes.py --date 2025-09-15
+uv run python scripts/validate_stage_16_materialize_state_table.py --date 2025-09-15
+uv run python scripts/validate_stage_17_construct_episodes.py --date 2025-09-15
 
 # Batch validation
-uv run python scripts/validate_es_pipeline.py --start 2024-12-01 --end 2024-12-31
+uv run python scripts/validate_es_pipeline.py --start 2025-06-05 --end 2025-10-31
 ```
 
 ---

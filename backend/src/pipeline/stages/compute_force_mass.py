@@ -94,6 +94,22 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     result['accel_residual'] = accel_residual
     result['force_mass_ratio'] = force_mass_ratio
     
+    # Flow alignment: OFI aligned with approach direction
+    # Per EPISODE_VECTOR_SCHEMA.md Section D, index 110
+    # Positive when OFI matches the approach direction, negative when opposing
+    if 'ofi_60s' in signals_df.columns and 'direction' in signals_df.columns:
+        ofi_60s = signals_df['ofi_60s'].fillna(0).values
+        # Direction sign: UP = 1 (approaching from below), DOWN = -1 (approaching from above)
+        direction_sign = np.where(signals_df['direction'] == 'UP', 1, -1)
+        result['flow_alignment'] = ofi_60s * direction_sign
+    elif 'ofi_60s' in signals_df.columns and 'distance_signed' in signals_df.columns:
+        # Alternative: use signed distance if direction not available
+        ofi_60s = signals_df['ofi_60s'].fillna(0).values
+        distance_sign = np.sign(signals_df['distance_signed'].fillna(0).values)
+        result['flow_alignment'] = ofi_60s * distance_sign
+    else:
+        result['flow_alignment'] = 0.0
+    
     return result
 
 

@@ -88,14 +88,16 @@ class DBNReader:
         """
         files = []
 
-        # Check both schema directories
-        schemas_to_check = ['trades', 'MBP-10'] if schema is None else [schema]
-
-        for schema_dir in schemas_to_check:
-            schema_path = self.dbn_root / schema_dir
+        # Structure: data/raw/databento/futures/{trades,mbp10}/
+        databento_path = self.dbn_root / 'databento' / 'futures'
+        
+        schemas_to_check = ['trades', 'mbp10'] if schema is None else [schema]
+        
+        for schema_name in schemas_to_check:
+            schema_path = databento_path / schema_name
             if not schema_path.exists():
                 continue
-
+                
             for file_path in schema_path.glob('*.dbn'):
                 # Parse filename: glbx-mdp3-20251216.trades.dbn
                 parts = file_path.stem.split('.')
@@ -127,7 +129,8 @@ class DBNReader:
         if schema_dir in self._symbology_cache:
             return self._symbology_cache[schema_dir]
 
-        symbology_path = self.dbn_root / schema_dir / 'symbology.json'
+        # Structure: data/raw/databento/futures/{schema_dir}/symbology.json
+        symbology_path = self.dbn_root / 'databento' / 'futures' / schema_dir / 'symbology.json'
         if symbology_path.exists():
             with open(symbology_path) as f:
                 data = json.load(f)
@@ -255,7 +258,7 @@ class DBNReader:
         if date:
             files = [f for f in files if f.date == date]
 
-        symbology = self._load_symbology('MBP-10')
+        symbology = self._load_symbology('mbp10')
 
         for file_info in files:
             print(f"  DBN: Reading MBP-10 from {file_info.path}")

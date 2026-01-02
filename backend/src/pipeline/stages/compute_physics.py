@@ -107,6 +107,24 @@ def compute_physics_batch(
             result['gamma_exposure'] = fuel_metrics['gamma_exposure']
             result['call_tide'] = fuel_metrics.get('call_tide', np.zeros(n, dtype=np.float64))
             result['put_tide'] = fuel_metrics.get('put_tide', np.zeros(n, dtype=np.float64))
+            
+            # Encode barrier_state and fuel_effect to numeric
+            # Per EPISODE_VECTOR_SCHEMA.md Section D
+            barrier_state_map = {
+                'STRONG_RESISTANCE': -2,
+                'WEAK_RESISTANCE': -1,
+                'NEUTRAL': 0,
+                'WEAK_SUPPORT': 1,
+                'STRONG_SUPPORT': 2
+            }
+            fuel_effect_map = {
+                'AMPLIFY': -1,  # Dealer short gamma amplifies moves
+                'NEUTRAL': 0,
+                'DAMPEN': 1     # Dealer long gamma dampens moves
+            }
+            
+            result['barrier_state_encoded'] = result['barrier_state'].map(barrier_state_map).fillna(0).astype(np.int32)
+            result['fuel_effect_encoded'] = result['fuel_effect'].map(fuel_effect_map).fillna(0).astype(np.int32)
 
             return result
 
@@ -205,6 +223,24 @@ def compute_physics_batch(
     result['gamma_exposure'] = gamma_exposure
     result['call_tide'] = call_tides
     result['put_tide'] = put_tides
+    
+    # Encode barrier_state and fuel_effect to numeric
+    # Per EPISODE_VECTOR_SCHEMA.md Section D
+    barrier_state_map = {
+        'STRONG_RESISTANCE': -2,
+        'WEAK_RESISTANCE': -1,
+        'NEUTRAL': 0,
+        'WEAK_SUPPORT': 1,
+        'STRONG_SUPPORT': 2
+    }
+    fuel_effect_map = {
+        'AMPLIFY': -1,  # Dealer short gamma amplifies moves
+        'NEUTRAL': 0,
+        'DAMPEN': 1     # Dealer long gamma dampens moves
+    }
+    
+    result['barrier_state_encoded'] = result['barrier_state'].map(barrier_state_map).fillna(0).astype(np.int32)
+    result['fuel_effect_encoded'] = result['fuel_effect'].map(fuel_effect_map).fillna(0).astype(np.int32)
 
     return result
 

@@ -219,8 +219,8 @@ def materialize_state_table(
                 # Kinematics
                 'velocity_1min', 'velocity_2min', 'velocity_3min', 'velocity_5min', 'velocity_10min', 'velocity_20min',
                 'acceleration_1min', 'acceleration_2min', 'acceleration_3min', 'acceleration_5min', 'acceleration_10min', 'acceleration_20min',
-                'jerk_1min', 'jerk_2min', 'jerk_3min', 'jerk_5min', 'jerk_10min', 'jerk_20min',
-                'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
+                'jerk_1min', 'jerk_2min', 'jerk_3min', 'jerk_5min',  # Removed jerk_10min, jerk_20min per schema
+                'momentum_trend_1min', 'momentum_trend_2min', 'momentum_trend_3min', 'momentum_trend_5min', 'momentum_trend_10min', 'momentum_trend_20min',
                 # Approach
                 'approach_velocity', 'approach_bars', 'approach_distance_atr',
                 # Order flow
@@ -230,18 +230,38 @@ def materialize_state_table(
                 # Tape
                 'tape_imbalance', 'tape_velocity', 'tape_buy_vol', 'tape_sell_vol', 'sweep_detected',
                 # Barrier
-                'barrier_state', 'barrier_depth_current', 'barrier_delta_liq',
+                'barrier_state', 'barrier_state_encoded', 'barrier_depth_current', 'barrier_delta_liq',
                 'barrier_replenishment_ratio', 'wall_ratio',
-                'barrier_delta_1min', 'barrier_delta_3min', 'barrier_delta_5min',
+                'barrier_delta_1min', 'barrier_delta_2min', 'barrier_delta_3min', 'barrier_delta_5min',
                 'barrier_pct_change_1min', 'barrier_pct_change_3min', 'barrier_pct_change_5min',
                 # GEX
-                'gamma_exposure', 'fuel_effect', 'gex_asymmetry', 'gex_ratio',
+                'gamma_exposure', 'fuel_effect', 'fuel_effect_encoded', 'gex_asymmetry', 'gex_ratio',
                 'net_gex_2strike', 'gex_above_1strike', 'gex_below_1strike',
                 'call_gex_above_2strike', 'put_gex_below_2strike',
                 # Physics
-                'predicted_accel', 'accel_residual', 'force_mass_ratio',
+                'predicted_accel', 'accel_residual', 'force_mass_ratio', 'flow_alignment',
                 # Touch/attempt
-                'prior_touches', 'attempt_index',
+                'attempt_index', 'or_active',
+                # Per-level touch features (48 total: 6 levels × 8 metrics)
+                # Generated in label_outcomes stage (B2S.15) via OHLC-based touch detection
+                'pm_high_touches_from_above', 'pm_high_touches_from_below',
+                'pm_high_defended_touches_from_above', 'pm_high_defended_touches_from_below',
+                'pm_high_time_since_touch_from_above_sec', 'pm_high_time_since_touch_from_below_sec',
+                'pm_low_touches_from_above', 'pm_low_touches_from_below',
+                'pm_low_defended_touches_from_above', 'pm_low_defended_touches_from_below',
+                'pm_low_time_since_touch_from_above_sec', 'pm_low_time_since_touch_from_below_sec',
+                'or_high_touches_from_above', 'or_high_touches_from_below',
+                'or_high_defended_touches_from_above', 'or_high_defended_touches_from_below',
+                'or_high_time_since_touch_from_above_sec', 'or_high_time_since_touch_from_below_sec',
+                'or_low_touches_from_above', 'or_low_touches_from_below',
+                'or_low_defended_touches_from_above', 'or_low_defended_touches_from_below',
+                'or_low_time_since_touch_from_above_sec', 'or_low_time_since_touch_from_below_sec',
+                'sma_90_touches_from_above', 'sma_90_touches_from_below',
+                'sma_90_defended_touches_from_above', 'sma_90_defended_touches_from_below',
+                'sma_90_time_since_touch_from_above_sec', 'sma_90_time_since_touch_from_below_sec',
+                'ema_20_touches_from_above', 'ema_20_touches_from_below',
+                'ema_20_defended_touches_from_above', 'ema_20_defended_touches_from_below',
+                'ema_20_time_since_touch_from_above_sec', 'ema_20_time_since_touch_from_below_sec',
                 # Cluster trends
                 'barrier_replenishment_trend', 'barrier_delta_liq_trend',
                 'tape_velocity_trend', 'tape_imbalance_trend',
@@ -253,14 +273,9 @@ def materialize_state_table(
                 else:
                     # Handle missing columns gracefully
                     state_row[col] = None
-
-            # Compute time since last interaction event (seconds).
-            # Note: signals_df rows are interaction events (zone entries); this yields a dynamic
-            # recency feature that increases between events and resets to ~0 at each new event.
-            try:
-                state_row['time_since_last_touch_sec'] = float((ts - latest_signal['timestamp']).total_seconds())
-            except Exception:
-                state_row['time_since_last_touch_sec'] = None
+            
+            # time_since_last_touch_sec is now computed in B2S Stage 14 (ComputeApproachFeatures)
+            # and will be forward-filled from signals_df via the feature_cols list above
             
             state_rows.append(state_row)
         

@@ -112,8 +112,14 @@ def main():
     
     args = parser.parse_args()
     
-    raw_dir = _backend_dir / 'data' / 'raw' / 'es_options'
+    raw_dir = _backend_dir / 'data' / 'raw' / 'databento' / 'options' / 'statistics'
     bronze_root = _backend_dir / 'data' / 'bronze' / 'options'
+    
+    if not raw_dir.exists():
+        print(f"ERROR: Raw directory not found: {raw_dir}")
+        return 1
+    
+    print(f"Reading from: {raw_dir}")
     
     # Find DBN files to convert
     if args.all:
