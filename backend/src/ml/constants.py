@@ -37,16 +37,16 @@ TIME_BUCKETS = {
 }
 
 # ─── Episode Vector Dimensions ───
-VECTOR_DIMENSION = 149  # Canonical spec:  vectors (per RESEARCH.md)
+VECTOR_DIMENSION = 183  # Canonical spec: 183-dim vectors (per EPISODE_VECTOR_SCHEMA.md v4.5.0)
 
-# Vector section boundaries ()
+# Vector section boundaries
 VECTOR_SECTIONS = {
-    'context_regime': (0, 25),       # 25 dims
-    'multiscale_dynamics': (25, 65), # 40 dims (added 2min momentum_trend, 2min barrier_delta)
-    'micro_history': (65, 100),      # 35 dims
-    'derived_physics': (100, 113),   # 13 dims (added call_tide, put_tide)
-    'online_trends': (113, 117),     # 4 dims
-    'trajectory_basis': (117, 149),  # 32 dims
+    'context_regime': (0, 59),        # 59 dims (23 basic + 36 per-level features)
+    'multiscale_dynamics': (59, 99),  # 40 dims
+    'micro_history': (99, 134),       # 35 dims
+    'derived_physics': (134, 147),    # 13 dims
+    'online_trends': (147, 151),      # 4 dims
+    'trajectory_basis': (151, 183),   # 32 dims
 }
 
 # ─── Normalization Parameters ───
@@ -64,11 +64,10 @@ LEVEL_KINDS = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
 
 # ─── Horizons ───
 HORIZONS = {
-    '2min': 120,  # seconds
-    '4min': 240,
-    '8min': 480
+    '4min': 240,  # Fast signal
+    '8min': 480   # Confirmation (primary)
 }
-PRIMARY_HORIZON = '4min'
+PRIMARY_HORIZON = '8min'
 
 # ─── State Table ───
 STATE_CADENCE_SEC = 15  # 15s "Goldilocks" cadence per Microstructure Research
