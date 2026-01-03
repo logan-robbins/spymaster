@@ -2,7 +2,7 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 import pandas as pd
 
 from src.pipeline.core.stage import BaseStage, StageContext
@@ -11,6 +11,24 @@ from src.common.schemas.silver_features import validate_silver_features
 from src.common.data_paths import canonical_signals_dir, date_partition
 
 logger = logging.getLogger(__name__)
+
+# Identity columns (keep unprefixed - event metadata)
+IDENTITY_COLS: Set[str] = {
+    'event_id', 'ts_ns', 'timestamp', 'level_price', 'level_kind_name',
+    'direction', 'entry_price', 'date'
+}
+
+# Global features (same regardless of level - remove to avoid duplication)
+GLOBAL_FEATURES: Set[str] = {
+    'atr',                    # Market volatility - same for all levels
+    'spot',                   # Current market price
+    'minutes_since_open',     # Session timing
+    'bars_since_open',        # Session timing
+    'or_active',              # Session timing
+}
+
+# Note: Labels (outcome, excursion, etc.) ARE level-relative and WILL be prefixed
+# A BREAK at PM_HIGH is different from a BREAK at OR_LOW
 
 
 class FilterRTHStage(BaseStage):
@@ -22,6 +40,10 @@ class FilterRTHStage(BaseStage):
     - 09:30-12:30 ET: First 3 hours of RTH (most liquid, cleanest price action)
     
     Total: 4 hours of signal data per day.
+    
+    Also:
+    - Removes global features (atr, spot, session timing) to avoid duplication across levels
+    - Prefixes all level-relative features with level name (e.g., pm_high_ofi_60s)
     
     Outputs:
         signals: Final filtered DataFrame (key used by Pipeline.run)
@@ -71,6 +93,27 @@ class FilterRTHStage(BaseStage):
         signals_df = signals_df.drop(
             columns=[c for c in cols_to_drop if c in signals_df.columns]
         )
+
+        # === LEVEL-SPECIFIC OUTPUT PREPARATION ===
+        level_name = ctx.level.lower()  # e.g., 'pm_high'
+        
+        # 1. Ensure level_kind_name is present
+        if 'level_kind_name' not in signals_df.columns:
+            signals_df['level_kind_name'] = level_name.upper()
+            logger.info(f"  Added level_kind_name: {level_name.upper()}")
+        
+        # 2. Remove global features (computed once during merge)
+        global_present = [c for c in GLOBAL_FEATURES if c in signals_df.columns]
+        if global_present:
+            signals_df = signals_df.drop(columns=global_present)
+            logger.info(f"  Removed {len(global_present)} global features: {global_present}")
+        
+        # 3. Prefix ALL level-relative columns (features AND labels) with level name
+        # Only identity columns stay unprefixed
+        cols_to_prefix = [c for c in signals_df.columns if c not in IDENTITY_COLS]
+        rename_map = {c: f'{level_name}_{c}' for c in cols_to_prefix}
+        signals_df = signals_df.rename(columns=rename_map)
+        logger.info(f"  Prefixed {len(cols_to_prefix)} columns (features + labels) with '{level_name}_'")
 
         # Validate against Silver schema (non-strict during development)
         if validate_silver_features(signals_df, strict=False):

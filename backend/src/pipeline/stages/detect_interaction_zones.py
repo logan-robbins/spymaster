@@ -151,6 +151,7 @@ def detect_entries_from_ticks(
                     'ts_ns': t,
                     'timestamp': pd.Timestamp(t, unit='ns', tz='UTC'),
                     'level_price': level_price,
+                    'level_kind_name': level_name,  # Identity: which level type
                     'direction': direction,
                     'entry_price': p,
                     'spot': p,
