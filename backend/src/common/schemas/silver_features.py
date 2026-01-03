@@ -301,9 +301,19 @@ FEATURE_COLUMNS: List[str] = [
 ]
 
 
+VALID_LEVEL_PREFIXES = {'pm_high_', 'pm_low_', 'or_high_', 'or_low_', 'sma_90_', 'ema_20_'}
+
+# Required labels (will be prefixed with level name)
+REQUIRED_LABELS_UNPREFIXED = {'outcome', 'excursion_favorable', 'excursion_adverse'}
+
+
 def validate_silver_features(df, strict: bool = False) -> bool:
     """
     Validate that a DataFrame matches the Silver features schema.
+    
+    Schema structure:
+    - Identity columns: unprefixed (event_id, ts_ns, level_kind_name, etc.)
+    - Features AND labels: prefixed with level name (pm_high_ofi_60s, pm_high_outcome, etc.)
     
     Args:
         df: DataFrame from ES pipeline
@@ -318,22 +328,47 @@ def validate_silver_features(df, strict: bool = False) -> bool:
     import logging
     logger = logging.getLogger(__name__)
     
-    schema = SilverFeaturesESPipelineV1._arrow_schema
-    expected_cols = set(schema.names)
-    actual_cols = set(df.columns)
+    errors = []
     
-    missing = expected_cols - actual_cols
-    extra = actual_cols - expected_cols
+    # 1. Check identity columns (required, unprefixed)
+    required_identity = {'event_id', 'ts_ns', 'level_price', 'level_kind_name', 'direction', 'entry_price', 'date'}
+    missing_identity = required_identity - set(df.columns)
+    if missing_identity:
+        errors.append(f"Missing identity columns: {missing_identity}")
     
-    if missing or extra:
-        errors = []
-        if missing:
-            errors.append(f"Missing ({len(missing)}): {sorted(list(missing))[:10]}...")
-        if extra:
-            errors.append(f"Extra ({len(extra)}): {sorted(list(extra))[:10]}...")
+    # 2. Detect level prefix
+    prefix = None
+    for col in df.columns:
+        for p in VALID_LEVEL_PREFIXES:
+            if col.startswith(p):
+                prefix = p
+                break
+        if prefix:
+            break
+    
+    if not prefix:
+        errors.append("No level prefix detected on columns")
+    else:
+        # Count prefixed columns (features + labels)
+        prefixed_cols = [c for c in df.columns if c.startswith(prefix)]
+        logger.info(f"  Detected prefix '{prefix}' with {len(prefixed_cols)} columns")
         
-        msg = f"Schema mismatch: {'; '.join(errors)}"
-        
+        # 3. Check required labels are present (prefixed)
+        for label in REQUIRED_LABELS_UNPREFIXED:
+            prefixed_label = f"{prefix}{label}"
+            if prefixed_label not in df.columns:
+                errors.append(f"Missing label: {prefixed_label}")
+    
+    # 4. Check for column type issues (skip identity columns)
+    identity_cols = {'event_id', 'ts_ns', 'timestamp', 'level_price', 'level_kind_name', 
+                     'direction', 'entry_price', 'date'}
+    for col in df.columns:
+        if col not in identity_cols:
+            if df[col].dtype == 'object':
+                errors.append(f"Non-numeric column: {col} (dtype={df[col].dtype})")
+    
+    if errors:
+        msg = f"Schema validation: {'; '.join(errors)}"
         if strict:
             raise ValueError(msg)
         else:
