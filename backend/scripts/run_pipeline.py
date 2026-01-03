@@ -1,8 +1,8 @@
 """
-Run ES pipelines for a specific level.
+Run ES pipelines.
 
 Usage:
-    # Run Bronze→Silver for PM_HIGH
+    # Run Bronze→Silver for PM_HIGH (level-specific)
     uv run python -m scripts.run_pipeline \
       --pipeline bronze_to_silver \
       --level PM_HIGH \
@@ -10,10 +10,18 @@ Usage:
       --checkpoint-dir data/checkpoints \
       --write-outputs
     
-    # Run date range
+    # Run date range (level-specific)
     uv run python -m scripts.run_pipeline \
       --pipeline bronze_to_silver \
       --level PM_LOW \
+      --start 2025-12-16 \
+      --end 2025-12-20 \
+      --workers 4 \
+      --write-outputs
+
+    # Run global market pipeline (no level needed)
+    uv run python -m scripts.run_pipeline \
+      --pipeline bronze_to_silver_global \
       --start 2025-12-16 \
       --end 2025-12-20 \
       --workers 4 \
@@ -30,7 +38,12 @@ from typing import List
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
 
-from src.pipeline.pipelines.registry import get_pipeline, list_available_pipelines
+from src.pipeline.pipelines.registry import (
+    get_pipeline, 
+    list_available_pipelines,
+    LEVEL_REQUIRED_PIPELINES,
+    GLOBAL_PIPELINES,
+)
 from src.pipeline.core.checkpoint import CheckpointManager
 
 
@@ -111,12 +124,12 @@ def run_single_date(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run ES Pipeline for specific level")
+    parser = argparse.ArgumentParser(description="Run ES Pipeline")
     parser.add_argument("--pipeline", default="bronze_to_silver", 
-                       help="Pipeline name (bronze_to_silver, silver_to_gold)")
-    parser.add_argument("--level", required=True, 
+                       help="Pipeline name (bronze_to_silver, bronze_to_silver_global, silver_to_gold)")
+    parser.add_argument("--level", 
                        choices=["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SMA_90"],
-                       help="Level type (required)")
+                       help="Level type (required for level-specific pipelines)")
     parser.add_argument("--date", type=str, help="Single date (YYYY-MM-DD)")
     parser.add_argument("--start", type=str, help="Start date for range (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, help="End date for range (YYYY-MM-DD)")
@@ -137,8 +150,20 @@ def main():
         pipelines = list_available_pipelines()
         print("Available pipelines:")
         for p in pipelines:
-            print(f"  - {p}")
+            level_indicator = " (requires --level)" if p in LEVEL_REQUIRED_PIPELINES else " (global)"
+            print(f"  - {p}{level_indicator}")
         return 0
+    
+    # Validate level requirement based on pipeline type
+    if args.pipeline in LEVEL_REQUIRED_PIPELINES:
+        if not args.level:
+            print(f"Error: --level is required for pipeline '{args.pipeline}'")
+            print(f"Valid levels: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90")
+            return 1
+    elif args.pipeline in GLOBAL_PIPELINES:
+        if args.level:
+            print(f"Warning: --level ignored for global pipeline '{args.pipeline}'")
+        args.level = "GLOBAL"  # Convention for global pipelines
     
     # Build date list
     try:
