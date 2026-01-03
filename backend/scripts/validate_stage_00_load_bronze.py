@@ -406,6 +406,7 @@ class Stage0Validator:
 def main():
     parser = argparse.ArgumentParser(description='Validate Stage 0: LoadBronze')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
+    parser.add_argument('--level', type=str, default='PM_HIGH', help='Level type (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
     parser.add_argument('--log-file', type=str, default=None, help='Log file path')
@@ -425,10 +426,10 @@ def main():
     
     try:
         # Load checkpoint from stage 0 (should already exist from pipeline run)
-        logger.info("Loading checkpoint from stage 0...")
+        logger.info(f"Loading checkpoint from stage 0 for level {args.level}...")
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=0)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=0, level=args.level)
         
         if ctx is None:
             logger.error("Failed to load checkpoint")

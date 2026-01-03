@@ -92,6 +92,52 @@ class DuckDBReader:
             front_month_only=front_month_only, specific_contract=specific_contract
         )
 
+    def read_futures_trades_from_mbp10(
+        self,
+        date: str,
+        start_ns: int,
+        end_ns: int
+    ) -> pd.DataFrame:
+        """Extract trades from MBP-10 action='T' events.
+        
+        MBP-10 includes trades as action='T' events, eliminating need for
+        separate trades schema. This is more efficient than dual ingestion.
+        
+        Args:
+            date: Date string (YYYY-MM-DD)
+            start_ns: Start timestamp in nanoseconds
+            end_ns: End timestamp in nanoseconds
+            
+        Returns:
+            DataFrame with trades (ts_event_ns, price, size, aggressor, symbol)
+        """
+        base = Path(self.bronze_root) / "futures" / "mbp10" / f"symbol=ES" / f"date={date}"
+        if not base.exists():
+            return pd.DataFrame()
+        
+        glob_pattern = str(base / "**" / "*.parquet")
+        
+        # Extract trades: action='T', map side (A=buy lifted ask, B=sell hit bid)
+        # Filter to valid ES price range (3000-10000)
+        query = f"""
+            SELECT 
+                ts_event_ns,
+                action_price AS price,
+                action_size AS size,
+                CASE side 
+                    WHEN 'A' THEN 1   -- Buyer lifted ask (aggressive buy)
+                    WHEN 'B' THEN -1  -- Seller hit bid (aggressive sell)
+                    ELSE 0 
+                END AS aggressor,
+                symbol
+            FROM read_parquet('{glob_pattern}', hive_partitioning=true, union_by_name=true)
+            WHERE ts_event_ns BETWEEN {start_ns} AND {end_ns}
+              AND action = 'T'
+              AND action_price >= 3000 AND action_price <= 10000
+            ORDER BY ts_event_ns
+        """
+        return self.duckdb.execute(query).fetchdf()
+
     def read_futures_mbp10_downsampled(
         self,
         date: str,
@@ -123,6 +169,8 @@ class DuckDBReader:
         bucket_ns = int(bucket_ms * 1e6)
         glob_pattern = str(base / "**" / "*.parquet")
 
+        # Filter ES outrights by price range (3000-10000)
+        # This excludes MES (~600) and invalid data (53.50 from spreads, 9B overflow)
         query = f"""
             SELECT * EXCLUDE(bucket, rn)
             FROM (
@@ -131,6 +179,8 @@ class DuckDBReader:
                     row_number() OVER (PARTITION BY bucket ORDER BY ts_event_ns DESC) AS rn
                 FROM read_parquet('{glob_pattern}', hive_partitioning=true, union_by_name=true)
                 WHERE ts_event_ns BETWEEN {start_ns} AND {end_ns}
+                  AND bid_px_1 >= 3000 AND bid_px_1 <= 10000
+                  AND ask_px_1 >= 3000 AND ask_px_1 <= 10000
             )
             WHERE rn = 1
             ORDER BY ts_event_ns

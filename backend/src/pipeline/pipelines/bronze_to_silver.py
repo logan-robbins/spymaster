@@ -18,7 +18,7 @@ Consumers: Data scientists, ML experiments, Silver → Gold pipelines
 
 from src.pipeline.core.pipeline import Pipeline
 from src.pipeline.stages.load_bronze import LoadBronzeStage
-from src.pipeline.stages.build_es_ohlcv import BuildOHLCVStage
+from src.pipeline.stages.build_all_ohlcv import BuildAllOHLCVStage
 from src.pipeline.stages.init_market_state import InitMarketStateStage
 from src.pipeline.stages.generate_levels import GenerateLevelsStage
 from src.pipeline.stages.detect_interaction_zones import DetectInteractionZonesStage
@@ -39,36 +39,33 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
     """
     Build Bronze → Silver pipeline (feature engineering).
     
-    Stage sequence (0-indexed, stages 0-16):
+    Stage sequence (0-indexed, stages 0-14):
     0. LoadBronze (ES futures + options, front-month filtered)
-    1. BuildOHLCV (1min for ATR/volatility)
-    2. BuildOHLCV (10s for high-res physics validation)
-    3. BuildOHLCV (2min with warmup for SMA_90/EMA_20)
-    4. InitMarketState (market state + Greeks)
-    5. GenerateLevels (6 level kinds: PM/OR high/low + SMA_90/EMA_20)
-    6. DetectInteractionZones (event-driven zone entry)
-    7. ComputePhysics (barrier/tape/fuel + Market Tide: call_tide, put_tide)
-    8. ComputeMultiWindowKinematics (velocity/accel/jerk/momentum at 1,2,3,5,10,20min)
-    9. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
-    10. ComputeBarrierEvolution (depth changes at 1,2,3,5min)
-    11. ComputeLevelDistances (signed distances to all structural levels)
-    12. ComputeGEXFeatures (gamma within ±1/±2/±3 strikes)
-    13. ComputeForceMass (F=ma validation features)
-    14. ComputeApproachFeatures (approach context + timing + normalization + clustering)
-    15. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
-    16. FilterRTH (09:30-12:30 ET + write to Silver)
+    1. BuildAllOHLCV (trades → 10s → 1min → 2min hierarchically, ATR, warmup)
+    2. InitMarketState (market state + Greeks)
+    3. GenerateLevels (6 level kinds: PM/OR high/low + SMA_90/EMA_20)
+    4. DetectInteractionZones (event-driven zone entry)
+    5. ComputePhysics (barrier/tape/fuel + Market Tide: call_tide, put_tide)
+    6. ComputeMultiWindowKinematics (velocity/accel/jerk/momentum at 1,2,3,5,10,20min)
+    7. ComputeMultiWindowOFI (integrated OFI at 30,60,120,300s)
+    8. ComputeMicrostructure (vacuum/latency detection)
+    9. ComputeBarrierEvolution (depth changes at 1,2,3,5min)
+    10. ComputeLevelDistances (signed distances to all structural levels)
+    11. ComputeGEXFeatures (gamma within ±1/±2/±3 strikes)
+    12. ComputeForceMass (F=ma validation features)
+    13. ComputeApproachFeatures (approach context + timing + normalization + clustering)
+    14. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
+    15. FilterRTH (09:30-12:30 ET + write to Silver)
     
     Returns:
         Pipeline instance
     """
     return Pipeline(
         name="bronze_to_silver",
-        version="4.5.0",  # Phase 4.5: Market Tide + multi-scale completion
+        version="4.6.0",  # Phase 4.6: Consolidated OHLCV + hierarchical resampling
         stages=[
             LoadBronzeStage(),
-            BuildOHLCVStage(freq='1min', output_key='ohlcv_1min', rth_only=False),
-            BuildOHLCVStage(freq='10s', output_key='ohlcv_10s', rth_only=False),
-            BuildOHLCVStage(freq='2min', output_key='ohlcv_2min', include_warmup=True, rth_only=False),
+            BuildAllOHLCVStage(),
             InitMarketStateStage(),
             GenerateLevelsStage(),
             DetectInteractionZonesStage(),

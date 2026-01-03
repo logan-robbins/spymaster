@@ -83,36 +83,8 @@ def label_outcomes(
         raise ValueError("Missing level_price for outcome labeling.")
     level_prices = signals_df['level_price'].values.astype(np.float64)
     
-    # Get level identifiers for per-level touch tracking
-    if 'level_kind_name' in signals_df.columns:
-        level_identifiers = signals_df['level_kind_name'].values
-    elif 'level_kind' in signals_df.columns:
-        level_kind_map = {0: 'PM_HIGH', 1: 'PM_LOW', 2: 'OR_HIGH', 3: 'OR_LOW', 6: 'SMA_90', 12: 'EMA_20'}
-        level_identifiers = np.array([level_kind_map.get(lk, str(lk)) for lk in signals_df['level_kind'].values])
-    else:
-        level_identifiers = np.array(['UNKNOWN'] * n)
-    
     # Storage for multi-timeframe results
     results_by_window = {}
-    
-    # Global per-level touch tracking (for all 6 levels)
-    level_names = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90', 'EMA_20']
-    per_level_touches_from_above = {level: 0 for level in level_names}
-    per_level_touches_from_below = {level: 0 for level in level_names}
-    per_level_defended_touches_from_above = {level: 0 for level in level_names}
-    per_level_defended_touches_from_below = {level: 0 for level in level_names}
-    per_level_last_touch_from_above_ts = {level: None for level in level_names}
-    per_level_last_touch_from_below_ts = {level: None for level in level_names}
-    
-    # Initialize per-event storage for per-level features
-    per_level_feature_arrays = {}
-    for level_name in level_names:
-        per_level_feature_arrays[f'{level_name.lower()}_touches_from_above'] = np.zeros(n, dtype=np.int32)
-        per_level_feature_arrays[f'{level_name.lower()}_touches_from_below'] = np.zeros(n, dtype=np.int32)
-        per_level_feature_arrays[f'{level_name.lower()}_defended_touches_from_above'] = np.zeros(n, dtype=np.int32)
-        per_level_feature_arrays[f'{level_name.lower()}_defended_touches_from_below'] = np.zeros(n, dtype=np.int32)
-        per_level_feature_arrays[f'{level_name.lower()}_time_since_touch_from_above_sec'] = np.full(n, np.nan, dtype=np.float64)
-        per_level_feature_arrays[f'{level_name.lower()}_time_since_touch_from_below_sec'] = np.full(n, np.nan, dtype=np.float64)
     
     # Process each confirmation window (2min, 4min, 8min)
     for window_sec, label in zip(confirmation_windows, window_labels):
@@ -130,26 +102,11 @@ def label_outcomes(
         time_to_break_1 = np.full(n, np.nan, dtype=np.float64)
         time_to_bounce_1 = np.full(n, np.nan, dtype=np.float64)
         
-        # Process each signal using first-crossing semantics with fixed thresholds
+        # Process each signal using first-crossing semantics
         for i in range(n):
             ts = signal_ts[i]
             direction = directions[i]
             level_price = level_prices[i]
-            level_id = level_identifiers[i]
-            
-            # Snapshot current global state for ALL levels at this event (before processing)
-            if label == '8min':  # Only track on 8min window (primary)
-                for level_name in level_names:
-                    per_level_feature_arrays[f'{level_name.lower()}_touches_from_above'][i] = per_level_touches_from_above[level_name]
-                    per_level_feature_arrays[f'{level_name.lower()}_touches_from_below'][i] = per_level_touches_from_below[level_name]
-                    per_level_feature_arrays[f'{level_name.lower()}_defended_touches_from_above'][i] = per_level_defended_touches_from_above[level_name]
-                    per_level_feature_arrays[f'{level_name.lower()}_defended_touches_from_below'][i] = per_level_defended_touches_from_below[level_name]
-                    
-                    if per_level_last_touch_from_above_ts[level_name] is not None:
-                        per_level_feature_arrays[f'{level_name.lower()}_time_since_touch_from_above_sec'][i] = (ts - per_level_last_touch_from_above_ts[level_name]) / 1e9
-                    
-                    if per_level_last_touch_from_below_ts[level_name] is not None:
-                        per_level_feature_arrays[f'{level_name.lower()}_time_since_touch_from_below_sec'][i] = (ts - per_level_last_touch_from_below_ts[level_name]) / 1e9
             
             start_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
             if start_idx < 0:
@@ -270,23 +227,6 @@ def label_outcomes(
                 excursion_max[i] = max_below
                 excursion_min[i] = max_above
             
-            # Update global per-level state (only for 8min window)
-            if label == '8min' and touched_during_window and level_id in level_names:
-                dir_key = 'from_above' if direction == 'DOWN' else 'from_below'
-                
-                # Increment touch count
-                if dir_key == 'from_above':
-                    per_level_touches_from_above[level_id] += 1
-                    per_level_last_touch_from_above_ts[level_id] = ts
-                    # Defended touch = touched but did NOT break
-                    if outcomes[i] != 'BREAK':
-                        per_level_defended_touches_from_above[level_id] += 1
-                else:  # from_below
-                    per_level_touches_from_below[level_id] += 1
-                    per_level_last_touch_from_below_ts[level_id] = ts
-                    # Defended touch = touched but did NOT break
-                    if outcomes[i] != 'BREAK':
-                        per_level_defended_touches_from_below[level_id] += 1
         
         # Store results for this window
         results_by_window[label] = {
@@ -321,16 +261,9 @@ def label_outcomes(
         # Backward compatibility columns
         result['excursion_max'] = primary_data['excursion_max']
         result['excursion_min'] = primary_data['excursion_min']
-        result['outcome'] = primary_data['outcomes']  # Primary outcome (8min)
+        result['outcome'] = primary_data['outcomes']
         result['time_to_break_1'] = primary_data['time_to_break_1']
         result['time_to_bounce_1'] = primary_data['time_to_bounce_1']
-    
-    # Add per-level touch features (48 features: 6 levels × 8 metrics)
-    # - touches_from_above/below: count of touches (OHLC range intersects TOUCH_BAND)
-    # - defended_touches_from_above/below: touches that did NOT break
-    # - time_since_touch_from_above/below_sec: recency of last touch
-    for feature_name, feature_values in per_level_feature_arrays.items():
-        result[feature_name] = feature_values
 
     return result
 

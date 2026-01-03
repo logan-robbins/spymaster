@@ -50,9 +50,11 @@ class Config:
     # - Interaction zone: WHERE we detect events (tight around level)
     # - Outcome barrier: HOW FAR price moves for BREAK/BOUNCE (volatility-scaled)
     # 
-    # Per user specification: ±5 points for interaction zone
-    MONITOR_BAND: float = 5.0   # interaction zone: ±5 ES points (±20 ticks, ~0.2 strike)
-    TOUCH_BAND: float = 2.0     # touch zone: ±2 ES points (±8 ticks, very precise)
+    # MONITOR_BAND = 2.5pt ensures level is ALWAYS within MBP-10 visibility range
+    # (MBP-10 shows ±10 ticks = ±2.5pt from current price)
+    # This guarantees OFI, Vacuum, Replenishment features are LEVEL-relative
+    MONITOR_BAND: float = 2.5   # interaction zone: ±2.5 ES points (±10 ticks, MBP-10 aligned)
+    TOUCH_BAND: float = 1.5     # touch zone: ±1.5 ES points (±6 ticks, very precise)
     BREAK_REJECT_THRESHOLD: float = 12.5  # outcome threshold: ±12.5 ES points (meaningful follow-through)
     CONFLUENCE_BAND: float = 5.0  # band for nearby key level confluence (1 strike @ 5pt spacing)
     

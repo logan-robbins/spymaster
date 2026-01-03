@@ -48,7 +48,7 @@ class Stage4Validator:
         self.logger = logger
         self.results = {
             'stage': 'generate_levels',
-            'stage_idx': 4,
+            'stage_idx': 3,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -334,7 +334,7 @@ def main():
     try:# Load checkpoint from stage (should already exist from pipeline run)
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=4)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=3)
         
         if ctx is None:
             logger.error("Failed to load checkpoint")

@@ -174,7 +174,6 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
     ('dist_to_sma_90_atr', pa.float64(), False),
     ('dist_to_ema_20', pa.float64(), False),
     ('dist_to_ema_20_atr', pa.float64(), False),
-    ('dist_to_tested_level', pa.float64(), False),
     ('level_stacking_2pt', pa.int8(), False),
     ('level_stacking_5pt', pa.int8(), False),
     ('level_stacking_10pt', pa.int8(), False),

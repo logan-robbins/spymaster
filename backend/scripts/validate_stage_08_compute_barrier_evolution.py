@@ -1,16 +1,16 @@
 """
-Validate Stage 13: ComputeApproachFeatures
+Validate Stage 9: ComputeBarrierEvolution
 
 Goals:
-1. Compute approach context features (velocity/bars/distance, prior touches)
-2. Add normalized and sparse-feature transforms
-3. Add attempt clustering and deterioration trends
+1. Compute barrier depth evolution features (1/3/5 min windows)
+2. Add current barrier depth reference
+3. Preserve signal identity and row count
 
 Validation Checks:
-- Required inputs present (signals_df, ohlcv_1min, atr)
-- signals_df output exists and has required approach columns
+- Required inputs present (signals_df, mbp10_snapshots)
+- signals_df output exists and has required barrier columns
 - Row count matches touches_df
-- Approach/normalization columns numeric and non-null (warn on NaNs)
+- Barrier columns are numeric and non-null
 """
 
 import argparse
@@ -38,14 +38,14 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage13Validator:
-    """Validator for ComputeApproachFeatures stage."""
+class Stage9Validator:
+    """Validator for ComputeBarrierEvolution stage."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
-            'stage': 'compute_approach_features',
-            'stage_idx': 13,
+            'stage': 'compute_barrier_evolution',
+            'stage_idx': 8,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -55,7 +55,7 @@ class Stage13Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 13: ComputeApproachFeatures for {date}")
+        self.logger.info(f"Validating Stage 9: ComputeBarrierEvolution for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -70,9 +70,9 @@ class Stage13Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 13 Validation: PASSED")
+            self.logger.info("✅ Stage 9 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 13 Validation: FAILED")
+            self.logger.error("❌ Stage 9 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -90,7 +90,7 @@ class Stage13Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['signals_df', 'ohlcv_1min', 'atr']
+        required_inputs = ['signals_df', 'mbp10_snapshots']
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())
@@ -134,7 +134,7 @@ class Stage13Validator:
         checks['signals_df_type'] = True
 
         if signals_df.empty:
-            warning = "signals_df is empty (no approach features computed)"
+            warning = "signals_df is empty (no barrier evolution computed)"
             self.results['warnings'].append(warning)
             self.logger.warning(f"  ⚠️  {warning}")
             self.results['checks']['signals_df'] = checks
@@ -142,24 +142,18 @@ class Stage13Validator:
 
         self.logger.info(f"  Total signals: {len(signals_df):,}")
 
-        required_cols = [
-            'approach_velocity', 'approach_bars', 'approach_distance',
-            'prior_touches', 'minutes_since_open', 'bars_since_open',
-            'attempt_index', 'attempt_cluster_id',
-            'barrier_replenishment_trend', 'barrier_delta_liq_trend',
-            'tape_velocity_trend', 'tape_imbalance_trend',
-            'distance_signed', 'level_price_pct'
+        barrier_cols = [
+            'barrier_delta_1min', 'barrier_pct_change_1min',
+            'barrier_delta_3min', 'barrier_pct_change_3min',
+            'barrier_delta_5min', 'barrier_pct_change_5min',
+            'barrier_depth_current'
         ]
 
-        # Sparse transforms expected when source columns exist
-        sparse_cols = ['wall_ratio_nonzero', 'wall_ratio_log', 'barrier_delta_liq_nonzero', 'barrier_delta_liq_log']
-        required_cols.extend(sparse_cols)
-
-        missing_cols = [col for col in required_cols if col not in signals_df.columns]
+        missing_cols = [col for col in barrier_cols if col not in signals_df.columns]
         if missing_cols:
             checks['required_columns_present'] = False
             self.results['passed'] = False
-            error = f"signals_df missing approach columns: {missing_cols}"
+            error = f"signals_df missing barrier columns: {missing_cols}"
             self.results['errors'].append(error)
             self.logger.error(f"  ❌ {error}")
             self.results['checks']['signals_df'] = checks
@@ -180,22 +174,30 @@ class Stage13Validator:
                 checks['row_count_match'] = True
                 self.logger.info("  ✅ signals_df row count matches touches_df")
 
-        # Numeric columns validation
-        for col in required_cols:
+        # Numeric barrier columns validation
+        for col in barrier_cols:
             values = pd.to_numeric(signals_df[col], errors='coerce')
             if values.isna().any():
                 checks[f'{col}_nan'] = False
-                warning = f"{col} has NaN values"
-                self.results['warnings'].append(warning)
-                self.logger.warning(f"  ⚠️  {warning}")
+                self.results['passed'] = False
+                error = f"{col} has NaN values"
+                self.results['errors'].append(error)
+                self.logger.error(f"  ❌ {error}")
             else:
                 checks[f'{col}_nan'] = True
+
+        depth = pd.to_numeric(signals_df['barrier_depth_current'], errors='coerce')
+        if depth.notna().any():
+            self.logger.info(
+                f"  Barrier depth stats: min={depth.min():.0f}, "
+                f"max={depth.max():.0f}, mean={depth.mean():.0f}"
+            )
 
         self.results['checks']['signals_df'] = checks
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 13: ComputeApproachFeatures')
+    parser = argparse.ArgumentParser(description='Validate Stage 9: ComputeBarrierEvolution')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
@@ -208,35 +210,35 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_13_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_09_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 13 validation for {args.date}")
+    logger.info(f"Starting Stage 9 validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 13
-        logger.info("Running through ComputeApproachFeatures stage...")
+        # Run pipeline through stage 9
+        logger.info("Running through ComputeBarrierEvolution stage...")
         pipeline = build_es_pipeline()
 
         pipeline.run(
             date=args.date,
             checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=13,
-            stop_at_stage=13
+            resume_from_stage=9,
+            stop_at_stage=9
         )
 
         # Load checkpoint from stage (should already exist from pipeline run)
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=13)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=8)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")
             return 1
 
         # Validate
-        validator = Stage13Validator(logger)
+        validator = Stage9Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -244,7 +246,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_13_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_09_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)

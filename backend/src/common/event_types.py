@@ -88,6 +88,9 @@ class MBP10:
     
     Schema: futures.mbp10.v1
     Optional for v1, used when ES MBP-10 barrier physics is enabled.
+    
+    Includes action/side/price/size for true event-based OFI computation
+    per Cont, Kukanov & Stoikov (2014) "The Price Impact of Order Book Events".
     """
     ts_event_ns: int
     ts_recv_ns: int
@@ -96,3 +99,8 @@ class MBP10:
     levels: List[BidAskLevel]  # 10 levels
     is_snapshot: bool = False  # vs incremental update
     seq: Optional[int] = None
+    # OFI fields (for true event-based OFI)
+    action: Optional[str] = None  # A=Add, C=Cancel, M=Modify, T=Trade
+    side: Optional[str] = None    # A=Ask, B=Bid, N=None
+    action_price: Optional[float] = None  # Price affected by this action
+    action_size: Optional[int] = None     # Size of the action

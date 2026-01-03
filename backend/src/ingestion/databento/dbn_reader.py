@@ -253,8 +253,8 @@ class DBNReader:
         Yields:
             MBP10 events
         """
-        # Handle the directory name difference (MBP-10 vs mbp-10)
-        files = self.discover_files('MBP-10') or self.discover_files('mbp-10')
+        # Handle the directory name difference (MBP-10 vs mbp-10 vs mbp10)
+        files = self.discover_files('MBP-10') or self.discover_files('mbp-10') or self.discover_files('mbp10')
         if date:
             files = [f for f in files if f.date == date]
 
@@ -295,6 +295,12 @@ class DBNReader:
                             ask_sz=level.ask_sz
                         ))
 
+                    # Extract action/side for true OFI computation
+                    action_str = str(record.action) if hasattr(record, 'action') else None
+                    side_str = str(record.side) if hasattr(record, 'side') else None
+                    action_price = record.price / 1e9 if hasattr(record, 'price') else None
+                    action_size = record.size if hasattr(record, 'size') else None
+                    
                     yield MBP10(
                         ts_event_ns=ts_event_ns,
                         ts_recv_ns=record.ts_recv if hasattr(record, 'ts_recv') else ts_event_ns,
@@ -302,7 +308,11 @@ class DBNReader:
                         symbol=symbol,
                         levels=levels,
                         is_snapshot=False,  # Databento sends all as updates
-                        seq=record.sequence if hasattr(record, 'sequence') else None
+                        seq=record.sequence if hasattr(record, 'sequence') else None,
+                        action=action_str,
+                        side=side_str,
+                        action_price=action_price,
+                        action_size=action_size
                     )
 
             except Exception as e:

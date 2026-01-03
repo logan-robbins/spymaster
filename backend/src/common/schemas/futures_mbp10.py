@@ -129,6 +129,26 @@ class MBP10V1(BaseEventModel):
         ge=0,
         description="Monotonic sequence number"
     )
+    
+    # OFI fields for true event-based OFI (Cont et al. 2014)
+    action: Optional[str] = Field(
+        default=None,
+        description="Event action: A=Add, C=Cancel, M=Modify, T=Trade"
+    )
+    side: Optional[str] = Field(
+        default=None,
+        description="Side affected: A=Ask, B=Bid, N=None"
+    )
+    action_price: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Price level affected by this action"
+    )
+    action_size: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Size of the action"
+    )
 
     @field_validator('ts_event_ns', 'ts_recv_ns')
     @classmethod
@@ -218,13 +238,18 @@ for i in range(1, 11):
 _mbp10_fields.extend([
     ('is_snapshot', pa.bool_(), False),
     ('seq', pa.int64(), True),
+    # OFI fields for true event-based OFI (Cont et al. 2014)
+    ('action', pa.utf8(), True),       # A=Add, C=Cancel, M=Modify, T=Trade
+    ('side', pa.utf8(), True),         # A=Ask, B=Bid, N=None
+    ('action_price', pa.float64(), True),
+    ('action_size', pa.int32(), True),
 ])
 
 MBP10V1._arrow_schema = build_arrow_schema(
     fields=_mbp10_fields,
     metadata={
-        'schema_name': 'futures.mbp10.v1',
+        'schema_name': 'futures.mbp10.v2',  # Version bump for OFI fields
         'tier': 'bronze',
-        'description': 'ES MBP-10 (top 10 price levels per side)',
+        'description': 'ES MBP-10 with action/side for true OFI computation',
     }
 )

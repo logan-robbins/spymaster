@@ -24,10 +24,6 @@ class LevelKind(str, Enum):
     OR_HIGH = "OR_HIGH"           # Opening Range High (first 15m)
     OR_LOW = "OR_LOW"             # Opening Range Low
     SMA_90 = "SMA_90"             # 90 Simple Moving Average (2-min bars)
-    EMA_20 = "EMA_20"             # 20 Exponential Moving Average (2-min bars)
-    STRIKE = "STRIKE"             # Standard Round Number (e.g., 500.00)
-    VWAP = "VWAP"                 # Volume-Weighted Average Price
-    ROUND = "ROUND"               # Round number level
     SESSION_HIGH = "SESSION_HIGH" # Session high
     SESSION_LOW = "SESSION_LOW"   # Session low
     CALL_WALL = "CALL_WALL"       # Call wall from gamma

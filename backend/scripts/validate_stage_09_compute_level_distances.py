@@ -1,16 +1,16 @@
 """
-Validate Stage 7: ComputeMultiWindowKinematics
+Validate Stage 10: ComputeLevelDistances
 
 Goals:
-1. Compute multi-window velocity/acceleration/jerk features
-2. Preserve signal identity columns
-3. Output signals_df with kinematics features populated
+1. Compute signed distance features to structural levels
+2. Add ATR-normalized variants
+3. Add level stacking counts
 
 Validation Checks:
-- Required inputs present (signals_df, ohlcv_1min)
-- signals_df output exists and has required columns
+- Required inputs present (signals_df, dynamic_levels, atr)
+- signals_df output exists and has required distance columns
 - Row count matches touches_df
-- Kinematic columns finite and non-null
+- Distance columns numeric (warn if all-NaN)
 """
 
 import argparse
@@ -38,14 +38,14 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage7Validator:
-    """Validator for ComputeMultiWindowKinematics stage."""
+class Stage10Validator:
+    """Validator for ComputeLevelDistances stage."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
-            'stage': 'compute_multiwindow_kinematics',
-            'stage_idx': 7,
+            'stage': 'compute_level_distances',
+            'stage_idx': 9,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -55,7 +55,7 @@ class Stage7Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 7: ComputeMultiWindowKinematics for {date}")
+        self.logger.info(f"Validating Stage 10: ComputeLevelDistances for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -70,9 +70,9 @@ class Stage7Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 7 Validation: PASSED")
+            self.logger.info("✅ Stage 10 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 7 Validation: FAILED")
+            self.logger.error("❌ Stage 10 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -90,7 +90,7 @@ class Stage7Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['signals_df', 'ohlcv_1min']
+        required_inputs = ['signals_df', 'dynamic_levels', 'atr']
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())
@@ -134,7 +134,7 @@ class Stage7Validator:
         checks['signals_df_type'] = True
 
         if signals_df.empty:
-            warning = "signals_df is empty (no kinematics computed)"
+            warning = "signals_df is empty (no level distances computed)"
             self.results['warnings'].append(warning)
             self.logger.warning(f"  ⚠️  {warning}")
             self.results['checks']['signals_df'] = checks
@@ -142,28 +142,25 @@ class Stage7Validator:
 
         self.logger.info(f"  Total signals: {len(signals_df):,}")
 
-        base_cols = [
-            'event_id', 'ts_ns', 'timestamp', 'level_price', 'level_kind',
-            'level_kind_name', 'direction', 'entry_price', 'zone_width', 'date'
-        ]
-        kinematic_cols = []
-        for window in [1, 3, 5, 10, 20]:
-            suffix = f'_{window}min'
-            kinematic_cols.extend([
-                f'velocity{suffix}',
-                f'acceleration{suffix}',
-                f'jerk{suffix}'
-            ])
-            if window > 1:
-                kinematic_cols.append(f'momentum_trend{suffix}')
+        level_types = ['pm_high', 'pm_low', 'or_high', 'or_low', 'sma_90', 'ema_20']
+        distance_cols = []
+        for level_type in level_types:
+            distance_cols.append(f'dist_to_{level_type}')
+            distance_cols.append(f'dist_to_{level_type}_atr')
 
-        required_cols = base_cols + kinematic_cols
+        extra_cols = [
+            'level_stacking_2pt',
+            'level_stacking_5pt',
+            'level_stacking_10pt'
+        ]
+
+        required_cols = distance_cols + extra_cols
 
         missing_cols = [col for col in required_cols if col not in signals_df.columns]
         if missing_cols:
             checks['required_columns_present'] = False
             self.results['passed'] = False
-            error = f"signals_df missing required columns: {missing_cols}"
+            error = f"signals_df missing distance columns: {missing_cols}"
             self.results['errors'].append(error)
             self.logger.error(f"  ❌ {error}")
             self.results['checks']['signals_df'] = checks
@@ -184,23 +181,29 @@ class Stage7Validator:
                 checks['row_count_match'] = True
                 self.logger.info("  ✅ signals_df row count matches touches_df")
 
-        # Numeric kinematics columns validation
-        for col in kinematic_cols:
+        # Numeric distance columns validation
+        for col in required_cols:
             values = pd.to_numeric(signals_df[col], errors='coerce')
             if values.isna().any():
                 checks[f'{col}_nan'] = False
-                self.results['passed'] = False
-                error = f"{col} has NaN values"
-                self.results['errors'].append(error)
-                self.logger.error(f"  ❌ {error}")
+                warning = f"{col} has NaN values"
+                self.results['warnings'].append(warning)
+                self.logger.warning(f"  ⚠️  {warning}")
             else:
                 checks[f'{col}_nan'] = True
+
+        # Warn if all base distance columns are NaN (likely missing bar_idx alignment)
+        base_dist = signals_df[[f'dist_to_{lt}' for lt in level_types]]
+        if base_dist.isna().all().all():
+            warning = "All base distance columns are NaN (check bar_idx alignment)"
+            self.results['warnings'].append(warning)
+            self.logger.warning(f"  ⚠️  {warning}")
 
         self.results['checks']['signals_df'] = checks
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 7: ComputeMultiWindowKinematics')
+    parser = argparse.ArgumentParser(description='Validate Stage 10: ComputeLevelDistances')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
@@ -213,35 +216,35 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_07_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_10_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 7 validation for {args.date}")
+    logger.info(f"Starting Stage 10 validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 7
-        logger.info("Running through ComputeMultiWindowKinematics stage...")
+        # Run pipeline through stage 10
+        logger.info("Running through ComputeLevelDistances stage...")
         pipeline = build_es_pipeline()
 
         pipeline.run(
             date=args.date,
             checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=7,
-            stop_at_stage=7
+            resume_from_stage=10,
+            stop_at_stage=10
         )
 
         # Load checkpoint from stage (should already exist from pipeline run)
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=7)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=9)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")
             return 1
 
         # Validate
-        validator = Stage7Validator(logger)
+        validator = Stage10Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -249,7 +252,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_07_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_10_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)
