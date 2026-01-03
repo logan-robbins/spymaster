@@ -29,27 +29,26 @@ from src.pipeline.compute.walls import (
 
 class ComputeLevelWallsStage(BaseStage):
     """
-    Compute wall features relative to the tested level.
+    Compute liquidity and gamma features relative to the tested level.
     
-    This stage computes walls ABOVE and BELOW the specific level price,
-    providing context about the liquidity landscape around the level.
+    This stage computes Order Book Liquidity and Gamma Positioning ABOVE and BELOW the specific level price.
     
-    Futures Wall Features (level-relative):
-    - futures_wall_above_price: Nearest significant bid/ask above level
-    - futures_wall_above_size: Size at that price
-    - futures_wall_above_dist: Distance from level to wall above
-    - futures_wall_below_price: Nearest significant bid/ask below level
-    - futures_wall_below_size: Size at that price
-    - futures_wall_below_dist: Distance from level to wall below
-    - futures_wall_asymmetry: (above - below) / total depth
+    Order Book Liquidity Features (level-relative):
+    - ob_resistance_price: Nearest significant liquidity block above level
+    - ob_resistance_size: Size at that price
+    - ob_resistance_dist: Distance from level to resistance
+    - ob_support_price: Nearest significant liquidity block below level
+    - ob_support_size: Size at that price
+    - ob_support_dist: Distance from level to support
+    - ob_asymmetry: (resistance_size - support_size) / total_size
     
-    Options Wall Features (level-relative):
-    - options_wall_above_price: Strike with highest dealer gamma above level
-    - options_wall_above_flow: Net dealer flow (gamma * size) at that strike
-    - options_wall_above_dist: Distance from level
-    - options_wall_below_price: Strike with highest dealer gamma below level
-    - options_wall_below_flow: Net dealer flow (gamma * size) at that strike
-    - options_wall_below_dist: Distance from level
+    Gamma Positioning Features (level-relative):
+    - gamma_resistance_price: Strike with highest dealer differentiation (pinning) above level
+    - gamma_resistance_flow: Net dealer flow (gamma * size) at that strike
+    - gamma_resistance_dist: Distance from level
+    - gamma_support_price: Strike with highest dealer differentiation below level
+    - gamma_support_flow: Net dealer flow (gamma * size) at that strike
+    - gamma_support_dist: Distance from level
     """
     
     @property
@@ -82,7 +81,7 @@ class ComputeLevelWallsStage(BaseStage):
         signal_ts = signals_df['ts_ns'].values.astype(np.int64)
         spot_prices = signals_df['spot'].values.astype(np.float64) if 'spot' in signals_df.columns else np.zeros(len(signals_df))
         
-        # Compute futures walls relative to level
+        # Compute Order Book Liquidity relative to level
         futures_walls = compute_futures_walls_at_timestamps(
             signal_ts=signal_ts,
             mbp10_snapshots=mbp10_snapshots,
@@ -92,7 +91,7 @@ class ComputeLevelWallsStage(BaseStage):
         for name, values in futures_walls.items():
             signals_df[name] = values
         
-        # Compute options walls relative to level
+        # Compute Gamma Positioning relative to level
         if not option_trades_df.empty:
             options_walls = compute_options_walls_at_timestamps(
                 signal_ts=signal_ts,
@@ -105,19 +104,19 @@ class ComputeLevelWallsStage(BaseStage):
                 signals_df[name] = values
         else:
             # Fill with NaN if no options data
-            for name in ['options_wall_above_price', 'options_wall_above_flow', 
-                        'options_wall_above_dist',
-                        'options_wall_below_price', 'options_wall_below_flow',
-                        'options_wall_below_dist']:
+            for name in ['gamma_resistance_price', 'gamma_resistance_flow', 
+                        'gamma_resistance_dist',
+                        'gamma_support_price', 'gamma_support_flow',
+                        'gamma_support_dist']:
                 signals_df[name] = np.nan
         
         # Log summary
         # ctx.logger might not avail, use module logger
         log = getattr(ctx, 'logger', logging.getLogger(__name__))
         log.info(
-            f"Computed level-relative walls for level {level_price:.2f}: "
-            f"futures_wall_above avg dist {signals_df['futures_wall_above_dist'].mean():.2f}pt, "
-            f"futures_wall_below avg dist {signals_df['futures_wall_below_dist'].mean():.2f}pt"
+            f"Computed level-relative liquidity for level {level_price:.2f}: "
+            f"ob_resistance avg dist {signals_df['ob_resistance_dist'].mean():.2f}pt, "
+            f"ob_support avg dist {signals_df['ob_support_dist'].mean():.2f}pt"
         )
         
         return {'signals_df': signals_df}

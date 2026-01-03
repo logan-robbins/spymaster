@@ -61,8 +61,8 @@ def validate_compute_market_walls(date: str = "2025-06-04"):
     
     if not signals_df.empty:
         # Check Columns
-        fut_cols = ['futures_bid_wall_price', 'futures_ask_wall_price', 'futures_bid_wall_dist', 'futures_ask_wall_dist']
-        opt_cols = ['options_call_wall_price', 'options_put_wall_price', 'options_call_wall_dist', 'options_put_wall_dist']
+        fut_cols = ['futures_bid_limit_price', 'futures_ask_limit_price', 'futures_bid_limit_dist', 'futures_ask_limit_dist']
+        opt_cols = ['options_call_gamma_price', 'options_put_gamma_price', 'options_call_gamma_dist', 'options_put_gamma_dist']
         
         all_cols = fut_cols + opt_cols
         missing_cols = [c for c in all_cols if c not in signals_df.columns]

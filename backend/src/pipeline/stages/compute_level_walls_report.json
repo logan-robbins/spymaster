@@ -2,12 +2,12 @@
   "stage": "compute_level_walls",
   "date": "2025-06-04",
   "level_target": "PM_HIGH",
-  "timestamp": "2026-01-03T13:31:35.070811",
+  "timestamp": "2026-01-03T13:52:22.046068",
   "status": "success",
   "metrics": {
     "count": 12,
     "wall_stats": {
-      "futures_wall_above_price": {
+      "ob_resistance_price": {
         "mean": 6041.25,
         "min": 6040.5,
         "max": 6042.0,
@@ -15,7 +15,7 @@
         "zeros": 0,
         "nans": 10
       },
-      "futures_wall_above_size": {
+      "ob_resistance_size": {
         "mean": 0.8333333333333334,
         "min": 0.0,
         "max": 6.0,
@@ -23,7 +23,7 @@
         "zeros": 10,
         "nans": 0
       },
-      "futures_wall_above_dist": {
+      "ob_resistance_dist": {
         "mean": 1.25,
         "min": 0.5,
         "max": 2.0,
@@ -31,7 +31,7 @@
         "zeros": 0,
         "nans": 10
       },
-      "futures_wall_below_price": {
+      "ob_support_price": {
         "mean": 5995.25,
         "min": 5984.75,
         "max": 6039.0,
@@ -39,7 +39,7 @@
         "zeros": 0,
         "nans": 0
       },
-      "futures_wall_below_size": {
+      "ob_support_size": {
         "mean": 98.41666666666667,
         "min": 5.0,
         "max": 177.0,
@@ -47,7 +47,7 @@
         "zeros": 0,
         "nans": 0
       },
-      "futures_wall_below_dist": {
+      "ob_support_dist": {
         "mean": 44.75,
         "min": 1.0,
         "max": 55.25,
@@ -55,7 +55,7 @@
         "zeros": 0,
         "nans": 0
       },
-      "options_wall_above_price": {
+      "gamma_resistance_price": {
         "mean": 6110.5,
         "min": 6050.0,
         "max": 6375.0,
@@ -63,7 +63,7 @@
         "zeros": 0,
         "nans": 2
       },
-      "options_wall_above_flow": {
+      "gamma_resistance_flow": {
         "mean": -2.2105934858473444,
         "min": -12.249619123039713,
         "max": 0.0,
@@ -71,7 +71,7 @@
         "zeros": 2,
         "nans": 0
       },
-      "options_wall_above_dist": {
+      "gamma_resistance_dist": {
         "mean": 70.5,
         "min": 10.0,
         "max": 335.0,
@@ -79,7 +79,7 @@
         "zeros": 0,
         "nans": 2
       },
-      "options_wall_below_price": {
+      "gamma_support_price": {
         "mean": 5960.416666666667,
         "min": 5775.0,
         "max": 6000.0,
@@ -87,7 +87,7 @@
         "zeros": 0,
         "nans": 0
       },
-      "options_wall_below_flow": {
+      "gamma_support_flow": {
         "mean": -11.775735390506222,
         "min": -96.4277360822564,
         "max": -0.22836511824205263,
@@ -95,7 +95,7 @@
         "zeros": 0,
         "nans": 0
       },
-      "options_wall_below_dist": {
+      "gamma_support_dist": {
         "mean": 79.58333333333333,
         "min": 40.0,
         "max": 265.0,

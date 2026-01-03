@@ -28,7 +28,7 @@ from src.pipeline.core.feature_definitions import (
     GLOBAL_OFI_FEATURES,
     GLOBAL_KINEMATICS_FEATURES,
     GLOBAL_MICRO_FEATURES,
-    GLOBAL_WALL_FEATURES,
+    MARKET_LIQUIDITY_FEATURES,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class FilterRTHGlobalStage(BaseStage):
         check_coverage("OFI", GLOBAL_OFI_FEATURES, signals_df.columns)
         check_coverage("Microstructure", GLOBAL_MICRO_FEATURES, signals_df.columns)
         check_coverage("Kinematics", GLOBAL_KINEMATICS_FEATURES, signals_df.columns)
-        check_coverage("Walls", GLOBAL_WALL_FEATURES, signals_df.columns)
+        check_coverage("Liquidity", MARKET_LIQUIDITY_FEATURES, signals_df.columns)
         
         # Summary stats
         logger.info(f"  Output columns: {len(signals_df.columns)}")

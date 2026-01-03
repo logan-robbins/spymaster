@@ -34,15 +34,43 @@ BASE_FEATURES: List[str] = IDENTITY_FEATURES + MARKET_STATE_FEATURES
 # Stage Deltas (Level-Based / ES Pipeline)
 # ==============================================================================
 
-# Stage 5: Compute Physics
-PHYSICS_FEATURES: List[str] = [
-    'barrier_price',
+# Stage 5: Compute Physics (Instantaneous)
+LEVEL_PHYSICS_FEATURES: List[str] = [
+    # Barrier State
+    'barrier_state',
+    'barrier_size',
     'barrier_dist',
     'barrier_dist_atr',
-    'barrier_size',
-    'barrier_state',
+    # Futures Active Flow (Tape) - Spatial
     'tape_velocity',
-    'tape_flow',
+    'tape_buy_vol',
+    'tape_sell_vol',
+    'tape_imbalance',
+    'tape_buy_vol_above',
+    'tape_sell_vol_above',
+    'tape_imbalance_above',
+    'tape_buy_vol_below',
+    'tape_sell_vol_below',
+    'tape_imbalance_below',
+    
+    # Futures Resting Liquidity (Depth) - Spatial
+    'limit_bid_size',
+    'limit_ask_size',
+    'limit_bid_size_above',
+    'limit_ask_size_above',
+    'limit_bid_size_below',
+    'limit_ask_size_below',
+
+    # Options Active Flow (Tide) - Spatial
+    'call_tide',
+    'put_tide',
+    'call_tide_above',
+    'put_tide_above',
+    'call_tide_below',
+    'put_tide_below',
+    
+    # State Summaries
+    'barrier_state',
     'fuel_level',
     'fuel_effect',
 ]
@@ -111,16 +139,18 @@ GEX_FEATURES: List[str] = [
     'gex_asymmetry',
 ]
 
-# Stage 12: Compute Level Walls
-WALL_FEATURES: List[str] = [
-    'wall_bid_price',
-    'wall_ask_price',
-    'wall_bid_dist',
-    'wall_ask_dist',
-    'wall_bid_size',
-    'wall_ask_size',
-    'gamma_call_wall_dist',
-    'gamma_put_wall_dist',
+# Stage 12: Compute Level Liquidity (Order Book & Gamma)
+LEVEL_LIQUIDITY_FEATURES: List[str] = [
+    # Order Book Liquidity (Limit Orders)
+    'ob_bid_price',
+    'ob_ask_price',
+    'ob_bid_dist',
+    'ob_ask_dist',
+    'ob_bid_size',
+    'ob_ask_size',
+    # Gamma Positioning (Dealer Inventory)
+    'gamma_call_level_dist',
+    'gamma_put_level_dist',
 ]
 
 # Stage 13: Compute Force/Mass
@@ -191,9 +221,11 @@ GLOBAL_MICRO_FEATURES: List[str] = [
     'mid_price',
 ]
 
-GLOBAL_WALL_FEATURES: List[str] = [
-    'futures_bid_wall_price', 'futures_ask_wall_price',
-    'futures_bid_wall_dist', 'futures_ask_wall_dist',
-    'options_call_wall_price', 'options_put_wall_price',
-    'options_call_wall_dist', 'options_put_wall_dist',
+MARKET_LIQUIDITY_FEATURES: List[str] = [
+    # Order Book (Global)
+    'futures_bid_limit_price', 'futures_ask_limit_price',
+    'futures_bid_limit_dist', 'futures_ask_limit_dist',
+    # Gamma (Global)
+    'options_call_gamma_price', 'options_put_gamma_price',
+    'options_call_gamma_dist', 'options_put_gamma_dist',
 ]

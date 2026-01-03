@@ -31,25 +31,25 @@ from src.pipeline.compute.walls import (
 
 class ComputeMarketWallsStage(BaseStage):
     """
-    Compute market-wide wall features from futures and options data.
+    Compute market-wide liquidity features from futures and options data.
     
-    Futures Wall Features:
-    - futures_bid_wall_price: Price with largest resting bid
-    - futures_bid_wall_size: Size at that price
-    - futures_ask_wall_price: Price with largest resting ask
-    - futures_ask_wall_size: Size at that price
-    - futures_bid_wall_dist: Distance from mid to bid wall
-    - futures_ask_wall_dist: Distance from mid to ask wall
+    Futures Liquidity Features:
+    - futures_bid_limit_price: Price with largest resting bid
+    - futures_bid_limit_size: Size at that price
+    - futures_ask_limit_price: Price with largest resting ask
+    - futures_ask_limit_size: Size at that price
+    - futures_bid_limit_dist: Distance from mid to bid wall
+    - futures_ask_limit_dist: Distance from mid to ask wall
     - futures_total_bid_depth: Total bid depth across 10 levels
     - futures_total_ask_depth: Total ask depth across 10 levels
     
-    Options Wall Features:
-    - options_call_wall_price: Strike with highest call dealer gamma
-    - options_call_wall_gex: GEX at that strike
-    - options_put_wall_price: Strike with highest put dealer gamma
-    - options_put_wall_gex: GEX at that strike
-    - options_call_wall_dist: Distance from spot to call wall
-    - options_put_wall_dist: Distance from spot to put wall
+    Options Gamma Features:
+    - options_call_gamma_price: Strike with highest call dealer gamma
+    - options_call_gamma_flow: Net gamma flow at that strike
+    - options_put_gamma_price: Strike with highest put dealer gamma
+    - options_put_gamma_flow: Net gamma flow at that strike
+    - options_call_gamma_dist: Distance from spot to call wall
+    - options_put_gamma_dist: Distance from spot to put wall
     """
     
     @property
@@ -71,7 +71,7 @@ class ComputeMarketWallsStage(BaseStage):
         signal_ts = signals_df['ts_ns'].values.astype(np.int64)
         spot_prices = signals_df['spot'].values.astype(np.float64) if 'spot' in signals_df.columns else np.zeros(len(signals_df))
         
-        # Compute futures walls (global mode - no level_price)
+        # Compute Order Book Liquidity (global mode - no level_price)
         futures_walls = compute_futures_walls_at_timestamps(
             signal_ts=signal_ts,
             mbp10_snapshots=mbp10_snapshots,
@@ -81,7 +81,7 @@ class ComputeMarketWallsStage(BaseStage):
         for name, values in futures_walls.items():
             signals_df[name] = values
         
-        # Compute options walls (global mode)
+        # Compute Gamma Positioning (global mode)
         if not option_trades_df.empty:
             options_walls = compute_options_walls_at_timestamps(
                 signal_ts=signal_ts,
@@ -94,15 +94,15 @@ class ComputeMarketWallsStage(BaseStage):
                 signals_df[name] = values
         else:
             # Fill with NaN if no options data
-            for name in ['options_call_wall_price', 'options_call_wall_flow',
-                        'options_put_wall_price', 'options_put_wall_flow',
-                        'options_call_wall_dist', 'options_put_wall_dist']:
+            for name in ['options_call_gamma_price', 'options_call_gamma_flow',
+                        'options_put_gamma_price', 'options_put_gamma_flow',
+                        'options_call_gamma_dist', 'options_put_gamma_dist']:
                 signals_df[name] = np.nan
         
         logging.getLogger(__name__).info(
             f"Computed market walls: "
-            f"futures_bid_wall_price range [{signals_df['futures_bid_wall_price'].min():.2f}, {signals_df['futures_bid_wall_price'].max():.2f}], "
-            f"options_call_wall_price range [{signals_df['options_call_wall_price'].min():.2f}, {signals_df['options_call_wall_price'].max():.2f}]"
+            f"futures_bid_limit_price range [{signals_df['futures_bid_limit_price'].min():.2f}, {signals_df['futures_bid_limit_price'].max():.2f}], "
+            f"options_call_gamma_price range [{signals_df['options_call_gamma_price'].min():.2f}, {signals_df['options_call_gamma_price'].max():.2f}]"
         )
         
         return {'signals_df': signals_df}

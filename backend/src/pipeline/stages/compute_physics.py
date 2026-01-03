@@ -117,15 +117,43 @@ def compute_physics_batch(
             result['barrier_delta_liq'] = barrier_metrics['barrier_delta_liq']
             result['barrier_replenishment_ratio'] = barrier_metrics['barrier_replenishment_ratio']
             result['wall_ratio'] = barrier_metrics['wall_ratio']
+            # Barrier / Spatial Depth
+            result['barrier_size'] = barrier_metrics['depth_in_zone']
+            result['barrier_dist'] = np.zeros(n, dtype=np.float64)
+            result['barrier_dist_atr'] = np.zeros(n, dtype=np.float64)
+            
+            # Spatial Limit Liquidity (Depth)
+            result['limit_bid_size'] = barrier_metrics.get('limit_bid_size', np.zeros(n))
+            result['limit_ask_size'] = barrier_metrics.get('limit_ask_size', np.zeros(n))
+            result['limit_bid_size_above'] = barrier_metrics.get('limit_bid_size_above', np.zeros(n))
+            result['limit_ask_size_above'] = barrier_metrics.get('limit_ask_size_above', np.zeros(n))
+            result['limit_bid_size_below'] = barrier_metrics.get('limit_bid_size_below', np.zeros(n))
+            result['limit_ask_size_below'] = barrier_metrics.get('limit_ask_size_below', np.zeros(n))
+
+            # Tape Metrics (Spatial)
             result['tape_imbalance'] = tape_metrics['tape_imbalance']
             result['tape_buy_vol'] = tape_metrics['tape_buy_vol']
             result['tape_sell_vol'] = tape_metrics['tape_sell_vol']
             result['tape_velocity'] = tape_metrics['tape_velocity']
-            result['sweep_detected'] = np.zeros(n, dtype=bool)
-            result['fuel_effect'] = fuel_metrics['fuel_effect']
+            
+            result['tape_buy_vol_above'] = tape_metrics.get('tape_buy_vol_above', np.zeros(n))
+            result['tape_sell_vol_above'] = tape_metrics.get('tape_sell_vol_above', np.zeros(n))
+            result['tape_imbalance_above'] = tape_metrics.get('tape_imbalance_above', np.zeros(n))
+            
+            result['tape_buy_vol_below'] = tape_metrics.get('tape_buy_vol_below', np.zeros(n))
+            result['tape_sell_vol_below'] = tape_metrics.get('tape_sell_vol_below', np.zeros(n))
+            result['tape_imbalance_below'] = tape_metrics.get('tape_imbalance_below', np.zeros(n))
+
+            # Fuel / Tide Metrics (Spatial)
             result['gamma_exposure'] = fuel_metrics['gamma_exposure']
-            result['call_tide'] = fuel_metrics.get('call_tide', np.zeros(n, dtype=np.float64))
-            result['put_tide'] = fuel_metrics.get('put_tide', np.zeros(n, dtype=np.float64))
+            result['fuel_effect'] = fuel_metrics['fuel_effect']
+            result['call_tide'] = fuel_metrics['call_tide']
+            result['put_tide'] = fuel_metrics['put_tide']
+            
+            result['call_tide_above'] = fuel_metrics.get('call_tide_above', np.zeros(n))
+            result['put_tide_above'] = fuel_metrics.get('put_tide_above', np.zeros(n))
+            result['call_tide_below'] = fuel_metrics.get('call_tide_below', np.zeros(n))
+            result['put_tide_below'] = fuel_metrics.get('put_tide_below', np.zeros(n))
             
             # Split Tide Features (Phase 4.6)
             for feat in ['call_tide_above_5pt', 'call_tide_below_5pt', 'put_tide_above_5pt', 'put_tide_below_5pt']:

@@ -62,9 +62,22 @@ def validate_compute_physics(date: str = "2025-06-04", level_name: str = "PM_HIG
     if not signals_df.empty:
         # Check Columns
         physics_cols = [
-            'barrier_state', 'tape_velocity', 'fuel_effect', 
-            'call_tide', 'put_tide', 'gamma_exposure'
+            # Tape (Spatial)
+            'tape_buy_vol', 'tape_sell_vol', 'tape_imbalance',
+            'tape_buy_vol_above', 'tape_sell_vol_above', 'tape_imbalance_above',
+            'tape_buy_vol_below', 'tape_sell_vol_below', 'tape_imbalance_below',
+            # Depth (Spatial)
+            'limit_bid_size', 'limit_ask_size',
+            'limit_bid_size_above', 'limit_ask_size_above',
+            'limit_bid_size_below', 'limit_ask_size_below',
+            # Barrier
+            'barrier_size', 'barrier_dist',
+            # Tide (Spatial)
+            'call_tide', 'put_tide',
+            'call_tide_above', 'put_tide_above',
+            'call_tide_below', 'put_tide_below'
         ]
+        
         missing_cols = [c for c in physics_cols if c not in signals_df.columns]
         
         if missing_cols:
