@@ -1,4 +1,20 @@
-"""Generate level universe stage."""
+"""
+Stage: Generate Levels
+Type: Generation
+Input: OHLCV bars (1min, 2min), Market State, Options Flow (for walls)
+Output: Level Universe (LevelInfo), Dynamic Level Series
+
+Transformation:
+1. Generates structural levels based on price history and time:
+   - Pre-Market High/Low (04:00-09:30 ET)
+   - Opening Range High/Low (09:30-09:45 ET)
+   - SMA-90 (90-period Simple Moving Average on 2min bars)
+2. Filters the output to ONLY the single level specified in `ctx.level`.
+   - This enforces the pipeline's "one level per run" architecture.
+3. Computes dynamic time-series for the level (e.g. cumulative max for Highs, rolling mean for SMAs).
+
+Note: This stage defines the "Target" around which all subsequent relative features are calculated.
+"""
 from typing import Any, Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from datetime import time as dt_time

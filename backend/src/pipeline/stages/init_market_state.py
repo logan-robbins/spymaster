@@ -1,4 +1,18 @@
-"""Initialize MarketState stage."""
+"""
+Stage: Init Market State
+Type: Initialization
+Input: Futures Trades, MBP-10 Snapshots, Options Trades
+Output: MarketState Object, Enrichment Options DataFrame
+
+Transformation:
+1. Initializes the `MarketState` container (Greeks, Liquidity, Sentiment).
+2. Identifies the "Active Contract" based on volume dominance.
+3. Computes Delta and Gamma for all Options Trades using Black-76 (vectorized).
+4. Infers Aggressor side (Buy/Sell/Mid) for options using Tick Test if missing.
+5. Aggregates option flows into MarketState.
+
+Note: This stage prepares the core state object that tracks market context. Computing Greeks here allows downstream stages to just sum them up for GEX/Tide.
+"""
 from typing import Any, Dict, List, Tuple
 import pandas as pd
 import numpy as np

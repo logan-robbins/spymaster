@@ -1,7 +1,20 @@
 """
-Compute market-wide OFI (Order Flow Imbalance).
+Stage: Compute Market OFI (Global Pipeline)
+Type: Feature Engineering (Market-Wide)
+Input: Signals DataFrame (Time Grid), MBP-10 Snapshots
+Output: Signals DataFrame with Global OFI Features
 
-Computes total OFI without spatial filtering relative to a level.
+Transformation:
+1. Replays ALL Order Book Updates (Snapshot-based L1 Deltas).
+2. Computes System-Wide Order Flow Imbalance (OFI):
+   - Measures net aggressor demand across the entire book (depth-agnostic).
+   - No spatial filtering (all price levels contribute).
+3. Aggregates over Time Windows (30s, 60s, 120s, 300s).
+   - Captures "buying pressure" vs "selling pressure" at market scale.
+4. Computes Flow Acceleration:
+   - Ratio of short-term (30s) to long-term (120s) flow.
+   
+Note: High positive Market OFI implies strong broad-based buying pressure, often preceding a trend day.
 """
 
 import pandas as pd
@@ -68,10 +81,10 @@ class ComputeMarketOFIStage(BaseStage):
             ofi_30 = signals_df['ofi_30s'].values
             ofi_120 = signals_df['ofi_120s'].values
             # Require |ofi_120s| > 5 for meaningful ratio, else set to 0
-            signals_df['ofi_acceleration'] = np.where(
-                np.abs(ofi_120) > 5,
-                ofi_30 / ofi_120,
-                0.0
+            signals_df['ofi_acceleration'] = np.divide(
+                ofi_30, ofi_120,
+                out=np.zeros_like(ofi_30),
+                where=(np.abs(ofi_120) > 5)
             )
         
         print(f"  Computed market OFI for {len(signals_df)} events")

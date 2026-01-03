@@ -1,17 +1,19 @@
 """
-Compute F=ma consistency checks (physics validation features).
+Stage: Compute Force Mass
+Type: Feature Engineering (Physics Validation)
+Input: Signals DataFrame (Kinematics, OFI, Barrier)
+Output: Signals DataFrame with F=ma Features
 
-Cross-validate force and mass proxies
-with observed acceleration.
+Transformation:
+1. Validates the physics of the interaction using an F = ma analogy.
+   - Force = Order Flow Imbalance (OFI) + Tape Aggression.
+   - Mass = Liquidity Depth (Barrier) at the level.
+   - Acceleration = Observed Price Change.
+2. Computes the "Residual" (Unexplained Acceleration).
+   - High Positive Residual: "Hidden Momentum" (Price moved easily despite low force).
+   - High Negative Residual: "Absorption" (High force failed to move price).
 
-F = ma analogy:
-- Mass: Liquidity depth (barrier resistance)
-- Force: Order flow imbalance + tape pressure
-- Acceleration: Price movement (kinematics)
-
-Residual = actual_accel - predicted_accel reveals:
-- Positive residual: "Hidden momentum" (price moved more than liquidity suggests)
-- Negative residual: "Absorption" (liquidity absorbed the pressure)
+Note: This stage acts as a "Lie Detector"—is the move supported by flow, or is it a fake-out?
 """
 
 from typing import Any, Dict, List
@@ -26,9 +28,9 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
     Compute F=ma consistency features.
     
     Required inputs (from prior stages):
-    - acceleration: From kinematics stage
-    - integrated_ofi: From OFI stage (force proxy)
-    - barrier_delta_liq: From physics stage (mass proxy, defending liquidity)
+    - acceleration_1min: From kinematics stage
+    - ofi_1min: From OFI stage (force proxy)
+    - barrier_depth_current: From barrier evolution stage (mass proxy)
     - tape_imbalance: From physics stage (additional force)
     
     Outputs:
@@ -50,17 +52,20 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
         return result
     
     # Determine acceleration column (single-window or multi-window)
-    if 'acceleration' in signals_df.columns:
-        accel_col = 'acceleration'
-    elif 'acceleration_1min' in signals_df.columns:
+    if 'acceleration_1min' in signals_df.columns:
         accel_col = 'acceleration_1min'
+    elif 'acceleration' in signals_df.columns:
+        accel_col = 'acceleration'
     else:
-        raise ValueError("signals_df missing acceleration column (acceleration_1min)")
+        # Default to 0 values if missing, or handle gracefully
+        accel_col = None
     
     # Build force proxy (combination of OFI + tape)
     force = np.zeros(len(signals_df), dtype=np.float64)
     
-    if 'ofi_60s' in signals_df.columns:
+    if 'ofi_1min' in signals_df.columns:
+        force += signals_df['ofi_1min'].fillna(0).values
+    elif 'ofi_60s' in signals_df.columns:
         force += signals_df['ofi_60s'].fillna(0).values
     
     if 'tape_imbalance' in signals_df.columns:

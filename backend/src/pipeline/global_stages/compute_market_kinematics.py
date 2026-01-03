@@ -1,7 +1,18 @@
 """
-Compute market-wide kinematics (velocity, acceleration, jerk).
+Stage: Compute Market Kinematics (Global Pipeline)
+Type: Feature Engineering (Market-Wide)
+Input: Signals DataFrame (Time Grid), OHLCV Data (10s)
+Output: Signals DataFrame with Global Kinematic Features
 
-Computes unsigned (absolute) kinematics since there's no direction relative to a level.
+Transformation:
+1. Computes Price Motion Derivatives relative to Time:
+   - Velocity: Rate of change of price ($/min).
+   - Acceleration: Rate of change of velocity ($/min²).
+   - Jerk: Rate of change of acceleration ($/min³).
+2. Computes both Unsigned (Absolute for Volatility) and Signed (Directional for Trend) metrics.
+3. Aggregates over multiple windows (1m, 2m, 5m, 10m, 20m).
+   
+Note: High absolute kinematics imply high volatility/instability. High signed kinematics imply strong directional trend.
 """
 
 import pandas as pd

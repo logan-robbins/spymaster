@@ -13,22 +13,20 @@ def compute_level_distances(
     atr: pd.Series = None
 ) -> pd.DataFrame:
     """
-    Compute distance to THE level.
-    
-    Single-level pipeline: signals filtered to ONE level type.
-    - dist_to_level: signed distance from entry price to level (positive = above)
-    - dist_to_level_atr: ATR-normalized distance
-    - level_stacking_*: set to 0 (disabled for single-level pipeline, compute post-pipeline if needed)
-    
-    Args:
-        signals_df: DataFrame with signals for ONE level type
-        dynamic_levels: Dict with THE level series (single entry for level-specific pipeline)
-        ohlcv_df: OHLCV DataFrame for alignment
-        atr: ATR series for normalized distances
-    
-    Returns:
-        DataFrame with distance features
-    """
+Stage: Compute Level Distances
+Type: Feature Engineering (Spatial)
+Input: Signals DataFrame (touches), Dynamic Levels, OHLCV, ATR
+Output: Signals DataFrame with Distance Features
+
+Transformation:
+1. Computes the "Spatial Distance" between the detection price (entry_price) and the target Structural Level.
+   - Raw Distance: Price - Level (Signed: Positive = Above, Negative = Below).
+   - Normalized Distance: Scaled by ATR (Vol-Adjusted).
+2. Level Stacking: Checks for confluence with other levels (e.g., if PM_HIGH is near VWAP).
+   - Currently set to 0 as this pipeline processes one level at a time, but reserved for post-processing.
+   
+Note: This stage provides the " Spatial Context"—is the price "on" the level, slightly breaching it, or rejecting early?
+"""
     if signals_df.empty:
         return signals_df
     

@@ -1,9 +1,17 @@
 """
-Build all OHLCV frequencies hierarchically from trades_df.
+Stage: Build All OHLCV
+Type: Transformation (Aggregation)
+Input: Futures Trades (DataFrame) from Stage 0
+Output: OHLCV DataFrames (10s, 1min, 2min), ATR, Volatility
 
-trades_df → 10s bars → 1min bars → 2min bars
+Transformation:
+1. Aggregates tick-level trades into 10-second OHLCV bars (vectorized).
+2. Resamples 10s bars into 1-minute bars.
+3. Resamples 1-minute bars into 2-minute bars.
+4. Computes ATR and Realized Volatility from 1-minute bars.
+5. Loads and prepends "Warmup" data (previous days) for stable SMA calculations in later stages.
 
-Fully vectorized, no Python loops.
+Note: This stage establishes the temporal grid for the pipeline. The 2-minute bars with warmup are critical for structural level generation (SMAs).
 """
 
 import logging

@@ -1,17 +1,19 @@
 """
-Level-Relative Microstructure Features - Vacuum and Replenishment Latency.
+Stage: Compute Microstructure
+Type: Feature Engineering (Microstructure)
+Input: Signals DataFrame (touches), MBP-10 Snapshots
+Output: Signals DataFrame with Microstructure Features
 
-Computes liquidity metrics RELATIVE TO THE TARGET LEVEL, not global market depth.
+Transformation:
+1. Computes Level-Relative Microstructure Metrics by analyzing the Limit Order Book (LOB) depth around the target level.
+2. Vacuum Duration: Measures how long liquidity remains "fragile" (thin) near the level after a touch.
+   - Thin = Depth < 5 contracts within ±2.5pt.
+3. Replenishment Latency: Measures the time taken for the LOB to recharge after a "Liquidity Shock".
+   - Shock = >50% drop in depth.
+   - Recovery = Return to 90% of baseline depth.
+   - Computed separately for Bid (Support) and Ask (Resistance).
 
-For a level at price L:
-- Vacuum: Time with thin liquidity at bid/ask prices near L
-- Replenishment Latency Bid: Recovery time for bids defending L from below (support)
-- Replenishment Latency Ask: Recovery time for asks defending L from above (resistance)
-
-Algorithm based on Obizhaeva-Wang model:
-- Liquidity shock = ≥50% depth drop in consecutive MBP snapshots
-- Recovery = depth returns to 90% of pre-shock baseline
-- Spatial filter: Only count depth within ±2.5pt of level (10 ES ticks)
+Note: This stage answers "How resilient is the liquidity at this level?"—distinguishing between hard walls and fragile zones.
 """
 
 from typing import Any, Dict, List

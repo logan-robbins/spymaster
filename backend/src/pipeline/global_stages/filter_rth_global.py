@@ -1,8 +1,15 @@
 """
-Filter global features to training window and output.
+Stage: Filter RTH Global (Global Pipeline)
+Type: Data Filtering & Schema Enforcement
+Input: Signals DataFrame (Global Features)
+Output: Canonical Silver Signals (Global, Filtered)
 
-Similar to FilterRTHStage but for global market features.
-No level prefixing since these are market-wide.
+Transformation:
+1. Filters events to the Training Window (08:30 - 12:30 ET).
+   - Ensures time grid aligns with level-based events.
+2. Drops intermediate timestamp columns.
+3. Writes the Global Signals to the Silver Data Lake (partitioned by Date/Market).
+   - This dataset provides the "System/Market State" needed by the Gold Layer.
 """
 
 import logging
@@ -14,6 +21,15 @@ import pandas as pd
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.config import CONFIG
 from src.common.data_paths import canonical_signals_dir, date_partition
+from src.pipeline.core.feature_definitions import (
+    IDENTITY_FEATURES,
+    MARKET_STATE_FEATURES,
+    GLOBAL_OPTIONS_FEATURES,
+    GLOBAL_OFI_FEATURES,
+    GLOBAL_KINEMATICS_FEATURES,
+    GLOBAL_MICRO_FEATURES,
+    GLOBAL_WALL_FEATURES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +90,27 @@ class FilterRTHGlobalStage(BaseStage):
         
         logger.info(f"  Filtered to {len(signals_df)} events in training window")
         
-        # Validate output
-        required_cols = ['event_id', 'ts_ns', 'date', 'spot']
+        # Validate output schema
+        required_cols = set(IDENTITY_FEATURES) | {'spot'} # Validates Identity + Spot
+        # We expect at least some features from each category
+        
         missing = [c for c in required_cols if c not in signals_df.columns]
         if missing:
-            logger.warning(f"  Missing columns: {missing}")
+            logger.warning(f"  Missing minimal required columns: {missing}")
+            
+        # Optional: Check feature groups coverage
+        def check_coverage(name, expected, actual):
+            present = [c for c in expected if c in actual]
+            if not present:
+                logger.warning(f"  Missing ALL {name} features! Expected e.g. {expected[:3]}")
+            else:
+                logger.debug(f"  Found {len(present)}/{len(expected)} {name} features")
+
+        check_coverage("Options", GLOBAL_OPTIONS_FEATURES, signals_df.columns)
+        check_coverage("OFI", GLOBAL_OFI_FEATURES, signals_df.columns)
+        check_coverage("Microstructure", GLOBAL_MICRO_FEATURES, signals_df.columns)
+        check_coverage("Kinematics", GLOBAL_KINEMATICS_FEATURES, signals_df.columns)
+        check_coverage("Walls", GLOBAL_WALL_FEATURES, signals_df.columns)
         
         # Summary stats
         logger.info(f"  Output columns: {len(signals_df.columns)}")

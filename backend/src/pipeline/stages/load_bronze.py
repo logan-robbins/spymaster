@@ -1,4 +1,18 @@
-"""Load Bronze data stage - first stage in all pipelines."""
+"""
+Stage: Load Bronze
+Type: Ingestion
+Input: Raw DuckDB/Parquet data (ES Futures, ES Options)
+Output: Structured Python Objects (FuturesTrade, MBP10, Options DataFrame)
+
+Transformation:
+1. Loads ES Futures trades from MBP-10 (action='T') to ensure single source of truth.
+2. Loads ES Futures depth snapshots (MBP-10) for liquidity calculations.
+3. Loads ES Options trades for GEX/Tide calculations.
+4. Filters data to session bounds (04:00 - 16:00 ET) with barrier buffer.
+5. Standardizes timestamps to nanoseconds.
+
+Note: This stage does NOT create derived machine learning features. It provides the standardized raw data substrate for downstream feature engineering.
+"""
 import logging
 from typing import Any, Dict, List
 import pandas as pd

@@ -1,0 +1,33 @@
+{
+  "stage": "compute_barrier_evolution",
+  "date": "2025-06-04",
+  "level_target": "PM_HIGH",
+  "timestamp": "2026-01-03T13:27:47.665589",
+  "status": "success",
+  "metrics": {
+    "count": 12,
+    "barrier_stats": {
+      "barrier_depth_current": {
+        "mean": 5.0,
+        "min": 0.0,
+        "max": 38.0,
+        "std": 12.165525060596439,
+        "zeros": 10
+      },
+      "barrier_delta_1min": {
+        "mean": -0.25,
+        "min": -3.0,
+        "max": 0.0,
+        "std": 0.8660254037844386,
+        "zeros": 11
+      },
+      "barrier_pct_change_1min": {
+        "mean": -0.0060975609756097554,
+        "min": -0.07317073170731707,
+        "max": 0.0,
+        "std": 0.021122570824010693,
+        "zeros": 11
+      }
+    }
+  }
+}

@@ -1,15 +1,20 @@
 """
-Detect interaction zone entries (level-relative event extraction).
+Stage: Detect Interaction Zones
+Type: Event Detection (Filtering)
+Input: Futures Trades (High Frequency), Level Universe
+Output: Interaction Events DataFrame (touches_df)
 
-Define events as physics interactions with a level
-(not single tick touches). This stage replaces the simple touch detection with
-zone-based event extraction.
+Transformation:
+1. Filters the Level Universe to the single target level (e.g. PM_HIGH).
+2. Scans tick-by-tick futures trades to identify price crossings of the level.
+   - UP Cross: Price moves from below to above.
+   - DOWN Cross: Price moves from above to below.
+   - Gap Detection: Captures instantaneous jumps across levels.
+3. Debounces events using a time window (default 300s) to prevent event spam.
+4. Generates a DETERMINISTIC Event ID for each interaction based on parameters.
+   - ID Format: {date}_{level}_{price}_{timestamp}_{direction}
 
-Key improvements:
-- Dynamic interaction zone width (scales with ATR)
-- Direction assignment from approach side
-- Deterministic event IDs (reproducible for retrieval)
-- Entry/exit tracking (not just touches)
+Note: This stage converts continuous time-series data into discrete "Events" (Interactions) that form the basis of the "Episode" concept in reinforcement learning terms.
 """
 
 from typing import Any, Dict, List
