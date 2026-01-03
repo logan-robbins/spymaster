@@ -1,10 +1,72 @@
+"""
+True Event-Based Order Flow Imbalance (OFI) Computation.
+
+Implements OFI per Cont, Kukanov & Stoikov (2014) 
+"The Price Impact of Order Book Events".
+
+Key difference from state-delta OFI:
+- State-delta: compares consecutive snapshots, infers flow from size changes
+- Event-based: uses actual Add/Cancel/Modify events with side (Bid/Ask)
+
+Event-based OFI formula:
+  OFI_t = Σ (e_i * s_i * size_i)
+  
+Where:
+  e_i = +1 for Add, -1 for Cancel
+  s_i = +1 for Bid side, -1 for Ask side
+  size_i = order size
+
+This gives:
+  Add on Bid:    +size (buying pressure)
+  Cancel on Bid: -size (reduced buying)
+  Add on Ask:    -size (selling pressure)
+  Cancel on Ask: +size (reduced selling)
+  Trade (action='T'): excluded (execution, not order flow)
+  Modify: treated as Cancel(-old) + Add(+new), but we only see final size
+"""
+
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Any
+import numba
 
 from src.pipeline.core.stage import BaseStage, StageContext
 from src.common.event_types import MBP10
 from src.common.config import CONFIG
+
+
+@numba.jit(nopython=True, cache=True)
+def _compute_event_ofi_numba(
+    actions: np.ndarray,   # 0=other, 1=Add, 2=Cancel, 3=Modify
+    sides: np.ndarray,     # 0=None, 1=Bid, -1=Ask
+    sizes: np.ndarray,     # action_size
+) -> np.ndarray:
+    """
+    Compute event-based OFI values using Numba JIT.
+    
+    OFI = side * event_sign * size
+    Where event_sign is +1 for Add, -1 for Cancel
+    Modify is treated as 0 (ambiguous without old size)
+    Trade is excluded (action != 1,2,3)
+    """
+    n = len(actions)
+    ofi = np.zeros(n, dtype=np.float64)
+    
+    for i in range(n):
+        action = actions[i]
+        side = sides[i]
+        size = sizes[i]
+        
+        if side == 0:  # No side info
+            continue
+            
+        if action == 1:  # Add
+            ofi[i] = side * size
+        elif action == 2:  # Cancel
+            ofi[i] = -side * size
+        # action == 3 (Modify) and action == 0 (Trade/other) contribute 0
+    
+    return ofi
 
 
 def compute_multiwindow_ofi(
@@ -13,25 +75,19 @@ def compute_multiwindow_ofi(
     windows_seconds: List[float] = None
 ) -> pd.DataFrame:
     """
-    Compute integrated OFI at multiple lookback windows using Vectorized Prefix Sums.
+    Compute TRUE event-based OFI at multiple lookback windows.
     
-    Optimization Strategy:
-    1. Spatial Features (All): Grouped by Level Price.
-       Instead of filtering ticks for every signal (N_signals * Window_Size),
-       we filter ticks ONCE per unique level (N_levels * N_ticks) and use cumsum.
-       Complexity: O(N_levels * N_ticks + N_signals)
+    Uses action/side fields from MBP-10 events per Cont et al. (2014).
     
     Spatial Band Ranges (consistent with Tide features):
     - Total OFI: Within ±50pt of level (CONFIG.FUEL_STRIKE_RANGE)
     - Near Level: Within ±25pt of level (CONFIG.TIDE_SPLIT_RANGE)
     - Above: (Level, Level + 25pt]
     - Below: [Level - 25pt, Level)
-    
-    Note: Total should approximately equal sum of above + below when all data is present.
        
     Args:
         signals_df: DataFrame with signals
-        mbp10_snapshots: List of MBP-10 snapshots
+        mbp10_snapshots: List of MBP-10 events with action/side fields
         windows_seconds: List of lookback windows (default: [30, 60, 120, 300])
     
     Returns:
@@ -50,80 +106,29 @@ def compute_multiwindow_ofi(
             result[f'ofi_below_5pt{suffix}'] = 0.0
         return result
     
-    # 1. Build OFI Time Series (Global)
-    # ---------------------------------
-    # Sort snapshots by time
+    # 1. Build TRUE Event-Based OFI Time Series
     sorted_snapshots = sorted(mbp10_snapshots, key=lambda x: x.ts_event_ns)
-    
-    # Extract arrays for vectorization
-    n_snaps = len(sorted_snapshots)
     timestamps = np.array([x.ts_event_ns for x in sorted_snapshots], dtype=np.int64)
     
-    # Extract top-of-book for OFI calc
-    # Structure: [bid_px, bid_sz, ask_px, ask_sz]
-    tob_data = np.zeros((n_snaps, 4), dtype=np.float64)
-    for i, snap in enumerate(sorted_snapshots):
-        if snap.levels:
-            l = snap.levels[0]
-            tob_data[i] = [l.bid_px, l.bid_sz, l.ask_px, l.ask_sz]
-            
-    # Vectorized OFI Calc (Shift and Compare)
-    # curr: [1:]
-    # prev: [:-1]
-    b_t = tob_data[1:, 0]
-    q_b_t = tob_data[1:, 1]
-    a_t = tob_data[1:, 2]
-    q_a_t = tob_data[1:, 3]
+    # Map action strings to integers: A=1(Add), C=2(Cancel), M=3(Modify), T/other=0
+    action_map = {'A': 1, 'C': 2, 'M': 3}
+    actions = np.array([action_map.get(x.action, 0) for x in sorted_snapshots], dtype=np.int32)
     
-    b_prev = tob_data[:-1, 0]
-    q_b_prev = tob_data[:-1, 1]
-    a_prev = tob_data[:-1, 2]
-    q_a_prev = tob_data[:-1, 3]
+    # Map side strings to integers: B=+1(Bid), A=-1(Ask), None=0
+    side_map = {'B': 1, 'A': -1}
+    sides = np.array([side_map.get(x.side, 0) for x in sorted_snapshots], dtype=np.int32)
     
-    # Bid Flow
-    ofi_bid = np.zeros(n_snaps - 1, dtype=np.float64)
-    # b_t > b_prev
-    mask_bg = b_t > b_prev
-    ofi_bid[mask_bg] = q_b_t[mask_bg]
-    # b_t < b_prev
-    mask_bl = b_t < b_prev
-    ofi_bid[mask_bl] = -q_b_prev[mask_bl]
-    # b_t == b_prev
-    mask_beq = b_t == b_prev
-    ofi_bid[mask_beq] = q_b_t[mask_beq] - q_b_prev[mask_beq]
+    # Extract action sizes
+    sizes = np.array([x.action_size if x.action_size else 0 for x in sorted_snapshots], dtype=np.float64)
     
-    # Ask Flow
-    ofi_ask = np.zeros(n_snaps - 1, dtype=np.float64)
-    # a_t < a_prev
-    mask_al = a_t < a_prev
-    ofi_ask[mask_al] = q_a_t[mask_al]
-    # a_t > a_prev
-    mask_ag = a_t > a_prev
-    ofi_ask[mask_ag] = -q_a_prev[mask_ag]
-    # a_t == a_prev
-    mask_aeq = a_t == a_prev
-    ofi_ask[mask_aeq] = q_a_t[mask_aeq] - q_a_prev[mask_aeq]
+    # Extract action prices for spatial filtering
+    action_prices = np.array([x.action_price if x.action_price else 0.0 for x in sorted_snapshots], dtype=np.float64)
     
-    # Net OFI
-    # Adjust length to match original (pad first element)
-    raw_ofi = ofi_bid - ofi_ask
-    ofi_values = np.insert(raw_ofi, 0, 0.0)
+    # Compute event-based OFI using Numba
+    ofi_values = _compute_event_ofi_numba(actions, sides, sizes)
     
-    # Mid Prices for spatial filtering
-    mid_prices = (tob_data[:, 0] + tob_data[:, 2]) / 2.0
-    
-    # 2. Pre-compute Global Cumulative Sum
+    # 2. Compute Features Grouped by Level
     # ------------------------------------
-    # cumsum[i] = sum(0..i)
-    # sum(start..end) = cumsum[end] - cumsum[start-1]
-    # We use searchsorted 'right' which aligns with end index, so typically:
-    # sum(t_start < t <= t_end) -> cumsum[idx_end] - cumsum[idx_start]
-    
-    global_cumsum = np.cumsum(ofi_values)
-    
-    # 3. Compute Features Grouped by Level
-    # ------------------------------------
-    # We'll build the result columns incrementally
     n_signals = len(signals_df)
     result = signals_df.copy()
     
@@ -139,14 +144,7 @@ def compute_multiwindow_ofi(
     signal_ts = signals_df['ts_ns'].values.astype(np.int64)
     signal_levels = signals_df['level_price'].values.astype(np.float64)
     
-    # A. Total OFI Features - Spatially Filtered (per level, like Tide)
-    # ------------------------------------------------------------------
-    # Total OFI now uses spatial filtering within ±50pt range (matching FUEL_STRIKE_RANGE)
-    # This allows proper decomposition: total ≈ near_level (since near uses same ±25pt range)
-    # NOTE: We compute total OFI per-level in section B below alongside other spatial features
-
-    # B. Spatial Features (Near/Above/Below) - Group by Level
-    # -------------------------------------------------------
+    # Compute spatially-filtered OFI for each unique level
     unique_levels = np.unique(signal_levels)
     
     for lvl in unique_levels:
@@ -158,45 +156,34 @@ def compute_multiwindow_ofi(
         subset_ts = signal_ts[sig_mask]
         subset_indices = np.where(sig_mask)[0] # Indices in original df
         
-        # 1. Create Spatial Masks for this Level (Once per Level)
-        # -----------------------------------------------------
-        # Use same ranges as Tide features for consistency
-        band_total = CONFIG.FUEL_STRIKE_RANGE  # 50.0 pt (±10 strikes, total range)
-        band_split = CONFIG.TIDE_SPLIT_RANGE   # 25.0 pt (±5 strikes, split ranges)
+        # Create Spatial Masks using action_price (where the order was placed)
+        band_total = CONFIG.FUEL_STRIKE_RANGE  # 50.0 pt
+        band_split = CONFIG.TIDE_SPLIT_RANGE   # 25.0 pt
         
-        valid_px = np.isfinite(mid_prices)
+        # Only include A/C events with valid action prices (these contribute to OFI)
+        # M (Modify) and T (Trade) events have valid prices but don't contribute
+        valid_ofi = (action_prices > 0) & ((actions == 1) | (actions == 2))  # A or C
         
-        # Total: Within ±50pt (matches Tide total range)
-        mask_total = np.zeros_like(mid_prices, dtype=bool)
-        mask_total[valid_px] = np.abs(mid_prices[valid_px] - lvl) <= band_total
+        # Total: Within ±50pt
+        mask_total = valid_ofi & (np.abs(action_prices - lvl) <= band_total)
         
-        # Near Level: Within ±25pt (captures most activity, matches tide split range)
-        mask_near = np.zeros_like(mid_prices, dtype=bool)
-        mask_near[valid_px] = np.abs(mid_prices[valid_px] - lvl) <= band_split
+        # Near Level: Within ±25pt (for mean calculation)
+        mask_near = valid_ofi & (np.abs(action_prices - lvl) <= band_split)
         
-        # Above: (Level, Level + 25pt] (exclusive of level)
-        mask_above = np.zeros_like(mid_prices, dtype=bool)
-        mask_above[valid_px] = (mid_prices[valid_px] > lvl) & (mid_prices[valid_px] <= lvl + band_split)
+        # Above: (Level, Level + 25pt]
+        mask_above = valid_ofi & (action_prices > lvl) & (action_prices <= lvl + band_split)
         
-        # Below: [Level - 25pt, Level) (exclusive of level)
-        mask_below = np.zeros_like(mid_prices, dtype=bool)
-        mask_below[valid_px] = (mid_prices[valid_px] < lvl) & (mid_prices[valid_px] >= lvl - band_split)
+        # Below: [Level - 25pt, Level)
+        mask_below = valid_ofi & (action_prices < lvl) & (action_prices >= lvl - band_split)
         
-        # 2. Create Cumulative Sums for Spatial Filters
-        # ---------------------------------------------
-        # Total OFI (sum within ±50pt range)
+        # Cumulative sums for spatial filters
         cum_total = np.cumsum(np.where(mask_total, ofi_values, 0.0))
-        
-        # Near level OFI (mean within ±25pt range)
         cum_near = np.cumsum(np.where(mask_near, ofi_values, 0.0))
-        cum_count_near = np.cumsum(mask_near.astype(int))
-        
-        # Above/Below OFI (sum in respective bands)
+        cum_count_near = np.cumsum(mask_near.astype(np.int64))
         cum_above = np.cumsum(np.where(mask_above, ofi_values, 0.0))
         cum_below = np.cumsum(np.where(mask_below, ofi_values, 0.0))
         
-        # 3. Compute for all Windows for this Subset
-        # ------------------------------------------
+        # Compute for all windows
         for w in windows_seconds:
             lookback_ns = int(w * 1e9)
             sub_start_ts = subset_ts - lookback_ns
