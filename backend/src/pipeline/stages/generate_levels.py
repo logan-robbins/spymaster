@@ -381,7 +381,7 @@ class GenerateLevelsStage(BaseStage):
             kind_names=[target_level]
         )
         
-        # Extract single dynamic series
+        # Extract single dynamic series for target level
         dynamic_levels = {target_level: all_dynamic_levels[target_level]}
 
         return {

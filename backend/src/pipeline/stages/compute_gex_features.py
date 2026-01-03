@@ -46,7 +46,13 @@ def compute_strike_banded_gex(
     
     # Initialize result columns with 0.0
     result = signals_df.copy()
-    zero_fill_cols = []
+    zero_fill_cols = [
+        # Simple above/below level (ALL strikes)
+        'gex_above_level', 'gex_below_level',
+        'call_gex_above_level', 'call_gex_below_level',
+        'put_gex_above_level', 'put_gex_below_level',
+    ]
+    # Banded features (near level)
     for band in band_labels:
         zero_fill_cols.extend([
             f'gex_above_{band}strike', f'gex_below_{band}strike',
@@ -117,12 +123,32 @@ def compute_strike_banded_gex(
     
     # Vectorized Lookup for Signals
     levels = signals_df['level_price'].values.astype(np.float64)
+    n_strikes = len(strikes)
     
     # Helper to sum range [start_idx, end_idx)
     def fast_sum(cum_arr, idx_start, idx_end):
-        # Result array
         return cum_arr[idx_end] - cum_arr[idx_start]
 
+    # 1. Simple Above/Below Level (ALL strikes)
+    idx_above_level = np.searchsorted(strikes, levels, side='right')  # First strike > level
+    idx_below_level = np.searchsorted(strikes, levels, side='left')   # First strike >= level
+    n_levels = len(levels)
+    idx_zero = np.zeros(n_levels, dtype=int)
+    idx_end = np.full(n_levels, n_strikes)
+    
+    # Total GEX above/below
+    result['gex_above_level'] = fast_sum(cum_total, idx_above_level, idx_end)
+    result['gex_below_level'] = fast_sum(cum_total, idx_zero, idx_below_level)
+    
+    # Call GEX above/below
+    result['call_gex_above_level'] = fast_sum(cum_call, idx_above_level, idx_end)
+    result['call_gex_below_level'] = fast_sum(cum_call, idx_zero, idx_below_level)
+    
+    # Put GEX above/below
+    result['put_gex_above_level'] = fast_sum(cum_put, idx_above_level, idx_end)
+    result['put_gex_below_level'] = fast_sum(cum_put, idx_zero, idx_below_level)
+
+    # 2. Banded features (near level)
     for label, band in zip(band_labels, band_points):
         # 1. Above Region: (Level, Level + Band]
         # range > level AND <= level + band
@@ -148,15 +174,12 @@ def compute_strike_banded_gex(
         result[f'gex_below_{label}strike'] = fast_sum(cum_total, idx_below_start, idx_below_end)
         result[f'put_gex_below_{label}strike'] = fast_sum(cum_put, idx_below_start, idx_below_end)
 
-    # Derived Metrics (Asymmetry, Ratio) using Max Band
-    max_label = band_labels[-1]
-    gex_above_max = result[f'gex_above_{max_label}strike']
-    gex_below_max = result[f'gex_below_{max_label}strike']
+    # Derived Metrics (Asymmetry, Ratio) using ALL strikes above/below level
+    gex_above = result['gex_above_level']
+    gex_below = result['gex_below_level']
     
-    result['gex_asymmetry'] = gex_above_max - gex_below_max
-    
-    denom = np.abs(gex_below_max) + 1e-6
-    result['gex_ratio'] = gex_above_max / denom
+    result['gex_asymmetry'] = gex_above - gex_below
+    result['gex_ratio'] = gex_above / (np.abs(gex_below) + 1e-6)
     
     # Net GEX within ±Max Band (Inclusive of Level)
     # Range: [Level - MaxBand, Level + MaxBand]

@@ -15,14 +15,13 @@ logger = logging.getLogger(__name__)
 
 class FilterRTHStage(BaseStage):
     """
-    Filter signals to RTH only: first 3 hours (09:30-12:30 ET).
+    Filter signals to training window: 08:30-12:30 ET (1hr premarket + 3hr RTH).
     
-    Training window:
-    - MBP-10 data includes RTH-1 (08:30-09:30 ET) for barrier context
-    - Touch detection only during RTH: 09:30-12:30 ET (first 3 hours)
+    Training window rationale:
+    - 08:30-09:30 ET: Premarket hour captures PM_HIGH/PM_LOW formation and early touches
+    - 09:30-12:30 ET: First 3 hours of RTH (most liquid, cleanest price action)
     
-    Note: Touch detection (Stage 5) already filters to RTH, so this stage
-    is now redundant but kept for schema validation and canonical Silver output.
+    Total: 4 hours of signal data per day.
     
     Outputs:
         signals: Final filtered DataFrame (key used by Pipeline.run)
@@ -39,10 +38,13 @@ class FilterRTHStage(BaseStage):
     def execute(self, ctx: StageContext) -> Dict[str, Any]:
         signals_df = ctx.data['signals_df'].copy()
 
-        # Compute RTH bounds: first 3 hours only (09:30-12:30 ET)
-        # Note: This should match the filtering done in detect_interaction_zones
-        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)
-        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=12, minutes=30)
+        # Training window: 08:30-12:30 ET (1hr premarket + 3hr RTH)
+        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
+            hours=CONFIG.TRAINING_START_HOUR, minutes=CONFIG.TRAINING_START_MINUTE
+        )
+        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(
+            hours=CONFIG.TRAINING_END_HOUR, minutes=CONFIG.TRAINING_END_MINUTE
+        )
         session_start_ns = session_start.tz_convert("UTC").value
         session_end_ns = session_end.tz_convert("UTC").value
 
@@ -70,13 +72,11 @@ class FilterRTHStage(BaseStage):
             columns=[c for c in cols_to_drop if c in signals_df.columns]
         )
 
-        # Validate against Silver schema
-        try:
-            validate_silver_features(signals_df)
+        # Validate against Silver schema (non-strict during development)
+        if validate_silver_features(signals_df, strict=False):
             logger.info(f"  ✅ Schema validation passed: {len(signals_df.columns)} columns")
-        except ValueError as e:
-            logger.warning(f"  ⚠️  Schema validation failed: {e}")
-            # Log but don't fail - this is informational during development
+        else:
+            logger.info(f"  ⚠️  Schema validation warning (non-strict): {len(signals_df.columns)} columns")
 
         # Optional: persist canonical Silver event table for this pipeline run
         signals_output_path: Path | None = None
