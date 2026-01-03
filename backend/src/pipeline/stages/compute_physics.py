@@ -119,11 +119,12 @@ def compute_physics_batch(
             # Encode barrier_state and fuel_effect to numeric
             # Per EPISODE_VECTOR_SCHEMA.md Section D
             barrier_state_map = {
-                'STRONG_RESISTANCE': -2,
-                'WEAK_RESISTANCE': -1,
+                'VACUUM': -3,
+                'CONSUMED': -2,
+                'ABSORPTION': -1,
                 'NEUTRAL': 0,
-                'WEAK_SUPPORT': 1,
-                'STRONG_SUPPORT': 2
+                'WEAK': 1,
+                'WALL': 2
             }
             fuel_effect_map = {
                 'AMPLIFY': -1,  # Dealer short gamma amplifies moves
@@ -235,11 +236,12 @@ def compute_physics_batch(
     # Encode barrier_state and fuel_effect to numeric
     # Per EPISODE_VECTOR_SCHEMA.md Section D
     barrier_state_map = {
-        'STRONG_RESISTANCE': -2,
-        'WEAK_RESISTANCE': -1,
+        'VACUUM': -3,
+        'CONSUMED': -2,
+        'ABSORPTION': -1,
         'NEUTRAL': 0,
-        'WEAK_SUPPORT': 1,
-        'STRONG_SUPPORT': 2
+        'WEAK': 1,
+        'WALL': 2
     }
     fuel_effect_map = {
         'AMPLIFY': -1,  # Dealer short gamma amplifies moves

@@ -9,11 +9,11 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 ## Quick Facts
 
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
-- **Levels**: 6 kinds (PM_HIGH/LOW, OR_HIGH/LOW, SMA_90/EMA_20)
+- **Levels**: 5 types (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)
 - **Outcomes**: BREAK/REJECT/CHOP 
-- **Episode Vectors**: N dimensions (Source) 
+- **Episode Vectors**: ~98 features per signal
 - **Retrieval**: FAISS similarity search 
-- **Pipeline**: N stages (bronze → silver → gold → indices)
+- **Pipeline**: Single-level architecture (run once per level type)
 
 ---
 
@@ -92,26 +92,31 @@ uv run python scripts/validate_backfill.py --date 2025-06-20
 
 #### 3a. Bronze → Silver (Feature Engineering)
 
+Run separately for each level type:
+
 ```bash
 cd backend
 
-# Run Bronze→Silver pipeline  with 8 parallel workers
-# Complete data range: June 5 - September 30, 2025 (107 days)
-# Use nohup to run in background without blocking
-nohup uv run python -m scripts.run_pipeline \
+# Run for each level (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)
+for level in PM_HIGH PM_LOW OR_HIGH OR_LOW SMA_90; do
+  nohup uv run python -m scripts.run_pipeline \
   --pipeline bronze_to_silver \
-  --start 2025-06-05 \
-  --end 2025-09-30 \
+  --start 2025-06-11 \
+  --end 2025-06-13 \
   --workers 8 \
-  --write-outputs \
+  --checkpoint-dir data/checkpoints \
   --canonical-version 4.0.0 \
-  > logs/{log_name}.out 2>&1 &
+  --stop-at-stage 3 \
+  --write-outputs \
+  --level PM_HIGH
+done
 
 # Monitor progress
-tail -f logs/{log_name}.out
+tail -f logs/bronze_to_silver_PM_HIGH.out
 
-# Check completion status
-grep -E "✅|❌" logs/{log_name}.out | tail -20
+# Output structure
+# data/silver/features/es_pipeline/version=4.5.0/date=2025-06-11/pm_high/signals.parquet
+# data/silver/features/es_pipeline/version=4.5.0/date=2025-06-11/pm_low/signals.parquet
 ```
 
 #### 3b. Silver → Gold (Episode Construction)

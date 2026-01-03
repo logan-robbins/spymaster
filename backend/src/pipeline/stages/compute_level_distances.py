@@ -13,21 +13,21 @@ def compute_level_distances(
     atr: pd.Series = None
 ) -> pd.DataFrame:
     """
-    Compute distance to THE level and level stacking (confluence).
+    Compute distance to THE level.
     
     Single-level pipeline: signals filtered to ONE level type.
-    - dist_to_level: distance from current price to THE level
+    - dist_to_level: signed distance from entry price to level (positive = above)
     - dist_to_level_atr: ATR-normalized distance
-    - level_stacking_*: count of OTHER levels within range (confluence)
+    - level_stacking_*: set to 0 (disabled for single-level pipeline, compute post-pipeline if needed)
     
     Args:
         signals_df: DataFrame with signals for ONE level type
-        dynamic_levels: Dict of ALL level series (for stacking calculation)
+        dynamic_levels: Dict with THE level series (single entry for level-specific pipeline)
         ohlcv_df: OHLCV DataFrame for alignment
         atr: ATR series for normalized distances
     
     Returns:
-        DataFrame with distance and stacking features
+        DataFrame with distance features
     """
     if signals_df.empty:
         return signals_df
@@ -80,64 +80,14 @@ def compute_level_distances(
     else:
         result['dist_to_level_atr'] = np.nan
     
-    # 3. Level Stacking (confluence): count OTHER levels near THE level
-    level_types = ['PM_HIGH', 'PM_LOW', 'OR_HIGH', 'OR_LOW', 'SMA_90']
-    level_values_matrix = np.full((n, len(level_types)), np.nan, dtype=np.float64)
+    # 3. Level Stacking (confluence): DISABLED for single-level pipeline
+    # This feature requires all levels to be generated, which violates
+    # the "one level at a time" principle. Can be computed post-pipeline
+    # if needed for cross-level confluence analysis.
     
-    # Build matrix of all level values at signal timestamps
-    if ohlcv_df is not None and not ohlcv_df.empty:
-        # Get bar indices if not already computed
-        if 'bar_indices' not in locals():
-            if 'bar_idx' in signals_df.columns and not signals_df['bar_idx'].isnull().all():
-                bar_indices = signals_df['bar_idx'].fillna(-1).astype(int).values
-            else:
-                if 'ts_ns' in ohlcv_df.columns:
-                    ohlcv_ts = ohlcv_df['ts_ns'].values.astype(np.int64)
-                elif 'timestamp' in ohlcv_df.columns:
-                    ohlcv_ts = ohlcv_df['timestamp'].values.astype('datetime64[ns]').astype(np.int64)
-                else:
-                    ohlcv_ts = ohlcv_df.index.values.astype('datetime64[ns]').astype(np.int64)
-                
-                sig_ts = signals_df['ts_ns'].values.astype(np.int64)
-                bar_indices = np.searchsorted(ohlcv_ts, sig_ts, side='right') - 1
-                bar_indices = np.clip(bar_indices, 0, len(ohlcv_ts) - 1)
-        
-        # Populate matrix
-        for k, level_type in enumerate(level_types):
-            if level_type in dynamic_levels:
-                lvl_series = dynamic_levels[level_type]
-                if not lvl_series.empty:
-                    vals = lvl_series.values
-                    max_idx = len(vals) - 1
-                    valid_idx_mask = (bar_indices >= 0) & (bar_indices <= max_idx)
-                    current_lvl_vals = np.full(n, np.nan, dtype=np.float64)
-                    current_lvl_vals[valid_idx_mask] = vals[bar_indices[valid_idx_mask]]
-                    level_values_matrix[:, k] = current_lvl_vals
-            
-    # Level Stacking: Count nearby levels
-    # Matrix broadcasting: |Level_Matrix - Signal_Level[:, None]|
-    # Signal_Level shape (N,) -> (N, 1)
-    
-    # Diff matrix: (N, N_types)
-    diff_matrix = np.abs(level_values_matrix - level_prices[:, None])
-    
-    stacking_bands = [2.0, 5.0, 10.0]  # ES points
-    
-    for band in stacking_bands:
-        col_name = f'level_stacking_{int(band)}pt'
-        
-        # Count where 0 < dist <= band
-        # 0 < dist excludes the level itself (if it matches perfectly)
-        # Note: level_price is the *targeted* level.
-        # If targeted level is PM_HIGH, then dist to PM_HIGH is 0.
-        # We want to count *other* levels stacking.
-        # So excluding 0 distance is correct.
-        
-        mask = (diff_matrix > 1e-4) & (diff_matrix <= band)
-        # Sum along columns (k)
-        stacking_count = np.sum(mask, axis=1)
-        
-        result[col_name] = stacking_count
+    result['level_stacking_2pt'] = 0
+    result['level_stacking_5pt'] = 0
+    result['level_stacking_10pt'] = 0
     
     return result
 

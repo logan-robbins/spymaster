@@ -316,17 +316,20 @@ def compute_dynamic_level_series(
 
 
 class GenerateLevelsStage(BaseStage):
-    """Generate level universe.
+    """Generate level universe FOR THE SPECIFIED LEVEL ONLY.
+    
+    Level-specific pipeline: Generates ONLY the level specified by ctx.level.
+    This follows the "one level at a time" principle for feature creation.
 
-    Generates:
-    - Static levels: ROUND, STRIKE
-    - Dynamic levels: PM_HIGH/LOW, OR_HIGH/LOW, SESSION_HIGH/LOW,
-                      SMA_90, VWAP, CALL_WALL/PUT_WALL
+    Supported levels:
+    - pm_high, pm_low: Pre-market high/low (04:00-09:30 ET)
+    - or_high, or_low: Opening range high/low (09:30-09:45 ET)
+    - sma_90: 90-period moving average on 2min bars
+    - ema_20: 20-period exponential moving average
 
     Outputs:
-        level_info: LevelInfo with all levels
-        static_level_info: LevelInfo with only static levels (ROUND, STRIKE)
-        dynamic_levels: Dict with per-bar dynamic level values
+        level_info: LevelInfo with SINGLE level
+        dynamic_levels: Dict with per-bar series for THIS level only
     """
 
     @property
@@ -343,37 +346,45 @@ class GenerateLevelsStage(BaseStage):
         ohlcv_2min = ctx.data.get('ohlcv_2min')
         option_trades_df = ctx.data.get('option_trades_df', pd.DataFrame())
 
-        # Generate full level universe
-        level_info = generate_level_universe(
+        # Get target level from context
+        target_level = ctx.level.upper() if ctx.level else None
+        if not target_level:
+            raise ValueError("ctx.level must be specified for level-specific pipeline")
+
+        # Generate ALL levels first (needed for computation)
+        all_level_info = generate_level_universe(
             ohlcv_df,
             market_state.option_flows,
             ctx.date,
             ohlcv_2min=ohlcv_2min
         )
-
-        # Compute dynamic levels per bar
-        dynamic_levels = compute_dynamic_level_series(
+        
+        # Compute dynamic series for all levels
+        all_dynamic_levels = compute_dynamic_level_series(
             ohlcv_df, ohlcv_2min, option_trades_df, ctx.date
         )
 
-        # Extract static levels (ROUND, STRIKE)
-        static_prices = []
-        static_kinds = []
-        static_names = []
-        for price, kind, name in zip(level_info.prices, level_info.kinds, level_info.kind_names):
-            if name in ('ROUND', 'STRIKE'):
-                static_prices.append(price)
-                static_kinds.append(kind)
-                static_names.append(name)
-
-        static_level_info = LevelInfo(
-            prices=np.array(static_prices, dtype=np.float64),
-            kinds=np.array(static_kinds, dtype=np.int8),
-            kind_names=static_names
+        # Filter to ONLY the target level
+        target_idx = None
+        for i, name in enumerate(all_level_info.kind_names):
+            if name == target_level:
+                target_idx = i
+                break
+        
+        if target_idx is None:
+            raise ValueError(f"Target level '{target_level}' not found. Available: {all_level_info.kind_names}")
+        
+        # Extract single level
+        level_info = LevelInfo(
+            prices=np.array([all_level_info.prices[target_idx]], dtype=np.float64),
+            kinds=np.array([all_level_info.kinds[target_idx]], dtype=np.int8),
+            kind_names=[target_level]
         )
+        
+        # Extract single dynamic series
+        dynamic_levels = {target_level: all_dynamic_levels[target_level]}
 
         return {
             'level_info': level_info,
-            'static_level_info': static_level_info,
             'dynamic_levels': dynamic_levels,
         }
