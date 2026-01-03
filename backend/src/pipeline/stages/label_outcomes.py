@@ -21,20 +21,21 @@ def label_outcomes(
     """
     Label outcomes using FIRST-CROSSING SEMANTICS with fixed-point thresholds.
     
-    Outcome determined by which threshold is crossed first:
-    - BREAK: Price trades through level to far side by MONITOR_BAND points
-    - REJECT: Price moves away on near side by MONITOR_BAND points before achieving BREAK
-    - CHOP: Neither BREAK nor REJECT within 8 minutes
+    Outcome determined by which threshold (12.5pt / 50 ticks) is crossed first:
+    - BREAK: Price moves 12.5pt in direction of approach (through level)
+    - REJECT: Price moves 12.5pt opposite to approach (bounced off level)
+    - CHOP: Neither threshold crossed within horizon
     
     Direction semantics:
-    - UP: approaching from below, BREAK = crossed above, REJECT = reversed down
-    - DOWN: approaching from above, BREAK = crossed below, REJECT = reversed up
+    - UP: approaching from below, BREAK = +12.5pt above level, REJECT = -12.5pt below level
+    - DOWN: approaching from above, BREAK = -12.5pt below level, REJECT = +12.5pt above level
     
     Touch detection (OHLC-based):
-    - A touch occurs when any bar's OHLC range intersects TOUCH_BAND
-    - Condition: bar_low <= level_price + TOUCH_BAND AND bar_high >= level_price - TOUCH_BAND
+    - A touch occurs when any bar's OHLC range intersects TOUCH_BAND (±1.5pt)
+    - Condition: bar_low <= level + 1.5pt AND bar_high >= level - 1.5pt
     
-    Fixed horizons: 2min, 4min, 8min (8min is primary for outcome determination)
+    Fixed horizons: 2min (scalp), 4min (day trade), 8min (swing)
+    Primary horizon: 8min
     
     CRITICAL: This generates LABELS ONLY. These fields must NEVER appear in feature vectors.
 
@@ -42,15 +43,15 @@ def label_outcomes(
         signals_df: DataFrame with signals (event table)
         ohlcv_df: OHLCV DataFrame (ES futures, 1min bars)
         lookforward_minutes: Not used (horizons are fixed)
-        outcome_threshold: Not used (uses MONITOR_BAND from CONFIG)
+        outcome_threshold: Not used (uses BREAK_REJECT_THRESHOLD from CONFIG)
         use_multi_timeframe: Must be True (generates 2/4/8min labels)
 
     Returns:
-        DataFrame with outcome labels, touch flags, and defended touch counts
+        DataFrame with outcome labels and continuous excursion metrics
     """
-    # Fixed horizons: 4min (fast signal), 8min (confirmation)
-    confirmation_windows = [240, 480]  # seconds: 4min, 8min
-    window_labels = ['4min', '8min']
+    # Fixed horizons: 2min (scalp), 4min (day trade), 8min (swing)
+    confirmation_windows = [120, 240, 480]  # seconds: 2min, 4min, 8min
+    window_labels = ['2min', '4min', '8min']
     
     # Fixed-point thresholds (from CONFIG)
     break_threshold_points = CONFIG.BREAK_REJECT_THRESHOLD  # 12.5 points (meaningful follow-through)
@@ -108,9 +109,9 @@ def label_outcomes(
             direction = directions[i]
             level_price = level_prices[i]
             
-            start_idx = np.searchsorted(ohlcv_ts, ts, side='right') - 1
-            if start_idx < 0:
-                start_idx = 0
+            # Start from NEXT bar after signal to avoid lookahead bias
+            # (current bar's OHLC includes price action before signal)
+            start_idx = np.searchsorted(ohlcv_ts, ts, side='right')
             if start_idx >= len(ohlcv_ts):
                 outcomes[i] = 'CHOP'
                 continue
@@ -269,21 +270,23 @@ def label_outcomes(
 
 
 class LabelOutcomesStage(BaseStage):
-    """Label outcomes using first-crossing semantics (IMPLEMENTATION_READY.md Section 3).
+    """Label outcomes using first-crossing semantics.
 
     Computes forward-looking outcome labels based on which threshold is hit first:
-    - BREAK: 1 ATR movement in direction of approach
-    - REJECT: 1 ATR movement in opposite direction  
+    - BREAK: 12.5pt (50 ticks) movement in direction of approach
+    - REJECT: 12.5pt (50 ticks) movement in opposite direction  
     - CHOP: Neither threshold hit within horizon
 
-    Multi-horizon labels: 2min, 4min, 8min (independent)
-    Primary horizon: 4min
+    Fixed-point thresholds (not ATR-scaled) match day trader intuition.
+    
+    Multi-horizon labels: 2min (scalp), 4min (day trade), 8min (swing)
+    Primary horizon: 8min
 
     Outputs:
         signals_df: Updated with outcome labels:
             - outcome_2min, outcome_4min, outcome_8min: {BREAK, REJECT, CHOP}
-            - excursion_favorable, excursion_adverse: ATR-normalized continuous outcomes
-            - time_to_break_1_{horizon}, time_to_bounce_1_{horizon}: First crossing times
+            - excursion_favorable, excursion_adverse: Points (direction-aware)
+            - time_to_break_1_{horizon}, time_to_bounce_1_{horizon}: First crossing times (seconds)
     
     CRITICAL: These are LABELS ONLY. Must never appear in feature vectors.
     """
@@ -301,9 +304,9 @@ class LabelOutcomesStage(BaseStage):
         ohlcv_df = ctx.data['ohlcv_1min']
 
         n_signals = len(signals_df)
-        logger.info(f"  Labeling outcomes (first-crossing, ATR-normalized) for {n_signals:,} signals...")
+        logger.info(f"  Labeling outcomes (first-crossing, fixed 12.5pt) for {n_signals:,} signals...")
         logger.debug(f"    OHLCV bars: {len(ohlcv_df):,}")
-        logger.debug(f"    Horizons: 2min, 4min, 8min | Threshold: 1.0 ATR")
+        logger.debug(f"    Horizons: 2min, 4min, 8min | Threshold: 12.5pt (50 ticks)")
 
         signals_df = label_outcomes(signals_df, ohlcv_df)
 

@@ -128,6 +128,12 @@ class Config:
     RTH_END_HOUR: int = 13  # v1: 13:30 (first 4 hours only)
     RTH_END_MINUTE: int = 30
     
+    # Training window (08:30-12:30 ET = 1hr premarket + 3hr RTH)
+    TRAINING_START_HOUR: int = 8
+    TRAINING_START_MINUTE: int = 30
+    TRAINING_END_HOUR: int = 12
+    TRAINING_END_MINUTE: int = 30
+    
     # PREMARKET (ES Futures) - CRITICAL: Read ES_PREMARKET_DEFINITION.md
     # ES trades 24/7, but we define "premarket" as 4:00 AM - 9:30 AM ET
     # - Aligns with equity premarket (04:00 AM - 09:30 AM ET)
@@ -209,7 +215,7 @@ class Config:
 
     # ========== Touch clustering ==========
     TOUCH_CLUSTER_TIME_MINUTES: int = 15
-    TOUCH_CLUSTER_PRICE_BAND: float = 0.10
+    TOUCH_CLUSTER_PRICE_BAND: float = 1.5  # Aligned with TOUCH_BAND (±6 ticks)
 
     # ========== Normalization ==========
     ATR_WINDOW_MINUTES: int = 14

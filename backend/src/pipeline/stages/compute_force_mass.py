@@ -67,13 +67,18 @@ def compute_force_mass_features(signals_df: pd.DataFrame) -> pd.DataFrame:
         # Scale tape imbalance to consistent units
         force += signals_df['tape_imbalance'].fillna(0).values * 10.0
     
-    # Build mass proxy (liquidity depth)
+    # Build mass proxy (liquidity depth at level)
+    # Use barrier_depth_current (actual depth) not barrier_delta_liq (change)
     mass = np.ones(len(signals_df), dtype=np.float64)  # Default mass = 1
     
-    if 'barrier_delta_liq' in signals_df.columns:
-        # Absolute value of delta_liq represents liquidity magnitude
-        mass = np.abs(signals_df['barrier_delta_liq'].fillna(100).values)
+    if 'barrier_depth_current' in signals_df.columns:
+        # Current depth at level = mass (resistance to price movement)
+        mass = signals_df['barrier_depth_current'].fillna(1).values
         mass = np.maximum(mass, 1.0)  # Avoid division by zero
+    elif 'barrier_delta_liq' in signals_df.columns:
+        # Fallback to delta_liq if depth not available
+        mass = np.abs(signals_df['barrier_delta_liq'].fillna(1).values)
+        mass = np.maximum(mass, 1.0)
     
     # Compute predicted acceleration
     # predicted_accel = Force / Mass (with scaling to match units)

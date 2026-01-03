@@ -312,17 +312,12 @@ def add_normalized_features(signals_df: pd.DataFrame) -> pd.DataFrame:
 
     result['distance_signed'] = spot - result['level_price'].astype(np.float64)
 
+    # Single-level pipeline: only normalize features that exist
+    # Cross-level distances (dist_to_pm_high, etc.) computed post-pipeline
     distance_cols = [
-        'distance',
-        'distance_signed',
-        'dist_to_pm_high',
-        'dist_to_pm_low',
-        'dist_to_or_high',
-        'dist_to_or_low',
-        'dist_to_sma_90',
-        'dist_to_ema_20',
-        'confluence_min_distance',
-        'approach_distance'
+        'dist_to_level',       # From Stage 10
+        'distance_signed',     # Computed above
+        'approach_distance',   # From approach context
     ]
     for col in distance_cols:
         if col not in result.columns:
