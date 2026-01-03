@@ -11,7 +11,6 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 - **Data Source**: ES futures + ES 0DTE options (Databento GLBX.MDP3)
 - **Levels**: 5 types (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)
 - **Outcomes**: BREAK/REJECT/CHOP 
-- **Episode Vectors**: ~98 features per signal
 - **Retrieval**: FAISS similarity search 
 - **Pipeline**: Single-level architecture (run once per level type)
 
@@ -20,7 +19,7 @@ I am attempting to build a paltform specifically for market/dealer physics in th
 ## Quick Start
 
 **Current Data Range**: June 2 - Sept 30, 2025 (110 trading days)  
-**Pipeline Range** (with 3-day warmup): June 5 - Sept 30, 2025 (107 days)
+**Pipeline Range** (with 1-day warmup): June 4 - Sept 30, 2025 
 
 ### 1. Setup Environment
 
@@ -40,7 +39,7 @@ The pipeline requires both **ES futures** and **ES options** in the Bronze layer
 
 | Instrument | Schemas Required | Bronze Location |
 |------------|------------------|-----------------|
-| **ES Futures** | trades, mbp-10 (order book) | `data/bronze/futures/{trades,mbp10}/symbol=ES/` |
+| **ES Futures** | mbp-10 (order book) | `data/bronze/futures/{mbp10}/symbol=ES/` |
 | **ES Options** | trades, mbp-1 (NBBO), statistics | `data/bronze/options/{trades,nbbo,statistics}/underlying=ES/` |
 
 **Data Flow Summary:**
@@ -71,7 +70,6 @@ uv run python scripts/convert_options_dbn_to_bronze.py --all
 #    → download_es_futures_fast.py (optional) → data/raw/databento/futures/{trades,MBP-10}/
 #    → backfill_bronze_futures.py → data/bronze/futures/{trades,mbp10}/
 #  Check ES futures bronze data
-ls data/bronze/futures/trades/symbol=ES/ | head
 ls data/bronze/futures/mbp10/symbol=ES/ | head
 
 # Step 1: Download ES Futures DBN
@@ -81,7 +79,7 @@ uv run python scripts/download_es_futures_fast.py \
   --workers 4
 
 # Step 2: Convert Futures DBN files to Bronze Parquet with backfill
-  uv run python -m scripts.backfill_bronze_futures --all --workers 4
+uv run python -m scripts.backfill_bronze_futures --all --workers 4
 
 # Validate Bronze Data
 uv run python scripts/validate_backfill.py --date 2025-06-20
@@ -195,4 +193,63 @@ uv run python -m src.core.main
 uv run python -m src.gateway.main
 
 
+```
+
+---
+
+## Global Market Pipeline
+
+In addition to level-specific pipelines, a global market pipeline produces market-wide features at regular intervals (30s) that are NOT level-relative. These can be joined with level-specific features during training.
+
+### Run Global Pipeline
+
+```bash
+cd backend
+
+# Single date
+uv run python -m scripts.run_pipeline \
+  --pipeline bronze_to_silver_global \
+  --date 2025-06-11 \
+  --checkpoint-dir data/checkpoints \
+  --canonical-version 4.0.0 \
+  --write-outputs
+
+# Date range with parallel workers
+uv run python -m scripts.run_pipeline \
+  --pipeline bronze_to_silver_global \
+  --start 2025-06-11 \
+  --end 2025-06-30 \
+  --workers 8 \
+  --checkpoint-dir data/checkpoints \
+  --canonical-version 4.0.0 \
+  --write-outputs
+```
+
+### Global Features Output Schema
+
+| Category | Features |
+|----------|----------|
+| Identity | event_id, ts_ns, timestamp, date |
+| Session | minutes_since_open, bars_since_open, or_active |
+| Market | spot, atr, volatility |
+| Microstructure | spread, bid_depth, ask_depth, depth_imbalance |
+| OFI | ofi_30s, ofi_60s, ofi_120s, ofi_300s |
+| Kinematics | velocity_*, acceleration_*, momentum_* |
+| Options | total_gex, call_tide, put_tide, put_call_ratio |
+
+### Training Join Strategy
+
+```python
+# Join global features with level-specific features by timestamp
+global_df = pd.read_parquet('silver/es_global/.../market/signals.parquet')
+level_df = pd.read_parquet('silver/es_pipeline/.../pm_high/signals.parquet')
+
+# Merge on nearest timestamp
+merged = pd.merge_asof(
+    level_df.sort_values('ts_ns'),
+    global_df.sort_values('ts_ns'),
+    on='ts_ns',
+    direction='nearest',
+    tolerance=30_000_000_000  # 30s tolerance
+)
 ```
