@@ -28,6 +28,7 @@ from src.pipeline.global_stages.compute_market_micro import ComputeMarketMicroSt
 from src.pipeline.global_stages.compute_market_ofi import ComputeMarketOFIStage
 from src.pipeline.global_stages.compute_market_kinematics import ComputeMarketKinematicsStage
 from src.pipeline.global_stages.compute_market_options import ComputeMarketOptionsStage
+from src.pipeline.global_stages.compute_market_walls import ComputeMarketWallsStage
 from src.pipeline.global_stages.filter_rth_global import FilterRTHGlobalStage
 
 
@@ -66,7 +67,10 @@ def get_bronze_to_silver_global_stages(interval_seconds: float = 30.0) -> List[B
         # Stage 7: Compute market options
         ComputeMarketOptionsStage(),
         
-        # Stage 8: Filter to RTH and output
+        # Stage 8: Compute market walls (futures + options)
+        ComputeMarketWallsStage(),
+        
+        # Stage 9: Filter to RTH and output
         FilterRTHGlobalStage(),
     ]
 

@@ -29,6 +29,7 @@ from src.pipeline.stages.compute_microstructure import ComputeMicrostructureStag
 from src.pipeline.stages.compute_barrier_evolution import ComputeBarrierEvolutionStage
 from src.pipeline.stages.compute_level_distances import ComputeLevelDistancesStage
 from src.pipeline.stages.compute_gex_features import ComputeGEXFeaturesStage
+from src.pipeline.stages.compute_level_walls import ComputeLevelWallsStage
 from src.pipeline.stages.compute_force_mass import ComputeForceMassStage
 from src.pipeline.stages.compute_approach import ComputeApproachFeaturesStage
 from src.pipeline.stages.label_outcomes import LabelOutcomesStage
@@ -39,7 +40,7 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
     """
     Build Bronze → Silver pipeline (feature engineering).
     
-    Stage sequence (0-indexed, stages 0-14):
+    Stage sequence (0-indexed, stages 0-16):
     0. LoadBronze (ES futures + options, front-month filtered)
     1. BuildAllOHLCV (trades → 10s → 1min → 2min hierarchically, ATR, warmup)
     2. InitMarketState (market state + Greeks)
@@ -52,17 +53,18 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
     9. ComputeBarrierEvolution (depth changes at 1,2,3,5min)
     10. ComputeLevelDistances (signed distances to all structural levels)
     11. ComputeGEXFeatures (gamma within ±1/±2/±3 strikes)
-    12. ComputeForceMass (F=ma validation features)
-    13. ComputeApproachFeatures (approach context + timing + normalization + clustering)
-    14. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
-    15. FilterRTH (09:30-12:30 ET + write to Silver)
+    12. ComputeLevelWalls (futures + options walls above/below level)
+    13. ComputeForceMass (F=ma validation features)
+    14. ComputeApproachFeatures (approach context + timing + normalization + clustering)
+    15. LabelOutcomes (first-crossing: 1 ATR threshold, BREAK/REJECT/CHOP, 2/4/8min)
+    16. FilterRTH (09:30-12:30 ET + write to Silver)
     
     Returns:
         Pipeline instance
     """
     return Pipeline(
         name="bronze_to_silver",
-        version="4.7.0",  # Phase 4.7: MBP-10 w/ action/side + level-specific generation
+        version="4.8.0",  # Phase 4.8: Added futures + options walls (level-relative)
         stages=[
             LoadBronzeStage(),
             BuildAllOHLCVStage(),
@@ -76,10 +78,11 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
             ComputeBarrierEvolutionStage(),
             ComputeLevelDistancesStage(),
             ComputeGEXFeaturesStage(),
+            ComputeLevelWallsStage(),
             ComputeForceMassStage(),
             ComputeApproachFeaturesStage(),
             LabelOutcomesStage(),
-            FilterRTHStage(),  # Stage 16: Writes to Silver
+            FilterRTHStage(),  # Stage 16: Filters to RTH + writes to Silver
         ]
     )
 
