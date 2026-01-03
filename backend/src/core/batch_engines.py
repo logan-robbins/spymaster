@@ -353,6 +353,113 @@ def _compute_tape_metrics_batch_numba(
 
 
 @jit(nopython=True, cache=True)
+def _compute_tape_metrics_spatial_numba(
+    touch_ts_ns: np.ndarray,
+    level_prices_es: np.ndarray,
+    trade_ts_ns: np.ndarray,
+    trade_prices: np.ndarray,
+    trade_sizes: np.ndarray,
+    trade_aggressors: np.ndarray,
+    window_ns: int,
+    band_es: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Numba-accelerated batch SPATIAL tape metrics.
+    
+    Returns:
+        (buy_vol_atm, sell_vol_atm, imbalance_atm,
+         buy_vol_above, sell_vol_above, imbalance_above,
+         buy_vol_below, sell_vol_below, imbalance_below)
+         
+    Above = Aggregation of L+1.0 and L+2.0
+    Below = Aggregation of L-1.0 and L-2.0
+    """
+    n_touches = len(touch_ts_ns)
+    n_trades = len(trade_ts_ns)
+
+    # Output arrays
+    # ATM
+    bv_atm = np.zeros(n_touches, dtype=np.int64)
+    sv_atm = np.zeros(n_touches, dtype=np.int64)
+    imb_atm = np.zeros(n_touches, dtype=np.float64)
+    
+    # Above (L+1 + L+2)
+    bv_above = np.zeros(n_touches, dtype=np.int64)
+    sv_above = np.zeros(n_touches, dtype=np.int64)
+    imb_above = np.zeros(n_touches, dtype=np.float64)
+    
+    # Below (L-1 + L-2)
+    bv_below = np.zeros(n_touches, dtype=np.int64)
+    sv_below = np.zeros(n_touches, dtype=np.int64)
+    imb_below = np.zeros(n_touches, dtype=np.float64)
+
+    for i in range(n_touches):
+        ts = touch_ts_ns[i]
+        level = level_prices_es[i]
+        end_ts = ts + window_ns
+
+        # Search window (same as before)
+        start_idx = np.searchsorted(trade_ts_ns, ts)
+        end_idx = np.searchsorted(trade_ts_ns, end_ts)
+
+        if end_idx <= start_idx:
+            continue
+            
+        # Accumulators
+        b_atm, s_atm = 0, 0
+        b_ab, s_ab = 0, 0
+        b_be, s_be = 0, 0
+        
+        for j in range(start_idx, end_idx):
+            price = trade_prices[j]
+            size = trade_sizes[j]
+            agg = trade_aggressors[j] # 1 or -1
+            
+            if agg == 0: continue
+            
+            diff = price - level
+            
+            # Check bands (Strict levels)
+            # ATM
+            if abs(diff) <= band_es:
+                if agg == 1: b_atm += size
+                else: s_atm += size
+            
+            # Above: L+1 OR L+2
+            # Check L+1
+            elif abs(diff - 1.0) <= band_es or abs(diff - 2.0) <= band_es:
+                if agg == 1: b_ab += size
+                else: s_ab += size
+                
+            # Below: L-1 OR L-2
+            elif abs(diff + 1.0) <= band_es or abs(diff + 2.0) <= band_es:
+                if agg == 1: b_be += size
+                else: s_be += size
+
+        # Store Volumes
+        bv_atm[i] = b_atm
+        sv_atm[i] = s_atm
+        bv_above[i] = b_ab
+        sv_above[i] = s_ab
+        bv_below[i] = b_be
+        sv_below[i] = s_be
+        
+        # Calc Imbalances
+        tot_atm = b_atm + s_atm
+        if tot_atm > 0: imb_atm[i] = (b_atm - s_atm) / tot_atm
+        
+        tot_ab = b_ab + s_ab
+        if tot_ab > 0: imb_above[i] = (b_ab - s_ab) / tot_ab
+        
+        tot_be = b_be + s_be
+        if tot_be > 0: imb_below[i] = (b_be - s_be) / tot_be
+
+    return (bv_atm, sv_atm, imb_atm,
+            bv_above, sv_above, imb_above,
+            bv_below, sv_below, imb_below)
+
+
+@jit(nopython=True, cache=True)
 def _compute_fuel_metrics_numba(
     touch_ts_ns: np.ndarray,
     level_prices: np.ndarray,
@@ -435,6 +542,85 @@ def _compute_fuel_metrics_numba(
     return gamma_exposure, fuel_effect, call_tide, put_tide, call_tide_above, call_tide_below, put_tide_above, put_tide_below
 
 
+@jit(nopython=True, cache=True)
+def _compute_fuel_metrics_spatial_numba(
+    touch_ts_ns: np.ndarray,
+    level_prices: np.ndarray,
+    opt_ts_ns: np.ndarray,
+    opt_strikes: np.ndarray,
+    opt_premium: np.ndarray,
+    opt_is_call: np.ndarray,
+    window_ns: int,
+    strike_range: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Numba-accelerated SPATIAL fuel metrics.
+    
+    Returns:
+        (call_tide_atm, put_tide_atm,
+         call_tide_above, put_tide_above,
+         call_tide_below, put_tide_below)
+    """
+    n = len(touch_ts_ns)
+    
+    # ATM
+    ct_atm = np.zeros(n, dtype=np.float64)
+    pt_atm = np.zeros(n, dtype=np.float64)
+    # Above (L+1, L+2) -- NOTE: For Options, strikes are usually every 5pts for ES.
+    # But user asked for L+1, L+2. This implies 1-point strikes or aggregating "near" strikes?
+    # User said: "Aggreate the 2 levels above... and the ATM price of the level."
+    # If ES is at 6000, L+1=6001. There are no options at 6001.
+    # We must interpret "L+1, L+2" effectively for options as "Next Strikes"?
+    # OR, we assume the user knows there may be no options there, but wants the check anyway?
+    # Given "Research Lab quality", we should be precise.
+    # If user meant "Next Strikes", that's different.
+    # But "exhaustively permuted in both directions... -2 points below... +2 points above".
+    # This strongly suggests spatial proximity in PRICE space.
+    # If no options exist at 6001, Tide is 0. This is correct.
+    # However, maybe we should widen the band for options?
+    # Let's stick to the precise definition: Strikes within small epsilon of L, L+1, L+2.
+    # strike_range is typically small (e.g. 0.5) for precise matching.
+    
+    ct_above = np.zeros(n, dtype=np.float64)
+    pt_above = np.zeros(n, dtype=np.float64)
+    ct_below = np.zeros(n, dtype=np.float64)
+    pt_below = np.zeros(n, dtype=np.float64)
+    
+    match_tol = 0.5 # Strikes must be within 0.5 of target (e.g. 6001.0)
+    
+    for i in range(n):
+        ts = touch_ts_ns[i]
+        level = level_prices[i]
+        start_ts = ts - window_ns
+        
+        start_idx = np.searchsorted(opt_ts_ns, start_ts)
+        end_idx = np.searchsorted(opt_ts_ns, ts)
+        
+        for j in range(start_idx, end_idx):
+            strike = opt_strikes[j]
+            prem = opt_premium[j]
+            is_call = opt_is_call[j] # 1=True
+            
+            diff = strike - level
+            
+            # ATM
+            if abs(diff) <= match_tol:
+                if is_call == 1: ct_atm[i] += prem
+                else: pt_atm[i] += prem
+            
+            # Above (L+1, L+2)
+            elif abs(diff - 1.0) <= match_tol or abs(diff - 2.0) <= match_tol:
+                if is_call == 1: ct_above[i] += prem
+                else: pt_above[i] += prem
+            
+            # Below (L-1, L-2)
+            elif abs(diff + 1.0) <= match_tol or abs(diff + 2.0) <= match_tol:
+                if is_call == 1: ct_below[i] += prem
+                else: pt_below[i] += prem
+                
+    return ct_atm, pt_atm, ct_above, pt_above, ct_below, pt_below
+
+
 def compute_fuel_metrics_batch(
     touch_ts_ns: np.ndarray,
     level_prices: np.ndarray,
@@ -496,16 +682,48 @@ def compute_fuel_metrics_batch(
     effect_map = {-1: 'AMPLIFY', 0: 'NEUTRAL', 1: 'DAMPEN'}
     fuel_effect = np.array([effect_map[code] for code in fuel_codes], dtype=object)
     
-    return {
-        'gamma_exposure': gamma_exp,
-        'fuel_effect': fuel_effect,
-        'call_tide': call_t,
-        'put_tide': put_t,
-        'call_tide_above_5pt': call_t_above,
-        'call_tide_below_5pt': call_t_below,
-        'put_tide_above_5pt': put_t_above,
-        'put_tide_below_5pt': put_t_below
-    }
+
+
+    # Add Spatial Metrics
+    if NUMBA_AVAILABLE:
+        ct_atm, pt_atm, ct_above, pt_above, ct_below, pt_below = _compute_fuel_metrics_spatial_numba(
+             touch_ts_ns.astype(np.int64),
+             level_prices.astype(np.float64),
+             opt_ts,
+             opt_strikes,
+             opt_premium,
+             opt_is_call,
+             window_ns,
+             strike_range
+        )
+        
+        # Add to dictionary
+        # Explicit ATM Tide
+        # Note: 'call_tide' original was sum within strike_range (100pt). 
+        # User wants ATM specific now.
+        # We will expose both or rely on new definition?
+        # New feature defs have 'call_tide'. Should this correspond to ATM?
+        # User said: "exhaustively ... for BOTH of those aggregate bands, and the ATM price".
+        # So 'call_tide' in feature list likely implies ATM now.
+        # But for backward compat/completeness, I will overwrite or add.
+        
+        return {
+            'gamma_exposure': gamma_exp,
+            'fuel_effect': fuel_effect,
+            'call_tide': ct_atm, # Use ATM specific
+            'put_tide': pt_atm,  # Use ATM specific
+            'call_tide_above': ct_above,
+            'put_tide_above': pt_above,
+            'call_tide_below': ct_below,
+            'put_tide_below': pt_below,
+            # Legacy/Broad (preserved if needed, but overwritten above)
+            'call_tide_broad': call_t, 
+            'put_tide_broad': put_t,
+            'call_tide_above_5pt': call_t_above,
+            'call_tide_below_5pt': call_t_below,
+            'put_tide_above_5pt': put_t_above,
+            'put_tide_below_5pt': put_t_below
+        }
 
 
 def compute_tape_metrics_batch(
@@ -591,6 +809,43 @@ def compute_tape_metrics_batch(
                     slope, _ = np.polyfit(times, price_trades, 1)
                     velocities[i] = slope
 
+
+
+    # Add Spatial Metrics
+    if NUMBA_AVAILABLE:
+        (bv_atm, sv_atm, imb_atm,
+         bv_above, sv_above, imb_above,
+         bv_below, sv_below, imb_below) = _compute_tape_metrics_spatial_numba(
+            touch_ts_ns.astype(np.int64),
+            level_prices_es.astype(np.float64),
+            market_data.trade_ts_ns,
+            market_data.trade_prices,
+            market_data.trade_sizes,
+            market_data.trade_aggressors,
+            window_ns,
+            band_es
+        )
+        
+        # Update/Overwrite with spatial versions where appropriate
+        # Note: 'tape_buy_vol' in result is strictly ATM now based on band_es logic? 
+        # The previous implementation used _compute_tape_metrics_batch_numba which also used band_es.
+        # So 'tape_buy_vol' should match 'bv_atm' if band_es matches.
+        # We will add new keys.
+        
+        return {
+            'tape_imbalance': imbalances, # Default (maybe slightly differ if band logic varied?)
+            'tape_buy_vol': buy_vols,
+            'tape_sell_vol': sell_vols,
+            'tape_velocity': velocities,
+            # Spatial
+            'tape_buy_vol_above': bv_above,
+            'tape_sell_vol_above': sv_above,
+            'tape_imbalance_above': imb_above,
+            'tape_buy_vol_below': bv_below,
+            'tape_sell_vol_below': sv_below,
+            'tape_imbalance_below': imb_below
+        }
+    
     return {
         'tape_imbalance': imbalances,
         'tape_buy_vol': buy_vols,
@@ -623,6 +878,73 @@ def _compute_depth_in_zone_numba(
             if zone_low <= ask_prices[i] <= zone_high:
                 total += ask_sizes[i]
     return total
+
+
+@jit(nopython=True, cache=True)
+def _compute_depth_profile_numba(
+    touch_ts_ns: np.ndarray,
+    level_prices: np.ndarray,
+    mbp_ts_ns: np.ndarray,
+    mbp_bid_prices: np.ndarray,
+    mbp_bid_sizes: np.ndarray,
+    mbp_ask_prices: np.ndarray,
+    mbp_ask_sizes: np.ndarray,
+    window_ns: int,
+    band_es: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute resting liquidity (Limit Orders) at ATM, Above, Below.
+    Returns: (bid_atm, ask_atm, bid_above, ask_above, bid_below, ask_below)
+    """
+    n = len(touch_ts_ns)
+    
+    # ATM
+    bid_atm = np.zeros(n, dtype=np.int64)
+    ask_atm = np.zeros(n, dtype=np.int64)
+    # Above
+    bid_above = np.zeros(n, dtype=np.int64)
+    ask_above = np.zeros(n, dtype=np.int64)
+    # Below
+    bid_below = np.zeros(n, dtype=np.int64)
+    ask_below = np.zeros(n, dtype=np.int64)
+    
+    for i in range(n):
+        ts = touch_ts_ns[i]
+        level = level_prices[i]
+        end_ts = ts + window_ns
+        
+        # Use snapshot at END of window (replenished barrier)
+        # Or mean? Usually we look at the barrier *reaction*, so end state is good.
+        # compute_barrier uses delta (end - start).
+        # For "Profile", we probably want the "State of the Wall" at interaction time?
+        # User: "I see massive resting limit sells... that will make it tough"
+        # This implies checking the state AT interaction or immediately after.
+        # Let's take the snapshot closest to `ts` (interaction start) to see what IS THERE.
+        
+        idx = np.searchsorted(mbp_ts_ns, ts)
+        if idx >= len(mbp_ts_ns): idx = len(mbp_ts_ns) - 1
+        
+        # Analyze that snapshot (single point for now, efficient)
+        b_px = mbp_bid_prices[idx]
+        b_sz = mbp_bid_sizes[idx]
+        a_px = mbp_ask_prices[idx]
+        a_sz = mbp_ask_sizes[idx]
+        
+        # Iterate levels (10)
+        for k in range(10):
+            # Bids
+            diff_b = b_px[k] - level
+            if abs(diff_b) <= band_es: bid_atm[i] += b_sz[k]
+            elif abs(diff_b - 1.0) <= band_es or abs(diff_b - 2.0) <= band_es: bid_above[i] += b_sz[k]
+            elif abs(diff_b + 1.0) <= band_es or abs(diff_b + 2.0) <= band_es: bid_below[i] += b_sz[k]
+            
+            # Asks
+            diff_a = a_px[k] - level
+            if abs(diff_a) <= band_es: ask_atm[i] += a_sz[k]
+            elif abs(diff_a - 1.0) <= band_es or abs(diff_a - 2.0) <= band_es: ask_above[i] += a_sz[k]
+            elif abs(diff_a + 1.0) <= band_es or abs(diff_a + 2.0) <= band_es: ask_below[i] += a_sz[k]
+            
+    return bid_atm, ask_atm, bid_above, ask_above, bid_below, ask_below
 
 
 @jit(nopython=True, cache=True)
@@ -801,6 +1123,36 @@ def compute_barrier_metrics_batch(
     state_map = {-3: 'VACUUM', -2: 'CONSUMED', -1: 'ABSORPTION', 0: 'NEUTRAL', 1: 'WEAK', 2: 'WALL'}
     barrier_states = np.array([state_map[code] for code in barrier_state_codes], dtype=object)
     
+    # Add Spatial Depth (Limit Liquidity Profile)
+    if NUMBA_AVAILABLE:
+        # Use zone_es as band (strictly inside zone)
+        bid_atm, ask_atm, bid_above, ask_above, bid_below, ask_below = _compute_depth_profile_numba(
+            touch_ts_ns.astype(np.int64),
+            level_prices_es,
+            market_data.mbp_ts_ns,
+            market_data.mbp_bid_prices,
+            market_data.mbp_bid_sizes,
+            market_data.mbp_ask_prices,
+            market_data.mbp_ask_sizes,
+            window_ns,
+            zone_es
+        )
+        
+        return {
+            'barrier_state': barrier_states,
+            'barrier_delta_liq': delta_liqs,
+            'barrier_replenishment_ratio': replenishment_ratios,
+            'wall_ratio': wall_ratios,
+            'depth_in_zone': depth_in_zones,
+            # Spatial Profile
+            'limit_bid_size': bid_atm,
+            'limit_ask_size': ask_atm,
+            'limit_bid_size_above': bid_above,
+            'limit_ask_size_above': ask_above,
+            'limit_bid_size_below': bid_below,
+            'limit_ask_size_below': ask_below
+        }
+    
     return {
         'barrier_state': barrier_states,
         'barrier_delta_liq': delta_liqs,
@@ -808,6 +1160,8 @@ def compute_barrier_metrics_batch(
         'wall_ratio': wall_ratios,
         'depth_in_zone': depth_in_zones
     }
+
+
 
 
 # =============================================================================

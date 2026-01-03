@@ -2,20 +2,17 @@
   "stage": "compute_physics",
   "date": "2025-06-04",
   "level_target": "PM_HIGH",
-  "timestamp": "2026-01-03T13:23:57.845175",
+  "timestamp": "2026-01-03T14:42:09.972993",
   "status": "success",
   "metrics": {
     "count": 12,
-    "columns_present": 28,
+    "columns_present": 46,
     "categorical_dist": {
       "barrier_state": {
         "WEAK": 12
       },
       "fuel_effect": {
         "NEUTRAL": 12
-      },
-      "sweep_detected": {
-        "False": 12
       }
     },
     "continuous_stats": {
@@ -32,16 +29,16 @@
         "std": 5.937101467078418e-14
       },
       "call_tide": {
-        "mean": -2193.75,
-        "min": -38250.0,
-        "max": 12600.0,
-        "std": 11953.72766603106
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "std": 0.0
       },
       "put_tide": {
-        "mean": 2391.6666666666665,
+        "mean": 0.0,
         "min": 0.0,
-        "max": 21075.0,
-        "std": 6278.791260821598
+        "max": 0.0,
+        "std": 0.0
       }
     }
   }

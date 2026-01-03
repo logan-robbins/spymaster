@@ -45,23 +45,23 @@ def compute_futures_walls_at_timestamps(
     if level_price is not None:
         # Level-relative features
         result = {
-            'futures_wall_above_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_wall_above_size': np.zeros(n_signals, dtype=np.float64),
-            'futures_wall_below_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_wall_below_size': np.zeros(n_signals, dtype=np.float64),
-            'futures_wall_above_dist': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_wall_below_dist': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_wall_asymmetry': np.zeros(n_signals, dtype=np.float64),  # above - below / total
+            'ob_resistance_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'ob_resistance_size': np.zeros(n_signals, dtype=np.float64),
+            'ob_support_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'ob_support_size': np.zeros(n_signals, dtype=np.float64),
+            'ob_resistance_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'ob_support_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'ob_asymmetry': np.zeros(n_signals, dtype=np.float64),
         }
     else:
         # Global features
         result = {
-            'futures_bid_wall_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_bid_wall_size': np.zeros(n_signals, dtype=np.float64),
-            'futures_ask_wall_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'futures_ask_wall_size': np.zeros(n_signals, dtype=np.float64),
-            'futures_bid_wall_dist': np.full(n_signals, np.nan, dtype=np.float64),  # From mid
-            'futures_ask_wall_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'futures_bid_limit_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'futures_bid_limit_size': np.zeros(n_signals, dtype=np.float64),
+            'futures_ask_limit_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'futures_ask_limit_size': np.zeros(n_signals, dtype=np.float64),
+            'futures_bid_limit_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'futures_ask_limit_dist': np.full(n_signals, np.nan, dtype=np.float64),
             'futures_total_bid_depth': np.zeros(n_signals, dtype=np.float64),
             'futures_total_ask_depth': np.zeros(n_signals, dtype=np.float64),
         }
@@ -108,17 +108,17 @@ def compute_futures_walls_at_timestamps(
         mid_price = (bid_prices[0] + ask_prices[0]) / 2
         
         if level_price is not None:
-            # Level-relative: find largest wall above and below level
+            # Level-relative: find largest liquidity block above and below
             
-            # Walls above level (asks above, or bids above if price moved down)
+            # Above level (asks above, or bids above if price moved down)
             above_mask_ask = ask_prices > level_price
             above_mask_bid = bid_prices > level_price
             
-            # Walls below level
+            # Below level
             below_mask_ask = ask_prices < level_price
             below_mask_bid = bid_prices < level_price
             
-            # Find largest above (combine both sides)
+            # Find largest above (Resistance)
             above_prices = np.concatenate([
                 ask_prices[above_mask_ask] if above_mask_ask.any() else [],
                 bid_prices[above_mask_bid] if above_mask_bid.any() else []
@@ -128,6 +128,7 @@ def compute_futures_walls_at_timestamps(
                 bid_sizes[above_mask_bid] if above_mask_bid.any() else []
             ])
             
+            # Find largest below (Support)
             below_prices = np.concatenate([
                 ask_prices[below_mask_ask] if below_mask_ask.any() else [],
                 bid_prices[below_mask_bid] if below_mask_bid.any() else []
@@ -139,36 +140,36 @@ def compute_futures_walls_at_timestamps(
             
             if len(above_sizes) > 0:
                 max_above_idx = np.argmax(above_sizes)
-                result['futures_wall_above_price'][i] = above_prices[max_above_idx]
-                result['futures_wall_above_size'][i] = above_sizes[max_above_idx]
-                result['futures_wall_above_dist'][i] = above_prices[max_above_idx] - level_price
+                result['ob_resistance_price'][i] = above_prices[max_above_idx]
+                result['ob_resistance_size'][i] = above_sizes[max_above_idx]
+                result['ob_resistance_dist'][i] = above_prices[max_above_idx] - level_price
             
             if len(below_sizes) > 0:
                 max_below_idx = np.argmax(below_sizes)
-                result['futures_wall_below_price'][i] = below_prices[max_below_idx]
-                result['futures_wall_below_size'][i] = below_sizes[max_below_idx]
-                result['futures_wall_below_dist'][i] = level_price - below_prices[max_below_idx]
+                result['ob_support_price'][i] = below_prices[max_below_idx]
+                result['ob_support_size'][i] = below_sizes[max_below_idx]
+                result['ob_support_dist'][i] = level_price - below_prices[max_below_idx]
             
-            # Asymmetry: positive = more liquidity above (resistance), negative = more below (support)
+            # Asymmetry: positive = more resistance above
             above_total = above_sizes.sum() if len(above_sizes) > 0 else 0
             below_total = below_sizes.sum() if len(below_sizes) > 0 else 0
             total = above_total + below_total
             if total > 0:
-                result['futures_wall_asymmetry'][i] = (above_total - below_total) / total
+                result['ob_asymmetry'][i] = (above_total - below_total) / total
         
         else:
-            # Global: find largest bid wall and ask wall
+            # Global: find largest bid limit and ask limit
             max_bid_idx = np.argmax(bid_sizes)
             max_ask_idx = np.argmax(ask_sizes)
             
-            result['futures_bid_wall_price'][i] = bid_prices[max_bid_idx]
-            result['futures_bid_wall_size'][i] = bid_sizes[max_bid_idx]
-            result['futures_ask_wall_price'][i] = ask_prices[max_ask_idx]
-            result['futures_ask_wall_size'][i] = ask_sizes[max_ask_idx]
+            result['futures_bid_limit_price'][i] = bid_prices[max_bid_idx]
+            result['futures_bid_limit_size'][i] = bid_sizes[max_bid_idx]
+            result['futures_ask_limit_price'][i] = ask_prices[max_ask_idx]
+            result['futures_ask_limit_size'][i] = ask_sizes[max_ask_idx]
             
             # Distance from mid
-            result['futures_bid_wall_dist'][i] = mid_price - bid_prices[max_bid_idx]
-            result['futures_ask_wall_dist'][i] = ask_prices[max_ask_idx] - mid_price
+            result['futures_bid_limit_dist'][i] = mid_price - bid_prices[max_bid_idx]
+            result['futures_ask_limit_dist'][i] = ask_prices[max_ask_idx] - mid_price
             
             # Total depth
             result['futures_total_bid_depth'][i] = bid_sizes.sum()
@@ -217,22 +218,22 @@ def compute_options_walls_at_timestamps(
     if level_price is not None:
         # Level-relative features
         result = {
-            'options_wall_above_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_wall_above_flow': np.zeros(n_signals, dtype=np.float64),
-            'options_wall_below_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_wall_below_flow': np.zeros(n_signals, dtype=np.float64),
-            'options_wall_above_dist': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_wall_below_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'gamma_resistance_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'gamma_resistance_flow': np.zeros(n_signals, dtype=np.float64),
+            'gamma_support_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'gamma_support_flow': np.zeros(n_signals, dtype=np.float64),
+            'gamma_resistance_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'gamma_support_dist': np.full(n_signals, np.nan, dtype=np.float64),
         }
     else:
         # Global features
         result = {
-            'options_call_wall_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_call_wall_flow': np.zeros(n_signals, dtype=np.float64),
-            'options_put_wall_price': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_put_wall_flow': np.zeros(n_signals, dtype=np.float64),
-            'options_call_wall_dist': np.full(n_signals, np.nan, dtype=np.float64),
-            'options_put_wall_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'options_call_gamma_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'options_call_gamma_flow': np.zeros(n_signals, dtype=np.float64),
+            'options_put_gamma_price': np.full(n_signals, np.nan, dtype=np.float64),
+            'options_put_gamma_flow': np.zeros(n_signals, dtype=np.float64),
+            'options_call_gamma_dist': np.full(n_signals, np.nan, dtype=np.float64),
+            'options_put_gamma_dist': np.full(n_signals, np.nan, dtype=np.float64),
         }
     
     if n_signals == 0 or option_trades_df is None or option_trades_df.empty:
@@ -280,37 +281,37 @@ def compute_options_walls_at_timestamps(
         unique_strikes = np.unique(window_strikes)
         
         if level_price is not None:
-            # Level-relative: find strongest wall (most negative flow) above and below
+            # Level-relative: find strongest gamma (most negative flow) above and below
             above_strikes = unique_strikes[unique_strikes > level_price]
             below_strikes = unique_strikes[unique_strikes <= level_price]
             
-            # Wall above level: strike with most negative dealer flow
+            # Gamma above level: strike with most negative dealer flow
             if len(above_strikes) > 0:
                 above_flow = np.array([
                     window_flow[window_strikes == s].sum() for s in above_strikes
                 ])
-                # Most negative = strongest wall
+                # Most negative = strongest pinning
                 min_idx = np.argmin(above_flow)
-                result['options_wall_above_price'][i] = above_strikes[min_idx]
-                result['options_wall_above_flow'][i] = above_flow[min_idx]
-                result['options_wall_above_dist'][i] = above_strikes[min_idx] - level_price
+                result['gamma_resistance_price'][i] = above_strikes[min_idx]
+                result['gamma_resistance_flow'][i] = above_flow[min_idx]
+                result['gamma_resistance_dist'][i] = above_strikes[min_idx] - level_price
             
-            # Wall below level
+            # Gamma below level
             if len(below_strikes) > 0:
                 below_flow = np.array([
                     window_flow[window_strikes == s].sum() for s in below_strikes
                 ])
                 min_idx = np.argmin(below_flow)
-                result['options_wall_below_price'][i] = below_strikes[min_idx]
-                result['options_wall_below_flow'][i] = below_flow[min_idx]
-                result['options_wall_below_dist'][i] = level_price - below_strikes[min_idx]
+                result['gamma_support_price'][i] = below_strikes[min_idx]
+                result['gamma_support_flow'][i] = below_flow[min_idx]
+                result['gamma_support_dist'][i] = level_price - below_strikes[min_idx]
         
         else:
-            # Global: find call wall and put wall separately
+            # Global: find call gamma and put gamma separately
             call_mask = window_rights == 'C'
             put_mask = window_rights == 'P'
             
-            # Call wall: strike with most negative dealer flow on calls
+            # Call gamma
             call_strikes_unique = np.unique(window_strikes[call_mask])
             if len(call_strikes_unique) > 0:
                 call_flow = np.array([
@@ -318,12 +319,12 @@ def compute_options_walls_at_timestamps(
                     for s in call_strikes_unique
                 ])
                 min_idx = np.argmin(call_flow)
-                result['options_call_wall_price'][i] = call_strikes_unique[min_idx]
-                result['options_call_wall_flow'][i] = call_flow[min_idx]
+                result['options_call_gamma_price'][i] = call_strikes_unique[min_idx]
+                result['options_call_gamma_flow'][i] = call_flow[min_idx]
                 if not np.isnan(spot):
-                    result['options_call_wall_dist'][i] = call_strikes_unique[min_idx] - spot
+                    result['options_call_gamma_dist'][i] = call_strikes_unique[min_idx] - spot
             
-            # Put wall: strike with most negative dealer flow on puts
+            # Put gamma
             put_strikes_unique = np.unique(window_strikes[put_mask])
             if len(put_strikes_unique) > 0:
                 put_flow = np.array([
@@ -331,10 +332,10 @@ def compute_options_walls_at_timestamps(
                     for s in put_strikes_unique
                 ])
                 min_idx = np.argmin(put_flow)
-                result['options_put_wall_price'][i] = put_strikes_unique[min_idx]
-                result['options_put_wall_flow'][i] = put_flow[min_idx]
+                result['options_put_gamma_price'][i] = put_strikes_unique[min_idx]
+                result['options_put_gamma_flow'][i] = put_flow[min_idx]
                 if not np.isnan(spot):
-                    result['options_put_wall_dist'][i] = spot - put_strikes_unique[min_idx]
+                    result['options_put_gamma_dist'][i] = spot - put_strikes_unique[min_idx]
     
     return result
 

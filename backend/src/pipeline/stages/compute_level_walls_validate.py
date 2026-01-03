@@ -75,11 +75,12 @@ def validate_compute_level_walls(date: str = "2025-06-04", level_name: str = "PM
     
     if not signals_df.empty:
         # Check Columns
+        # Check Columns
         wall_cols = [
-            'futures_wall_above_price', 'futures_wall_above_size', 'futures_wall_above_dist',
-            'futures_wall_below_price', 'futures_wall_below_size', 'futures_wall_below_dist',
-            'options_wall_above_price', 'options_wall_above_flow', 'options_wall_above_dist',
-            'options_wall_below_price', 'options_wall_below_flow', 'options_wall_below_dist'
+            'ob_resistance_price', 'ob_resistance_size', 'ob_resistance_dist',
+            'ob_support_price', 'ob_support_size', 'ob_support_dist',
+            'gamma_resistance_price', 'gamma_resistance_flow', 'gamma_resistance_dist',
+            'gamma_support_price', 'gamma_support_flow', 'gamma_support_dist'
         ]
         
         missing_cols = [c for c in wall_cols if c not in signals_df.columns]
