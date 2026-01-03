@@ -1,4 +1,21 @@
-"""Label outcomes stage - IMPLEMENTATION_READY.md Section 3."""
+"""
+Stage: Label Outcomes
+Type: Label Generation (Target Logic)
+Input: Signals DataFrame (touches), OHLCV Data (1min)
+Output: Signals DataFrame with Outcome Labels (BREAK, REJECT, CHOP)
+
+Transformation:
+1. Projects price forward in time (2min, 4min, 8min horizons).
+2. Determines the "Outcome" of the interaction using First-Crossing Logic:
+   - BREAK: Price moves 12.5pt (50 ticks) THROUGH the level.
+   - REJECT: Price moves 12.5pt (50 ticks) AWAY from the level.
+   - CHOP: Neither threshold hit within time limit.
+3. Computes Continuous Metrics:
+   - Excursion Favorable/Adverse: How far did it go right vs wrong?
+   - Time to Result: Speed of the move.
+
+Note: These are LABELS. They define what we are trying to predict. NEVER use them as input features.
+"""
 import logging
 from typing import Any, Dict, List, Optional
 import pandas as pd

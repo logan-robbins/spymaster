@@ -1,14 +1,22 @@
 """
-Compute level-relative wall features (futures + options).
+Stage: Compute Level Walls
+Type: Feature Engineering (Liquidity/Gamma)
+Input: Signals DataFrame (touches), MBP-10 Snapshots, Options Trades
+Output: Signals DataFrame with Wall Features
 
-For a given technical level, compute the walls above and below it.
-These walls represent liquidity that must be absorbed for price to break through the level.
+Transformation:
+1. Identifies the nearest significant "Liquidity Walls" above and below the interaction level.
+   - Futures Walls: High resting liquidity in the Limit Order Book (LOB).
+   - Options Walls: Strikes with large Dealer Gamma.
+2. Computes the Distance and Size of these walls relative to the level.
+   - Proximity: Exploring if a level is "guarded" by a wall.
+   - Asymmetry: Is the wall above stronger than below?
 
-Futures walls: Resting orders in MBP-10 above/below level
-Options walls: Strikes with dealer gamma above/below level
+Note: This stage answers "Is there a backstop nearby?"—helping distinguish between a clean break and a trap.
 """
 
 import pandas as pd
+import logging
 import numpy as np
 from typing import Dict, Any, List
 
@@ -37,13 +45,11 @@ class ComputeLevelWallsStage(BaseStage):
     
     Options Wall Features (level-relative):
     - options_wall_above_price: Strike with highest dealer gamma above level
-    - options_wall_above_gex: GEX at that strike
+    - options_wall_above_flow: Net dealer flow (gamma * size) at that strike
     - options_wall_above_dist: Distance from level
-    - options_wall_above_type: 'C' or 'P' (call or put wall)
     - options_wall_below_price: Strike with highest dealer gamma below level
-    - options_wall_below_gex: GEX at that strike
+    - options_wall_below_flow: Net dealer flow (gamma * size) at that strike
     - options_wall_below_dist: Distance from level
-    - options_wall_below_type: 'C' or 'P'
     """
     
     @property
@@ -58,13 +64,19 @@ class ComputeLevelWallsStage(BaseStage):
         signals_df = ctx.data['signals_df'].copy()
         mbp10_snapshots = ctx.data.get('mbp10_snapshots', [])
         option_trades_df = ctx.data.get('option_trades_df', pd.DataFrame())
+        
+        # Get level price from Context or DataFrame (assuming single-level batch)
         level_price = ctx.data.get('level_price')
+        if level_price is None and not signals_df.empty and 'level_price' in signals_df.columns:
+            level_price = signals_df['level_price'].iloc[0]
         
         if signals_df.empty:
             return {'signals_df': signals_df}
         
         if level_price is None:
-            ctx.logger.warning("No level_price in context, skipping level walls computation")
+            # Check for logger in ctx, else use module logger
+            log = getattr(ctx, 'logger', logging.getLogger(__name__))
+            log.warning("No level_price found in context/signals, skipping walls.")
             return {'signals_df': signals_df}
         
         signal_ts = signals_df['ts_ns'].values.astype(np.int64)
@@ -100,10 +112,9 @@ class ComputeLevelWallsStage(BaseStage):
                 signals_df[name] = np.nan
         
         # Log summary
-        above_price = signals_df['futures_wall_above_price'].dropna()
-        below_price = signals_df['futures_wall_below_price'].dropna()
-        
-        ctx.logger.info(
+        # ctx.logger might not avail, use module logger
+        log = getattr(ctx, 'logger', logging.getLogger(__name__))
+        log.info(
             f"Computed level-relative walls for level {level_price:.2f}: "
             f"futures_wall_above avg dist {signals_df['futures_wall_above_dist'].mean():.2f}pt, "
             f"futures_wall_below avg dist {signals_df['futures_wall_below_dist'].mean():.2f}pt"

@@ -1,0 +1,33 @@
+{
+  "stage": "compute_microstructure",
+  "date": "2025-06-04",
+  "level_target": "PM_HIGH",
+  "timestamp": "2026-01-03T13:27:07.337597",
+  "status": "success",
+  "metrics": {
+    "count": 12,
+    "microstructure_stats": {
+      "vacuum_duration_ms": {
+        "mean": 14869.036861166669,
+        "min": 14737.777972,
+        "max": 14969.316378,
+        "std": 88.24330491314457,
+        "zeros": 0
+      },
+      "replenishment_latency_bid_ms": {
+        "mean": 1861.4680799999999,
+        "min": 0.0,
+        "max": 6616.097814,
+        "std": 2446.063424729764,
+        "zeros": 7
+      },
+      "replenishment_latency_ask_ms": {
+        "mean": 2223.3124081666665,
+        "min": 0.0,
+        "max": 9257.602774,
+        "std": 3196.72008561745,
+        "zeros": 7
+      }
+    }
+  }
+}

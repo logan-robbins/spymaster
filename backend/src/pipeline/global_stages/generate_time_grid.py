@@ -1,8 +1,18 @@
 """
-Generate regular time grid for global market features.
+Stage: Generate Time Grid (Global Pipeline)
+Type: Signal Generation (Time-Based)
+Input: OHLCV Data (1min), Market State
+Output: Signals DataFrame (Time Grid Events)
 
-Instead of detecting level touches, this stage creates "events" at regular
-intervals (e.g., every 30 seconds) for computing market-wide features.
+Transformation:
+1. Creates a regular Time Grid (e.g., every 30 seconds) spanning the session.
+2. Replaces "Price Interaction" events with "Time Sample" events.
+3. Initializes Global Context:
+   - Minutes since open
+   - Bars since open
+   - Opening Range active flag
+   
+Note: This is the entry point for the "Global" pipeline, which tracks market-wide state independent of specific price levels.
 """
 
 import pandas as pd

@@ -1,7 +1,21 @@
 """
-Compute market-wide options features (GEX, Tide, volume).
+Stage: Compute Market Options (Global Pipeline)
+Type: Feature Engineering (Market-Wide)
+Input: Signals DataFrame (Time Grid), Option Trades
+Output: Signals DataFrame with Global Options Features
 
-Computes total options metrics relative to spot price, not a specific level.
+Transformation:
+1. Aggregates ALL option trades (irrespective of price level).
+2. Computes System-Wide Greeks:
+   - Total GEX: Net Gamma Exposure ($Bn).
+   - GEX Asymmetry: Balance between Bull/Bear positioning.
+   - GEX above/below spot: Positioning relative to current price.
+3. Computes System-Wide Flow (Tide):
+   - Call Tide: Net Call Premium Flow.
+   - Put Tide: Net Put Premium Flow.
+   - Put/Call Ratio: Volume-based sentiment.
+   
+Note: These features capture the "Macro Sentiment" and "Structural Volatility" of the entire market.
 """
 
 import pandas as pd

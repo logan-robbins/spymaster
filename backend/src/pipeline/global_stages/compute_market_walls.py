@@ -1,11 +1,23 @@
 """
-Compute market-wide wall features (futures + options).
+Stage: Compute Market Walls (Global Pipeline)
+Type: Feature Engineering (Market-Wide)
+Input: Signals DataFrame (Time Grid), MBP-10 Snapshots, Option Trades
+Output: Signals DataFrame with Global Wall Features
 
-Walls represent significant resting liquidity that price must absorb.
-- Futures walls: Large resting orders in MBP-10 order book
-- Options walls: Strikes with high positive dealer gamma (pinning effect)
+Transformation:
+1. Identifies "Walls" (Large Resting Liquidity) in the Order Book (Futures):
+   - Bid Wall: Price with max resting bid volume.
+   - Ask Wall: Price with max resting ask volume.
+   - Distances: How far are these walls from the current mid price?
+2. Identifies "Option Walls" (High Gamma Strikes):
+   - Call Wall: Strike with max positive Call Gamma.
+   - Put Wall: Strike with max positive Put Gamma.
+   - Distances: How far is spot from these pinning levels?
+   
+Note: Walls act as magnets or barriers. High gamma strikes often pin price (kill volatility).
 """
 
+import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List
@@ -87,7 +99,7 @@ class ComputeMarketWallsStage(BaseStage):
                         'options_call_wall_dist', 'options_put_wall_dist']:
                 signals_df[name] = np.nan
         
-        ctx.logger.info(
+        logging.getLogger(__name__).info(
             f"Computed market walls: "
             f"futures_bid_wall_price range [{signals_df['futures_bid_wall_price'].min():.2f}, {signals_df['futures_bid_wall_price'].max():.2f}], "
             f"options_call_wall_price range [{signals_df['options_call_wall_price'].min():.2f}, {signals_df['options_call_wall_price'].max():.2f}]"

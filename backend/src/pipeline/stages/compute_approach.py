@@ -1,4 +1,23 @@
-"""Compute approach context features stage (v2.0+)."""
+"""
+Stage: Compute Approach Features
+Type: Feature Engineering (Contextual)
+Input: Signals DataFrame (touches), OHLCV Data
+Output: Signals DataFrame with Approach Context Features
+
+Transformation:
+1. Analyzes the "Run-Up" behavior leading into the interaction event (Lookback Window).
+2. Computes Kinetic Approach Metrics:
+   - Approach Velocity: How fast did price rush to the level? ($/min)
+   - Approach Distance: Total ground covered.
+   - Approach Bars: Consecutive candles moving toward the level.
+3. Computes Deterioration Metrics (Multi-Attempt Logic):
+   - Attempt Index: Is this the 1st, 2nd, or 3rd try?
+   - Replenishment Trend: Is the barrier getting weaker with each hit?
+   - Trend Features: Delta of liquidity/velocity compared to the first attempt.
+   
+Note: This stage captures "exhaustion" vs "momentum". A fast, extended run-up often leads to exhaustion (reversion), while a grinding approach builds pressure (break).
+"""
+
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import numpy as np
@@ -13,27 +32,6 @@ def compute_approach_context(
     lookback_minutes: int = None,
     date_override: str = None
 ) -> pd.DataFrame:
-    """
-    Compute backward-looking approach context features.
-
-    Captures how price approached the level - critical for ML to understand
-    the setup leading into the touch.
-
-    Features computed:
-        - approach_velocity: Price change per minute over lookback window ($/min)
-        - approach_bars: Number of consecutive bars moving toward level
-        - approach_distance: Total price distance traveled toward level
-        - prior_touches: Count of previous touches at this level today
-        - bars_since_open: Session timing context
-
-    Args:
-        signals_df: DataFrame with signals
-        ohlcv_df: OHLCV DataFrame
-        lookback_minutes: Backward window (defaults to CONFIG.LOOKBACK_MINUTES)
-
-    Returns:
-        DataFrame with approach context features added
-    """
     if lookback_minutes is None:
         lookback_minutes = CONFIG.LOOKBACK_MINUTES
 

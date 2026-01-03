@@ -1,0 +1,31 @@
+{
+  "stage": "detect_interaction_zones",
+  "date": "2025-06-04",
+  "level_target": "PM_HIGH",
+  "timestamp": "2026-01-03T13:23:19.729174",
+  "status": "success",
+  "metrics": {
+    "events": {
+      "count": 12,
+      "columns": [
+        "event_id",
+        "ts_ns",
+        "timestamp",
+        "level_price",
+        "level_kind_name",
+        "direction",
+        "entry_price",
+        "spot",
+        "date"
+      ],
+      "directions": {
+        "UP": 12
+      },
+      "level_prices": [
+        6040.0
+      ],
+      "first_event": "2025-06-04 07:56:19.539616427+00:00",
+      "last_event": "2025-06-04 19:47:25.066555955+00:00"
+    }
+  }
+}

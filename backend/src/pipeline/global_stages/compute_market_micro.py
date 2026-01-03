@@ -1,7 +1,18 @@
 """
-Compute market-wide microstructure features.
+Stage: Compute Market Microstructure (Global Pipeline)
+Type: Feature Engineering (Market-Wide)
+Input: Signals DataFrame (Time Grid), MBP-10 Snapshots
+Output: Signals DataFrame with Global Microstructure Features
 
-Computes spread, depth, imbalance without level-relative filtering.
+Transformation:
+1. Replays L2 Book State (10 levels).
+2. Computes System-Wide Liquidity Metrics:
+   - Spread: Cost of trading (Ask - Bid).
+   - Depth (1-10): Total resting liquidity available.
+   - Depth Imbalance: Ratio of Bid Depth vs Ask Depth.
+3. Updates "Spot Price" using the instantaneous Mid Price from the book.
+   
+Note: These metrics define the "Regime" (Liquid/Illiquid, Balanced/Skewed) of the market.
 """
 
 import pandas as pd

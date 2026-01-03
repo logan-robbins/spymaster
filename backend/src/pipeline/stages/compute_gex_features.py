@@ -1,9 +1,17 @@
 """
-Compute ES options gamma exposure (GEX) features.
+Stage: Compute GEX Features
+Type: Feature Engineering (Options/Gamma)
+Input: Signals DataFrame (touches), Options Trades w/ Greeks (Snapshots)
+Output: Signals DataFrame with GEX Features
 
-Strike-banded GEX features around tested level. Aggregates gamma exposure
-within ±1, ±2, ±3 strikes from the tested level (not fixed point distances).
-ES 0DTE strikes are typically spaced 5 points apart at ATM.
+Transformation:
+1. Computes the "Gamma Landscape" around the interaction level using 0DTE options.
+2. GEX Bands: Aggregates Dealer Gamma Exposure in spatial bands (±1, ±2, ±3 strikes) around the level.
+   - Positive Dealer GEX: Reversionary (Dealers fade moves) -> Bullish for Chop/Reject.
+   - Negative Dealer GEX: Acceleration (Dealers chase moves) -> Bullish for Break.
+3. Asymmetry: Compares GEX above vs below the level (Call Wall vs Put Wall).
+
+Note: This stage decodes the "Invisible Hand" of dealer hedging that often pins or accelerates price at structural levels.
 """
 
 import pandas as pd

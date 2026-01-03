@@ -1,4 +1,19 @@
-"""Compute physics metrics stage."""
+"""
+Stage: Compute Physics
+Type: Feature Engineering (Instantaneous)
+Input: Interaction Events (touches_df), Trades, MBP-10, Options Flow
+Output: Signals DataFrame (augmented touches_df)
+
+Transformation:
+1. For each interaction event (touch), computes "Instantaneous Physics" metrics at that exact timestamp:
+   - Barrier State: Vacuum/Wall/Neutral based on limit order book replenishment.
+   - Tape Metrics: Velocity, Buy/Sell Volume imbalance, Sweep detection.
+   - Fuel Metrics: Gamma Exposure (GEX) and Market Tide (Options Flow) relative to price.
+2. Uses fully vectorized "Batch Engines" to compute these metrics efficiently across all events.
+3. Encodes categorical states (e.g. VACUUM -> -3) for ML consumption.
+
+Note: This stage captures the *micro-structure* context at the precise moment of interaction, answering "What was the texture of the market when price hit this level?"
+"""
 import logging
 from typing import Any, Dict, List
 import pandas as pd

@@ -1,3 +1,19 @@
+"""
+Stage: Compute Multi-Window Kinematics
+Type: Feature Engineering (Time-Series)
+Input: Signals DataFrame (touches), OHLCV (10s grid)
+Output: Signals DataFrame with Kinematic Features
+
+Transformation:
+1. Resamples OHLCV data to a strict 10s dense grid.
+2. Computes "Kinematic" derivatives (Velocity, Acceleration, Jerk) using Savitzky-Golay filters.
+   - Filters are applied via convolution kernels for speed (O(N)).
+   - Multiple lookback windows: 1m, 2m, 3m, 5m, 10m, 20m.
+3. Aligns the continuous kinematic series to the discrete Interaction Events.
+4. Adjusts sign based on "Approach Direction" (e.g., Velocity > 0 means "Approaching fast", regardless of UP/DOWN).
+
+Note: This stage provides the "Momentum" context over multiple time horizons, allowing the model to distinguish between a "slow drift" and a "violent crash" into a level.
+"""
 import pandas as pd
 import numpy as np
 import math

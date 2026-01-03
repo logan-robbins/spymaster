@@ -1,0 +1,41 @@
+{
+  "stage": "label_outcomes",
+  "date": "2025-06-04",
+  "level_target": "PM_HIGH",
+  "timestamp": "2026-01-03T13:34:22.066786",
+  "status": "success",
+  "metrics": {
+    "count": 12,
+    "label_distribution": {
+      "outcome_2min": {
+        "REJECT": 12
+      },
+      "outcome_4min": {
+        "REJECT": 12
+      },
+      "outcome_8min": {
+        "REJECT": 12
+      }
+    },
+    "metric_stats": {
+      "excursion_favorable": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "std": 0.0
+      },
+      "excursion_adverse": {
+        "mean": 57.4375,
+        "min": 53.0,
+        "max": 65.75,
+        "std": 4.257513412139233
+      },
+      "strength_signed": {
+        "mean": -69.5,
+        "min": -102.25,
+        "max": -55.25,
+        "std": 19.510777907235134
+      }
+    }
+  }
+}

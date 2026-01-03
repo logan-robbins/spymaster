@@ -1,15 +1,17 @@
 """
-Barrier evolution features - how depth changes over time.
+Stage: Compute Barrier Evolution
+Type: Feature Engineering (Barrier Dynamics)
+Input: Signals DataFrame (touches), MBP-10 Snapshots
+Output: Signals DataFrame with Barrier Evolution Features
 
-Per user requirement: Multi-window encoding of barrier dynamics.
+Transformation:
+1. Tracks the "Barrier Depth" (contract size) at the target level over multiple time horizons (1m, 2m, 3m, 5m).
+2. Computes the Delta (Change) and Percent Change in barrier size leading up to the interaction event.
+   - Positive Delta: Barrier is "Thickening" (Resistance/Support reinforcing) -> Bullish for Bounce.
+   - Negative Delta: Barrier is "Thinning" (Pulled orders) -> Bullish for Break.
+3. Uses spatial filtering (Barrier Zone) to only count liquidity immediately defending the level (default 0.25 * BARRIER_ZONE ticks).
 
-A "thinning barrier" (depth decreasing) is bullish for BREAK.
-A "thickening barrier" (depth increasing) is bullish for BOUNCE.
-
-Windows:
-- 1min: Immediate barrier change (absorbing? building?)
-- 3min: Short-term barrier trend
-- 5min: Medium-term barrier evolution
+Note: This stage captures the *intent* of passive limit orders. Are they digging in to defend, or stepping aside to let price pass?
 """
 
 from typing import Any, Dict, List

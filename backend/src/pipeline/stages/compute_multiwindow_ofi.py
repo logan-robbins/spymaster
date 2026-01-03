@@ -1,28 +1,20 @@
 """
-True Event-Based Order Flow Imbalance (OFI) Computation.
+Stage: Compute Multi-Window OFI
+Type: Feature Engineering (Microstructure)
+Input: Signals DataFrame (touches), MBP-10 Snapshots (with Add/Cancel events)
+Output: Signals DataFrame with OFI Features
 
-Implements OFI per Cont, Kukanov & Stoikov (2014) 
-"The Price Impact of Order Book Events".
+Transformation:
+1. Reconstructs the Order Flow Imbalance (OFI) from raw MBP-10 "Add" and "Cancel" events.
+   - OFI = Σ (EventSign * Side * Size)
+   - Captures net buying/selling pressure in the limit order book.
+2. Spatial Filtering: Computes OFI only for events occurring near the interaction level.
+   - Total: ±50pts
+   - Near: ±25pts (Concentrated impact)
+   - Above/Below: Split flows to detect "pinning" or "pressure" from one side.
+3. Temporal Aggregation: Sums OFI over multiple lookback windows (30s, 60s, 120s, 300s) relative to the interaction time.
 
-Key difference from state-delta OFI:
-- State-delta: compares consecutive snapshots, infers flow from size changes
-- Event-based: uses actual Add/Cancel/Modify events with side (Bid/Ask)
-
-Event-based OFI formula:
-  OFI_t = Σ (e_i * s_i * size_i)
-  
-Where:
-  e_i = +1 for Add, -1 for Cancel
-  s_i = +1 for Bid side, -1 for Ask side
-  size_i = order size
-
-This gives:
-  Add on Bid:    +size (buying pressure)
-  Cancel on Bid: -size (reduced buying)
-  Add on Ask:    -size (selling pressure)
-  Cancel on Ask: +size (reduced selling)
-  Trade (action='T'): excluded (execution, not order flow)
-  Modify: treated as Cancel(-old) + Add(+new), but we only see final size
+Note: This stage provides the "Hydraulic Pressure" context—identifying if limit orders are aggressively stacking or fleeing as price approaches the level.
 """
 
 import pandas as pd

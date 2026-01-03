@@ -1,4 +1,19 @@
-"""Filter to regular trading hours stage."""
+"""
+Stage: Filter RTH (Final Silver Stage)
+Type: Data Filtering & Schema Enforcement
+Input: Signals DataFrame (Raw Features + Labels)
+Output: Canonical Silver Signals (Filtered, Prefixed, Cleaned)
+
+Transformation:
+1. Filters events to the Training Window (08:30 - 12:30 ET).
+   - Keeps Pre-Market (08:30-09:30) for context.
+   - Keeps Morning Session (09:30-12:30) for primary interactions.
+2. Removes "Global Features" (ATR, Spot, Time) to prevent duplication across multiple levels.
+   - These are re-attached during Episode Construction (Gold Layer).
+3. Applies Level-Specific Prefixes (e.g., `feature` -> `pm_high_feature`).
+   - Ensures collision-free merging of multiple levels.
+4. Writes the final Parquet file to the Silver Data Lake.
+"""
 import logging
 import shutil
 from pathlib import Path
@@ -10,22 +25,19 @@ from src.common.config import CONFIG
 from src.common.schemas.silver_features import validate_silver_features
 from src.common.data_paths import canonical_signals_dir, date_partition
 
+from src.pipeline.core.feature_definitions import IDENTITY_FEATURES, MARKET_STATE_FEATURES
+
 logger = logging.getLogger(__name__)
 
 # Identity columns (keep unprefixed - event metadata)
-IDENTITY_COLS: Set[str] = {
-    'event_id', 'ts_ns', 'timestamp', 'level_price', 'level_kind_name',
-    'direction', 'entry_price', 'date'
+# Extend base identity with level-specific identity columns
+IDENTITY_COLS: Set[str] = set(IDENTITY_FEATURES) | {
+    'level_price', 'level_kind_name', 'direction', 'entry_price'
 }
 
-# Global features (same regardless of level - remove to avoid duplication)
-GLOBAL_FEATURES: Set[str] = {
-    'atr',                    # Market volatility - same for all levels
-    'spot',                   # Current market price
-    'minutes_since_open',     # Session timing
-    'bars_since_open',        # Session timing
-    'or_active',              # Session timing
-}
+# Global features (remove to avoid duplication)
+# Maps to MARKET_STATE_FEATURES from definitions
+GLOBAL_FEATURES: Set[str] = set(MARKET_STATE_FEATURES)
 
 # Note: Labels (outcome, excursion, etc.) ARE level-relative and WILL be prefixed
 # A BREAK at PM_HIGH is different from a BREAK at OR_LOW

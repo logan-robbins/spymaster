@@ -1,0 +1,33 @@
+{
+  "stage": "compute_multiwindow_ofi",
+  "date": "2025-06-04",
+  "level_target": "PM_HIGH",
+  "timestamp": "2026-01-03T13:26:17.146682",
+  "status": "success",
+  "metrics": {
+    "count": 12,
+    "key_ofi_stats": {
+      "ofi_30s": {
+        "mean": -1.0833333333333333,
+        "min": -20.0,
+        "max": 7.0,
+        "nans": 0,
+        "zeros": 2
+      },
+      "ofi_near_level_30s": {
+        "mean": -0.11694647944647946,
+        "min": -1.0,
+        "max": 0.23076923076923078,
+        "nans": 0,
+        "zeros": 6
+      },
+      "ofi_acceleration": {
+        "mean": 0.13768130732835435,
+        "min": -1.5000003750000939,
+        "max": 2.3333325555558146,
+        "nans": 0,
+        "zeros": 2
+      }
+    }
+  }
+}
