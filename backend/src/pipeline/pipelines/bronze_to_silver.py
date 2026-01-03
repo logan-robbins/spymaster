@@ -62,7 +62,7 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
     """
     return Pipeline(
         name="bronze_to_silver",
-        version="4.6.0",  # Phase 4.6: Consolidated OHLCV + hierarchical resampling
+        version="4.7.0",  # Phase 4.7: MBP-10 w/ action/side + level-specific generation
         stages=[
             LoadBronzeStage(),
             BuildAllOHLCVStage(),

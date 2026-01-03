@@ -65,9 +65,16 @@ def detect_entries_from_ticks(
     min_separation_sec: float = 300.0
 ) -> pd.DataFrame:
     """
-    Detect interaction events using raw tick data.
+    Detect level crosses using tick-by-tick analysis.
     
-    Single-level pipeline: detects entries for ONE level type only.
+    Detects ANY price cross of the level (not just zone entries):
+    - UP cross: prev_price < level AND curr_price >= level
+    - DOWN cross: prev_price > level AND curr_price <= level
+    
+    This catches fast moves that gap through the level zone without
+    leaving a tick inside the monitor band.
+    
+    Single-level pipeline: detects crosses for ONE level type only.
     
     Args:
         trades: List of raw FuturesTrade objects
@@ -84,42 +91,55 @@ def detect_entries_from_ticks(
     ts_ns = np.array([t.ts_event_ns for t in trades], dtype=np.int64)
     prices = np.array([t.price for t in trades], dtype=np.float64)
     
-    base_width = float(CONFIG.MONITOR_BAND)
-    
     events = []
     
     # Single-level pipeline: process THE level
-    # For dynamic levels (SMA_90), level_prices may have multiple snapshots
-    # For static levels (PM_HIGH), level_prices has one value
-    # We detect entries to ANY instance of the level
     for level_price in level_prices:
-        # Binary state: Inside / Outside
-        dist = np.abs(prices - level_price)
-        inside = dist <= base_width
+        # Detect crosses between consecutive ticks
+        # UP cross: prev < level AND curr >= level
+        # DOWN cross: prev > level AND curr <= level
         
-        # Find entry indices
-        entries = np.where(inside[1:] & ~inside[:-1])[0] + 1
-        
-        if inside[0]:
-            entries = np.insert(entries, 0, 0)
-            
-        if len(entries) == 0:
+        if len(prices) < 2:
             continue
-            
+        
+        prev_prices = prices[:-1]
+        curr_prices = prices[1:]
+        
+        # UP crosses
+        up_crosses = (prev_prices < level_price) & (curr_prices >= level_price)
+        up_indices = np.where(up_crosses)[0] + 1  # Index in original array
+        
+        # DOWN crosses  
+        down_crosses = (prev_prices > level_price) & (curr_prices <= level_price)
+        down_indices = np.where(down_crosses)[0] + 1
+        
+        # Combine and sort
+        all_cross_indices = np.concatenate([up_indices, down_indices])
+        all_directions = np.concatenate([
+            np.full(len(up_indices), 'UP'),
+            np.full(len(down_indices), 'DOWN')
+        ])
+        
+        # Sort by timestamp
+        sort_order = np.argsort(ts_ns[all_cross_indices])
+        cross_indices = all_cross_indices[sort_order]
+        directions = all_directions[sort_order]
+        
+        # Check if first trade is already at level
+        if len(prices) > 0 and abs(prices[0] - level_price) <= CONFIG.MONITOR_BAND:
+            cross_indices = np.insert(cross_indices, 0, 0)
+            directions = np.insert(directions, 0, 'UP' if prices[0] >= level_price else 'DOWN')
+        
+        if len(cross_indices) == 0:
+            continue
+        
         # Debounce
         last_event_ts = -np.inf
         
-        for i in entries:
+        for i, direction in zip(cross_indices, directions):
             t = ts_ns[i]
             if (t - last_event_ts) / 1e9 >= min_separation_sec:
                 p = prices[i]
-                
-                # Determine direction
-                if i > 0:
-                    prev_p = prices[i-1]
-                    direction = 'UP' if prev_p < level_price else 'DOWN'
-                else:
-                    direction = 'UP'
                 
                 event_id = compute_deterministic_event_id(
                     date=date, level_kind=level_name, level_price=level_price,
@@ -163,13 +183,15 @@ class DetectInteractionZonesStage(BaseStage):
         trades = ctx.data.get('trades', [])
         level_info = ctx.data['level_info']
         
-        # Filter to single level type
-        target_level = ctx.level
-        mask = np.array([name == target_level for name in level_info.kind_names])
+        # Filter to single level type (case-insensitive)
+        target_level = ctx.level.upper() if ctx.level else None
+        if not target_level:
+            raise ValueError("ctx.level must be specified for level-specific pipeline")
+        
+        mask = np.array([name.upper() == target_level for name in level_info.kind_names])
         
         if not mask.any():
-            print(f"  Warning: No level found for {target_level}")
-            return {'touches_df': pd.DataFrame()}
+            raise ValueError(f"Level '{target_level}' not found. Available: {level_info.kind_names}")
         
         filtered_prices = level_info.prices[mask]
         
@@ -184,5 +206,7 @@ class DetectInteractionZonesStage(BaseStage):
         num_events = len(events_df)
         if num_events > 0:
             print(f"  Detected {num_events} events for {target_level} from {len(trades)} ticks")
+        else:
+            print(f"  ⚠️  No events detected for {target_level} (level={filtered_prices[0]:.2f})")
         
         return {'touches_df': events_df}

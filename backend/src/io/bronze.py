@@ -3,8 +3,7 @@ Bronze layer Parquet writer per PLAN.md §2.2-§2.4 (Phase 2: NATS + S3).
 
 Writes append-only, replayable, schema-versioned raw captures:
 - options/trades/underlying=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
-- futures/trades/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
-- futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet
+- futures/mbp10/symbol=ES/date=YYYY-MM-DD/hour=HH/part-*.parquet (book + trades via action='T')
 """
 
 import os
@@ -141,14 +140,12 @@ class BronzeWriter:
     # Schema name to path prefix mapping
     SCHEMA_PATHS = {
         'options.trades': 'options/trades',
-        'futures.trades': 'futures/trades',
         'futures.mbp10': 'futures/mbp10',
     }
     
     # Subject to schema mapping for NATS subscriptions
     SUBJECT_TO_SCHEMA = {
         'market.options.trades': 'options.trades',
-        'market.futures.trades': 'futures.trades',
         'market.futures.mbp10': 'futures.mbp10',
     }
 
@@ -283,9 +280,6 @@ class BronzeWriter:
             # Infer schema from message structure
             if 'levels' in message:
                 schema_name = 'futures.mbp10'
-                partition_key = message['symbol']
-            elif 'symbol' in message and 'size' in message and 'price' in message:
-                schema_name = 'futures.trades'
                 partition_key = message['symbol']
             elif 'underlying' in message and 'option_symbol' in message:
                 schema_name = 'options.trades'
@@ -449,11 +443,10 @@ class BronzeWriter:
 
     def _get_arrow_schema(self, schema_name: str) -> pa.Schema:
         """Get canonical Arrow schema for a schema name."""
-        from src.common.schemas import OptionTradeV1, FuturesTradeV1, MBP10V1
+        from src.common.schemas import OptionTradeV1, MBP10V1
         
         schema_map = {
             'options.trades': OptionTradeV1._arrow_schema,
-            'futures.trades': FuturesTradeV1._arrow_schema,
             'futures.mbp10': MBP10V1._arrow_schema,
         }
         
@@ -571,55 +564,6 @@ class BronzeReader:
             trades['open_interest'] = 0.0
             
         return trades
-
-    def read_futures_trades(
-        self,
-        symbol: str = 'ES',
-        date: str = None,
-        start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None,
-        front_month_only: bool = True,
-        specific_contract: Optional[str] = None
-    ) -> pd.DataFrame:
-        """
-        Read futures trades from Bronze.
-        
-        Args:
-            symbol: Symbol prefix (e.g., 'ES')
-            date: Date string (YYYY-MM-DD)
-            start_ns: Start timestamp (nanoseconds)
-            end_ns: End timestamp (nanoseconds)
-            front_month_only: If True, automatically select front-month contract (default)
-            specific_contract: If provided, filter to exact contract (e.g., 'ESZ5')
-        
-        Returns:
-            DataFrame with trades, filtered to single contract if requested
-        """
-        df = self._read_schema(
-            'futures/trades',
-            f'symbol={symbol}',
-            date,
-            start_ns,
-            end_ns
-        )
-        
-        # Apply contract filtering
-        if not df.empty and (front_month_only or specific_contract):
-            if specific_contract:
-                # Explicit contract specified
-                df = df[df['symbol'] == specific_contract].copy()
-            elif front_month_only and date:
-                # Auto-select front month
-                from src.common.utils.contract_selector import ContractSelector
-                selector = ContractSelector(self.bronze_root)
-                try:
-                    selection = selector.select_front_month(date)
-                    df = df[df['symbol'] == selection.front_month_symbol].copy()
-                except Exception as e:
-                    print(f"WARNING: Front-month selection failed for {date}: {e}")
-                    # Fall back to returning all contracts
-        
-        return df
 
     def read_futures_mbp10(
         self,

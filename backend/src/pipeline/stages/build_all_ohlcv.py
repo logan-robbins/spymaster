@@ -170,7 +170,14 @@ class BuildAllOHLCVStage(BaseStage):
             warmup_frames = []
             
             for warmup_date in warmup_dates:
-                warmup_trades_df = reader.read_futures_trades(symbol='ES', date=warmup_date, front_month_only=False)
+                # Extract trades from MBP-10 (unified source)
+                warmup_start = pd.Timestamp(warmup_date, tz="America/New_York") + pd.Timedelta(hours=4)
+                warmup_end = pd.Timestamp(warmup_date, tz="America/New_York") + pd.Timedelta(hours=16)
+                warmup_trades_df = reader.read_futures_trades_from_mbp10(
+                    date=warmup_date,
+                    start_ns=int(warmup_start.tz_convert("UTC").value),
+                    end_ns=int(warmup_end.tz_convert("UTC").value)
+                )
                 if warmup_trades_df.empty:
                     continue
                 
