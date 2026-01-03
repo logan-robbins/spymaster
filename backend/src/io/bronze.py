@@ -59,7 +59,10 @@ def _normalize_enum(value: Any) -> Any:
 
 
 def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
-    """Flatten MBP10 event levels into bid/ask fields."""
+    """Flatten MBP10 event levels into bid/ask fields.
+    
+    Includes action/side/price/size for true OFI computation per Cont et al. (2014).
+    """
     if isinstance(event, dict):
         base = {
             "ts_event_ns": event["ts_event_ns"],
@@ -68,6 +71,11 @@ def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
             "symbol": event.get("symbol"),
             "is_snapshot": event.get("is_snapshot", False),
             "seq": event.get("seq"),
+            # OFI fields (action/side/price/size for true event-based OFI)
+            "action": _normalize_enum(event.get("action")),
+            "side": _normalize_enum(event.get("side")),
+            "action_price": float(event.get("price", 0.0)),
+            "action_size": int(event.get("size", 0)),
         }
         levels = event.get("levels", [])
     else:
@@ -78,6 +86,11 @@ def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
             "symbol": event.symbol,
             "is_snapshot": getattr(event, "is_snapshot", False),
             "seq": getattr(event, "seq", None),
+            # OFI fields (action/side/price/size for true event-based OFI)
+            "action": _normalize_enum(getattr(event, "action", None)),
+            "side": _normalize_enum(getattr(event, "side", None)),
+            "action_price": float(getattr(event, "action_price", 0.0) or 0.0),
+            "action_size": int(getattr(event, "action_size", 0) or 0),
         }
         levels = getattr(event, "levels", [])
 

@@ -1,18 +1,16 @@
 """
-Validate Stage 6: ComputePhysics
+Validate Stage 7: ComputeMultiWindowKinematics
 
 Goals:
-1. Compute barrier/tape/fuel physics for each interaction event
-2. Preserve event identity columns from touches_df
-3. Output signals_df with physics columns populated
+1. Compute multi-window velocity/acceleration/jerk features
+2. Preserve signal identity columns
+3. Output signals_df with kinematics features populated
 
 Validation Checks:
-- Required inputs present (touches_df, market_state, trades, mbp10_snapshots)
+- Required inputs present (signals_df, ohlcv_1min)
 - signals_df output exists and has required columns
 - Row count matches touches_df
-- Barrier state values valid
-- Fuel effect values valid
-- Numeric physics columns finite and non-null
+- Kinematic columns finite and non-null
 """
 
 import argparse
@@ -25,8 +23,6 @@ import numpy as np
 import pandas as pd
 
 from src.pipeline.pipelines.bronze_to_silver import build_bronze_to_silver_pipeline
-from src.core.barrier_engine import BarrierState
-from src.core.fuel_engine import FuelEffect
 
 
 def setup_logging(log_file: str):
@@ -42,13 +38,13 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage6Validator:
-    """Validator for ComputePhysics stage."""
+class Stage7Validator:
+    """Validator for ComputeMultiWindowKinematics stage."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
-            'stage': 'compute_physics',
+            'stage': 'compute_multiwindow_kinematics',
             'stage_idx': 6,
             'checks': {},
             'warnings': [],
@@ -59,7 +55,7 @@ class Stage6Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 6: ComputePhysics for {date}")
+        self.logger.info(f"Validating Stage 7: ComputeMultiWindowKinematics for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -74,9 +70,9 @@ class Stage6Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 6 Validation: PASSED")
+            self.logger.info("✅ Stage 7 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 6 Validation: FAILED")
+            self.logger.error("❌ Stage 7 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -94,7 +90,7 @@ class Stage6Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['touches_df', 'market_state', 'trades', 'mbp10_snapshots']
+        required_inputs = ['signals_df', 'ohlcv_1min']
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())
@@ -138,7 +134,7 @@ class Stage6Validator:
         checks['signals_df_type'] = True
 
         if signals_df.empty:
-            warning = "signals_df is empty (no physics computed)"
+            warning = "signals_df is empty (no kinematics computed)"
             self.results['warnings'].append(warning)
             self.logger.warning(f"  ⚠️  {warning}")
             self.results['checks']['signals_df'] = checks
@@ -150,12 +146,18 @@ class Stage6Validator:
             'event_id', 'ts_ns', 'timestamp', 'level_price', 'level_kind',
             'level_kind_name', 'direction', 'entry_price', 'zone_width', 'date'
         ]
-        physics_cols = [
-            'barrier_state', 'barrier_delta_liq', 'barrier_replenishment_ratio',
-            'wall_ratio', 'tape_imbalance', 'tape_buy_vol', 'tape_sell_vol',
-            'tape_velocity', 'sweep_detected', 'fuel_effect', 'gamma_exposure'
-        ]
-        required_cols = base_cols + physics_cols
+        kinematic_cols = []
+        for window in [1, 3, 5, 10, 20]:
+            suffix = f'_{window}min'
+            kinematic_cols.extend([
+                f'velocity{suffix}',
+                f'acceleration{suffix}',
+                f'jerk{suffix}'
+            ])
+            if window > 1:
+                kinematic_cols.append(f'momentum_trend{suffix}')
+
+        required_cols = base_cols + kinematic_cols
 
         missing_cols = [col for col in required_cols if col not in signals_df.columns]
         if missing_cols:
@@ -182,41 +184,8 @@ class Stage6Validator:
                 checks['row_count_match'] = True
                 self.logger.info("  ✅ signals_df row count matches touches_df")
 
-        # Barrier state validation
-        barrier_states = set(signals_df['barrier_state'].astype(str))
-        valid_barrier = {state.value for state in BarrierState}
-        invalid_barrier = sorted(barrier_states - valid_barrier)
-        if invalid_barrier:
-            checks['barrier_state_values'] = False
-            self.results['passed'] = False
-            error = f"Invalid barrier_state values: {invalid_barrier}"
-            self.results['errors'].append(error)
-            self.logger.error(f"  ❌ {error}")
-        else:
-            checks['barrier_state_values'] = True
-            self.logger.info(f"  ✅ Barrier states valid: {signals_df['barrier_state'].value_counts().to_dict()}")
-
-        # Fuel effect validation
-        fuel_effects = set(signals_df['fuel_effect'].astype(str))
-        valid_fuel = {effect.value for effect in FuelEffect}
-        invalid_fuel = sorted(fuel_effects - valid_fuel)
-        if invalid_fuel:
-            checks['fuel_effect_values'] = False
-            self.results['passed'] = False
-            error = f"Invalid fuel_effect values: {invalid_fuel}"
-            self.results['errors'].append(error)
-            self.logger.error(f"  ❌ {error}")
-        else:
-            checks['fuel_effect_values'] = True
-            self.logger.info(f"  ✅ Fuel effects valid: {signals_df['fuel_effect'].value_counts().to_dict()}")
-
-        # Numeric columns validation
-        numeric_cols = [
-            'barrier_delta_liq', 'barrier_replenishment_ratio', 'wall_ratio',
-            'tape_imbalance', 'tape_buy_vol', 'tape_sell_vol',
-            'tape_velocity', 'gamma_exposure'
-        ]
-        for col in numeric_cols:
+        # Numeric kinematics columns validation
+        for col in kinematic_cols:
             values = pd.to_numeric(signals_df[col], errors='coerce')
             if values.isna().any():
                 checks[f'{col}_nan'] = False
@@ -227,35 +196,11 @@ class Stage6Validator:
             else:
                 checks[f'{col}_nan'] = True
 
-        # Non-negative checks
-        for col in ['tape_buy_vol', 'tape_sell_vol', 'wall_ratio']:
-            values = pd.to_numeric(signals_df[col], errors='coerce')
-            if (values < 0).any():
-                checks[f'{col}_non_negative'] = False
-                self.results['passed'] = False
-                error = f"{col} has negative values"
-                self.results['errors'].append(error)
-                self.logger.error(f"  ❌ {error}")
-            else:
-                checks[f'{col}_non_negative'] = True
-
-        # sweep_detected boolean check
-        sweep_values = set(signals_df['sweep_detected'].dropna().unique().tolist())
-        if not sweep_values.issubset({True, False}):
-            checks['sweep_detected_bool'] = False
-            self.results['passed'] = False
-            error = f"sweep_detected has non-boolean values: {sorted(sweep_values)}"
-            self.results['errors'].append(error)
-            self.logger.error(f"  ❌ {error}")
-        else:
-            checks['sweep_detected_bool'] = True
-            self.logger.info("  ✅ sweep_detected values are boolean")
-
         self.results['checks']['signals_df'] = checks
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 6: ComputePhysics')
+    parser = argparse.ArgumentParser(description='Validate Stage 7: ComputeMultiWindowKinematics')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
@@ -268,22 +213,22 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_06_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_07_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 6 validation for {args.date}")
+    logger.info(f"Starting Stage 7 validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 6
-        logger.info("Running through ComputePhysics stage...")
+        # Run pipeline through stage 7
+        logger.info("Running through ComputeMultiWindowKinematics stage...")
         pipeline = build_es_pipeline()
 
         pipeline.run(
             date=args.date,
             checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=6,
-            stop_at_stage=6
+            resume_from_stage=7,
+            stop_at_stage=7
         )
 
         # Load checkpoint from stage (should already exist from pipeline run)
@@ -296,7 +241,7 @@ def main():
             return 1
 
         # Validate
-        validator = Stage6Validator(logger)
+        validator = Stage7Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -304,7 +249,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_06_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_07_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)

@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 def futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
-    """Convert Bronze futures trades DataFrame to FuturesTrade objects."""
+    """Convert futures trades DataFrame to FuturesTrade objects.
+    
+    Supports both legacy trades schema and MBP-10 extracted trades.
+    MBP-10 trades have: ts_event_ns, price, size, aggressor, symbol
+    Legacy trades have: ts_event_ns, ts_recv_ns, price, size, aggressor, symbol, exchange, seq
+    """
     if trades_df.empty:
         return []
 
@@ -32,28 +37,11 @@ def futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
     else:
         aggressors = np.zeros(len(df), dtype=int)
 
-    exchange_vals = (
-        pd.to_numeric(df["exchange"], errors="coerce").to_numpy()
-        if "exchange" in df.columns
-        else None
-    )
-    seq_vals = df["seq"].to_numpy() if "seq" in df.columns else None
-
     agg_map = {1: Aggressor.BUY, -1: Aggressor.SELL, 0: Aggressor.MID}
 
-    trades: List[FuturesTrade] = []
-    for i in range(len(df)):
-        exchange = None
-        if exchange_vals is not None:
-            val = exchange_vals[i]
-            exchange = None if pd.isna(val) else int(val)
-
-        seq = None
-        if seq_vals is not None:
-            val = seq_vals[i]
-            seq = None if pd.isna(val) else int(val)
-
-        trades.append(FuturesTrade(
+    # Vectorized construction for performance
+    trades: List[FuturesTrade] = [
+        FuturesTrade(
             ts_event_ns=int(ts_event[i]),
             ts_recv_ns=int(ts_recv[i]),
             source=EventSource.DIRECT_FEED,
@@ -61,22 +49,30 @@ def futures_trades_from_df(trades_df: pd.DataFrame) -> List[FuturesTrade]:
             price=float(prices[i]),
             size=int(sizes[i]),
             aggressor=agg_map.get(int(aggressors[i]), Aggressor.MID),
-            exchange=exchange,
+            exchange=None,
             conditions=None,
-            seq=seq
-        ))
+            seq=None
+        )
+        for i in range(len(df))
+    ]
 
     return trades
 
 
 def mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
-    """Convert Bronze MBP-10 DataFrame to MBP10 objects."""
+    """Convert Bronze MBP-10 DataFrame to MBP10 objects.
+    
+    Includes action/side/price/size for true OFI computation.
+    """
     if mbp_df.empty:
         return []
 
     df = mbp_df
     if not df["ts_event_ns"].is_monotonic_increasing:
         df = df.sort_values("ts_event_ns")
+
+    # Check if OFI fields are present (new schema)
+    has_ofi_fields = "action" in df.columns
 
     mbp_list: List[MBP10] = []
     for row in df.itertuples(index=False):
@@ -93,6 +89,12 @@ def mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
         is_snapshot = bool(getattr(row, "is_snapshot", False))
         seq = getattr(row, "seq", None)
         seq_val = None if pd.isna(seq) else int(seq)
+        
+        # OFI fields (new schema)
+        action = getattr(row, "action", None) if has_ofi_fields else None
+        side = getattr(row, "side", None) if has_ofi_fields else None
+        action_price = getattr(row, "action_price", None) if has_ofi_fields else None
+        action_size = getattr(row, "action_size", None) if has_ofi_fields else None
 
         mbp_list.append(MBP10(
             ts_event_ns=int(row.ts_event_ns),
@@ -101,7 +103,11 @@ def mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
             symbol=str(symbol),
             levels=levels,
             is_snapshot=is_snapshot,
-            seq=seq_val
+            seq=seq_val,
+            action=action,
+            side=side,
+            action_price=float(action_price) if action_price is not None and not pd.isna(action_price) else None,
+            action_size=int(action_size) if action_size is not None and not pd.isna(action_size) else None
         ))
 
     return mbp_list
@@ -110,14 +116,15 @@ def mbp10_from_df(mbp_df: pd.DataFrame) -> List[MBP10]:
 class LoadBronzeStage(BaseStage):
     """Load Bronze data using DuckDB for efficient Parquet queries.
 
-    Loads:
-    - ES futures trades
-    - ES MBP-10 order book snapshots (downsampled)
-    - ES option trades
+    MBP-10 is the single source of truth for ES futures data:
+    - Book snapshots (action = A/C/M) for liquidity/OFI features
+    - Trades (action = T) for OHLCV/tape features
+    
+    This eliminates redundant trades schema ingestion.
 
     Outputs:
         trades: List[FuturesTrade]
-        trades_df: pd.DataFrame (raw)
+        trades_df: pd.DataFrame (extracted from MBP-10 action='T')
         mbp10_snapshots: List[MBP10]
         option_trades_df: pd.DataFrame
     """
@@ -130,32 +137,12 @@ class LoadBronzeStage(BaseStage):
         reader = DuckDBReader()
         logger.info(f"  Loading Bronze data for {ctx.date}...")
 
-        # Load ES trades
-        logger.debug(f"    Reading ES futures trades...")
-        # TODO: Re-enable front_month_only=True after fixing Bronze symbol field to use full contract names
-        trades_df = reader.read_futures_trades(symbol='ES', date=ctx.date, front_month_only=False)
-        if trades_df.empty:
-            raise ValueError(f"No ES trades found for {ctx.date}")
-
-        # Filter out MicroES (MES) contamination
-        # ES futures trade in ~5000-7000 range; MES at 1/10th scale (~50-70)
-        # Robust filter: Keep only prices in realistic ES range
-        raw_count = len(trades_df)
-        trades_df = trades_df[(trades_df['price'] >= 3000) & (trades_df['price'] <= 10000)]
-        filtered_count = raw_count - len(trades_df)
-        
-        if filtered_count > 0:
-            logger.info(f"    Filtered {filtered_count:,} MES/outlier trades ({filtered_count/raw_count*100:.2f}%)")
-
-        trades = futures_trades_from_df(trades_df)
-        logger.info(f"    ES trades: {len(trades):,} records")
-
-        # Compute session bounds for MBP-10 loading
-        # Include RTH-1 (08:30-09:30 ET) for barrier context + first 3 hours RTH (09:30-12:30 ET)
-        # Total MBP-10 window: 08:30-12:30 ET (4 hours)
-        # Touch detection window: 09:30-12:30 ET (3 hours, RTH only)
-        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=8, minutes=30)
-        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=12, minutes=30)
+        # Compute session bounds
+        # Load full premarket + RTH: 04:00-16:00 ET (12 hours)
+        # Premarket (04:00-09:30 ET) needed for PM_HIGH/PM_LOW calculation
+        # RTH (09:30-16:00 ET) for all level types
+        session_start = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=4, minutes=0)
+        session_end = pd.Timestamp(ctx.date, tz="America/New_York") + pd.Timedelta(hours=16, minutes=0)
         session_start_ns = int(session_start.tz_convert("UTC").value)
         session_end_ns = int(session_end.tz_convert("UTC").value)
 
@@ -164,7 +151,21 @@ class LoadBronzeStage(BaseStage):
         ts_start = session_start_ns - buffer_ns
         ts_end = session_end_ns + buffer_ns
 
-        # Load MBP-10 downsampled
+        # Load trades from MBP-10 action='T' events
+        # This is more efficient than separate trades schema (same underlying data)
+        logger.debug(f"    Reading ES trades from MBP-10...")
+        trades_df = reader.read_futures_trades_from_mbp10(
+            date=ctx.date,
+            start_ns=ts_start,
+            end_ns=ts_end
+        )
+        if trades_df.empty:
+            raise ValueError(f"No ES trades found in MBP-10 for {ctx.date}")
+
+        trades = futures_trades_from_df(trades_df)
+        logger.info(f"    ES trades: {len(trades):,} records (from MBP-10 action='T')")
+
+        # Load MBP-10 downsampled (book snapshots for liquidity features)
         logger.debug(f"    Reading ES MBP-10 (downsampled)...")
         mbp_df = reader.read_futures_mbp10_downsampled(
             date=ctx.date,

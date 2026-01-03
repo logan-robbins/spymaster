@@ -50,7 +50,7 @@ class Stage5Validator:
         self.logger = logger
         self.results = {
             'stage': 'detect_interaction_zones',
-            'stage_idx': 5,
+            'stage_idx': 4,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -378,7 +378,7 @@ def main():
         # Load checkpoint from stage (should already exist from pipeline run)
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=5)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=4)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")

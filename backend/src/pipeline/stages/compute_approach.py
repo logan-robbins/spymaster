@@ -188,7 +188,7 @@ def compute_attempt_features(
     df['tape_velocity_trend'] = 0.0
     df['tape_imbalance_trend'] = 0.0
 
-    sort_cols = ['date', 'level_kind_name', 'direction', 'ts_ns']
+    sort_cols = ['date', 'direction', 'ts_ns']
     df_sorted = df.sort_values(sort_cols)
 
     time_window_ns = int(time_window_minutes * 60 * 1e9)
@@ -199,7 +199,7 @@ def compute_attempt_features(
         values = pd.to_numeric(series, errors='coerce').to_numpy(dtype=np.float64)
         return np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
 
-    grouped = df_sorted.groupby(['date', 'level_kind_name', 'direction'], sort=False)
+    grouped = df_sorted.groupby(['date', 'direction'], sort=False)
     for _, group in grouped:
         idxs = group.index.to_numpy()
         size = len(group)

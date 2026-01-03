@@ -30,7 +30,7 @@ def generate_level_universe(
     Level types:
     - PM_HIGH/PM_LOW: Pre-market high/low (04:00-09:30 ET)
     - OR_HIGH/OR_LOW: Opening range (09:30-09:45 ET) high/low
-    - SMA_90/EMA_20: Moving averages on 2-min bars
+    - SMA_90: 90-period Moving average on 2-min bars
     
     Returns:
         LevelInfo with arrays for processing
@@ -111,15 +111,7 @@ def generate_level_universe(
             kinds.append(6)  # SMA_90 = re-coded to 6
             kind_names.append('SMA_90')
 
-    # EMA 20
-    if len(df_2min) >= 20:
-        ema_20 = df_2min['close'].ewm(span=20, adjust=False).mean().iloc[-1]
-        if pd.notna(ema_20):
-            levels.append(ema_20)
-            kinds.append(12)  # EMA_20 = re-coded to 12
-            kind_names.append('EMA_20')
-
-    # 5. VWAP - REMOVED FOR V1
+    # VWAP - REMOVED FOR V1
     # Lagging indicator, less useful for physics-based attribution
     
     # NOTE: ROUND and STRIKE levels removed for ES pipeline (handled via GEX features).
@@ -296,11 +288,9 @@ def compute_dynamic_level_series(
     df_2min = df_2min.sort_values('timestamp')
     df_2min['timestamp'] = pd.to_datetime(df_2min['timestamp'], utc=True)
     sma_90_series = df_2min['close'].rolling(90).mean()
-    ema_20_series = df_2min['close'].ewm(span=20, adjust=False).mean()
     sma_df = pd.DataFrame({
         'timestamp': df_2min['timestamp'],
-        'sma_90': sma_90_series,
-        'ema_20': ema_20_series
+        'sma_90': sma_90_series
     })
     sma_aligned = pd.merge_asof(
         df[['timestamp']],
@@ -319,9 +309,7 @@ def compute_dynamic_level_series(
         'SESSION_HIGH': session_high_series,
         'SESSION_LOW': session_low_series,
         'VWAP': vwap_series,
-        'VWAP': vwap_series,
         'SMA_90': sma_aligned['sma_90'],
-        'EMA_20': sma_aligned['ema_20'],
         'CALL_WALL': call_wall_series,
         'PUT_WALL': put_wall_series
     }
@@ -333,7 +321,7 @@ class GenerateLevelsStage(BaseStage):
     Generates:
     - Static levels: ROUND, STRIKE
     - Dynamic levels: PM_HIGH/LOW, OR_HIGH/LOW, SESSION_HIGH/LOW,
-                      SMA_90/EMA_20, VWAP, CALL_WALL/PUT_WALL
+                      SMA_90, VWAP, CALL_WALL/PUT_WALL
 
     Outputs:
         level_info: LevelInfo with all levels

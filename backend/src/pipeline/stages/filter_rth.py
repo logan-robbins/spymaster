@@ -87,13 +87,13 @@ class FilterRTHStage(BaseStage):
                 logger.warning("  Skipping signals write: missing DATA_ROOT or PIPELINE_CANONICAL_VERSION")
             else:
                 base_dir = canonical_signals_dir(data_root, dataset="es_pipeline", version=canonical_version)
-                date_dir = base_dir / date_partition(ctx.date)
+                level_dir = base_dir / date_partition(ctx.date) / ctx.level.lower()
 
-                if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True) and date_dir.exists():
-                    shutil.rmtree(date_dir)
-                date_dir.mkdir(parents=True, exist_ok=True)
+                if ctx.config.get("PIPELINE_OVERWRITE_PARTITIONS", True) and level_dir.exists():
+                    shutil.rmtree(level_dir)
+                level_dir.mkdir(parents=True, exist_ok=True)
 
-                signals_output_path = date_dir / "signals.parquet"
+                signals_output_path = level_dir / "signals.parquet"
                 signals_df.to_parquet(
                     signals_output_path,
                     engine="pyarrow",

@@ -1,7 +1,7 @@
 """Base stage interface for pipeline stages."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
@@ -11,10 +11,12 @@ class StageContext:
 
     Attributes:
         date: Date being processed (YYYY-MM-DD)
+        level: Level type (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)
         data: Outputs from previous stages, keyed by name
         config: Stage-specific configuration from CONFIG
     """
     date: str
+    level: str
     data: Dict[str, Any] = field(default_factory=dict)
     config: Dict[str, Any] = field(default_factory=dict)
 

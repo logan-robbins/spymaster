@@ -72,7 +72,8 @@ class CheckpointManager:
         self,
         pipeline_name: str,
         date: str,
-        stage_idx: Optional[int] = None
+        stage_idx: Optional[int] = None,
+        level: Optional[str] = None
     ) -> Path:
         """Get checkpoint directory path.
         
@@ -80,11 +81,16 @@ class CheckpointManager:
             pipeline_name: Pipeline name
             date: Date (YYYY-MM-DD)
             stage_idx: Optional stage index (0-based)
+            level: Level type (PM_HIGH, PM_LOW, etc.)
         
         Returns:
             Path to checkpoint directory
         """
-        base = self.checkpoint_root / pipeline_name / date
+        if level:
+            base = self.checkpoint_root / pipeline_name / date / level.lower()
+        else:
+            base = self.checkpoint_root / pipeline_name / date
+        
         if stage_idx is not None:
             return base / f"stage_{stage_idx:02d}"
         return base
@@ -204,7 +210,7 @@ class CheckpointManager:
             ctx: Stage context to save
             elapsed_time: Stage execution time (seconds)
         """
-        checkpoint_dir = self._get_checkpoint_dir(pipeline_name, date, stage_idx)
+        checkpoint_dir = self._get_checkpoint_dir(pipeline_name, date, stage_idx, level=ctx.level)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         logger.debug(f"  Saving checkpoint to {checkpoint_dir}")
@@ -222,6 +228,7 @@ class CheckpointManager:
             'stage_idx': stage_idx,
             'stage_name': stage_name,
             'date': date,
+            'level': ctx.level,
             'elapsed_time': elapsed_time,
             'config_hash': self._compute_config_hash(ctx.config),
             'outputs': serialized
@@ -237,7 +244,8 @@ class CheckpointManager:
         self,
         pipeline_name: str,
         date: str,
-        stage_idx: int
+        stage_idx: int,
+        level: Optional[str] = None
     ) -> Optional[StageContext]:
         """Load checkpoint from specified stage.
         
@@ -245,11 +253,12 @@ class CheckpointManager:
             pipeline_name: Pipeline name
             date: Date (YYYY-MM-DD)
             stage_idx: Stage index to load (0-based)
+            level: Level type (PM_HIGH, PM_LOW, etc.)
         
         Returns:
             StageContext with loaded data, or None if not found
         """
-        checkpoint_dir = self._get_checkpoint_dir(pipeline_name, date, stage_idx)
+        checkpoint_dir = self._get_checkpoint_dir(pipeline_name, date, stage_idx, level=level)
         metadata_path = checkpoint_dir / 'metadata.json'
         
         if not metadata_path.exists():
@@ -281,8 +290,9 @@ class CheckpointManager:
         # Create context
         ctx = StageContext(
             date=date,
+            level=level if level else metadata.get('level', 'UNKNOWN'),
             data=ctx_data,
-            config={}  # Config will be set by pipeline
+            config={}
         )
         
         return ctx

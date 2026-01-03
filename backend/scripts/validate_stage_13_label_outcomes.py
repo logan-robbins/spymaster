@@ -1,16 +1,25 @@
 """
-Validate Stage 8: ComputeMultiWindowOFI
+Validate Stage 15: LabelOutcomes (First-Crossing Semantics)
+
+Pipeline: bronze_to_silver (stage 15 of 17 total stages)
 
 Goals:
-1. Compute multi-window OFI features (30s/60s/120s/300s)
-2. Add OFI acceleration feature
-3. Preserve signal identity and row count
+1. Compute multi-timeframe outcome labels (2/4/8 min) using first-crossing
+2. Populate primary outcome fields (4min window)
+3. Generate ATR-normalized excursion metrics
+4. Preserve signal identity and row count
+
+Outcome Semantics:
+- BREAK: Price crossed 1 ATR in direction of approach
+- REJECT: Price reversed 1 ATR in opposite direction
+- CHOP: Neither threshold crossed within horizon
 
 Validation Checks:
-- Required inputs present (signals_df, mbp10_snapshots)
-- signals_df output exists and has required OFI columns
-- Row count matches touches_df
-- OFI columns are numeric and non-null
+- Required inputs present (signals_df, ohlcv_1min)
+- signals_df output exists and has required outcome columns
+- Row count matches input
+- Outcome values within expected set {BREAK, REJECT, CHOP}
+- Fields present: excursion_favorable, excursion_adverse
 """
 
 import argparse
@@ -38,14 +47,14 @@ def setup_logging(log_file: str):
     return logging.getLogger(__name__)
 
 
-class Stage8Validator:
-    """Validator for ComputeMultiWindowOFI stage."""
+class Stage15Validator:
+    """Validator for LabelOutcomes stage (index 15)."""
 
     def __init__(self, logger):
         self.logger = logger
         self.results = {
-            'stage': 'compute_multiwindow_ofi',
-            'stage_idx': 8,
+            'stage': 'label_outcomes',
+            'stage_idx': 13,
             'checks': {},
             'warnings': [],
             'errors': [],
@@ -55,7 +64,7 @@ class Stage8Validator:
     def validate(self, date: str, ctx) -> Dict[str, Any]:
         """Run all validation checks."""
         self.logger.info(f"{'='*80}")
-        self.logger.info(f"Validating Stage 8: ComputeMultiWindowOFI for {date}")
+        self.logger.info(f"Validating Stage 15: LabelOutcomes for {date}")
         self.logger.info(f"{'='*80}")
 
         self.results['date'] = date
@@ -70,9 +79,9 @@ class Stage8Validator:
         # Summary
         self.logger.info(f"\n{'='*80}")
         if self.results['passed']:
-            self.logger.info("✅ Stage 8 Validation: PASSED")
+            self.logger.info("✅ Stage 15 Validation: PASSED")
         else:
-            self.logger.error("❌ Stage 8 Validation: FAILED")
+            self.logger.error("❌ Stage 15 Validation: FAILED")
             self.logger.error(f"Errors: {len(self.results['errors'])}")
             for error in self.results['errors']:
                 self.logger.error(f"  - {error}")
@@ -90,7 +99,7 @@ class Stage8Validator:
         """Verify required inputs and outputs are present in context."""
         self.logger.info("\n1. Checking required inputs/outputs...")
 
-        required_inputs = ['signals_df', 'mbp10_snapshots']
+        required_inputs = ['signals_df', 'ohlcv_1min']  # Updated to use 1min bars
         new_outputs = ['signals_df']
 
         available = list(ctx.data.keys())
@@ -134,7 +143,7 @@ class Stage8Validator:
         checks['signals_df_type'] = True
 
         if signals_df.empty:
-            warning = "signals_df is empty (no OFI computed)"
+            warning = "signals_df is empty (no outcomes labeled)"
             self.results['warnings'].append(warning)
             self.logger.warning(f"  ⚠️  {warning}")
             self.results['checks']['signals_df'] = checks
@@ -142,19 +151,32 @@ class Stage8Validator:
 
         self.logger.info(f"  Total signals: {len(signals_df):,}")
 
-        ofi_cols = [
-            'ofi_30s', 'ofi_near_level_30s',
-            'ofi_60s', 'ofi_near_level_60s',
-            'ofi_120s', 'ofi_near_level_120s',
-            'ofi_300s', 'ofi_near_level_300s',
-            'ofi_acceleration'
+        suffixes = ['2min', '4min', '8min']
+        required_cols = [
+            'outcome',  # Primary outcome (4min)
+            'strength_signed',
+            'strength_abs',
+            'excursion_favorable',  # New ATR-normalized excursions
+            'excursion_adverse',
+            'excursion_max',  # Backward compat
+            'excursion_min',
+            'time_to_break_1',
+            'time_to_bounce_1'
         ]
 
-        missing_cols = [col for col in ofi_cols if col not in signals_df.columns]
+        # Multi-horizon outcomes
+        for suffix in suffixes:
+            required_cols.extend([
+                f'outcome_{suffix}',
+                f'time_to_break_1_{suffix}',
+                f'time_to_bounce_1_{suffix}'
+            ])
+
+        missing_cols = [col for col in required_cols if col not in signals_df.columns]
         if missing_cols:
             checks['required_columns_present'] = False
             self.results['passed'] = False
-            error = f"signals_df missing OFI columns: {missing_cols}"
+            error = f"signals_df missing outcome columns: {missing_cols}"
             self.results['errors'].append(error)
             self.logger.error(f"  ❌ {error}")
             self.results['checks']['signals_df'] = checks
@@ -175,31 +197,25 @@ class Stage8Validator:
                 checks['row_count_match'] = True
                 self.logger.info("  ✅ signals_df row count matches touches_df")
 
-        # Numeric OFI columns validation
-        for col in ofi_cols:
-            values = pd.to_numeric(signals_df[col], errors='coerce')
-            if values.isna().any():
-                checks[f'{col}_nan'] = False
-                self.results['passed'] = False
-                error = f"{col} has NaN values"
-                self.results['errors'].append(error)
-                self.logger.error(f"  ❌ {error}")
-            else:
-                checks[f'{col}_nan'] = True
-
-        # Log OFI acceleration stats
-        accel = pd.to_numeric(signals_df['ofi_acceleration'], errors='coerce')
-        if accel.notna().any():
-            self.logger.info(
-                f"  OFI acceleration stats: min={accel.min():.3f}, "
-                f"max={accel.max():.3f}, mean={accel.mean():.3f}"
-            )
+        # Validate outcomes (v3.0.0: REJECT replaces BOUNCE)
+        valid_outcomes = {'BREAK', 'REJECT', 'CHOP'}
+        outcome_values = set(signals_df['outcome'].astype(str).unique())
+        invalid = sorted(outcome_values - valid_outcomes)
+        if invalid:
+            checks['outcome_values'] = False
+            self.results['passed'] = False
+            error = f"Invalid outcome values: {invalid}"
+            self.results['errors'].append(error)
+            self.logger.error(f"  ❌ {error}")
+        else:
+            checks['outcome_values'] = True
+            self.logger.info(f"  ✅ Outcome distribution: {signals_df['outcome'].value_counts().to_dict()}")
 
         self.results['checks']['signals_df'] = checks
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate Stage 8: ComputeMultiWindowOFI')
+    parser = argparse.ArgumentParser(description='Validate Stage 15: LabelOutcomes')
     parser.add_argument('--date', type=str, required=True, help='Date to validate (YYYY-MM-DD)')
     parser.add_argument('--checkpoint-dir', type=str, default='data/checkpoints', help='Checkpoint directory')
     parser.add_argument('--canonical-version', type=str, default='4.0.0', help='Canonical version')
@@ -212,35 +228,25 @@ def main():
     if args.log_file is None:
         log_dir = Path(__file__).parent.parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        args.log_file = str(log_dir / f'validate_stage_08_{args.date}.log')
+        args.log_file = str(log_dir / f'validate_stage_15_{args.date}.log')
 
     logger = setup_logging(args.log_file)
-    logger.info(f"Starting Stage 8 validation for {args.date}")
+    logger.info(f"Starting Stage 15 validation for {args.date}")
     logger.info(f"Log file: {args.log_file}")
 
     try:
-        # Run pipeline through stage 8
-        logger.info("Running through ComputeMultiWindowOFI stage...")
-        pipeline = build_es_pipeline()
-
-        pipeline.run(
-            date=args.date,
-            checkpoint_dir=args.checkpoint_dir,
-            resume_from_stage=8,
-            stop_at_stage=8
-        )
-
-        # Load checkpoint from stage (should already exist from pipeline run)
+        # Load checkpoint from stage (should already exist from pipeline run) directly (es_pipeline checkpoints still valid)
+        logger.info("Loading LabelOutcomes checkpoint (stage_idx 15)...")
         from src.pipeline.core.checkpoint import CheckpointManager
         manager = CheckpointManager(args.checkpoint_dir)
-        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=8)
+        ctx = manager.load_checkpoint("bronze_to_silver", args.date, stage_idx=13)
 
         if ctx is None:
             logger.error("Failed to load checkpoint")
             return 1
 
         # Validate
-        validator = Stage8Validator(logger)
+        validator = Stage15Validator(logger)
         results = validator.validate(args.date, ctx)
 
         # Save results
@@ -248,7 +254,7 @@ def main():
             output_path = Path(args.output)
         else:
             output_dir = Path(__file__).parent.parent / 'logs'
-            output_path = output_dir / f'validate_stage_08_{args.date}_results.json'
+            output_path = output_dir / f'validate_stage_15_{args.date}_results.json'
 
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)

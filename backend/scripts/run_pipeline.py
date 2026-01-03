@@ -1,29 +1,25 @@
 """
-Run ES pipelines with optional checkpointing support.
-
-Supports both Bronze→Silver and Silver→Gold pipelines.
+Run ES pipelines for a specific level.
 
 Usage:
-    # Run Bronze→Silver (feature engineering)
+    # Run Bronze→Silver for PM_HIGH
     uv run python -m scripts.run_pipeline \
       --pipeline bronze_to_silver \
+      --level PM_HIGH \
       --date 2025-12-16 \
       --checkpoint-dir data/checkpoints \
       --write-outputs
     
-    # Run Silver→Gold (episode construction)  
-    uv run python -m scripts.run_pipeline \
-      --pipeline silver_to_gold \
-      --date 2025-12-16 \
-      --write-outputs
-    
-    # Run date range (weekdays only)
+    # Run date range
     uv run python -m scripts.run_pipeline \
       --pipeline bronze_to_silver \
+      --level PM_LOW \
       --start 2025-12-16 \
       --end 2025-12-20 \
       --workers 4 \
       --write-outputs
+
+Levels: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90
 """
 
 import argparse
@@ -66,6 +62,7 @@ def build_date_list(
 
 def run_single_date(
     pipeline_name: str,
+    level: str,
     date: str,
     checkpoint_dir: str,
     canonical_version: str,
@@ -75,7 +72,7 @@ def run_single_date(
     resume_from_stage: int = None,
     stop_at_stage: int = None
 ) -> dict:
-    """Run pipeline for a single date (worker function for parallel execution)."""
+    """Run pipeline for a single date and level (worker function)."""
     try:
         from src.pipeline.pipelines.registry import get_pipeline
         pipeline = get_pipeline(pipeline_name)
@@ -83,6 +80,7 @@ def run_single_date(
         
         result_df = pipeline.run(
             date=date,
+            level=level,
             checkpoint_dir=checkpoint_dir,
             canonical_version=canonical_version,
             data_root=data_root,
@@ -90,7 +88,7 @@ def run_single_date(
             overwrite_partitions=overwrite_partitions,
             resume_from_stage=resume_from_stage,
             stop_at_stage=stop_at_stage,
-            log_level=40  # ERROR only to reduce noise in parallel runs
+            log_level=40
         )
         
         elapsed = time.time() - start_t
@@ -113,9 +111,12 @@ def run_single_date(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run ES Pipeline")
+    parser = argparse.ArgumentParser(description="Run ES Pipeline for specific level")
     parser.add_argument("--pipeline", default="bronze_to_silver", 
-                       help="Pipeline name (bronze_to_silver, silver_to_gold, pentaview)")
+                       help="Pipeline name (bronze_to_silver, silver_to_gold)")
+    parser.add_argument("--level", required=True, 
+                       choices=["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW", "SMA_90"],
+                       help="Level type (required)")
     parser.add_argument("--date", type=str, help="Single date (YYYY-MM-DD)")
     parser.add_argument("--start", type=str, help="Start date for range (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, help="End date for range (YYYY-MM-DD)")
@@ -126,7 +127,7 @@ def main():
     parser.add_argument("--no-overwrite", action="store_true", help="Don't overwrite existing partitions")
     parser.add_argument("--resume-from-stage", type=int, default=None, help="Resume from stage_idx")
     parser.add_argument("--stop-at-stage", type=int, default=None, help="Stop after stage_idx")
-    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers (enables parallel mode)")
+    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers")
     parser.add_argument("--include-weekends", action="store_true", help="Include weekends in date range")
     parser.add_argument("--list-pipelines", action="store_true", help="List available pipelines")
     
@@ -148,10 +149,10 @@ def main():
     
     # Parallel mode
     if args.workers and len(dates) > 1:
-        print(f"Running {args.pipeline} pipeline for {len(dates)} dates with {args.workers} workers...")
+        print(f"Running {args.pipeline} pipeline for level {args.level}")
+        print(f"Processing {len(dates)} dates with {args.workers} workers...")
         import multiprocessing
         
-        # Use spawn context to avoid pickling complex global state (like logger modules)
         ctx = multiprocessing.get_context("spawn")
         
         results = []
@@ -160,6 +161,7 @@ def main():
                 executor.submit(
                     run_single_date,
                     args.pipeline,
+                    args.level,
                     d,
                     args.checkpoint_dir,
                     args.canonical_version,
@@ -185,10 +187,11 @@ def main():
     # Sequential mode
     pipeline = get_pipeline(args.pipeline)
     
+    print(f"Running {args.pipeline} pipeline for level: {args.level}")
     if len(dates) == 1:
-        print(f"Running {args.pipeline} pipeline for {dates[0]}")
+        print(f"Date: {dates[0]}")
     else:
-        print(f"Running {args.pipeline} pipeline for {len(dates)} dates: {dates[0]} -> {dates[-1]}")
+        print(f"Dates: {dates[0]} -> {dates[-1]} ({len(dates)} days)")
     
     if args.checkpoint_dir:
         print(f"Checkpoints: {args.checkpoint_dir}")
@@ -200,12 +203,13 @@ def main():
     
     for idx, run_date in enumerate(dates, 1):
         print(f"\n{'='*60}")
-        print(f"[{idx}/{len(dates)}] Running {args.pipeline} for {run_date}")
+        print(f"[{idx}/{len(dates)}] {args.level} | {run_date}")
         print(f"{'='*60}\n")
         
         try:
             result_df = pipeline.run(
                 date=run_date,
+                level=args.level,
                 checkpoint_dir=args.checkpoint_dir,
                 resume_from_stage=args.resume_from_stage,
                 stop_at_stage=args.stop_at_stage,
@@ -215,7 +219,7 @@ def main():
                 overwrite_partitions=not args.no_overwrite,
             )
             
-            print(f"\n✅ Pipeline completed for {run_date}")
+            print(f"\n✅ Pipeline completed for {args.level} | {run_date}")
             print(f"Result: {len(result_df):,} rows")
             
         except Exception as e:

@@ -49,6 +49,7 @@ class Pipeline:
     def run(
         self,
         date: str,
+        level: str,
         log_level: Optional[int] = None,
         checkpoint_dir: Optional[str] = None,
         resume_from_stage: Optional[int] = None,
@@ -59,17 +60,18 @@ class Pipeline:
         write_outputs: bool = False,
         overwrite_partitions: bool = True
     ) -> pd.DataFrame:
-        """Execute all stages in sequence with optional checkpointing.
+        """Execute all stages in sequence.
 
         Args:
             date: YYYY-MM-DD date string
-            log_level: Optional logging level (default: INFO)
-            checkpoint_dir: Directory for checkpoints (enables checkpointing if provided)
-            resume_from_stage: Resume from stage_idx N (0-based, loads stage_idx N-1 checkpoint)
-            stop_at_stage: Stop after stage_idx N (0-based, for debugging)
+            level: Level type (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW, SMA_90)
+            log_level: Logging level (default: INFO)
+            checkpoint_dir: Directory for checkpoints
+            resume_from_stage: Resume from stage N (0-based)
+            stop_at_stage: Stop after stage N (0-based)
 
         Returns:
-            Final signals DataFrame
+            Final signals DataFrame for this level
         """
         if log_level is None:
             log_level = logging.INFO
@@ -93,6 +95,7 @@ class Pipeline:
         total_start = time.time()
         logger.info(f"[{self.version}] Starting pipeline: {self.name}")
         logger.info(f"[{self.version}] Date: {date}")
+        logger.info(f"[{self.version}] Level: {level}")
         logger.info(f"[{self.version}] Stages: {len(self.stages)}")
         logger.info(f"[{self.version}] Canonical version: {run_config['PIPELINE_CANONICAL_VERSION']}")
         if run_config.get("DATA_ROOT"):
@@ -121,7 +124,8 @@ class Pipeline:
                 ctx = checkpoint_manager.load_checkpoint(
                     pipeline_name=self.name,
                     date=date,
-                    stage_idx=resume_from_stage - 1
+                    stage_idx=resume_from_stage - 1,
+                    level=level
                 )
                 
                 if ctx is None:
@@ -137,11 +141,13 @@ class Pipeline:
         if ctx is None:
             ctx = StageContext(
                 date=date,
+                level=level,
                 data={'date': date},
                 config=run_config.copy()
             )
         else:
             ctx.data.setdefault('date', date)
+            ctx.level = level
 
         # Determine end stage
         end_stage_idx = len(self.stages)

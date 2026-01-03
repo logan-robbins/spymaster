@@ -59,56 +59,45 @@ from src.common.event_types import FuturesTrade
 def detect_entries_from_ticks(
     trades: List[FuturesTrade],
     level_prices: np.ndarray,
-    level_kinds: np.ndarray,
-    level_kind_names: List[str],
+    level_name: str,
     date: str,
     atr: pd.Series = None,
     min_separation_sec: float = 300.0
 ) -> pd.DataFrame:
     """
-    Detect interaction events using raw tick data (High-Frequency).
+    Detect interaction events using raw tick data.
     
-    Logic:
-    - Stream through trades.
-    - Fire unique event when price ENTERS zone.
-    - Debounce: Ignore re-entries within `min_separation_sec` (default 5m).
+    Single-level pipeline: detects entries for ONE level type only.
     
     Args:
         trades: List of raw FuturesTrade objects
-        level_prices: Array of level prices
-        level_kinds: Array of level kind codes
-        level_kind_names: List of level kind names
+        level_prices: Array of level prices (typically just one price for static levels)
+        level_name: Level type name (e.g., 'PM_HIGH', 'PM_LOW')
         date: Date string
-        atr: ATR series for dynamic width (optional, defaults to fixed)
-        min_separation_sec: Low-pass filter for events (debounce)
+        atr: ATR series for dynamic width (optional)
+        min_separation_sec: Debounce window (default 5m)
     """
     if not trades or len(level_prices) == 0:
         return pd.DataFrame()
 
     # Convert trades to arrays
-    # Note: trades are typically sorted by time
     ts_ns = np.array([t.ts_event_ns for t in trades], dtype=np.int64)
     prices = np.array([t.price for t in trades], dtype=np.float64)
     
-    # 1. Map timestamps to ATR (if available) - simplified: use scalar or periodic
-    # For speed, we'll use a fixed width or simple lookup. 
-    # Let's use scalar width from config for now to avoid looking up ATR per tick
     base_width = float(CONFIG.MONITOR_BAND)
     
     events = []
     
-    # Process each level
-    for idx, level_price in enumerate(level_prices):
-        level_kind = int(level_kinds[idx])
-        level_name = level_kind_names[idx]
-        
+    # Single-level pipeline: process THE level
+    # For dynamic levels (SMA_90), level_prices may have multiple snapshots
+    # For static levels (PM_HIGH), level_prices has one value
+    # We detect entries to ANY instance of the level
+    for level_price in level_prices:
         # Binary state: Inside / Outside
-        # Dist = |Price - Level|
         dist = np.abs(prices - level_price)
         inside = dist <= base_width
         
-        # Find entry indices: inside=True, previous=False
-        # We also need to handle the first element
+        # Find entry indices
         entries = np.where(inside[1:] & ~inside[:-1])[0] + 1
         
         if inside[0]:
@@ -117,25 +106,20 @@ def detect_entries_from_ticks(
         if len(entries) == 0:
             continue
             
-        # Filter by separation (Debounce)
+        # Debounce
         last_event_ts = -np.inf
         
         for i in entries:
             t = ts_ns[i]
             if (t - last_event_ts) / 1e9 >= min_separation_sec:
-                # New Valid Event
                 p = prices[i]
                 
-                # Determine direction (Look at pre-entry price)
-                # If i > 0, use p[i-1]. If i=0, strictly we don't know, assume neutral or omit.
-                # Heuristic: if p < level, it came from below (UP).
-                # Wait, p is the Entry price, which is roughly equal to Limit.
-                # We need the price *before* it entered.
+                # Determine direction
                 if i > 0:
                     prev_p = prices[i-1]
                     direction = 'UP' if prev_p < level_price else 'DOWN'
                 else:
-                    direction = 'UP' # Default
+                    direction = 'UP'
                 
                 event_id = compute_deterministic_event_id(
                     date=date, level_kind=level_name, level_price=level_price,
@@ -147,8 +131,6 @@ def detect_entries_from_ticks(
                     'ts_ns': t,
                     'timestamp': pd.Timestamp(t, unit='ns', tz='UTC'),
                     'level_price': level_price,
-                    'level_kind': level_kind,
-                    'level_kind_name': level_name,
                     'direction': direction,
                     'entry_price': p,
                     'spot': p,
@@ -181,26 +163,26 @@ class DetectInteractionZonesStage(BaseStage):
         trades = ctx.data.get('trades', [])
         level_info = ctx.data['level_info']
         
-        # Filter trades to RTH (09:30-16:00 ET) 
-        # Actually logic is robust, but to match training window:
-        # We can implement time filter inside logic or pass filtered trades.
-        # Let's simple filter trades by TS if needed, or rely on downstream filters.
-        # For consistency with previous: restrict events to RTH.
+        # Filter to single level type
+        target_level = ctx.level
+        mask = np.array([name == target_level for name in level_info.kind_names])
         
-        # Filter trades list? Efficiently?
-        # Let's assume 'trades' loaded for the day are sufficient.
+        if not mask.any():
+            print(f"  Warning: No level found for {target_level}")
+            return {'touches_df': pd.DataFrame()}
+        
+        filtered_prices = level_info.prices[mask]
         
         events_df = detect_entries_from_ticks(
             trades=trades,
-            level_prices=level_info.prices,
-            level_kinds=level_info.kinds,
-            level_kind_names=level_info.kind_names,
+            level_prices=filtered_prices,
+            level_name=target_level,
             date=ctx.date,
-            min_separation_sec=300.0 # 5 Minute Debounce
+            min_separation_sec=300.0
         )
         
         num_events = len(events_df)
         if num_events > 0:
-            print(f"  Detected {num_events} high-resolution events from {len(trades)} ticks.")
+            print(f"  Detected {num_events} events for {target_level} from {len(trades)} ticks")
         
         return {'touches_df': events_df}
