@@ -101,10 +101,19 @@ def compute_multiwindow_kinematics(
     # Remove duplicates
     ohlcv = ohlcv[~ohlcv.index.duplicated(keep='first')]
     
-    # Resample to 10s to ensure fixed grid
-    # We assume 'close' is the price
-    # ffill to handle gaps
-    dense_close = ohlcv['close'].resample('10s').ffill()
+    # Resample to 10s grid
+    # Best practice: limit ffill to prevent stale data across market gaps
+    # limit=1 allows max 10s gap - beyond that, NaN signals missing data
+    # This prevents computing derivatives across market closures
+    dense_close = ohlcv['close'].resample('10s').ffill(limit=1)
+    
+    # Check for NaN values (gaps > 10s)
+    n_nan = dense_close.isna().sum()
+    if n_nan > 0:
+        # For quant analysis: interpolate small gaps, keep large gaps as NaN
+        # Linear interpolation for gaps up to 30s (3 bars)
+        dense_close = dense_close.interpolate(method='linear', limit=3, limit_area='inside')
+    
     dense_ts = dense_close.index
     dense_ts_ns = dense_ts.values.astype(np.int64)
     price_arr = dense_close.values.astype(np.float64)

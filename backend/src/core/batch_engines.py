@@ -352,6 +352,89 @@ def _compute_tape_metrics_batch_numba(
     return imbalances, buy_vols, sell_vols, velocities
 
 
+@jit(nopython=True, cache=True)
+def _compute_fuel_metrics_numba(
+    touch_ts_ns: np.ndarray,
+    level_prices: np.ndarray,
+    opt_ts_ns: np.ndarray,
+    opt_strikes: np.ndarray,
+    opt_premium: np.ndarray,
+    opt_is_call: np.ndarray,
+    strike_gamma_strikes: np.ndarray,
+    strike_gamma_values: np.ndarray,
+    window_ns: int,
+    strike_range: float,
+    split_range: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Numba-accelerated fuel metrics computation."""
+    n = len(touch_ts_ns)
+    n_opts = len(opt_ts_ns)
+    
+    gamma_exposure = np.zeros(n, dtype=np.float64)
+    fuel_effect = np.zeros(n, dtype=np.int32)  # -1=AMPLIFY, 0=NEUTRAL, 1=DAMPEN
+    call_tide = np.zeros(n, dtype=np.float64)
+    put_tide = np.zeros(n, dtype=np.float64)
+    call_tide_above = np.zeros(n, dtype=np.float64)
+    call_tide_below = np.zeros(n, dtype=np.float64)
+    put_tide_above = np.zeros(n, dtype=np.float64)
+    put_tide_below = np.zeros(n, dtype=np.float64)
+    
+    for i in range(n):
+        ts = touch_ts_ns[i]
+        level = level_prices[i]
+        
+        # Time window [ts - 30s, ts]
+        start_ts = ts - window_ns
+        
+        # Binary search for window
+        start_idx = np.searchsorted(opt_ts_ns, start_ts)
+        end_idx = np.searchsorted(opt_ts_ns, ts)
+        
+        # Tide calculations
+        for j in range(start_idx, end_idx):
+            strike = opt_strikes[j]
+            prem = opt_premium[j]
+            is_call = opt_is_call[j]
+            
+            dist = abs(strike - level)
+            
+            # Total tide
+            if dist <= strike_range:
+                if is_call == 1:
+                    call_tide[i] += prem
+                else:
+                    put_tide[i] += prem
+            
+            # Split tide
+            if strike > level and strike <= level + split_range:
+                if is_call == 1:
+                    call_tide_above[i] += prem
+                else:
+                    put_tide_above[i] += prem
+            elif strike < level and strike >= level - split_range:
+                if is_call == 1:
+                    call_tide_below[i] += prem
+                else:
+                    put_tide_below[i] += prem
+        
+        # Gamma exposure
+        g_val = 0.0
+        for j in range(len(strike_gamma_strikes)):
+            if abs(strike_gamma_strikes[j] - level) <= strike_range:
+                g_val += strike_gamma_values[j]
+        gamma_exposure[i] = g_val
+        
+        # Fuel effect
+        if g_val < -100000:
+            fuel_effect[i] = -1  # AMPLIFY
+        elif g_val > 100000:
+            fuel_effect[i] = 1   # DAMPEN
+        else:
+            fuel_effect[i] = 0   # NEUTRAL
+    
+    return gamma_exposure, fuel_effect, call_tide, put_tide, call_tide_above, call_tide_below, put_tide_above, put_tide_below
+
+
 def compute_fuel_metrics_batch(
     touch_ts_ns: np.ndarray,
     level_prices: np.ndarray,
@@ -361,126 +444,67 @@ def compute_fuel_metrics_batch(
 ) -> Dict[str, np.ndarray]:
     """
     Compute Fuel Engine metrics (Market Tide) for a batch of touches.
-    Uses efficient sort-and-scan replay of raw option trades.
+    Fully vectorized with numba JIT compilation.
     """
     n = len(touch_ts_ns)
     
-    # Pre-allocate results
-    gamma_exposure = np.zeros(n, dtype=np.float64)
-    fuel_effect = np.full(n, 'NEUTRAL', dtype=object)
-    
-    # Tide Metrics (Total ±10.0)
-    call_tide = np.zeros(n, dtype=np.float64)
-    put_tide = np.zeros(n, dtype=np.float64)
-    
-    # Split Tide Metrics (±5.0)
-    call_tide_above_5pt = np.zeros(n, dtype=np.float64)
-    call_tide_below_5pt = np.zeros(n, dtype=np.float64)
-    put_tide_above_5pt = np.zeros(n, dtype=np.float64)
-    put_tide_below_5pt = np.zeros(n, dtype=np.float64)
-
-    # Option Data
+    # Extract option data
     opt_ts = market_data.opt_ts_ns
     opt_strikes = market_data.opt_strikes
     opt_premium = market_data.opt_premium
     opt_is_call = market_data.opt_is_call
+    strike_gamma = market_data.strike_gamma
     
+    # Handle empty data
     if len(opt_ts) == 0 or n == 0:
         return {
-            'gamma_exposure': gamma_exposure,
-            'fuel_effect': fuel_effect,
-            'call_tide': call_tide,
-            'put_tide': put_tide,
-            'call_tide_above_5pt': call_tide_above_5pt,
-            'call_tide_below_5pt': call_tide_below_5pt,
-            'put_tide_above_5pt': put_tide_above_5pt,
-            'put_tide_below_5pt': put_tide_below_5pt
+            'gamma_exposure': np.zeros(n, dtype=np.float64),
+            'fuel_effect': np.full(n, 'NEUTRAL', dtype=object),
+            'call_tide': np.zeros(n, dtype=np.float64),
+            'put_tide': np.zeros(n, dtype=np.float64),
+            'call_tide_above_5pt': np.zeros(n, dtype=np.float64),
+            'call_tide_below_5pt': np.zeros(n, dtype=np.float64),
+            'put_tide_above_5pt': np.zeros(n, dtype=np.float64),
+            'put_tide_below_5pt': np.zeros(n, dtype=np.float64)
         }
-
-    # Window parameters
-    WINDOW_NS = 30_000_000_000  # 30 seconds
     
-    for i in range(n):
-        ts = touch_ts_ns[i]
-        level = level_prices[i]
-        
-        # Define Time Window [ts - 30s, ts]
-        start_ts = ts - WINDOW_NS
-        
-        # Find window indices
-        # opt_ts is sorted
-        start_idx = np.searchsorted(opt_ts, start_ts, side='left')
-        end_idx = np.searchsorted(opt_ts, ts, side='right')
-        
-        if end_idx > start_idx:
-            # Slice Data for Window
-            w_strikes = opt_strikes[start_idx:end_idx]
-            w_prem = opt_premium[start_idx:end_idx]
-            w_is_call = opt_is_call[start_idx:end_idx]
-            
-            # ─── Total Tide (±10.0 range) ───
-            mask_total = np.abs(w_strikes - level) <= strike_range
-            
-            # Call Total
-            m = mask_total & (w_is_call == 1)
-            if np.any(m):
-                call_tide[i] = np.sum(w_prem[m])
-                
-            # Put Total
-            m = mask_total & (w_is_call == 0)
-            if np.any(m):
-                put_tide[i] = np.sum(w_prem[m])
-                
-            # ─── Split Tide (configurable range, default ±25.0) ───
-            # Above: (Level, Level + split_range]
-            mask_above = (w_strikes > level) & (w_strikes <= level + split_range)
-            # Below: [Level - split_range, Level)
-            mask_below = (w_strikes < level) & (w_strikes >= level - split_range)
-            
-            # Call Above
-            m = mask_above & (w_is_call == 1)
-            if np.any(m):
-                call_tide_above_5pt[i] = np.sum(w_prem[m])
-            # Call Below
-            m = mask_below & (w_is_call == 1)
-            if np.any(m):
-                call_tide_below_5pt[i] = np.sum(w_prem[m])
-                
-            # Put Above
-            m = mask_above & (w_is_call == 0)
-            if np.any(m):
-                put_tide_above_5pt[i] = np.sum(w_prem[m])
-            # Put Below
-            m = mask_below & (w_is_call == 0)
-            if np.any(m):
-                put_tide_below_5pt[i] = np.sum(w_prem[m])
-
-    # ─── Gamma Exposure (Static) ───
-    strike_gamma = market_data.strike_gamma
-    for i in range(n):
-        lvl = level_prices[i]
-        g_val = 0.0
-        for k, v in strike_gamma.items():
-             if abs(k - lvl) <= strike_range:
-                 g_val += v
-        gamma_exposure[i] = g_val
-        
-        if g_val < -100000:
-            fuel_effect[i] = 'AMPLIFY'
-        elif g_val > 100000:
-            fuel_effect[i] = 'DAMPEN'
-        else:
-            fuel_effect[i] = 'NEUTRAL'
-
+    # Convert strike_gamma dict to arrays for numba
+    sg_strikes = np.array(list(strike_gamma.keys()), dtype=np.float64)
+    sg_values = np.array(list(strike_gamma.values()), dtype=np.float64)
+    
+    # Numba computation (required)
+    if not NUMBA_AVAILABLE:
+        raise RuntimeError("Numba is required for fuel metrics computation")
+    
+    window_ns = 30_000_000_000  # 30 seconds
+    
+    gamma_exp, fuel_codes, call_t, put_t, call_t_above, call_t_below, put_t_above, put_t_below = _compute_fuel_metrics_numba(
+        touch_ts_ns.astype(np.int64),
+        level_prices.astype(np.float64),
+        opt_ts,
+        opt_strikes,
+        opt_premium,
+        opt_is_call,
+        sg_strikes,
+        sg_values,
+        window_ns,
+        strike_range,
+        split_range
+    )
+    
+    # Decode fuel effect
+    effect_map = {-1: 'AMPLIFY', 0: 'NEUTRAL', 1: 'DAMPEN'}
+    fuel_effect = np.array([effect_map[code] for code in fuel_codes], dtype=object)
+    
     return {
-        'gamma_exposure': gamma_exposure,
+        'gamma_exposure': gamma_exp,
         'fuel_effect': fuel_effect,
-        'call_tide': call_tide,
-        'put_tide': put_tide,
-        'call_tide_above_5pt': call_tide_above_5pt,
-        'call_tide_below_5pt': call_tide_below_5pt,
-        'put_tide_above_5pt': put_tide_above_5pt,
-        'put_tide_below_5pt': put_tide_below_5pt
+        'call_tide': call_t,
+        'put_tide': put_t,
+        'call_tide_above_5pt': call_t_above,
+        'call_tide_below_5pt': call_t_below,
+        'put_tide_above_5pt': put_t_above,
+        'put_tide_below_5pt': put_t_below
     }
 
 
@@ -601,6 +625,120 @@ def _compute_depth_in_zone_numba(
     return total
 
 
+@jit(nopython=True, cache=True)
+def _compute_barrier_metrics_numba(
+    touch_ts_ns: np.ndarray,
+    level_prices_es: np.ndarray,
+    directions: np.ndarray,
+    mbp_ts_ns: np.ndarray,
+    mbp_bid_prices: np.ndarray,  # shape (N_mbp, 10)
+    mbp_bid_sizes: np.ndarray,
+    mbp_ask_prices: np.ndarray,
+    mbp_ask_sizes: np.ndarray,
+    window_ns: int,
+    zone_es: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Vectorized barrier metrics computation with numba.
+    
+    Returns: (delta_liqs, depth_in_zones, wall_ratios, replenishment_ratios, barrier_states)
+    """
+    n = len(touch_ts_ns)
+    n_mbp = len(mbp_ts_ns)
+    
+    delta_liqs = np.zeros(n, dtype=np.float64)
+    depth_in_zones = np.zeros(n, dtype=np.int64)
+    wall_ratios = np.zeros(n, dtype=np.float64)
+    replenishment_ratios = np.zeros(n, dtype=np.float64)
+    barrier_states = np.zeros(n, dtype=np.int32)  # Encode as int: 0=NEUTRAL, 1=WEAK, etc.
+    
+    # Pre-compute average depth across all MBP
+    avg_depth = (mbp_bid_sizes.mean() + mbp_ask_sizes.mean()) / 2.0
+    
+    for i in range(n):
+        ts = touch_ts_ns[i]
+        level_es = level_prices_es[i]
+        direction = directions[i]
+        
+        zone_low = level_es - zone_es
+        zone_high = level_es + zone_es
+        side = 1 if direction == -1 else -1  # 1=bid, -1=ask
+        
+        # Find window indices using binary search (faster than np.where)
+        end_ts = ts + window_ns
+        
+        # Find first index >= ts
+        start_idx = np.searchsorted(mbp_ts_ns, ts, side='left')
+        # Find last index <= end_ts
+        end_idx = np.searchsorted(mbp_ts_ns, end_ts, side='right')
+        
+        if end_idx - start_idx < 2:
+            barrier_states[i] = 0  # NEUTRAL
+            continue
+        
+        first_idx = start_idx
+        last_idx = end_idx - 1
+        
+        # Compute depth at first and last
+        depth_start = _compute_depth_in_zone_numba(
+            mbp_bid_prices[first_idx], mbp_bid_sizes[first_idx],
+            mbp_ask_prices[first_idx], mbp_ask_sizes[first_idx],
+            zone_low, zone_high, side
+        )
+        depth_end = _compute_depth_in_zone_numba(
+            mbp_bid_prices[last_idx], mbp_bid_sizes[last_idx],
+            mbp_ask_prices[last_idx], mbp_ask_sizes[last_idx],
+            zone_low, zone_high, side
+        )
+        
+        delta_liq = depth_end - depth_start
+        delta_liqs[i] = delta_liq
+        depth_in_zones[i] = depth_end
+        wall_ratios[i] = depth_end / (avg_depth + 1e-6)
+        
+        # Compute replenishment ratio
+        added_size = 0.0
+        canceled_size = 0.0
+        
+        for j in range(start_idx, end_idx - 1):
+            depth_curr = _compute_depth_in_zone_numba(
+                mbp_bid_prices[j], mbp_bid_sizes[j],
+                mbp_ask_prices[j], mbp_ask_sizes[j],
+                zone_low, zone_high, side
+            )
+            depth_next = _compute_depth_in_zone_numba(
+                mbp_bid_prices[j+1], mbp_bid_sizes[j+1],
+                mbp_ask_prices[j+1], mbp_ask_sizes[j+1],
+                zone_low, zone_high, side
+            )
+            
+            delta = depth_next - depth_curr
+            if delta > 0:
+                added_size += delta
+            elif delta < 0:
+                canceled_size += abs(delta)
+        
+        replenishment_ratios[i] = added_size / (canceled_size + 1e-6)
+        
+        # Classify state
+        if delta_liq < -100:
+            if wall_ratios[i] < 0.3:
+                barrier_states[i] = -3  # VACUUM
+            else:
+                barrier_states[i] = -2  # CONSUMED
+        elif delta_liq > 100:
+            if wall_ratios[i] > 1.5:
+                barrier_states[i] = 2  # WALL
+            else:
+                barrier_states[i] = -1  # ABSORPTION
+        elif depth_end < 50:
+            barrier_states[i] = 1  # WEAK
+        else:
+            barrier_states[i] = 0  # NEUTRAL
+    
+    return delta_liqs, depth_in_zones, wall_ratios, replenishment_ratios, barrier_states
+
+
 def compute_barrier_metrics_batch(
     touch_ts_ns: np.ndarray,
     level_prices: np.ndarray,  # ES prices (strike-aligned)
@@ -642,144 +780,27 @@ def compute_barrier_metrics_batch(
     level_prices_es = level_prices.astype(np.float64)
     zone_es = zone_es_ticks * ES_TICK_SIZE  # e.g., ±2 ticks = ±$0.50 ES
 
-    for i in range(n):
-        ts = touch_ts_ns[i]
-        level_es = level_prices_es[i]
-        direction = directions[i]
-
-        # Zone boundaries in ES ticks around the strike level
-        zone_low = level_es - zone_es
-        zone_high = level_es + zone_es
-
-        # Side: support=bid, resistance=ask
-        side = 1 if direction == -1 else -1  # 1=bid, -1=ask
-
-        # Find MBP-10 snapshots in FORWARD window [ts, ts + window_ns]
-        # Touch timestamp is at bar start, MBP snapshots occur during the bar
-        time_mask = (market_data.mbp_ts_ns >= ts) & (market_data.mbp_ts_ns <= ts + window_ns)
-        valid_indices = np.where(time_mask)[0]
-
-        if len(valid_indices) < 2:
-            barrier_states[i] = 'NEUTRAL'
-            continue
-
-        # Get first and last snapshots in window
-        first_idx = valid_indices[0]
-        last_idx = valid_indices[-1]
-
-        # Compute depth at start and end
-        if side == 1:  # bid
-            depth_start = _compute_depth_in_zone_numba(
-                market_data.mbp_bid_prices[first_idx],
-                market_data.mbp_bid_sizes[first_idx],
-                market_data.mbp_ask_prices[first_idx],
-                market_data.mbp_ask_sizes[first_idx],
-                zone_low, zone_high, side
-            ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[first_idx].sum()
-
-            depth_end = _compute_depth_in_zone_numba(
-                market_data.mbp_bid_prices[last_idx],
-                market_data.mbp_bid_sizes[last_idx],
-                market_data.mbp_ask_prices[last_idx],
-                market_data.mbp_ask_sizes[last_idx],
-                zone_low, zone_high, side
-            ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[last_idx].sum()
-        else:
-            depth_start = _compute_depth_in_zone_numba(
-                market_data.mbp_bid_prices[first_idx],
-                market_data.mbp_bid_sizes[first_idx],
-                market_data.mbp_ask_prices[first_idx],
-                market_data.mbp_ask_sizes[first_idx],
-                zone_low, zone_high, side
-            ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[first_idx].sum()
-
-            depth_end = _compute_depth_in_zone_numba(
-                market_data.mbp_bid_prices[last_idx],
-                market_data.mbp_bid_sizes[last_idx],
-                market_data.mbp_ask_prices[last_idx],
-                market_data.mbp_ask_sizes[last_idx],
-                zone_low, zone_high, side
-            ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[last_idx].sum()
-
-        delta_liq = depth_end - depth_start
-        delta_liqs[i] = delta_liq
-        depth_in_zones[i] = depth_end
-
-        # Compute wall ratio (defending depth vs average)
-        avg_depth = (market_data.mbp_bid_sizes.mean() + market_data.mbp_ask_sizes.mean()) / 2
-        wall_ratios[i] = depth_end / (avg_depth + 1e-6)
-        
-        # Compute replenishment ratio: added / (canceled + filled + epsilon)
-        # Track depth changes across all snapshots in window
-        added_size = 0.0
-        canceled_size = 0.0
-        
-        for j in range(len(valid_indices) - 1):
-            idx_curr = valid_indices[j]
-            idx_next = valid_indices[j + 1]
-            
-            # Get depth at consecutive snapshots
-            if side == 1:  # bid
-                depth_curr = _compute_depth_in_zone_numba(
-                    market_data.mbp_bid_prices[idx_curr],
-                    market_data.mbp_bid_sizes[idx_curr],
-                    market_data.mbp_ask_prices[idx_curr],
-                    market_data.mbp_ask_sizes[idx_curr],
-                    zone_low, zone_high, side
-                ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[idx_curr].sum()
-                
-                depth_next = _compute_depth_in_zone_numba(
-                    market_data.mbp_bid_prices[idx_next],
-                    market_data.mbp_bid_sizes[idx_next],
-                    market_data.mbp_ask_prices[idx_next],
-                    market_data.mbp_ask_sizes[idx_next],
-                    zone_low, zone_high, side
-                ) if NUMBA_AVAILABLE else market_data.mbp_bid_sizes[idx_next].sum()
-            else:  # ask
-                depth_curr = _compute_depth_in_zone_numba(
-                    market_data.mbp_bid_prices[idx_curr],
-                    market_data.mbp_bid_sizes[idx_curr],
-                    market_data.mbp_ask_prices[idx_curr],
-                    market_data.mbp_ask_sizes[idx_curr],
-                    zone_low, zone_high, side
-                ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[idx_curr].sum()
-                
-                depth_next = _compute_depth_in_zone_numba(
-                    market_data.mbp_bid_prices[idx_next],
-                    market_data.mbp_bid_sizes[idx_next],
-                    market_data.mbp_ask_prices[idx_next],
-                    market_data.mbp_ask_sizes[idx_next],
-                    zone_low, zone_high, side
-                ) if NUMBA_AVAILABLE else market_data.mbp_ask_sizes[idx_next].sum()
-            
-            delta_depth = depth_next - depth_curr
-            
-            if delta_depth > 0:
-                added_size += delta_depth
-            elif delta_depth < 0:
-                # Depth decreased - treat as canceled (simplified, no trade matching)
-                canceled_size += abs(delta_depth)
-        
-        # Compute replenishment ratio with epsilon to avoid division by zero
-        epsilon = 1e-6
-        replenishment_ratios[i] = added_size / (canceled_size + epsilon)
-
-        # Classify state
-        if delta_liq < -100:
-            if wall_ratios[i] < 0.3:
-                barrier_states[i] = 'VACUUM'
-            else:
-                barrier_states[i] = 'CONSUMED'
-        elif delta_liq > 100:
-            if wall_ratios[i] > 1.5:
-                barrier_states[i] = 'WALL'
-            else:
-                barrier_states[i] = 'ABSORPTION'
-        elif depth_end < 50:
-            barrier_states[i] = 'WEAK'
-        else:
-            barrier_states[i] = 'NEUTRAL'
-
+    # Numba-accelerated computation (required)
+    if not NUMBA_AVAILABLE:
+        raise RuntimeError("Numba is required for barrier metrics computation")
+    
+    delta_liqs, depth_in_zones, wall_ratios, replenishment_ratios, barrier_state_codes = _compute_barrier_metrics_numba(
+        touch_ts_ns.astype(np.int64),
+        level_prices_es,
+        directions.astype(np.int32),
+        market_data.mbp_ts_ns,
+        market_data.mbp_bid_prices,
+        market_data.mbp_bid_sizes,
+        market_data.mbp_ask_prices,
+        market_data.mbp_ask_sizes,
+        window_ns,
+        zone_es
+    )
+    
+    # Decode states from int to string
+    state_map = {-3: 'VACUUM', -2: 'CONSUMED', -1: 'ABSORPTION', 0: 'NEUTRAL', 1: 'WEAK', 2: 'WALL'}
+    barrier_states = np.array([state_map[code] for code in barrier_state_codes], dtype=object)
+    
     return {
         'barrier_state': barrier_states,
         'barrier_delta_liq': delta_liqs,
