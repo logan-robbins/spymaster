@@ -1,0 +1,81 @@
+lake_root: lake
+
+datasets:
+  # Bronze - Futures
+  bronze.future.market_by_price_10:
+    path: bronze/source=databento/product_type=future/symbol={symbol}/table=market_by_price_10
+    format: csv
+    partition_keys: [symbol, dt]
+    contract: contracts/bronze/future/market_by_price_10.avsc
+
+  # Bronze - Future Options (Parquet with hour-level partitioning)
+  bronze.future_option.trades:
+    path: bronze/source=databento/product_type=future_option/symbol={symbol}/table=trades
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/bronze/future_option/trades.avsc
+
+  bronze.future_option.nbbo:
+    path: bronze/source=databento/product_type=future_option/symbol={symbol}/table=nbbo
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/bronze/future_option/nbbo.avsc
+
+  bronze.future_option.statistics:
+    path: bronze/source=databento/product_type=future_option/symbol={symbol}/table=statistics
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/bronze/future_option/statistics.avsc
+
+  # Silver - Futures
+  silver.future.market_by_price_10_clean:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_clean
+    format: csv
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future/market_by_price_10_clean.avsc
+
+  # Silver - Future Options
+  silver.future_option.trades_clean:
+    path: silver/product_type=future_option/symbol={symbol}/table=trades_clean
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future_option/trades_clean.avsc
+
+  silver.future_option.nbbo_clean:
+    path: silver/product_type=future_option/symbol={symbol}/table=nbbo_clean
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future_option/nbbo_clean.avsc
+
+  silver.future_option.statistics_clean:
+    path: silver/product_type=future_option/symbol={symbol}/table=statistics_clean
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future_option/statistics_clean.avsc
+
+  # Gold - Futures
+  gold.future.market_by_price_10_first3h:
+    path: gold/product_type=future/symbol={symbol}/table=market_by_price_10_first3h
+    format: csv
+    partition_keys: [symbol, dt]
+    contract: contracts/gold/future/market_by_price_10_first3h.avsc
+
+  # Gold - Future Options
+  gold.future_option.trades_first3h:
+    path: gold/product_type=future_option/symbol={symbol}/table=trades_first3h
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/gold/future_option/trades_first3h.avsc
+
+  gold.future_option.nbbo_first3h:
+    path: gold/product_type=future_option/symbol={symbol}/table=nbbo_first3h
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/gold/future_option/nbbo_first3h.avsc
+
+  gold.future_option.statistics_first3h:
+    path: gold/product_type=future_option/symbol={symbol}/table=statistics_first3h
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/gold/future_option/statistics_first3h.avsc
+

@@ -19,11 +19,11 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class SchemaVersion:
     """Track schema version metadata."""
 
-    def __init__(self, name: str, version: int, tier: str):
+    def __init__(self, name: str, version: Optional[int], tier: str):
         """
         Args:
             name: Schema name (e.g., 'futures.trades')
-            version: Version number (e.g., 1)
+            version: Version number (e.g., 1) or None for unversioned singletons
             tier: Data tier ('bronze', 'silver', 'gold')
         """
         self.name = name
@@ -32,8 +32,8 @@ class SchemaVersion:
 
     @property
     def full_name(self) -> str:
-        """Returns 'futures.trades.v1' format."""
-        return f"{self.name}.v{self.version}"
+        """Returns 'name.vN' if versioned, otherwise 'name'."""
+        return f"{self.name}.v{self.version}" if self.version is not None else self.name
 
     def __repr__(self) -> str:
         return f"SchemaVersion({self.full_name!r}, tier={self.tier!r})"

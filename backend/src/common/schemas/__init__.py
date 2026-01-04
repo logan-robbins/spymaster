@@ -9,9 +9,9 @@ This module provides:
 Schemas per PLAN.md §2.4:
 
 Bronze (raw, normalized):
-- options.trades.v1 - ES option trades
+- options.trades - ES option trades
 - futures.trades.v1 - ES futures trades
-- futures.mbp10.v1 - ES MBP-10 depth
+- futures.mbp10 - ES MBP-10 depth
 
 Silver (cleaned, enriched):
 - options.trades_enriched.v1 - Option trades with Greeks joined
@@ -58,7 +58,7 @@ from .base import (
 # Bronze tier schemas
 from .options_trades import OptionTradeV1
 from .futures_trades import FuturesTradeV1
-from .futures_mbp10 import MBP10V1, BidAskLevelModel
+from .futures_mbp10 import MBP10, BidAskLevelModel
 
 # Silver tier schemas
 from .options_trades_enriched import OptionTradeEnrichedV1
@@ -66,7 +66,7 @@ from .silver_features import SilverFeaturesESPipelineV1, validate_silver_feature
 
 # Gold tier schemas
 from .levels_signals import (
-    LevelSignalV1,
+    LevelSignal,
     LevelKind,
     OutcomeLabel,
     BarrierState,
@@ -92,7 +92,7 @@ __all__ = [
     # Bronze
     'OptionTradeV1',
     'FuturesTradeV1',
-    'MBP10V1',
+    'MBP10',
     'BidAskLevelModel',
     
     # Silver
@@ -103,7 +103,7 @@ __all__ = [
     # Gold
     'GoldTrainingESPipelineV1',
     'validate_gold_training',
-    'LevelSignalV1',
+    'LevelSignal',
     'LevelKind',
     'OutcomeLabel',
     'BarrierState',

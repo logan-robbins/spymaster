@@ -1,0 +1,10 @@
+{
+  "contract_path": "contracts/bronze/future_option/trades.avsc",
+  "contract_sha256": "placeholder",
+  "dataset": "bronze.future_option.trades",
+  "dt": "2026-01-02",
+  "inputs": [],
+  "row_count": 0,
+  "stage": "placeholder"
+}
+

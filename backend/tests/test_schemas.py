@@ -21,10 +21,10 @@ from src.common.schemas import (
     pydantic_to_arrow_table,
     # Bronze
     FuturesTradeV1,
-    MBP10V1,
+    MBP10,
     BidAskLevelModel,
     # Gold
-    LevelSignalV1,
+    LevelSignal,
     LevelKind,
     Direction,
     Signal,
@@ -63,12 +63,12 @@ class TestSchemaRegistry:
         expected = [
             'stocks.trades.v1',
             'stocks.quotes.v1',
-            'options.trades.v1',
+            'options.trades',
             'options.greeks_snapshots.v1',
             'futures.trades.v1',
-            'futures.mbp10.v1',
+            'futures.mbp10',
             'options.trades_enriched.v1',
-            'levels.signals.v1',
+            'levels.signals',
         ]
         for name in expected:
             assert name in schemas, f"Missing schema: {name}"
@@ -128,12 +128,12 @@ class TestFuturesTradeV1:
         assert trade.aggressor == AggressorEnum.BUY
 
 
-class TestMBP10V1:
-    """Test futures.mbp10.v1 schema."""
+class TestMBP10:
+    """Test futures.mbp10 schema."""
 
     def test_valid_mbp10(self, valid_ts_event_ns, valid_ts_recv_ns):
         """Valid MBP-10 should pass."""
-        mbp = MBP10V1(
+        mbp = MBP10(
             ts_event_ns=valid_ts_event_ns,
             ts_recv_ns=valid_ts_recv_ns,
             source=EventSourceEnum.REPLAY,
@@ -152,7 +152,7 @@ class TestMBP10V1:
             BidAskLevelModel(bid_px=6875.00, bid_sz=100, ask_px=6875.25, ask_sz=150),
             BidAskLevelModel(bid_px=6874.75, bid_sz=200, ask_px=6875.50, ask_sz=100),
         ]
-        mbp = MBP10V1.from_levels(
+        mbp = MBP10.from_levels(
             ts_event_ns=valid_ts_event_ns,
             ts_recv_ns=valid_ts_recv_ns,
             source=EventSourceEnum.REPLAY,
@@ -166,7 +166,7 @@ class TestMBP10V1:
 
     def test_get_bid_levels(self, valid_ts_event_ns, valid_ts_recv_ns):
         """Test get_bid_levels helper."""
-        mbp = MBP10V1(
+        mbp = MBP10(
             ts_event_ns=valid_ts_event_ns,
             ts_recv_ns=valid_ts_recv_ns,
             source=EventSourceEnum.REPLAY,
@@ -191,12 +191,12 @@ class TestMBP10V1:
 # Test Gold Schema
 # =============================================================================
 
-class TestLevelSignalV1:
-    """Test levels.signals.v1 schema."""
+class TestLevelSignal:
+    """Test levels.signals schema."""
 
     def test_valid_level_signal(self, valid_ts_event_ns):
         """Valid level signal should pass."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             ts_event_ns=valid_ts_event_ns,
             symbol='ES',
             spot=6875.00,
@@ -219,7 +219,7 @@ class TestLevelSignalV1:
 
     def test_full_level_signal(self, valid_ts_event_ns):
         """Level signal with all fields populated."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             ts_event_ns=valid_ts_event_ns,
             symbol='ES',
             spot=6875.00,
@@ -266,7 +266,7 @@ class TestLevelSignalV1:
     def test_break_score_range(self, valid_ts_event_ns):
         """Break score must be 0-100."""
         with pytest.raises(ValueError):
-            LevelSignalV1(
+            LevelSignal(
                 ts_event_ns=valid_ts_event_ns,
                 symbol='ES',
                 spot=6875.00,

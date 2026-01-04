@@ -1,5 +1,5 @@
 """
-Comprehensive tests for vectorized pipeline integration.
+Comprehensive tests for physics pipeline integration.
 
 Tests the combination of:
 - MBP-10 data (ES futures depth)
@@ -17,13 +17,13 @@ from typing import List, Dict, Tuple
 from datetime import datetime, timezone
 
 from src.common.event_types import FuturesTrade, MBP10, BidAskLevel, EventSource, Aggressor
-from src.core.batch_engines import (
-    VectorizedMarketData,
-    build_vectorized_market_data,
-    compute_tape_metrics_batch,
-    compute_barrier_metrics_batch,
-    compute_fuel_metrics_batch,
-    compute_all_physics_batch,
+from src.core.physics_engines import (
+    MarketData,
+    build_market_data,
+    compute_tape_metrics,
+    compute_barrier_metrics,
+    compute_fuel_metrics,
+    compute_all_physics,
 )
 
 
@@ -230,13 +230,13 @@ def simple_option_flows() -> Dict[Tuple[float, str, str], Any]:
 
 
 # =============================================================================
-# TESTS: build_vectorized_market_data
+# TESTS: build_market_data
 # =============================================================================
 
 
-def test_build_vectorized_market_data_converts_trades(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_build_market_data_converts_trades(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """Test that trades are correctly converted to numpy arrays."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=simple_mbp10,
         option_flows=simple_option_flows,
@@ -259,9 +259,9 @@ def test_build_vectorized_market_data_converts_trades(simple_trades, simple_mbp1
     assert market_data.trade_aggressors[0] == 1  # BUY
 
 
-def test_build_vectorized_market_data_converts_mbp10(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_build_market_data_converts_mbp10(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """Test that MBP-10 snapshots are correctly converted to numpy arrays."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=simple_mbp10,
         option_flows=simple_option_flows,
@@ -288,9 +288,9 @@ def test_build_vectorized_market_data_converts_mbp10(simple_trades, simple_mbp10
     assert market_data.mbp_bid_sizes[1, 0] == 1000  # Reduced
 
 
-def test_build_vectorized_market_data_aggregates_gamma(simple_trades, simple_mbp10, simple_option_flows):
+def test_build_market_data_aggregates_gamma(simple_trades, simple_mbp10, simple_option_flows):
     """Test that option gamma is correctly aggregated by strike."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=simple_mbp10,
         option_flows=simple_option_flows,
@@ -309,7 +309,7 @@ def test_build_vectorized_market_data_aggregates_gamma(simple_trades, simple_mbp
 
 
 # =============================================================================
-# TESTS: compute_tape_metrics_batch
+# TESTS: compute_tape_metrics
 # =============================================================================
 
 
@@ -322,7 +322,7 @@ def test_tape_metrics_imbalance_calculation(simple_trades, simple_mbp10, simple_
     - Sell: 150 + 100 = 250
     - Imbalance = (600 - 250) / 850 = 350/850 = 0.4118
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -330,7 +330,7 @@ def test_tape_metrics_imbalance_calculation(simple_trades, simple_mbp10, simple_
     touch_ts = np.array([base_timestamp], dtype=np.int64)
     level_prices = np.array([6850.0], dtype=np.float64)  # ES
     
-    result = compute_tape_metrics_batch(
+    result = compute_tape_metrics(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         market_data=market_data,
@@ -357,14 +357,14 @@ def test_tape_metrics_velocity_positive(simple_trades, simple_mbp10, simple_opti
     
     Linear fit slope ≈ 0.25 ES per second
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     touch_ts = np.array([base_timestamp])
     level_prices = np.array([6850.0])
     
-    result = compute_tape_metrics_batch(
+    result = compute_tape_metrics(
         touch_ts, level_prices, market_data,
         window_seconds=5.0,
         band_dollars=1.00
@@ -382,14 +382,14 @@ def test_tape_metrics_price_band_filtering(simple_trades, simple_mbp10, simple_o
     
     With narrow band (0.10 ES), only first trade at 6850.00 included.
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     touch_ts = np.array([base_timestamp])
     level_prices = np.array([6850.0])  # ES
     
-    result = compute_tape_metrics_batch(
+    result = compute_tape_metrics(
         touch_ts, level_prices, market_data,
         window_seconds=5.0,
         band_dollars=0.10  # Very narrow band
@@ -402,7 +402,7 @@ def test_tape_metrics_price_band_filtering(simple_trades, simple_mbp10, simple_o
 
 
 # =============================================================================
-# TESTS: compute_barrier_metrics_batch
+# TESTS: compute_barrier_metrics
 # =============================================================================
 
 
@@ -415,7 +415,7 @@ def test_barrier_metrics_wall_consumption(simple_trades, simple_mbp10, simple_op
     - t=5s: Bid 6850.00 x 1000
     - Delta = 1000 - 2000 = -1000 (liquidity removed)
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -424,7 +424,7 @@ def test_barrier_metrics_wall_consumption(simple_trades, simple_mbp10, simple_op
     level_prices = np.array([6850.0])  # ES
     directions = np.array([1])  # UP (resistance, check ask side)
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         directions=directions,
@@ -452,7 +452,7 @@ def test_barrier_metrics_support_side_detection(simple_trades, simple_mbp10, sim
     Support (DOWN direction) → Check BID side
     Resistance (UP direction) → Check ASK side
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -461,7 +461,7 @@ def test_barrier_metrics_support_side_detection(simple_trades, simple_mbp10, sim
     level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid side)
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts, level_prices, directions, market_data,
         window_seconds=10.0,
         zone_es_ticks=2
@@ -475,8 +475,8 @@ def test_barrier_metrics_support_side_detection(simple_trades, simple_mbp10, sim
 
 
 def test_barrier_metrics_multiple_touches(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
-    """Test barrier metrics for multiple touches in batch."""
-    market_data = build_vectorized_market_data(
+    """Test barrier metrics for multiple touches."""
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -489,7 +489,7 @@ def test_barrier_metrics_multiple_touches(simple_trades, simple_mbp10, simple_op
     level_prices = np.array([6850.0, 6850.0, 6850.0])
     directions = np.array([1, 1, 1])  # All resistance
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts, level_prices, directions, market_data,
         window_seconds=10.0
     )
@@ -500,7 +500,7 @@ def test_barrier_metrics_multiple_touches(simple_trades, simple_mbp10, simple_op
 
 
 # =============================================================================
-# TESTS: compute_fuel_metrics_batch
+# TESTS: compute_fuel_metrics
 # =============================================================================
 
 
@@ -514,13 +514,13 @@ def test_fuel_metrics_gamma_aggregation(simple_trades, simple_mbp10, simple_opti
     - 6855 Call: +15,000
     - Net: 30000 - 25000 + 15000 = +20,000 (DAMPEN)
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     level_prices = np.array([6850.0])
     
-    result = compute_fuel_metrics_batch(
+    result = compute_fuel_metrics(
         level_prices=level_prices,
         market_data=market_data,
         strike_range=5.0
@@ -552,13 +552,13 @@ def test_fuel_metrics_amplify_effect(simple_trades, simple_mbp10, base_timestamp
         (6850.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=-50000.0)
     }
     
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, option_flows, "2025-12-16"
     )
     
     level_prices = np.array([6850.0])
     
-    result = compute_fuel_metrics_batch(
+    result = compute_fuel_metrics(
         level_prices, market_data, strike_range=5.0
     )
     
@@ -584,13 +584,13 @@ def test_fuel_metrics_neutral_effect(simple_trades, simple_mbp10, base_timestamp
         (6850.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=5000.0)
     }
     
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, option_flows, "2025-12-16"
     )
     
     level_prices = np.array([6850.0])
     
-    result = compute_fuel_metrics_batch(
+    result = compute_fuel_metrics(
         level_prices, market_data, strike_range=5.0
     )
     
@@ -607,20 +607,20 @@ def test_fuel_metrics_strike_range_filtering(simple_trades, simple_mbp10, simple
     - strike_range=1.0 → only 6850 included
     - strike_range=5.0 → 6845, 6850, 6855 included
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     level_prices = np.array([6850.0])
     
     # Narrow range: only 685
-    result_narrow = compute_fuel_metrics_batch(
+    result_narrow = compute_fuel_metrics(
         level_prices, market_data, strike_range=1.0
     )
     assert result_narrow['gamma_exposure'][0] == -25000.0  # Only 685 Call
     
     # Wide range: 684, 685, 686
-    result_wide = compute_fuel_metrics_batch(
+    result_wide = compute_fuel_metrics(
         level_prices, market_data, strike_range=5.0
     )
     expected = 30000.0 - 25000.0 + 15000.0  # All three strikes
@@ -628,17 +628,17 @@ def test_fuel_metrics_strike_range_filtering(simple_trades, simple_mbp10, simple
 
 
 # =============================================================================
-# TESTS: compute_all_physics_batch (Integration)
+# TESTS: compute_all_physics (Integration)
 # =============================================================================
 
 
-def test_compute_all_physics_batch_combines_metrics(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_compute_all_physics_combines_metrics(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """
-    Test that compute_all_physics_batch combines all three engines.
+    Test that compute_all_physics combines all three engines.
     
     Should return tape + barrier + fuel metrics in one dict.
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -646,7 +646,7 @@ def test_compute_all_physics_batch_combines_metrics(simple_trades, simple_mbp10,
     level_prices = np.array([6850.0])
     directions = np.array([1])  # UP
     
-    result = compute_all_physics_batch(
+    result = compute_all_physics(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         directions=directions,
@@ -674,14 +674,14 @@ def test_compute_all_physics_batch_combines_metrics(simple_trades, simple_mbp10,
     assert len(result['gamma_exposure']) == 1
 
 
-def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_pipeline_end_to_end(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """
     End-to-end test combining MBP-10, Trades, and Options.
     
     Validates the complete data flow with easy-to-check numbers.
     """
-    # Step 1: Build vectorized market data
-    market_data = build_vectorized_market_data(
+    # Step 1: Build market data
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=simple_mbp10,
         option_flows=simple_option_flows,
@@ -694,7 +694,7 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
     directions = np.array([1])  # UP (resistance)
     
     # Step 3: Compute all physics
-    result = compute_all_physics_batch(
+    result = compute_all_physics(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         directions=directions,
@@ -735,7 +735,7 @@ def test_vectorized_pipeline_end_to_end(simple_trades, simple_mbp10, simple_opti
 
 def test_empty_trades_handling(simple_mbp10, simple_option_flows, base_timestamp):
     """Test pipeline handles empty trade list."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=[],  # Empty
         mbp10_snapshots=simple_mbp10,
         option_flows=simple_option_flows,
@@ -748,7 +748,7 @@ def test_empty_trades_handling(simple_mbp10, simple_option_flows, base_timestamp
     touch_ts = np.array([base_timestamp])
     level_prices = np.array([6850.0])
     
-    result = compute_tape_metrics_batch(
+    result = compute_tape_metrics(
         touch_ts, level_prices, market_data,
         window_seconds=5.0
     )
@@ -760,7 +760,7 @@ def test_empty_trades_handling(simple_mbp10, simple_option_flows, base_timestamp
 
 def test_empty_mbp10_handling(simple_trades, simple_option_flows, base_timestamp):
     """Test pipeline handles empty MBP-10 list."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=[],  # Empty
         option_flows=simple_option_flows,
@@ -774,7 +774,7 @@ def test_empty_mbp10_handling(simple_trades, simple_option_flows, base_timestamp
     level_prices = np.array([6850.0])
     directions = np.array([1])
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts, level_prices, directions, market_data,
         window_seconds=10.0
     )
@@ -784,7 +784,7 @@ def test_empty_mbp10_handling(simple_trades, simple_option_flows, base_timestamp
 
 def test_no_option_flows_handling(simple_trades, simple_mbp10):
     """Test pipeline handles no option flows."""
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades=simple_trades,
         mbp10_snapshots=simple_mbp10,
         option_flows={},  # Empty
@@ -796,7 +796,7 @@ def test_no_option_flows_handling(simple_trades, simple_mbp10):
     # Fuel metrics should return NEUTRAL
     level_prices = np.array([6850.0])
     
-    result = compute_fuel_metrics_batch(
+    result = compute_fuel_metrics(
         level_prices, market_data, strike_range=5.0
     )
     
@@ -805,17 +805,17 @@ def test_no_option_flows_handling(simple_trades, simple_mbp10):
 
 
 # =============================================================================
-# TESTS: Batch Processing Efficiency
+# TESTS: Multi-touch Throughput
 # =============================================================================
 
 
-def test_batch_processing_multiple_levels(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_multi_level_processing(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """
-    Test batch processing multiple levels simultaneously.
+    Test processing multiple levels simultaneously.
     
-    Tests that vectorization correctly handles multiple levels.
+    Tests that the array engines correctly handle multiple levels.
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -824,7 +824,7 @@ def test_batch_processing_multiple_levels(simple_trades, simple_mbp10, simple_op
     level_prices = np.array([6830.0, 6840.0, 6850.0, 6860.0, 6870.0])
     directions = np.array([1, -1, 1, -1, 1])  # Mixed
     
-    result = compute_all_physics_batch(
+    result = compute_all_physics(
         touch_ts, level_prices, directions, market_data
     )
     
@@ -840,24 +840,24 @@ def test_batch_processing_multiple_levels(simple_trades, simple_mbp10, simple_op
     assert abs(result['gamma_exposure'][idx_685] - expected_gamma_685) < 1.0
 
 
-def test_vectorized_vs_scalar_consistency(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
+def test_array_vs_scalar_consistency(simple_trades, simple_mbp10, simple_option_flows, base_timestamp):
     """
-    Test that batch processing gives same results as processing one-by-one.
+    Test that multi-touch processing matches processing one-by-one.
     """
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         simple_trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
     # Single touch
-    single_result = compute_all_physics_batch(
+    single_result = compute_all_physics(
         touch_ts_ns=np.array([base_timestamp]),
         level_prices=np.array([6850.0]),
         directions=np.array([1]),
         market_data=market_data
     )
     
-    # Batch with one element
-    batch_result = compute_all_physics_batch(
+    # Array with one element
+    multi_result = compute_all_physics(
         touch_ts_ns=np.array([base_timestamp]),
         level_prices=np.array([6850.0]),
         directions=np.array([1]),
@@ -865,8 +865,8 @@ def test_vectorized_vs_scalar_consistency(simple_trades, simple_mbp10, simple_op
     )
     
     # Should be identical
-    assert single_result['tape_imbalance'][0] == batch_result['tape_imbalance'][0]
-    assert single_result['gamma_exposure'][0] == batch_result['gamma_exposure'][0]
+    assert single_result['tape_imbalance'][0] == multi_result['tape_imbalance'][0]
+    assert single_result['gamma_exposure'][0] == multi_result['gamma_exposure'][0]
 
 
 # =============================================================================
@@ -900,7 +900,7 @@ def test_timestamp_ordering_requirement(simple_mbp10, simple_option_flows):
         )
     ]
     
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades, simple_mbp10, simple_option_flows, "2025-12-16"
     )
     
@@ -933,7 +933,7 @@ def test_aggressor_encoding(base_timestamp):
         )
     ]
     
-    market_data = build_vectorized_market_data(
+    market_data = build_market_data(
         trades, [], {}, "2025-12-16"
     )
     
@@ -976,14 +976,14 @@ def test_vacuum_scenario():
               source=EventSource.DIRECT_FEED, symbol="ES", levels=mbp2_levels, is_snapshot=True)
     ]
     
-    market_data = build_vectorized_market_data(trades, mbp_snapshots, {}, "2025-12-16")
+    market_data = build_market_data(trades, mbp_snapshots, {}, "2025-12-16")
     
     # Touch at support (checking bid side)
     touch_ts = np.array([ts_base])
     level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid)
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts, level_prices, directions, market_data, window_seconds=10.0
     )
     
@@ -1033,14 +1033,14 @@ def test_wall_scenario():
     mbp_snapshots.append(MBP10(ts_event_ns=ts_base + 5_000_000_000, ts_recv_ns=ts_base + 5_000_000_000,
                                source=EventSource.DIRECT_FEED, symbol="ES", levels=levels, is_snapshot=True))
     
-    market_data = build_vectorized_market_data(trades, mbp_snapshots, {}, "2025-12-16")
+    market_data = build_market_data(trades, mbp_snapshots, {}, "2025-12-16")
     
     # Touch at support
     touch_ts = np.array([ts_base])
     level_prices = np.array([6850.0])
     directions = np.array([-1])  # DOWN (support, check bid)
     
-    result = compute_barrier_metrics_batch(
+    result = compute_barrier_metrics(
         touch_ts, level_prices, directions, market_data, window_seconds=10.0
     )
     
@@ -1064,12 +1064,12 @@ def test_heavy_sell_imbalance():
         for i in range(10)
     ]
     
-    market_data = build_vectorized_market_data(trades, [], {}, "2025-12-16")
+    market_data = build_market_data(trades, [], {}, "2025-12-16")
     
     touch_ts = np.array([ts_base])
     level_prices = np.array([6850.0])
     
-    result = compute_tape_metrics_batch(
+    result = compute_tape_metrics(
         touch_ts, level_prices, market_data,
         window_seconds=12.0,  # Capture all trades
         band_dollars=1.00
@@ -1109,7 +1109,7 @@ def test_es_strikes_at_5pt_intervals():
         (6855.0, 'C', '2025-12-16'): MockFlow(net_gamma_flow=8000.0),
     }
     
-    market_data = build_vectorized_market_data([], [], option_flows, "2025-12-16")
+    market_data = build_market_data([], [], option_flows, "2025-12-16")
     
     # Test gamma lookup at each strike
     assert market_data.strike_gamma[6845.0] == 10000.0

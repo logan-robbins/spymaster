@@ -1,5 +1,5 @@
 """
-futures.mbp10.v1 schema - Bronze tier ES MBP-10 (Market-by-Price top 10 levels).
+futures.mbp10 schema - Bronze tier ES MBP-10 (Market-by-Price top 10 levels).
 
 Fields per PLAN.md §2.4:
 - ts_event_ns: int64 (UTC nanoseconds)
@@ -37,7 +37,7 @@ class BidAskLevelModel(BaseEventModel):
 
 
 @SchemaRegistry.register
-class MBP10V1(BaseEventModel):
+class MBP10(BaseEventModel):
     """
     Bronze tier MBP-10 (Market-by-Price) snapshot.
 
@@ -50,7 +50,7 @@ class MBP10V1(BaseEventModel):
 
     _schema_version: ClassVar[SchemaVersion] = SchemaVersion(
         name='futures.mbp10',
-        version=1,
+        version=None,
         tier='bronze'
     )
 
@@ -170,7 +170,7 @@ class MBP10V1(BaseEventModel):
         levels: List[BidAskLevelModel],
         is_snapshot: bool = False,
         seq: Optional[int] = None
-    ) -> "MBP10V1":
+    ) -> "MBP10":
         """
         Create from a list of BidAskLevel objects.
 
@@ -245,10 +245,10 @@ _mbp10_fields.extend([
     ('action_size', pa.int32(), True),
 ])
 
-MBP10V1._arrow_schema = build_arrow_schema(
+MBP10._arrow_schema = build_arrow_schema(
     fields=_mbp10_fields,
     metadata={
-        'schema_name': 'futures.mbp10.v2',  # Version bump for OFI fields
+        'schema_name': 'futures.mbp10',
         'tier': 'bronze',
         'description': 'ES MBP-10 with action/side for true OFI computation',
     }
