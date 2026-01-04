@@ -63,6 +63,8 @@ def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
     Includes action/side/price/size for true OFI computation per Cont et al. (2014).
     """
     if isinstance(event, dict):
+        action_price = event.get("action_price")
+        action_size = event.get("action_size")
         base = {
             "ts_event_ns": event["ts_event_ns"],
             "ts_recv_ns": event.get("ts_recv_ns", event["ts_event_ns"]),
@@ -73,11 +75,13 @@ def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
             # OFI fields (action/side/price/size for true event-based OFI)
             "action": _normalize_enum(event.get("action")),
             "side": _normalize_enum(event.get("side")),
-            "action_price": float(event.get("price", 0.0)),
-            "action_size": int(event.get("size", 0)),
+            "action_price": float(action_price) if action_price is not None else None,
+            "action_size": int(action_size) if action_size is not None else None,
         }
         levels = event.get("levels", [])
     else:
+        action_price = getattr(event, "action_price", None)
+        action_size = getattr(event, "action_size", None)
         base = {
             "ts_event_ns": event.ts_event_ns,
             "ts_recv_ns": getattr(event, "ts_recv_ns", event.ts_event_ns),
@@ -88,8 +92,8 @@ def _flatten_mbp10_event(event: Any) -> Dict[str, Any]:
             # OFI fields (action/side/price/size for true event-based OFI)
             "action": _normalize_enum(getattr(event, "action", None)),
             "side": _normalize_enum(getattr(event, "side", None)),
-            "action_price": float(getattr(event, "action_price", 0.0) or 0.0),
-            "action_size": int(getattr(event, "action_size", 0) or 0),
+            "action_price": float(action_price) if action_price is not None else None,
+            "action_size": int(action_size) if action_size is not None else None,
         }
         levels = getattr(event, "levels", [])
 
@@ -443,11 +447,11 @@ class BronzeWriter:
 
     def _get_arrow_schema(self, schema_name: str) -> pa.Schema:
         """Get canonical Arrow schema for a schema name."""
-        from src.common.schemas import OptionTradeV1, MBP10V1
+        from src.common.schemas import OptionTradeV1, MBP10
         
         schema_map = {
             'options.trades': OptionTradeV1._arrow_schema,
-            'futures.mbp10': MBP10V1._arrow_schema,
+            'futures.mbp10': MBP10._arrow_schema,
         }
         
         if schema_name not in schema_map:

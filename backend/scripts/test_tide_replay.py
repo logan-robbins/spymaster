@@ -1,8 +1,7 @@
 
 import numpy as np
 import pandas as pd
-from src.core.batch_engines import build_vectorized_market_data, compute_fuel_metrics_batch
-from src.common.event_types import FuturesTrade, MBP10, Aggressor
+from src.core.physics_engines import build_market_data, compute_fuel_metrics
 
 def test_replay_logic():
     print("Testing Market Tide Replay Logic...")
@@ -24,8 +23,8 @@ def test_replay_logic():
         'delta': [0.5, -0.5, 0.5]
     })
     
-    # 2. Build Vectorized Data
-    vmd = build_vectorized_market_data(
+    # 2. Build engine inputs
+    vmd = build_market_data(
         trades=[], 
         mbp10_snapshots=[], 
         option_flows={}, 
@@ -46,7 +45,7 @@ def test_replay_logic():
     touch_ts = np.array([50, 150, 250, 350], dtype=np.int64)
     level_prices = np.array([4000.0, 4000.0, 4000.0, 4000.0]) # At correct strike
     
-    metrics = compute_fuel_metrics_batch(
+    metrics = compute_fuel_metrics(
         touch_ts_ns=touch_ts,
         level_prices=level_prices,
         market_data=vmd,

@@ -1,6 +1,6 @@
-# Vectorized Pipeline Test Coverage
+# Physics Pipeline Test Coverage
 
-**Purpose**: Validate integration of MBP-10, Trades, and Options data in vectorized batch processing  
+**Purpose**: Validate integration of MBP-10, Trades, and Options data in array-based processing  
 **Status**: ✅ 28/28 tests passing  
 **Date**: 2025-12-23
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Comprehensive test suite for the vectorized pipeline that combines three data sources:
+Comprehensive test suite for the physics pipeline that combines three data sources:
 1. **ES Futures MBP-10** (Market By Price depth) - Barrier physics
 2. **ES Futures Trades** - Tape physics
 3. **ES Options Flows** - Fuel (gamma) physics
@@ -23,11 +23,11 @@ Tests use **easy-to-validate numbers** to ensure calculation correctness.
 
 | Test | Validates | Status |
 |------|-----------|--------|
-| `test_build_vectorized_market_data_converts_trades` | Trades → numpy arrays, sorted by timestamp | ✅ |
-| `test_build_vectorized_market_data_converts_mbp10` | MBP-10 → numpy 2D arrays (n × 10 levels) | ✅ |
-| `test_build_vectorized_market_data_aggregates_gamma` | Options → gamma aggregation by strike | ✅ |
+| `test_build_market_data_converts_trades` | Trades → numpy arrays, sorted by timestamp | ✅ |
+| `test_build_market_data_converts_mbp10` | MBP-10 → numpy 2D arrays (n × 10 levels) | ✅ |
+| `test_build_market_data_aggregates_gamma` | Options → gamma aggregation by strike | ✅ |
 
-**Purpose**: Verify raw data correctly converted to vectorized format
+**Purpose**: Verify raw data correctly converted to physics format
 
 ---
 
@@ -63,7 +63,7 @@ Velocity = +0.25 ES/sec (rising)
 |------|-----------|-------------------|--------|
 | `test_barrier_metrics_wall_consumption` | Wall detection & consumption | delta_liq < 0 | ✅ |
 | `test_barrier_metrics_support_side_detection` | Support → BID, Resistance → ASK | Correct side checked | ✅ |
-| `test_barrier_metrics_multiple_touches` | Batch processing | 3 touches → 3 results | ✅ |
+| `test_barrier_metrics_multiple_touches` | Multi-touch processing | 3 touches → 3 results | ✅ |
 
 **Test Setup** (wall consumption):
 ```
@@ -114,8 +114,8 @@ Effect = DAMPEN (positive > 10K threshold)
 
 | Test | Validates | Status |
 |------|-----------|--------|
-| `test_compute_all_physics_batch_combines_metrics` | All three engines combined | ✅ |
-| `test_vectorized_pipeline_end_to_end` | Full pipeline with validation | ✅ |
+| `test_compute_all_physics_combines_metrics` | All three engines combined | ✅ |
+| `test_pipeline_end_to_end` | Full pipeline with validation | ✅ |
 
 **End-to-End Test** validates:
 1. ✅ Tape metrics from ES trades (imbalance = 0.4118)
@@ -135,17 +135,17 @@ Effect = DAMPEN (positive > 10K threshold)
 | `test_no_option_flows_handling` | No options | Fuel effect = NEUTRAL, gamma = 0 | ✅ |
 | `test_timestamp_ordering_requirement` | Unsorted trades | Auto-sorted by timestamp | ✅ |
 | `test_aggressor_encoding` | BUY/SELL encoding | 1 / -1 mapping | ✅ |
-| `test_batch_processing_multiple_levels` | 5 levels simultaneously | All metrics computed | ✅ |
+| `test_multi_level_processing` | 5 levels simultaneously | All metrics computed | ✅ |
 
 ---
 
-### 8. Batch Efficiency (1 test) ✅
+### 8. Multi-touch Efficiency (1 test) ✅
 
 | Test | Validates | Status |
 |------|-----------|--------|
-| `test_vectorized_vs_scalar_consistency` | Batch = single repeated | ✅ |
+| `test_array_vs_scalar_consistency` | Multi-touch = single repeated | ✅ |
 
-**Purpose**: Ensure vectorized implementation gives same results as scalar
+**Purpose**: Ensure physics implementation gives same results as scalar
 
 ---
 
@@ -334,7 +334,7 @@ Effect = DAMPEN (> +10,000 threshold) ✅
 5. ✅ **Strike range filtering**: Options outside range excluded
 6. ✅ **Aggressor encoding**: BUY=1, SELL=-1
 7. ✅ **Empty data handling**: Graceful defaults (zeros, NEUTRAL)
-8. ✅ **Batch consistency**: Batch results = individual results
+8. ✅ **Multi-touch consistency**: Multi-touch results = individual results
 9. ✅ **Array shape alignment**: All output arrays same length
 
 ---
@@ -360,30 +360,30 @@ Effect = DAMPEN (> +10,000 threshold) ✅
 
 ## Running Tests
 
-### All Vectorized Pipeline Tests
+### All Physics Pipeline Tests
 ```bash
 cd backend
-uv run pytest tests/test_vectorized_pipeline.py -v
+uv run pytest tests/test_physics_pipeline.py -v
 ```
 
 ### Specific Category
 ```bash
 # Tape metrics
-uv run pytest tests/test_vectorized_pipeline.py -k "tape" -v
+uv run pytest tests/test_physics_pipeline.py -k "tape" -v
 
 # Barrier metrics
-uv run pytest tests/test_vectorized_pipeline.py -k "barrier" -v
+uv run pytest tests/test_physics_pipeline.py -k "barrier" -v
 
 # Fuel metrics
-uv run pytest tests/test_vectorized_pipeline.py -k "fuel" -v
+uv run pytest tests/test_physics_pipeline.py -k "fuel" -v
 
 # Integration
-uv run pytest tests/test_vectorized_pipeline.py -k "all_physics\|end_to_end" -v
+uv run pytest tests/test_physics_pipeline.py -k "all_physics\|end_to_end" -v
 ```
 
 ### With Detailed Output
 ```bash
-uv run pytest tests/test_vectorized_pipeline.py -vv --tb=short
+uv run pytest tests/test_physics_pipeline.py -vv --tb=short
 ```
 
 ---
@@ -432,7 +432,7 @@ uv run pytest tests/test_vectorized_pipeline.py -vv --tb=short
 - ✅ Effect classification (AMPLIFY/DAMPEN/NEUTRAL)
 - ✅ Call vs Put separation
 - ✅ Empty options handling
-- ✅ Multiple levels batch processing
+- ✅ Multiple levels multi-touch processing
 
 **Not Tested** (advanced features):
 - Call/Put wall detection
@@ -447,7 +447,7 @@ uv run pytest tests/test_vectorized_pipeline.py -vv --tb=short
 
 **28 tests**: ~0.26 seconds total  
 **Average**: ~9ms per test  
-**Slowest**: Batch processing tests (~20ms)
+**Slowest**: Multi-touch processing tests (~20ms)
 
 **Why Fast**:
 - Small datasets (5-10 records)
@@ -456,10 +456,10 @@ uv run pytest tests/test_vectorized_pipeline.py -vv --tb=short
 
 ### Scalability Validation
 
-**Tested Batch Sizes**:
+**Tested Multi-touch Sizes**:
 - Single touch: 1 element
-- Small batch: 3 elements
-- Medium batch: 5 elements
+- Small multi-touch: 3 elements
+- Medium multi-touch: 5 elements
 
 **Real Production**:
 - Typical: 100-500 touches per day
@@ -503,7 +503,7 @@ uv run pytest tests/test_vectorized_pipeline.py -vv --tb=short
 
 ### Adding New Features
 
-When modifying vectorized engines:
+When modifying physics engines:
 
 1. **Add corresponding test** with simple numbers
 2. **Validate calculation** by hand first
@@ -530,7 +530,7 @@ If changing CONFIG thresholds (e.g., AMPLIFY threshold):
 4. `test_market_state.py` - MarketState integration
 
 **Difference**:
-- **Vectorized tests**: Batch processing, numpy arrays
+- **Physics tests**: Multi-touch processing, numpy arrays
 - **Scalar tests**: Single-level processing, dataclass objects
 
 Both should give consistent results for same inputs.
@@ -575,7 +575,7 @@ assert abs(result['tape_imbalance'][0] - 0.4118) < 0.01  # ✅ Passes
 - All three data sources validated
 - Easy-to-verify calculations
 - Edge cases covered
-- Batch processing validated
+- Multi-touch processing validated
 
 **Confidence Level**: ✅ **High**
 - Simple test data makes validation straightforward

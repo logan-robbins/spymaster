@@ -1,7 +1,6 @@
 """
-options.trades.v1 schema - Bronze tier option trades.
+options.trades schema - Bronze tier option trades.
 
-Fields per PLAN.md §2.4:
 - ts_event_ns: int64 (UTC nanoseconds)
 - ts_recv_ns: int64 (UTC nanoseconds)
 - source: utf8 (EventSource enum value)
@@ -164,7 +163,7 @@ OptionTradeV1._arrow_schema = build_arrow_schema(
         ('seq', pa.int64(), True),
     ],
     metadata={
-        'schema_name': 'options.trades.v1',
+        'schema_name': 'options.trades',
         'tier': 'bronze',
         'description': 'Option trade events with aggressor inference',
     }

@@ -1,0 +1,20 @@
+lake_root: lake
+
+datasets:
+  bronze.futures.market_by_price_10:
+    path: bronze/source=databento/table=market_by_price_10
+    format: csv
+    partition_keys: [dt]
+    contract: contracts/bronze/market_by_price_10.avsc
+
+  silver.futures.market_by_price_10_clean:
+    path: silver/domain=futures/table=market_by_price_10_clean
+    format: csv
+    partition_keys: [dt]
+    contract: contracts/silver/market_by_price_10_clean.avsc
+
+  gold.futures.market_by_price_10_first3h:
+    path: gold/product=futures/table=market_by_price_10_first3h
+    format: csv
+    partition_keys: [dt]
+    contract: contracts/gold/market_by_price_10_first3h.avsc

@@ -33,7 +33,7 @@ class OptionTrade:
     """
     Normalized option trade event.
     
-    Schema: options.trades.v1
+    Schema: options.trades
     """
     ts_event_ns: int
     ts_recv_ns: int
@@ -86,7 +86,7 @@ class MBP10:
     """
     Market-by-price L2 snapshot (top 10 levels).
     
-    Schema: futures.mbp10.v1
+    Schema: futures.mbp10
     Optional for v1, used when ES MBP-10 barrier physics is enabled.
     
     Includes action/side/price/size for true event-based OFI computation

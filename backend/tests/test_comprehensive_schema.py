@@ -1,5 +1,5 @@
 """
-Test the comprehensive LevelSignalV1 schema with all production fields.
+Test the comprehensive LevelSignal schema with all production fields.
 
 Demonstrates backward compatibility and optional field usage.
 """
@@ -7,7 +7,7 @@ Demonstrates backward compatibility and optional field usage.
 import pytest
 import time
 from src.common.schemas import (
-    LevelSignalV1,
+    LevelSignal,
     LevelKind,
     OutcomeLabel,
     BarrierState,
@@ -20,11 +20,11 @@ from src.common.schemas import (
 
 
 class TestComprehensiveSchema:
-    """Test comprehensive LevelSignalV1 schema."""
+    """Test comprehensive LevelSignal schema."""
     
     def test_minimal_schema_still_works(self):
         """Test that minimal fields (Agent A original) still work."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="test_001",
             ts_event_ns=time.time_ns(),
             symbol="ES",
@@ -46,7 +46,7 @@ class TestComprehensiveSchema:
     
     def test_full_schema_with_all_metrics(self):
         """Test schema with all production metrics populated."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             # Identity
             event_id="test_002",
             ts_event_ns=time.time_ns(),

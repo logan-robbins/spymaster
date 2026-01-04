@@ -2,7 +2,7 @@
 options.trades_enriched.v1 schema - Silver tier enriched option trades.
 
 Fields per PLAN.md §2.4:
-Extends options.trades.v1 with:
+Extends options.trades with:
 - greeks_snapshot_id: utf8 (reference to greeks snapshot used)
 - delta: float64 (as-of joined)
 - gamma: float64 (as-of joined)
@@ -44,7 +44,7 @@ class OptionTradeEnrichedV1(BaseEventModel):
         tier='silver'
     )
 
-    # --- Bronze fields (from options.trades.v1) ---
+    # --- Bronze fields (from options.trades) ---
 
     ts_event_ns: int = Field(
         ...,

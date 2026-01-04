@@ -8,7 +8,7 @@ import pytest
 from src.research.labeler import get_outcome, label_signal_with_future_data
 from src.research.experiment_runner import ExperimentRunner
 from src.common.schemas.levels_signals import (
-    LevelSignalV1,
+    LevelSignal,
     OutcomeLabel,
     LevelKind,
     Direction,
@@ -142,7 +142,7 @@ class TestExperimentRunner:
         
         # 10 PM_HIGH signals: 7 bounces, 2 breaks, 1 chop
         for i in range(7):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"pm_high_bounce_{i}",
                 ts_event_ns=1700000000000000000 + i * 1000000000,
                 level_price=400.00,
@@ -154,7 +154,7 @@ class TestExperimentRunner:
             ))
         
         for i in range(2):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"pm_high_break_{i}",
                 ts_event_ns=1700000000000000000 + (i+7) * 1000000000,
                 level_price=400.00,
@@ -165,7 +165,7 @@ class TestExperimentRunner:
                 outcome=OutcomeLabel.BREAK,
             ))
         
-        signals.append(LevelSignalV1(
+        signals.append(LevelSignal(
             event_id="pm_high_chop_0",
             ts_event_ns=1700000000000000000 + 9 * 1000000000,
             level_price=400.00,
@@ -178,7 +178,7 @@ class TestExperimentRunner:
         
         # 5 SMA_90 signals: 2 bounces, 3 breaks
         for i in range(2):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"sma_bounce_{i}",
                 ts_event_ns=1700000000000000000 + (i+10) * 1000000000,
                 level_price=399.50,
@@ -190,7 +190,7 @@ class TestExperimentRunner:
             ))
         
         for i in range(3):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"sma_break_{i}",
                 ts_event_ns=1700000000000000000 + (i+12) * 1000000000,
                 level_price=399.50,
@@ -210,7 +210,7 @@ class TestExperimentRunner:
         
         # First 15 minutes signals (higher bounce rate)
         for i in range(5):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"first_15m_{i}",
                 ts_event_ns=1700000000000000000 + i * 1000000000,
                 level_price=400.00,
@@ -222,7 +222,7 @@ class TestExperimentRunner:
         
         # Rest of day signals (lower bounce rate)
         for i in range(5):
-            signals.append(LevelSignalV1(
+            signals.append(LevelSignal(
                 event_id=f"rest_of_day_{i}",
                 ts_event_ns=1700000000000000000 + (i+5) * 1000000000,
                 level_price=400.00,
@@ -239,7 +239,7 @@ class TestExperimentRunner:
         runner = ExperimentRunner()
         assert runner.signals == []
         
-        signals = [LevelSignalV1(
+        signals = [LevelSignal(
             event_id="test",
             ts_event_ns=1700000000000000000,
             level_price=400.00,
@@ -301,7 +301,7 @@ class TestExperimentRunner:
     
     def test_physics_correlation_insufficient_data(self):
         """Test correlation with too few signals."""
-        signals = [LevelSignalV1(
+        signals = [LevelSignal(
             event_id="single",
             ts_event_ns=1700000000000000000,
             level_price=400.00,
@@ -381,7 +381,7 @@ class TestResearchIntegration:
         # Step 1: Create raw signals without outcomes
         raw_signals = []
         for i in range(5):
-            raw_signals.append(LevelSignalV1(
+            raw_signals.append(LevelSignal(
                 event_id=f"signal_{i}",
                 ts_event_ns=1700000000000000000 + i * 1000000000,
                 level_price=400.00,
@@ -415,7 +415,7 @@ class TestResearchIntegration:
     
     def test_signals_with_all_fields_populated(self):
         """Test with fully populated signal objects."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="complete_signal",
             ts_event_ns=1700000000000000000,
             symbol="ES",

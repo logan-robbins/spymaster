@@ -13,7 +13,7 @@ from typing import List, Dict, Optional
 from collections import defaultdict
 import statistics
 
-from src.common.schemas.levels_signals import LevelSignalV1, OutcomeLabel, LevelKind
+from src.common.schemas.levels_signals import LevelSignal, OutcomeLabel, LevelKind
 
 
 class ExperimentRunner:
@@ -26,7 +26,7 @@ class ExperimentRunner:
     - How does first 15m performance differ?
     """
     
-    def __init__(self, signals: Optional[List[LevelSignalV1]] = None):
+    def __init__(self, signals: Optional[List[LevelSignal]] = None):
         """
         Initialize Experiment Runner.
         
@@ -37,7 +37,7 @@ class ExperimentRunner:
     
     def run_simple_backtest(
         self, 
-        signals: Optional[List[LevelSignalV1]] = None,
+        signals: Optional[List[LevelSignal]] = None,
         print_report: bool = True
     ) -> Dict[str, Dict[str, float]]:
         """
@@ -74,7 +74,7 @@ class ExperimentRunner:
             return {}
         
         # Group signals by level kind
-        grouped: Dict[LevelKind, List[LevelSignalV1]] = defaultdict(list)
+        grouped: Dict[LevelKind, List[LevelSignal]] = defaultdict(list)
         for signal in signals_to_analyze:
             grouped[signal.level_kind].append(signal)
         
@@ -101,7 +101,7 @@ class ExperimentRunner:
     
     def run_physics_correlation(
         self,
-        signals: Optional[List[LevelSignalV1]] = None,
+        signals: Optional[List[LevelSignal]] = None,
         print_report: bool = True
     ) -> Dict[str, float]:
         """
@@ -167,7 +167,7 @@ class ExperimentRunner:
     
     def run_time_based_analysis(
         self,
-        signals: Optional[List[LevelSignalV1]] = None,
+        signals: Optional[List[LevelSignal]] = None,
         print_report: bool = True
     ) -> Dict[str, Dict[str, float]]:
         """

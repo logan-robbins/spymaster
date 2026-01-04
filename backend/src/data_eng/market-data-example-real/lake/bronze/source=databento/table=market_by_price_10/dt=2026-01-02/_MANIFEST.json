@@ -1,0 +1,9 @@
+{
+  "contract_path": "/home/oai/share/market-data-example-real/contracts/bronze/market_by_price_10.avsc",
+  "contract_sha256": "67d1dfa126d1ce2002fc04e1f63041479e9b8eb829794e3a2869938290e6395c",
+  "dataset": "bronze.futures.market_by_price_10",
+  "dt": "2026-01-02",
+  "inputs": [],
+  "row_count": 6,
+  "stage": "bootstrap_bronze_sample"
+}

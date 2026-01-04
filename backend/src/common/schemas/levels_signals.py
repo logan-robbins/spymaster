@@ -80,7 +80,7 @@ class RunwayQuality(str, Enum):
 
 # --- Main Schema ---
 
-class LevelSignalV1(BaseModel):
+class LevelSignal(BaseModel):
     """
     Comprehensive Level Signal Schema.
     
