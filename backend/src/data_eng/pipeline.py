@@ -16,7 +16,8 @@ def build_pipeline(product_type: str) -> List[Stage]:
     """
     
     if product_type == "future":
-        from .stages.future import GoldFilterFirst3Hours, SilverConvertUtcToEst
+        from .stages.silver.future.convert_utc_to_est import SilverConvertUtcToEst
+        from .stages.gold.future.filter_first3h import GoldFilterFirst3Hours
         
         return [
             SilverConvertUtcToEst(),
@@ -24,7 +25,8 @@ def build_pipeline(product_type: str) -> List[Stage]:
         ]
     
     elif product_type == "future_option":
-        from .stages.future_option import GoldFilterFirst3Hours, SilverConvertUtcToEst
+        from .stages.silver.future_option.convert_utc_to_est import SilverConvertUtcToEst
+        from .stages.gold.future_option.filter_first3h import GoldFilterFirst3Hours
         
         return [
             SilverConvertUtcToEst(),
