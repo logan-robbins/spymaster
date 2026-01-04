@@ -12,8 +12,8 @@ from ..io import (
     is_partition_complete,
     partition_ref,
     read_manifest_hash,
-    read_partition_csv,
-    write_partition_csv,
+    read_partition,
+    write_partition,
 )
 
 
@@ -60,7 +60,7 @@ class Stage:
         if len(inputs_refs) != 1:
             raise ValueError("Demo stages expect exactly 1 input")
         in_ref = inputs_refs[0]
-        df_in = read_partition_csv(in_ref)
+        df_in = read_partition(in_ref)
 
         # Enforce input contract
         in_contract_path = repo_root / cfg.dataset(in_ref.dataset_key).contract
@@ -83,7 +83,7 @@ class Stage:
             }
         ]
 
-        write_partition_csv(
+        write_partition(
             cfg=cfg,
             dataset_key=self.io.output,
             symbol=symbol,
