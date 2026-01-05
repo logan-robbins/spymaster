@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future/market_by_price_10_clean.avsc",
+  "contract_sha256": "153648f21f4ac03f91fce462bddd590b986a1bc51ffd439709c23444aa5b30f6",
+  "dataset": "silver.future.market_by_price_10_clean",
+  "dt": "2025-08-08",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.future.market_by_price_10",
+      "dt": "2025-08-08",
+      "manifest_sha256": "06f88e292c032b7f5a602e509903d9976038f86e75ab1e21d754db09bbfcc2b2"
+    }
+  ],
+  "row_count": 5891026,
+  "stage": "silver_convert_utc_to_est"
+}

@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/future/market_by_price_10.avsc",
+  "contract_sha256": "d92e942fbc111185220cf0a2a145457b2aafbcc7c01bd53fd77c9a466b026e31",
+  "dataset": "bronze.future.market_by_price_10",
+  "dt": "2025-08-01",
+  "hour": null,
+  "inputs": [],
+  "row_count": 13850772,
+  "stage": "bronze_process_dbn"
+}

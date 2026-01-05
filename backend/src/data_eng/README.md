@@ -12,6 +12,26 @@ Two pipeline families:
 
 Level features MUST be prefixed with level name to prevent duplication when vectors are combined.
 
+## Current Schema Progression (Futures Pipeline)
+
+| # | Stage | Output Dataset | Description |
+|---|-------|----------------|-------------|
+| 1 | `BronzeProcessDBN` | `bronze.future.market_by_price_10` | DBN → Parquet, filter MBP-10 records |
+| 2 | `SilverConvertUtcToEst` | `silver.future.market_by_price_10_clean` | Add `ts_event_est` timezone conversion |
+| 3 | `SilverAddSessionLevels` | `silver.future.market_by_price_10_with_levels` | Add PM_HIGH, PM_LOW, OR_HIGH, OR_LOW |
+| 4 | `SilverComputeBar5sFeatures` | `silver.future.market_by_price_10_bar5s` | Aggregate tick data into 5s bars with features |
+| 5 | `SilverExtractLevelEpisodes` | `silver.future.market_by_price_10_{level}_episodes` | Extract approach episodes per level (×4) |
+| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative features per episode (×4) |
+| 7 | `GoldFilterFirst3Hours` | `gold.future.market_by_price_10_first3h` | Filter to RTH 09:30–12:30 NY |
+| 8 | `GoldFilterBandRange` | `gold.future.market_by_price_10_bar5s_filtered` | Nullify out-of-range band features |
+| 9 | `GoldExtractSetupVectors` | **`gold.future.setup_vectors`** | Final output: labeled setup vectors for retrieval |
+
+**Final Output**: `gold.future.setup_vectors` — Contains labeled setup vectors ready for similarity search.
+
+**Level Tables** (×4 each for PM_HIGH, PM_LOW, OR_HIGH, OR_LOW):
+- Stage 5 outputs: `market_by_price_10_pm_high_episodes`, `market_by_price_10_pm_low_episodes`, `market_by_price_10_or_high_episodes`, `market_by_price_10_or_low_episodes`
+- Stage 6 outputs: `market_by_price_10_pm_high_approach`, `market_by_price_10_pm_low_approach`, `market_by_price_10_or_high_approach`, `market_by_price_10_or_low_approach`
+
 ## Module Structure
 
 ```

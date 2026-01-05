@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future/market_by_price_10_first3h.avsc",
+  "contract_sha256": "36058f0b7ebb43e51b51f85674c24af1a98be30a570808e7c7ee566b7f5c8702",
+  "dataset": "gold.future.market_by_price_10_first3h",
+  "dt": "2025-08-08",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future.market_by_price_10_with_levels",
+      "dt": "2025-08-08",
+      "manifest_sha256": "d88567de8dd783d11fe8c726b247c16e901f3c2d772e3565a1bbf221240435a7"
+    }
+  ],
+  "row_count": 2986149,
+  "stage": "gold_filter_first3hours"
+}

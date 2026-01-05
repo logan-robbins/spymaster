@@ -1,0 +1,31 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future/setup_vectors.avsc",
+  "contract_sha256": "57334cee77a0f080b818323c2ec775535d3ce1c86d0a6e5e09bf48a97de48535",
+  "dataset": "gold.future.setup_vectors",
+  "dt": "2025-09-17",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future.market_by_price_10_pm_high_approach",
+      "dt": "2025-09-17",
+      "manifest_sha256": "0fb92ca7998a6a9b85752eb47fc884b9a209c6eb0e4cffe8d76f42a9f005cc1b"
+    },
+    {
+      "dataset": "silver.future.market_by_price_10_pm_low_approach",
+      "dt": "2025-09-17",
+      "manifest_sha256": "942fba6c80ca15a079add92053ebdfab1564d83a4a6c3b985487aa557976f754"
+    },
+    {
+      "dataset": "silver.future.market_by_price_10_or_high_approach",
+      "dt": "2025-09-17",
+      "manifest_sha256": "62b68fb57368d9572154f681c9306cbec96063e20a4dad8ec97ce9701299bee6"
+    },
+    {
+      "dataset": "silver.future.market_by_price_10_or_low_approach",
+      "dt": "2025-09-17",
+      "manifest_sha256": "06e152282e8000313135d33f5638a3f44556f712ef362347fad35afa59db55ba"
+    }
+  ],
+  "row_count": 53,
+  "stage": "gold_extract_setup_vectors"
+}
