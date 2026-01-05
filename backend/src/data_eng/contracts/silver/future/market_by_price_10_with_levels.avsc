@@ -1,8 +1,8 @@
 {
-  "namespace": "com.marketdata.gold",
+  "namespace": "com.marketdata.silver",
   "type": "record",
-  "name": "MarketByPrice10First3H",
-  "doc": "Gold MBP-10 filtered to first 3 hours of RTH (09:30-12:30 America/New_York).",
+  "name": "MarketByPrice10WithLevels",
+  "doc": "Silver MBP-10 with ts_event_est and session levels (Pre-market, Opening Range).",
   "fields": [
     {
       "name": "ts_recv",
@@ -416,3 +416,4 @@
     }
   ]
 }
+
