@@ -4,7 +4,7 @@ datasets:
   # Bronze - Futures
   bronze.future.market_by_price_10:
     path: bronze/source=databento/product_type=future/symbol={symbol}/table=market_by_price_10
-    format: csv
+    format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future/market_by_price_10.avsc
 
@@ -30,7 +30,7 @@ datasets:
   # Silver - Futures
   silver.future.market_by_price_10_clean:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_clean
-    format: csv
+    format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future/market_by_price_10_clean.avsc
 
@@ -56,7 +56,7 @@ datasets:
   # Gold - Futures
   gold.future.market_by_price_10_first3h:
     path: gold/product_type=future/symbol={symbol}/table=market_by_price_10_first3h
-    format: csv
+    format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future/market_by_price_10_first3h.avsc
 
