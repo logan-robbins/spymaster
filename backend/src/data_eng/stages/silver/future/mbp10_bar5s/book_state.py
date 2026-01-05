@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numpy.typing import NDArray
 
 from .constants import EPSILON, POINT
 
+if TYPE_CHECKING:
+    from .compute import TickArrays
+
 
 class BookState:
+
+    __slots__ = ("bid_px", "ask_px", "bid_sz", "ask_sz", "bid_ct", "ask_ct")
 
     def __init__(self) -> None:
         self.bid_px: NDArray[np.float64] = np.zeros(10, dtype=np.float64)
@@ -24,15 +31,13 @@ class BookState:
         self.bid_ct[:] = other.bid_ct
         self.ask_ct[:] = other.ask_ct
 
-    def load_from_row(self, row: dict) -> None:
-        for i in range(10):
-            idx = f"{i:02d}"
-            self.bid_px[i] = float(row[f"bid_px_{idx}"]) / 1e9
-            self.ask_px[i] = float(row[f"ask_px_{idx}"]) / 1e9
-            self.bid_sz[i] = max(0.0, float(row[f"bid_sz_{idx}"]))
-            self.ask_sz[i] = max(0.0, float(row[f"ask_sz_{idx}"]))
-            self.bid_ct[i] = max(0.0, float(row[f"bid_ct_{idx}"]))
-            self.ask_ct[i] = max(0.0, float(row[f"ask_ct_{idx}"]))
+    def load_from_arrays(self, ticks: TickArrays, idx: int) -> None:
+        self.bid_px[:] = ticks.bid_px[idx]
+        self.ask_px[:] = ticks.ask_px[idx]
+        self.bid_sz[:] = ticks.bid_sz[idx]
+        self.ask_sz[:] = ticks.ask_sz[idx]
+        self.bid_ct[:] = ticks.bid_ct[idx]
+        self.ask_ct[:] = ticks.ask_ct[idx]
 
     def compute_microprice(self) -> float:
         b0_px = self.bid_px[0]
@@ -61,5 +66,4 @@ class BookState:
         return (bid_depth - ask_depth) / denom
 
     def compute_total_depth(self) -> tuple[float, float]:
-        return self.bid_sz.sum(), self.ask_sz.sum()
-
+        return float(self.bid_sz.sum()), float(self.ask_sz.sum())
