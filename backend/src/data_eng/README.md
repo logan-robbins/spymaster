@@ -1,58 +1,212 @@
-# PREFACE
+# data_eng Module — AI Agent Reference
 
-We are currently iterating on our data pipeline. We have two types of pipeline:
+## Purpose
 
-1) In the *LEVEL* pipeline, ALL features in the output are relative and DIRECTLY related ONLY to the *LEVEL* we are interested in. The day trader is watching their chart and asking "is this price going to bounce/reject or break through this *LEVEL*". The *LEVEL* is explicity Pre-Market High/Low, Opening Range High/Low, SMA 90 (based on 2 min bars). 
+Market data pipeline for retrieving historically similar setups when price approaches technical levels. Transforms raw market data (DBN format) through Bronze → Silver → Gold layers into feature-rich datasets for similarity search.
 
-2) in *MARKET* Pipeline, it is GENERAL market context based off of the MBP-10 data we have for Futures, and Trades+NBBO+Statistics data we have for the Futures Options. 
+## Domain Context
 
-Eventually we may combine ALL feature vectors into a single vector, so it is criticial we do not duplicate/mix features in the final output for each *LEVEL* data pipeline, and prepend the *LEVEL*  name to each feature. The Market/global does not need a prefix, and it is important we dont duplicate features. 
+Two pipeline families:
+1. **LEVEL pipeline** — Features relative to specific price levels (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW). Answers: "Will price bounce or break through this level?"
+2. **MARKET pipeline** — General market context from MBP-10 (futures) and Trades+NBBO+Statistics (options).
 
-The rules are: *WE ONLY USE* industry STANDARD terminology, we call the features EXACTLY WHAT THEY ARE, we name the stages EXACTLY WHAT WE ARE. We follow BEST PRACTICES for data pipelines as "stages"-- meanting we load -> transform -> write. every stage is atomic and idempotent. Every stage focuses on ONE concern. Every stage has a DEFINED input -> output contract.
+Level features MUST be prefixed with level name to prevent duplication when vectors are combined.
 
-# Market data pipeline (Bronze → Silver → Gold)
+## Module Structure
 
-**Bronze**: DBN → Parquet, front-month contract only, filters spreads, extracts flag bits
-**Silver**: Add ts_event_est (America/New_York)
-**Gold**: Filter to 09:30-12:30 RTH using partition date
+```
+src/data_eng/
+├── config/datasets.yaml    # Dataset definitions (paths, contracts)
+├── contracts/              # Avro schemas defining field contracts
+│   ├── bronze/
+│   ├── silver/
+│   └── gold/
+├── stages/                 # Stage implementations by layer/product_type
+│   ├── base.py            # Stage base class
+│   ├── bronze/
+│   ├── silver/
+│   └── gold/
+├── pipeline.py             # Builds ordered stage lists per product_type/layer
+├── runner.py               # CLI entry point
+├── config.py               # Config loading (AppConfig)
+├── contracts.py            # Contract enforcement utilities
+└── io.py                   # Partition read/write utilities
+```
+
+## Key Discovery Commands
+
+**Find all registered stages:**
+```bash
+grep -r "class.*Stage.*:" stages/ --include="*.py"
+```
+
+**Find pipeline composition:**
+```python
+from src.data_eng.pipeline import build_pipeline
+stages = build_pipeline("future", "silver")  # Returns ordered stage list
+```
+
+**Find all datasets:**
+```bash
+cat config/datasets.yaml
+```
+
+**Find all contracts:**
+```bash
+ls contracts/{bronze,silver,gold}/*/*.avsc
+```
+
+**Check existing lake data:**
+```bash
+ls lake/{bronze,silver,gold}/*/symbol=*/table=*/
+```
 
 ## Stage Pattern
 
-All stages extend `Stage` base class with:
-- Idempotency: checks `_SUCCESS` marker
-- Atomic writes: tmp dir → replace
-- Contract enforcement: Avro schema validation
-- Lineage: manifest SHA256 tracking
+### Base Class (`stages/base.py`)
 
-## CLI
+All stages extend `Stage` with:
+- `name: str` — Stage identifier
+- `io: StageIO` — Declares inputs (list of dataset keys) and output (single dataset key)
+- `run(cfg, repo_root, symbol, dt)` — Entry point, handles idempotency
+- `transform(df, dt)` — Override for simple single-input/single-output transformations
 
-```bash
-uv run python -m src.data_eng.runner \
-  --product-type {future|future_option} \
-  --layer {bronze|silver|gold|all} \
-  --symbol {ES|ESM5} \
-  --dt YYYY-MM-DD \
-  [--dates YYYY-MM-DD,YYYY-MM-DD] \
-  [--workers N]
+### StageIO Contract
+
+```python
+StageIO(
+    inputs=["silver.future.table_a", "silver.future.table_b"],  # Input dataset keys
+    output="silver.future.table_c"  # Output dataset key
+)
 ```
 
-**Bronze**: `--symbol ES` (prefix) → writes front-month contract (ESU5, ESM5, etc.)
-**Silver/Gold**: `--symbol ESU5` (specific contract from Bronze output)
+### Idempotency
 
-## Lake Structure
-
-```
-lake/
-├── bronze/source=databento/product_type=future/symbol={contract}/table=market_by_price_10/dt=YYYY-MM-DD/
-├── silver/product_type=future/symbol={contract}/table=market_by_price_10_clean/dt=YYYY-MM-DD/
-└── gold/product_type=future/symbol={contract}/table=market_by_price_10_first3h/dt=YYYY-MM-DD/
-```
-
-Each partition: `part-00000.parquet`, `_MANIFEST.json`, `_SUCCESS`
-
-## Reprocessing
-
-Delete partition dir then rerun:
+Stages check for `_SUCCESS` marker in output partition before running. To reprocess:
 ```bash
 rm -rf lake/{layer}/.../dt=YYYY-MM-DD/
 ```
+
+### Multi-Output Stages
+
+For stages producing multiple outputs (e.g., one per level type), override `run()` directly instead of `transform()`. See `extract_level_episodes.py` and `compute_approach_features.py` as examples.
+
+## Dataset Configuration
+
+`config/datasets.yaml` defines:
+```yaml
+dataset.key.name:
+  path: layer/product_type=X/symbol={symbol}/table=name  # Lake path pattern
+  format: parquet
+  partition_keys: [symbol, dt]
+  contract: src/data_eng/contracts/layer/product/schema.avsc
+```
+
+Dataset keys follow pattern: `{layer}.{product_type}.{table_name}`
+
+## Contract Enforcement
+
+Avro schemas in `contracts/` define:
+- Field names and order
+- Field types (long, double, string, boolean, nullable unions)
+- Documentation per field
+
+`enforce_contract(df, contract)` ensures DataFrame matches schema exactly.
+
+Nullable fields use union type: `["null", "double"]`
+
+## I/O Utilities (`io.py`)
+
+Key functions:
+- `partition_ref(cfg, dataset_key, symbol, dt)` — Build PartitionRef for a partition
+- `is_partition_complete(ref)` — Check if `_SUCCESS` exists
+- `read_partition(ref)` — Read parquet from partition
+- `write_partition(cfg, dataset_key, symbol, dt, df, contract_path, inputs, stage)` — Atomic write with manifest
+
+## Pipeline Composition (`pipeline.py`)
+
+`build_pipeline(product_type, layer)` returns ordered list of Stage instances.
+
+Layers: `bronze`, `silver`, `gold`, `all`
+Product types: `future`, `future_option`
+
+Stages execute sequentially. Each stage's output becomes available for subsequent stages.
+
+## CLI Usage
+
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESU5 \
+  --dt 2025-06-05
+```
+
+Options:
+- `--dates YYYY-MM-DD,YYYY-MM-DD` — Multiple dates
+- `--workers N` — Parallel execution across dates
+
+Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
+
+## Feature Naming Convention
+
+```
+bar5s_<family>_<detail>_<agg>_<suffix>
+```
+
+Families: `state`, `depth`, `flow`, `trade`, `wall`, `shape`, `ladder`, `approach`, `deriv`, `cumul`, `lvl`, `setup`
+
+Suffixes:
+- `_eob` — End-of-bar snapshot
+- `_twa` — Time-weighted average
+- `_sum` — Aggregated sum over bar
+- `_d1_wN` — First derivative over N bars
+- `_d2_wN` — Second derivative over N bars
+
+## Adding a New Stage
+
+1. **Create stage file** in appropriate `stages/{layer}/{product_type}/` directory
+2. **Define StageIO** with input dataset keys and output dataset key
+3. **Add dataset entry** to `config/datasets.yaml` with path and contract reference
+4. **Create contract** in `contracts/{layer}/{product_type}/` as Avro schema
+5. **Register in pipeline.py** — Import and add to appropriate layer list
+6. **Test independently:**
+   ```python
+   from src.data_eng.stages.{layer}.{product_type}.{module} import {StageClass}
+   stage = StageClass()
+   stage.run(cfg=cfg, repo_root=repo_root, symbol="ESU5", dt="2025-06-05")
+   ```
+
+## Debugging
+
+**Check if input exists:**
+```python
+from src.data_eng.io import partition_ref, is_partition_complete
+ref = partition_ref(cfg, "silver.future.table_name", "ESU5", "2025-06-05")
+print(is_partition_complete(ref))  # True if _SUCCESS exists
+```
+
+**Inspect parquet output:**
+```python
+import pandas as pd
+df = pd.read_parquet("lake/silver/.../dt=2025-06-05/")
+print(df.shape, df.columns.tolist())
+```
+
+**Verify contract compliance:**
+```python
+from src.data_eng.contracts import load_avro_contract, enforce_contract
+contract = load_avro_contract(Path("src/data_eng/contracts/.../schema.avsc"))
+df = enforce_contract(df, contract)  # Raises if mismatch
+```
+
+## Constants
+
+Common constants are defined in stage files or dedicated constants modules:
+- `EPSILON = 1e-9` — Prevent division by zero
+- `POINT = 0.25` — ES futures tick size
+- `BAR_DURATION_NS = 5_000_000_000` — 5-second bar duration
+
+## Performance Notes
+
+When adding many columns iteratively, use `df = df.copy()` at the start and consider batch assignment to avoid DataFrame fragmentation warnings. For large-scale column additions, pre-allocate columns or use `pd.concat(axis=1)`.
