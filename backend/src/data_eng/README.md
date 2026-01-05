@@ -20,8 +20,9 @@ Level features MUST be prefixed with level name to prevent duplication when vect
 | 2 | `SilverConvertUtcToEst` | `silver.future.market_by_price_10_clean` | Add `ts_event_est` timezone conversion |
 | 3 | `SilverAddSessionLevels` | `silver.future.market_by_price_10_with_levels` | Add PM_HIGH, PM_LOW, OR_HIGH, OR_LOW |
 | 4 | `SilverComputeBar5sFeatures` | `silver.future.market_by_price_10_bar5s` | Aggregate tick data into 5s bars with features |
+| 4.5 | `SilverBuildVolumeProfiles` | `silver.future.volume_profiles` | Build 7-day rolling volume profiles (48 buckets) |
 | 5 | `SilverExtractLevelEpisodes` | `silver.future.market_by_price_10_{level}_episodes` | Extract approach episodes per level (×4) |
-| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative features per episode (×4) |
+| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative + relative volume features (×4) |
 | 7 | `GoldFilterFirst3Hours` | `gold.future.market_by_price_10_first3h` | Filter to RTH 09:30–12:30 NY |
 | 8 | `GoldFilterBandRange` | `gold.future.market_by_price_10_bar5s_filtered` | Nullify out-of-range band features |
 | 9 | `GoldExtractSetupVectors` | **`gold.future.setup_vectors`** | Final output: labeled setup vectors for retrieval |
@@ -31,6 +32,9 @@ Level features MUST be prefixed with level name to prevent duplication when vect
 **Level Tables** (×4 each for PM_HIGH, PM_LOW, OR_HIGH, OR_LOW):
 - Stage 5 outputs: `market_by_price_10_pm_high_episodes`, `market_by_price_10_pm_low_episodes`, `market_by_price_10_or_high_episodes`, `market_by_price_10_or_low_episodes`
 - Stage 6 outputs: `market_by_price_10_pm_high_approach`, `market_by_price_10_pm_low_approach`, `market_by_price_10_or_high_approach`, `market_by_price_10_or_low_approach`
+
+**Volume Profile Table**:
+- Stage 4.5 outputs: `volume_profiles` — 48 rows per date (one per 5-minute bucket from 09:30-13:30)
 
 ## Module Structure
 
@@ -192,6 +196,7 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 ```
 bar5s_<family>_<detail>_<agg>_<suffix>
+rvol_<category>_<metric>
 ```
 
 Families: `state`, `depth`, `flow`, `trade`, `wall`, `shape`, `ladder`, `approach`, `deriv`, `cumul`, `lvl`, `setup`
@@ -202,6 +207,15 @@ Suffixes:
 - `_sum` — Aggregated sum over bar
 - `_d1_wN` — First derivative over N bars
 - `_d2_wN` — Second derivative over N bars
+
+**Relative Volume Features** (34 features, `rvol_` prefix):
+- `rvol_trade_*` — Trade volume/count ratios and z-scores vs historical
+- `rvol_flow_*` — Flow add/net ratios and z-scores by side
+- `rvol_cumul_*` — Cumulative deviations from expected
+- `rvol_bid_ask_*_asymmetry` — Bid-ask side asymmetries
+- `rvol_aggbuy_aggsell_asymmetry` — Aggressive buy vs sell asymmetry
+- `rvol_lookback_*` — Aggregations over the approach lookback window
+- `rvol_recent_vs_lookback_*` — Recent 1-min vs full lookback comparison
 
 ## Adding a New Stage
 
@@ -246,6 +260,10 @@ Common constants are defined in stage files or dedicated constants modules:
 - `EPSILON = 1e-9` — Prevent division by zero
 - `POINT = 0.25` — ES futures tick size
 - `BAR_DURATION_NS = 5_000_000_000` — 5-second bar duration
+- `LOOKBACK_DAYS = 7` — Days of history for volume profiles
+- `MIN_DAYS = 3` — Minimum days required for valid profile
+- `N_BUCKETS = 48` — 5-minute buckets per session (09:30-13:30)
+- `BARS_PER_BUCKET = 60` — 5-second bars per 5-minute bucket
 
 ## Performance Notes
 

@@ -1,5 +1,18 @@
 # Relative Volume Feature Engineering
 
+## Implementation Status
+
+| Section | Status |
+|---------|--------|
+| Section 1 — Historical Profile Construction | COMPLETE |
+| Section 2 — Relative Volume Feature Computation | COMPLETE |
+| Section 3 — Lookback Profile Features | COMPLETE |
+| Section 4 — Implementation | COMPLETE |
+| Section 5 — Feature Summary | COMPLETE |
+| Section 6 — Expected Impact | N/A (Analysis) |
+| Section 7 — Edge Cases | COMPLETE |
+| Section 8 — Storage Requirements | N/A (Analysis) |
+
 ## Overview
 
 This specification adds **relative volume features** that compare current activity to historical baselines. These features answer: "Is this setup seeing more or less activity than typical for this time of day?"
@@ -343,7 +356,30 @@ Compare the last 1-minute to the full 15-minute lookback:
 
 ---
 
-## Section 4 — Implementation
+## Section 4 — Implementation [COMPLETE]
+
+### Implementation Notes
+
+**New Files Created:**
+- `backend/src/data_eng/stages/silver/future/build_volume_profiles.py` - SilverBuildVolumeProfiles stage
+- `backend/src/data_eng/contracts/silver/future/volume_profiles.avsc` - Avro schema for profiles
+
+**Modified Files:**
+- `backend/src/data_eng/config/datasets.yaml` - Added `silver.future.volume_profiles` dataset
+- `backend/src/data_eng/contracts/silver/future/market_by_price_10_level_approach.avsc` - Added 34 rvol features
+- `backend/src/data_eng/stages/silver/future/compute_approach_features.py` - Added rvol computation
+- `backend/src/data_eng/pipeline.py` - Added SilverBuildVolumeProfiles to pipeline
+
+**Pipeline Order:**
+```
+Stage 4: SilverComputeBar5sFeatures
+    ↓
+Stage 4.5: SilverBuildVolumeProfiles (reads 7 days of Stage 4 output)
+    ↓
+Stage 5: SilverExtractLevelEpisodes
+    ↓
+Stage 6: SilverComputeApproachFeatures (joins with volume_profiles, computes rvol features)
+```
 
 ### 4.1 Pipeline Integration
 

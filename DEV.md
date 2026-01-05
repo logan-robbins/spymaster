@@ -333,14 +333,94 @@ When adding many columns iteratively, use `df = df.copy()` at the start and cons
 
 **IMPORTANT** 
 we are ONLY working on the futures (not futures_options)
-We are using dates from 2025-06-04 to 2025-09-30
+We are using dates from 2025-06-04 to 2025-09-30 BUT this task requires 7 days of lookback, so we must keep that in considieration and adjust dates accoringly. 
 
-there is a current bug after running @FEATURE_ANALYSIS_ABLATION.md
+Read RELATIVE_VOLUME_FEATURES.md in its entirety. 
 
-Fix  the following: 
+Then, consider the following.
 
-deriv_waskz_d2_w72 = setup_start_dist_pts (r = 1.0)
-This is almost certainly a bug in Stage 3 or Stage 5 feature extraction. Two semantically different features should not have perfect correlation. 
+## Pipeline Integration
 
+```
+Stage 4: SilverComputeBar5sFeatures
+    ↓
+    └──→ [NEW] SilverBuildVolumeProfiles (reads 7 days of Stage 4 output)
+             ↓
+             └──→ silver.future.volume_profiles
+    ↓
+Stage 5: SilverExtractLevelEpisodes
+    ↓
+Stage 6: SilverComputeApproachFeatures ←── JOINS with volume_profiles
+    ↓
+    (relative volume features now included)
+```
 
-Begin
+## Profile Builder Spec
+
+| Property | Value |
+|----------|-------|
+| **Input** | `silver.future.market_by_price_10_bar5s` |
+| **Output** | `silver.future.volume_profiles` |
+| **Runs** | Daily (after Stage 4 completes for that date) |
+| **Lookback** | 7 trading days |
+| **Granularity** | 48 buckets per day (5-minute buckets, 09:30-13:30) |
+
+## Output Schema
+
+```
+silver.future.volume_profiles/
+  symbol=ES/
+    profile_date=2024-06-10/
+      part-00000.parquet
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bucket_id` | int | 0-47 (5-min bucket) |
+| `bucket_start_time` | string | "09:30:00", "09:35:00", etc. |
+| `trade_vol_mean` | float | Historical avg trade volume |
+| `trade_vol_std` | float | Historical std |
+| `trade_aggbuy_vol_mean` | float | |
+| `trade_aggsell_vol_mean` | float | |
+| `flow_add_bid_mean` | float | |
+| `flow_add_ask_mean` | float | |
+| `flow_net_bid_mean` | float | |
+| `flow_net_ask_mean` | float | |
+| `msg_cnt_mean` | float | |
+| ... (all metrics) | | |
+| `days_in_lookback` | int | How many days contributed |
+
+## Stage 6 Join Logic
+
+```python
+# In SilverComputeApproachFeatures:
+
+# 1. Load profiles for this date
+profiles = spark.read.parquet(f"silver.future.volume_profiles/symbol=ES/profile_date={date}")
+
+# 2. Add bucket_id to episode bars
+episodes = episodes.withColumn("bucket_id", get_bucket_id(col("bar_ts")))
+
+# 3. Join
+episodes = episodes.join(profiles, on="bucket_id", how="left")
+
+# 4. Compute relative volume features
+episodes = episodes.withColumn(
+    "rvol_trade_vol_ratio",
+    col("bar5s_trade_vol_sum") / (col("trade_vol_mean") / 60 + EPSILON)
+)
+# ... etc
+```
+
+## Dependency Chain
+
+```
+For date D:
+  - Profile Builder needs: Stage 4 output for dates [D-10, D-1]
+  - Profile Builder outputs: profile valid for date D
+  - Stage 6 (date D) reads: profile for date D + episodes for date D
+```
+
+This means Profile Builder can run as a **nightly batch job** after Stage 4 completes, outputting profiles for the *next* trading day.
+
+Implement the spec carefully. Mark the items COMPLETE in the spec documenat as you go. 
