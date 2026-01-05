@@ -113,3 +113,23 @@ uv run python -m src.gateway.main
 
 
 ```
+⏺ Stage 5 implementation is complete. Here's what was built:
+
+  Summary:
+
+  - GoldExtractSetupVectors Stage (backend/src/data_eng/stages/gold/future/extract_setup_vectors.py): Extracts 256-dimensional vectors at trigger bars from episode approach data. Includes snapshot features, derivative features, profile features, and recent momentum.
+  - FAISS Index Builder (backend/src/data_eng/stages/gold/future/build_faiss_index.py): Builds per-level-type FAISS indices with normalization and creates SQLite metadata stores.
+  - Query Interface (backend/src/data_eng/retrieval/query.py): SetupRetriever class for querying similar setups with outcome distribution computation.
+  - Outputs Verified:
+    - 167 total vectors across 4 dates
+    - 4 FAISS indices (one per level type)
+    - 4 SQLite metadata databases
+    - Normalization parameters stored in JSON
+  - Pipeline Integration: GoldExtractSetupVectors registered in pipeline.py and runs as part of the gold layer.
+
+  Usage:
+  # Run daily pipeline
+  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dt 2025-06-05
+
+  # Build indices (after accumulating multiple days)
+  ./databases/build_indices.sh ESU5 "2025-06-05,2025-06-06,2025-06-09,2025-06-10" flat databases/indices
