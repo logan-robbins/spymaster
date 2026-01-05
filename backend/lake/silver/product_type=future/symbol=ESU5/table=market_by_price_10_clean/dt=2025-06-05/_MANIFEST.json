@@ -8,9 +8,9 @@
     {
       "dataset": "bronze.future.market_by_price_10",
       "dt": "2025-06-05",
-      "manifest_sha256": "8a9723adf68b14d74a1adc6c361a20f9abd78391d741faecc1a97b964a565bac"
+      "manifest_sha256": "5962d3752729acb1210aec791a3e0cda5684681517b737ff353e52daaebaf5b7"
     }
   ],
-  "row_count": 1887758,
+  "row_count": 1887671,
   "stage": "silver_convert_utc_to_est"
 }

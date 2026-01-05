@@ -36,7 +36,7 @@ class TickArrays:
         self.ts_event: NDArray[np.int64] = df["ts_event"].values.astype(np.int64)
         self.action: NDArray = df["action"].values
         self.side: NDArray = df["side"].values
-        self.price: NDArray[np.float64] = df["price"].values.astype(np.float64) / 1e9
+        self.price: NDArray[np.float64] = df["price"].values.astype(np.float64)
         self.size: NDArray[np.float64] = np.maximum(df["size"].values.astype(np.float64), 0.0)
         self.sequence: NDArray[np.int64] = df["sequence"].values.astype(np.int64) if "sequence" in df.columns else np.arange(n, dtype=np.int64)
         
@@ -49,8 +49,8 @@ class TickArrays:
         
         for i in range(10):
             idx = f"{i:02d}"
-            self.bid_px[:, i] = df[f"bid_px_{idx}"].values.astype(np.float64) / 1e9
-            self.ask_px[:, i] = df[f"ask_px_{idx}"].values.astype(np.float64) / 1e9
+            self.bid_px[:, i] = df[f"bid_px_{idx}"].values.astype(np.float64)
+            self.ask_px[:, i] = df[f"ask_px_{idx}"].values.astype(np.float64)
             self.bid_sz[:, i] = np.maximum(df[f"bid_sz_{idx}"].values.astype(np.float64), 0.0)
             self.ask_sz[:, i] = np.maximum(df[f"ask_sz_{idx}"].values.astype(np.float64), 0.0)
             self.bid_ct[:, i] = np.maximum(df[f"bid_ct_{idx}"].values.astype(np.float64), 0.0)

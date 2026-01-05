@@ -8,9 +8,9 @@
     {
       "dataset": "silver.future.market_by_price_10_clean",
       "dt": "2025-06-05",
-      "manifest_sha256": "0922eb3cb16b810c753583d3491cb4808a5f32e20bebc1068358fc985a837a9b"
+      "manifest_sha256": "143baf42449399f81c10659022f2c37f7eed0d128363e47bd42e9232ebf83468"
     }
   ],
-  "row_count": 1887758,
+  "row_count": 1887671,
   "stage": "silver_add_session_levels"
 }

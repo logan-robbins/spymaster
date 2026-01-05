@@ -66,6 +66,7 @@ class BronzeProcessDBN(Stage):
     Transformations:
     - Filter to MBP-10 records only (rtype=10)
     - Filter out spreads (symbol contains '-')
+    - Filter out crossed/locked books (bid_px_00 >= ask_px_00)
     - Drop ts_in_delta column
     - Extract flag bits into boolean columns
     
@@ -118,6 +119,15 @@ class BronzeProcessDBN(Stage):
             
             is_spread = df['symbol'].str.contains('-', regex=False).to_numpy()
             df = df[~is_spread].copy()
+            
+            if df.empty:
+                continue
+            
+            is_crossed = df['bid_px_00'].to_numpy() >= df['ask_px_00'].to_numpy()
+            n_crossed = is_crossed.sum()
+            if n_crossed > 0:
+                print(f"      Filtered {n_crossed} crossed/locked book rows")
+            df = df[~is_crossed].copy()
             
             if df.empty:
                 continue
