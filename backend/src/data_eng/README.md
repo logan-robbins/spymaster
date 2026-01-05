@@ -135,15 +135,35 @@ Stages execute sequentially. Each stage's output becomes available for subsequen
 ## CLI Usage
 
 ```bash
+# Single date
 uv run python -m src.data_eng.runner \
   --product-type future \
   --layer silver \
   --symbol ESU5 \
   --dt 2025-06-05
+
+# Date range (inclusive)
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer gold \
+  --symbol ESU5 \
+  --dates 2025-06-05:2025-06-10
+
+# Explicit start/end
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer gold \
+  --symbol ESU5 \
+  --start-date 2025-06-05 \
+  --end-date 2025-06-10 \
+  --workers 4
 ```
 
-Options:
-- `--dates YYYY-MM-DD,YYYY-MM-DD` — Multiple dates
+Date options:
+- `--dt YYYY-MM-DD` — Single date
+- `--dates 2025-06-05:2025-06-10` — Range (colon-separated, inclusive)
+- `--dates 2025-06-05,2025-06-06` — Comma-separated list
+- `--start-date` + `--end-date` — Explicit range
 - `--workers N` — Parallel execution across dates
 
 Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).

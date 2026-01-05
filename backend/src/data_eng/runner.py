@@ -7,6 +7,7 @@ from typing import List
 
 from .config import load_config
 from .pipeline import build_pipeline
+from .utils import expand_date_range
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,7 +37,15 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--dates",
-        help="Comma-separated dates (YYYY-MM-DD,YYYY-MM-DD,...)",
+        help="Comma-separated (2025-06-01,2025-06-02) or range (2025-06-01:2025-06-10)",
+    )
+    p.add_argument(
+        "--start-date",
+        help="Start date for range (YYYY-MM-DD)",
+    )
+    p.add_argument(
+        "--end-date",
+        help="End date for range (YYYY-MM-DD)",
     )
     p.add_argument(
         "--config",
@@ -75,10 +84,15 @@ def main() -> None:
     
     if args.dt:
         dates = [args.dt]
-    elif args.dates:
-        dates = [d.strip() for d in args.dates.split(",") if d.strip()]
     else:
-        raise ValueError("Must provide --dt or --dates")
+        dates = expand_date_range(
+            dates=args.dates,
+            start_date=args.start_date,
+            end_date=args.end_date
+        )
+    
+    if not dates:
+        raise ValueError("Must provide --dt, --dates, or --start-date/--end-date")
     
     print(f"Product Type: {args.product_type}")
     print(f"Layer:        {args.layer}")
