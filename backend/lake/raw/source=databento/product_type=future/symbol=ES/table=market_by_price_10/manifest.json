@@ -1,0 +1,86 @@
+{
+    "job_id": "GLBX-20251222-PXPVMLR6Y9",
+    "files": [
+        {
+            "filename": "condition.json",
+            "size": 722,
+            "hash": "sha256:d71fbe21f9394d5962ee3fa6119c1a58580e63dc8d7b0eb1adfef4ad3e2ab61f",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/condition.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/condition.json"
+            }
+        },
+        {
+            "filename": "metadata.json",
+            "size": 685,
+            "hash": "sha256:13c2849be1d5930f644d4204a0d86d69da11ad99e34fc1b0835d579bbb4c0b36",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/metadata.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/metadata.json"
+            }
+        },
+        {
+            "filename": "symbology.json",
+            "size": 7783,
+            "hash": "sha256:c43eec7b22d56a29ac96891fd22e938afc0d56e0b88da2ad6ad7ed3a81d504af",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/symbology.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/symbology.json"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251214.mbp-10.dbn",
+            "size": 70202406,
+            "hash": "sha256:e1ebc57d32b557104f2889fbaeac3cc7e66e4c772859a91bd92ccb073cbabdbf",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251214.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251214.mbp-10.dbn"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251215.mbp-10.dbn",
+            "size": 7874949542,
+            "hash": "sha256:6d12c435da45d0e1e5cdce4710d20bce51c3b96bd1b7e3305af5cadf5dd494be",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251215.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251215.mbp-10.dbn"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251216.mbp-10.dbn",
+            "size": 9943765318,
+            "hash": "sha256:c44b40df73a0711b1ad08954f6e1a403e265ecac26863777a03c29133cf65a19",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251216.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251216.mbp-10.dbn"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251217.mbp-10.dbn",
+            "size": 9019369558,
+            "hash": "sha256:1e1ca279bc5f0291b61be06ea087ef40cf82d74336a281b62ad2f6a9421218df",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251217.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251217.mbp-10.dbn"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251218.mbp-10.dbn",
+            "size": 9243523142,
+            "hash": "sha256:5382ca7407274ce0f3eb51c410b077a670e5b3a66a765678afbd4ee9cfcfba82",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251218.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251218.mbp-10.dbn"
+            }
+        },
+        {
+            "filename": "glbx-mdp3-20251219.mbp-10.dbn",
+            "size": 3433149798,
+            "hash": "sha256:f5b3057a21dfc8ce84cfee64b8c2822cb62db16ac44c85e27ee71c77f2eeffc3",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251219.mbp-10.dbn",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/GLBX-20251222-PXPVMLR6Y9/glbx-mdp3-20251219.mbp-10.dbn"
+            }
+        }
+    ]
+}
