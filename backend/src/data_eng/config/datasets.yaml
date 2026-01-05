@@ -40,6 +40,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future/market_by_price_10_with_levels.avsc
 
+  silver.future.market_by_price_10_bar5s:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_bar5s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_bar5s.avsc
+
   # Silver - Future Options
   silver.future_option.trades_clean:
     path: silver/product_type=future_option/symbol={symbol}/table=trades_clean
