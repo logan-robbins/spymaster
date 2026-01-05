@@ -72,6 +72,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future/market_by_price_10_first3h.avsc
 
+  gold.future.market_by_price_10_bar5s_filtered:
+    path: gold/product_type=future/symbol={symbol}/table=market_by_price_10_bar5s_filtered
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future/market_by_price_10_bar5s_filtered.avsc
+
   # Gold - Future Options
   gold.future_option.trades_first3h:
     path: gold/product_type=future_option/symbol={symbol}/table=trades_first3h

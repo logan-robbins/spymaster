@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future/market_by_price_10_bar5s_filtered.avsc",
+  "contract_sha256": "9eb15ec4b9b6384af2dfde6dd2be00e7d14d184a8174081d383574d5496f7459",
+  "dataset": "gold.future.market_by_price_10_bar5s_filtered",
+  "dt": "2025-06-06",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future.market_by_price_10_bar5s",
+      "dt": "2025-06-06",
+      "manifest_sha256": "a90dfafbd1bf3619ccbdeecd603ae803452b54d44ef8d94ac3aa82515f4f0572"
+    }
+  ],
+  "row_count": 15122,
+  "stage": "gold_filter_band_range"
+}
