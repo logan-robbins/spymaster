@@ -335,6 +335,12 @@ When adding many columns iteratively, use `df = df.copy()` at the start and cons
 we are ONLY working on the futures (not futures_options)
 We are using dates from 2025-06-04 to 2025-09-30
 
-Your goal is to read FEATURE_ANALYSIS_ABLATION.md in its entirety and implement the solution. The results need to be interpreted by LLM. Carefully track your progress, go step by step and update  IN-LINE in the document as you complete each item.
+there is a current bug after running @FEATURE_ANALYSIS_ABLATION.md
+
+Fix  the following: 
+
+deriv_waskz_d2_w72 = setup_start_dist_pts (r = 1.0)
+This is almost certainly a bug in Stage 3 or Stage 5 feature extraction. Two semantically different features should not have perfect correlation. 
+
 
 Begin
