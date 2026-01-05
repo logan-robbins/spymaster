@@ -70,6 +70,15 @@ uv run python scripts/validate_backfill.py --date 2025-06-20
 
 Refer to backend/src/data_eng/README.md
 
+  # Run daily pipeline (single date)
+  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dt 2025-06-05
+
+  # Run pipeline for date range
+  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dates 2025-06-05:2025-06-10
+
+  # Build indices (after accumulating multiple days)
+  ./databases/build_indices.sh --dates 2025-06-05:2025-06-10 --symbol ESU5
+
 ### 4. Build Retrieval System
 
 ```bash
@@ -113,26 +122,9 @@ uv run python -m src.gateway.main
 
 
 ```
-⏺ Stage 5 implementation is complete. Here's what was built:
 
-  Summary:
-
-  - GoldExtractSetupVectors Stage (backend/src/data_eng/stages/gold/future/extract_setup_vectors.py): Extracts 256-dimensional vectors at trigger bars from episode approach data. Includes snapshot features, derivative features, profile features, and recent momentum.
-  - FAISS Index Builder (backend/src/data_eng/stages/gold/future/build_faiss_index.py): Builds per-level-type FAISS indices with normalization and creates SQLite metadata stores.
-  - Query Interface (backend/src/data_eng/retrieval/query.py): SetupRetriever class for querying similar setups with outcome distribution computation.
-  - Outputs Verified:
-    - 167 total vectors across 4 dates
-    - 4 FAISS indices (one per level type)
-    - 4 SQLite metadata databases
-    - Normalization parameters stored in JSON
-  - Pipeline Integration: GoldExtractSetupVectors registered in pipeline.py and runs as part of the gold layer.
-
-  Usage:
-  # Run daily pipeline (single date)
-  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dt 2025-06-05
-
-  # Run pipeline for date range
-  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dates 2025-06-05:2025-06-10
-
-  # Build indices (after accumulating multiple days)
-  ./databases/build_indices.sh --dates 2025-06-05:2025-06-10 --symbol ESU5
+Outputs Verified:
+  - 167 total vectors across 4 dates
+  - 4 FAISS indices (one per level type)
+  - 4 SQLite metadata databases
+  - Normalization parameters stored in JSON
