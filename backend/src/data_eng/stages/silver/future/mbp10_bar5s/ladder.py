@@ -7,28 +7,24 @@ from .constants import EPSILON, POINT
 
 
 def compute_ladder_features(bid_px: NDArray[np.float64], ask_px: NDArray[np.float64]) -> dict[str, float]:
-    ask_gaps = []
-    for i in range(9):
-        if ask_px[i] > EPSILON and ask_px[i + 1] > EPSILON:
-            gap = (ask_px[i + 1] - ask_px[i]) / POINT
-            ask_gaps.append(gap)
+    valid_ask_pairs = (ask_px[:-1] > EPSILON) & (ask_px[1:] > EPSILON)
+    ask_gaps = np.diff(ask_px) / POINT
+    ask_gaps_valid = ask_gaps[valid_ask_pairs]
     
-    bid_gaps = []
-    for i in range(9):
-        if bid_px[i] > EPSILON and bid_px[i + 1] > EPSILON:
-            gap = (bid_px[i] - bid_px[i + 1]) / POINT
-            bid_gaps.append(gap)
+    valid_bid_pairs = (bid_px[:-1] > EPSILON) & (bid_px[1:] > EPSILON)
+    bid_gaps = -np.diff(bid_px) / POINT
+    bid_gaps_valid = bid_gaps[valid_bid_pairs]
     
-    if len(ask_gaps) > 0:
-        ask_gap_max = float(np.max(ask_gaps))
-        ask_gap_mean = float(np.mean(ask_gaps))
+    if len(ask_gaps_valid) > 0:
+        ask_gap_max = float(np.max(ask_gaps_valid))
+        ask_gap_mean = float(np.mean(ask_gaps_valid))
     else:
         ask_gap_max = float("nan")
         ask_gap_mean = float("nan")
     
-    if len(bid_gaps) > 0:
-        bid_gap_max = float(np.max(bid_gaps))
-        bid_gap_mean = float(np.mean(bid_gaps))
+    if len(bid_gaps_valid) > 0:
+        bid_gap_max = float(np.max(bid_gaps_valid))
+        bid_gap_mean = float(np.mean(bid_gaps_valid))
     else:
         bid_gap_max = float("nan")
         bid_gap_mean = float("nan")
@@ -39,4 +35,3 @@ def compute_ladder_features(bid_px: NDArray[np.float64], ask_px: NDArray[np.floa
         "bid_gap_max_pts": bid_gap_max,
         "bid_gap_mean_pts": bid_gap_mean,
     }
-

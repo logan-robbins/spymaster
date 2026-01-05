@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from .bands import compute_banded_fractions, compute_banded_quantities, compute_cdi
 from .bar_accumulator import BarAccumulator
@@ -17,10 +19,42 @@ from .constants import (
     SIDE_ASK,
     SIDE_BID,
 )
-from .flow import compute_delta_q, compute_flow_band
+from .flow import compute_delta_q_vectorized, compute_flow_band
 from .ladder import compute_ladder_features
 from .shape import compute_shape_fractions
 from .wall import compute_wall_features
+
+
+class TickArrays:
+    __slots__ = (
+        "ts_event", "action", "side", "price", "size", "sequence",
+        "bid_px", "ask_px", "bid_sz", "ask_sz", "bid_ct", "ask_ct",
+    )
+    
+    def __init__(self, df: pd.DataFrame) -> None:
+        n = len(df)
+        self.ts_event: NDArray[np.int64] = df["ts_event"].values.astype(np.int64)
+        self.action: NDArray = df["action"].values
+        self.side: NDArray = df["side"].values
+        self.price: NDArray[np.float64] = df["price"].values.astype(np.float64) / 1e9
+        self.size: NDArray[np.float64] = np.maximum(df["size"].values.astype(np.float64), 0.0)
+        self.sequence: NDArray[np.int64] = df["sequence"].values.astype(np.int64) if "sequence" in df.columns else np.arange(n, dtype=np.int64)
+        
+        self.bid_px = np.zeros((n, 10), dtype=np.float64)
+        self.ask_px = np.zeros((n, 10), dtype=np.float64)
+        self.bid_sz = np.zeros((n, 10), dtype=np.float64)
+        self.ask_sz = np.zeros((n, 10), dtype=np.float64)
+        self.bid_ct = np.zeros((n, 10), dtype=np.float64)
+        self.ask_ct = np.zeros((n, 10), dtype=np.float64)
+        
+        for i in range(10):
+            idx = f"{i:02d}"
+            self.bid_px[:, i] = df[f"bid_px_{idx}"].values.astype(np.float64) / 1e9
+            self.ask_px[:, i] = df[f"ask_px_{idx}"].values.astype(np.float64) / 1e9
+            self.bid_sz[:, i] = np.maximum(df[f"bid_sz_{idx}"].values.astype(np.float64), 0.0)
+            self.ask_sz[:, i] = np.maximum(df[f"ask_sz_{idx}"].values.astype(np.float64), 0.0)
+            self.bid_ct[:, i] = np.maximum(df[f"bid_ct_{idx}"].values.astype(np.float64), 0.0)
+            self.ask_ct[:, i] = np.maximum(df[f"ask_ct_{idx}"].values.astype(np.float64), 0.0)
 
 
 def fill_empty_bar(bar_ts: int, symbol: str, prev_bar: dict) -> dict:
@@ -54,9 +88,7 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         raise ValueError("Missing ts_event column")
     
     df = df.copy()
-    if df["ts_event"].dtype == "int64":
-        pass
-    else:
+    if df["ts_event"].dtype != "int64":
         df["ts_event"] = pd.to_datetime(df["ts_event"]).astype("int64")
     
     if "sequence" not in df.columns:
@@ -64,33 +96,35 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     
     df = df.sort_values(["ts_event", "sequence"]).reset_index(drop=True)
     
-    bars = []
+    ticks = TickArrays(df)
+    n = len(df)
+    
+    bar_starts = (ticks.ts_event // BAR_DURATION_NS) * BAR_DURATION_NS
+    
+    bars: list[dict] = []
     
     current_bar: BarAccumulator | None = None
     pre_state = BookState()
     post_state = BookState()
     
-    first_row = df.iloc[0].to_dict()
-    post_state.load_from_row(first_row)
+    post_state.load_from_arrays(ticks, 0)
     pre_state.copy_from(post_state)
     
-    first_ts = int(first_row["ts_event"])
-    first_bar_start = (first_ts // BAR_DURATION_NS) * BAR_DURATION_NS
+    first_bar_start = int(bar_starts[0])
     current_bar = BarAccumulator(first_bar_start)
     
-    for idx in range(len(df)):
-        row = df.iloc[idx].to_dict()
-        ts_event = int(row["ts_event"])
-        bar_start = (ts_event // BAR_DURATION_NS) * BAR_DURATION_NS
+    for idx in range(n):
+        ts_event = int(ticks.ts_event[idx])
+        bar_start = int(bar_starts[idx])
         
         if current_bar is not None and bar_start > current_bar.bar_start_ns:
             finalize_bar(current_bar, pre_state, symbol, bars)
             current_bar = BarAccumulator(bar_start)
         
-        post_state.load_from_row(row)
+        post_state.load_from_arrays(ticks, idx)
         
         if current_bar is not None:
-            process_event(row, ts_event, pre_state, post_state, current_bar)
+            process_event(ticks, idx, ts_event, pre_state, post_state, current_bar)
         
         pre_state.copy_from(post_state)
     
@@ -130,7 +164,7 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return pd.DataFrame(filled_bars)
 
 
-def process_event(row: dict, ts_event: int, pre_state: BookState, post_state: BookState, bar: BarAccumulator) -> None:
+def process_event(ticks: TickArrays, idx: int, ts_event: int, pre_state: BookState, post_state: BookState, bar: BarAccumulator) -> None:
     dt = ts_event - bar.t_last
     
     if dt > 0:
@@ -152,33 +186,33 @@ def process_event(row: dict, ts_event: int, pre_state: BookState, post_state: Bo
     
     bar.meta_msg_cnt += 1
     
-    action = row["action"]
-    side = row["side"]
+    action = ticks.action[idx]
+    side = ticks.side[idx]
     
     if action == ACTION_CLEAR:
         bar.meta_clear_cnt += 1
     elif action == ACTION_ADD:
         bar.meta_add_cnt += 1
-        process_flow_event(row, pre_state, post_state, bar, "add")
+        process_flow_event(ticks, idx, pre_state, post_state, bar, "add")
     elif action == ACTION_CANCEL:
         bar.meta_cancel_cnt += 1
-        process_flow_event(row, pre_state, post_state, bar, "cancel")
+        process_flow_event(ticks, idx, pre_state, post_state, bar, "cancel")
     elif action == ACTION_MODIFY:
         bar.meta_modify_cnt += 1
-        process_flow_event(row, pre_state, post_state, bar, "modify")
+        process_flow_event(ticks, idx, pre_state, post_state, bar, "modify")
     elif action == ACTION_TRADE:
         bar.meta_trade_cnt += 1
-        process_trade_event(row, bar)
+        process_trade_event(ticks, idx, bar)
 
 
-def process_flow_event(row: dict, pre_state: BookState, post_state: BookState, bar: BarAccumulator, action_type: str) -> None:
-    event_price = float(row["price"]) / 1e9
-    event_side = row["side"]
+def process_flow_event(ticks: TickArrays, idx: int, pre_state: BookState, post_state: BookState, bar: BarAccumulator, action_type: str) -> None:
+    event_price = ticks.price[idx]
+    event_side = ticks.side[idx]
     
     if event_price < EPSILON:
         return
     
-    add_vol, rem_vol = compute_delta_q(event_price, event_side, pre_state, post_state)
+    add_vol, rem_vol = compute_delta_q_vectorized(event_price, event_side, pre_state, post_state)
     
     p_ref = pre_state.compute_microprice()
     band = compute_flow_band(event_price, event_side, p_ref)
@@ -201,9 +235,9 @@ def process_flow_event(row: dict, pre_state: BookState, post_state: BookState, b
         bar.flow_cnt_modify[key] += 1
 
 
-def process_trade_event(row: dict, bar: BarAccumulator) -> None:
-    size = max(0.0, float(row["size"]))
-    side = row["side"]
+def process_trade_event(ticks: TickArrays, idx: int, bar: BarAccumulator) -> None:
+    size = ticks.size[idx]
+    side = ticks.side[idx]
     
     bar.trade_cnt += 1
     bar.trade_vol += size
@@ -374,4 +408,3 @@ def finalize_bar(bar: BarAccumulator, final_state: BookState, symbol: str, bars:
     bar_dict["bar5s_wall_ask_nearest_strong_levelidx_eob"] = wall_ask["nearest_strong_levelidx"]
     
     bars.append(bar_dict)
-
