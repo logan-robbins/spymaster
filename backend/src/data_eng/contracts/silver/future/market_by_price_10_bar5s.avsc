@@ -1,0 +1,1184 @@
+{
+  "namespace": "com.marketdata.silver",
+  "type": "record",
+  "name": "MarketByPrice10Bar5s",
+  "doc": "5-second bar aggregated features from MBP-10 tick data. 233 features covering meta, state, depth, ladder, shape, flow, trade, and wall families.",
+  "fields": [
+    {
+      "name": "bar_ts",
+      "type": "long",
+      "doc": "Bar start timestamp in nanoseconds since Unix epoch (UTC)."
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Instrument symbol (e.g., ESH5)."
+    },
+    {
+      "name": "bar5s_meta_msg_cnt_sum",
+      "type": "double",
+      "doc": "Total event count in bar."
+    },
+    {
+      "name": "bar5s_meta_clear_cnt_sum",
+      "type": "double",
+      "doc": "Count of Clear events (action=1)."
+    },
+    {
+      "name": "bar5s_meta_add_cnt_sum",
+      "type": "double",
+      "doc": "Count of Add events (action=2)."
+    },
+    {
+      "name": "bar5s_meta_cancel_cnt_sum",
+      "type": "double",
+      "doc": "Count of Cancel events (action=3)."
+    },
+    {
+      "name": "bar5s_meta_modify_cnt_sum",
+      "type": "double",
+      "doc": "Count of Modify events (action=0)."
+    },
+    {
+      "name": "bar5s_meta_trade_cnt_sum",
+      "type": "double",
+      "doc": "Count of Trade events (action=4 or 5)."
+    },
+    {
+      "name": "bar5s_state_spread_pts_twa",
+      "type": "double",
+      "doc": "Time-weighted average spread in points."
+    },
+    {
+      "name": "bar5s_state_spread_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar spread in points."
+    },
+    {
+      "name": "bar5s_state_obi0_twa",
+      "type": "double",
+      "doc": "Time-weighted average top-of-book imbalance."
+    },
+    {
+      "name": "bar5s_state_obi0_eob",
+      "type": "double",
+      "doc": "End-of-bar top-of-book imbalance."
+    },
+    {
+      "name": "bar5s_state_obi10_twa",
+      "type": "double",
+      "doc": "Time-weighted average 10-level depth imbalance."
+    },
+    {
+      "name": "bar5s_state_obi10_eob",
+      "type": "double",
+      "doc": "End-of-bar 10-level depth imbalance."
+    },
+    {
+      "name": "bar5s_state_cdi_p0_1_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance for 0-1 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p0_1_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance for 0-1 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p1_2_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance for 1-2 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p1_2_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance for 1-2 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p2_3_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance for 2-3 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p2_3_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance for 2-3 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p3_5_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance for 3-5 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p3_5_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance for 3-5 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p5_10_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance for 5-10 point band."
+    },
+    {
+      "name": "bar5s_state_cdi_p5_10_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance for 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_bid10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average total bid depth (sum of all 10 levels)."
+    },
+    {
+      "name": "bar5s_depth_bid10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar total bid depth."
+    },
+    {
+      "name": "bar5s_depth_ask10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average total ask depth."
+    },
+    {
+      "name": "bar5s_depth_ask10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar total ask depth."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p3_5_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p5_10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p3_5_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p5_10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p3_5_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_below_p5_10_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth in 0-1 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth in 1-2 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth in 2-3 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p3_5_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth in 3-5 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth in 5-10 point band."
+    },
+    {
+      "name": "bar5s_depth_above_p5_10_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth in 5-10 point band."
+    },
+    {
+      "name": "bar5s_ladder_ask_gap_max_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar maximum ask price gap between adjacent levels (in points)."
+    },
+    {
+      "name": "bar5s_ladder_ask_gap_mean_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar mean ask price gap between adjacent levels (in points)."
+    },
+    {
+      "name": "bar5s_ladder_bid_gap_max_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar maximum bid price gap between adjacent levels (in points)."
+    },
+    {
+      "name": "bar5s_ladder_bid_gap_mean_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar mean bid price gap between adjacent levels (in points)."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar bid size at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar ask size at level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar bid count at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar ask count at level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid size at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask size at level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid count at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask count at level 9."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of add volume for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of add volume for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of add volume for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of add volume for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of add volume for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of add volume for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of add volume for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of add volume for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of add volume for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of add volume for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of removal volume for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Sum of net volume (add - rem) for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Count of add events for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Count of add events for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Count of add events for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Count of add events for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Count of add events for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Count of add events for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Count of add events for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Count of add events for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Count of add events for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Count of add events for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Count of cancel events for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Count of cancel events for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Count of cancel events for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Count of cancel events for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Count of cancel events for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Count of cancel events for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Count of cancel events for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Count of cancel events for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Count of cancel events for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Count of cancel events for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Count of modify events for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Count of modify events for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Count of modify events for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Count of modify events for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Count of modify events for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Count of modify events for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Count of modify events for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Count of modify events for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Count of modify events for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Count of modify events for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Normalized net volume for bid side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Normalized net volume for bid side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Normalized net volume for bid side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Normalized net volume for bid side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Normalized net volume for bid side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Normalized net volume for ask side in 0-1 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Normalized net volume for ask side in 1-2 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Normalized net volume for ask side in 2-3 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Normalized net volume for ask side in 3-5 point band."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Normalized net volume for ask side in 5-10 point band."
+    },
+    {
+      "name": "bar5s_trade_cnt_sum",
+      "type": "double",
+      "doc": "Total trade count."
+    },
+    {
+      "name": "bar5s_trade_vol_sum",
+      "type": "double",
+      "doc": "Total trade volume."
+    },
+    {
+      "name": "bar5s_trade_aggbuy_vol_sum",
+      "type": "double",
+      "doc": "Aggressive buy volume (buyer was aggressor)."
+    },
+    {
+      "name": "bar5s_trade_aggsell_vol_sum",
+      "type": "double",
+      "doc": "Aggressive sell volume (seller was aggressor)."
+    },
+    {
+      "name": "bar5s_trade_signed_vol_sum",
+      "type": "double",
+      "doc": "Signed trade volume (aggbuy - aggsell)."
+    },
+    {
+      "name": "bar5s_wall_bid_maxz_eob",
+      "type": "double",
+      "doc": "End-of-bar maximum z-score for bid side wall detection."
+    },
+    {
+      "name": "bar5s_wall_ask_maxz_eob",
+      "type": "double",
+      "doc": "End-of-bar maximum z-score for ask side wall detection."
+    },
+    {
+      "name": "bar5s_wall_bid_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "End-of-bar level index of maximum z-score for bid side."
+    },
+    {
+      "name": "bar5s_wall_ask_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "End-of-bar level index of maximum z-score for ask side."
+    },
+    {
+      "name": "bar5s_wall_bid_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar distance in points to nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar distance in points to nearest strong ask wall."
+    },
+    {
+      "name": "bar5s_wall_bid_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "End-of-bar level index of nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "End-of-bar level index of nearest strong ask wall."
+    }
+  ]
+}
+
