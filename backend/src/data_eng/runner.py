@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Parallel workers (default: 1)",
+        default=8,
+        help="Parallel workers for cross-date processing (default: 8)",
     )
     return p.parse_args()
 

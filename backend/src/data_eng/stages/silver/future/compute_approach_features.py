@@ -176,92 +176,61 @@ class SilverComputeApproachFeatures(Stage):
         return df
 
     def _compute_cumulative_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        for touch_id in df["touch_id"].unique():
-            mask = df["touch_id"] == touch_id
+        g = df.groupby("touch_id", sort=False)
 
-            df.loc[mask, "bar5s_cumul_trade_vol"] = (
-                df.loc[mask, "bar5s_trade_vol_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_signed_trade_vol"] = (
-                df.loc[mask, "bar5s_trade_signed_vol_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_aggbuy_vol"] = (
-                df.loc[mask, "bar5s_trade_aggbuy_vol_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_aggsell_vol"] = (
-                df.loc[mask, "bar5s_trade_aggsell_vol_sum"].cumsum()
-            )
+        cumsum_mappings = {
+            "bar5s_cumul_trade_vol": "bar5s_trade_vol_sum",
+            "bar5s_cumul_signed_trade_vol": "bar5s_trade_signed_vol_sum",
+            "bar5s_cumul_aggbuy_vol": "bar5s_trade_aggbuy_vol_sum",
+            "bar5s_cumul_aggsell_vol": "bar5s_trade_aggsell_vol_sum",
+            "bar5s_cumul_msg_cnt": "bar5s_meta_msg_cnt_sum",
+            "bar5s_cumul_trade_cnt": "bar5s_trade_cnt_sum",
+            "bar5s_cumul_add_cnt": "bar5s_meta_add_cnt_sum",
+            "bar5s_cumul_cancel_cnt": "bar5s_meta_cancel_cnt_sum",
+        }
 
-            bars_elapsed = np.arange(1, mask.sum() + 1)
-            df.loc[mask, "bar5s_cumul_signed_trade_vol_rate"] = (
-                df.loc[mask, "bar5s_cumul_signed_trade_vol"].values / bars_elapsed
-            )
+        for out_col, in_col in cumsum_mappings.items():
+            if in_col in df.columns:
+                df[out_col] = g[in_col].cumsum()
 
-            flow_bid_total = np.zeros(mask.sum())
-            flow_ask_total = np.zeros(mask.sum())
+        bars_elapsed = g.cumcount() + 1
+        df["bar5s_cumul_signed_trade_vol_rate"] = df["bar5s_cumul_signed_trade_vol"] / bars_elapsed
 
-            for band in FLOW_BANDS:
-                bid_col = f"bar5s_flow_net_vol_bid_{band}_sum"
-                ask_col = f"bar5s_flow_net_vol_ask_{band}_sum"
+        flow_bid_total = np.zeros(len(df), dtype=np.float64)
+        flow_ask_total = np.zeros(len(df), dtype=np.float64)
 
-                if bid_col in df.columns:
-                    bid_cumul = df.loc[mask, bid_col].cumsum().values
-                    df.loc[mask, f"bar5s_cumul_flow_net_bid_{band}"] = bid_cumul
-                    flow_bid_total += bid_cumul
+        for band in FLOW_BANDS:
+            bid_col = f"bar5s_flow_net_vol_bid_{band}_sum"
+            ask_col = f"bar5s_flow_net_vol_ask_{band}_sum"
 
-                if ask_col in df.columns:
-                    ask_cumul = df.loc[mask, ask_col].cumsum().values
-                    df.loc[mask, f"bar5s_cumul_flow_net_ask_{band}"] = ask_cumul
-                    flow_ask_total += ask_cumul
+            if bid_col in df.columns:
+                df[f"bar5s_cumul_flow_net_bid_{band}"] = g[bid_col].cumsum()
+                flow_bid_total += df[f"bar5s_cumul_flow_net_bid_{band}"].values
 
-            df.loc[mask, "bar5s_cumul_flow_net_bid"] = flow_bid_total
-            df.loc[mask, "bar5s_cumul_flow_net_ask"] = flow_ask_total
-            df.loc[mask, "bar5s_cumul_flow_imbal"] = flow_bid_total - flow_ask_total
-            df.loc[mask, "bar5s_cumul_flow_imbal_rate"] = (
-                df.loc[mask, "bar5s_cumul_flow_imbal"].values / bars_elapsed
-            )
+            if ask_col in df.columns:
+                df[f"bar5s_cumul_flow_net_ask_{band}"] = g[ask_col].cumsum()
+                flow_ask_total += df[f"bar5s_cumul_flow_net_ask_{band}"].values
 
-            df.loc[mask, "bar5s_cumul_msg_cnt"] = (
-                df.loc[mask, "bar5s_meta_msg_cnt_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_trade_cnt"] = (
-                df.loc[mask, "bar5s_trade_cnt_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_add_cnt"] = (
-                df.loc[mask, "bar5s_meta_add_cnt_sum"].cumsum()
-            )
-            df.loc[mask, "bar5s_cumul_cancel_cnt"] = (
-                df.loc[mask, "bar5s_meta_cancel_cnt_sum"].cumsum()
-            )
+        df["bar5s_cumul_flow_net_bid"] = flow_bid_total
+        df["bar5s_cumul_flow_net_ask"] = flow_ask_total
+        df["bar5s_cumul_flow_imbal"] = flow_bid_total - flow_ask_total
+        df["bar5s_cumul_flow_imbal_rate"] = df["bar5s_cumul_flow_imbal"] / bars_elapsed
 
         return df
 
     def _compute_derivative_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        for touch_id in df["touch_id"].unique():
-            mask = df["touch_id"] == touch_id
-            idx = df.index[mask]
+        g = df.groupby("touch_id", sort=False)
 
-            for short_name, full_col in DERIV_BASE_FEATURES.items():
-                if full_col not in df.columns:
-                    continue
+        for short_name, full_col in DERIV_BASE_FEATURES.items():
+            if full_col not in df.columns:
+                continue
 
-                vals = df.loc[mask, full_col].values
+            for window in DERIV_WINDOWS:
+                d1_col = f"bar5s_deriv_{short_name}_d1_w{window}"
+                d2_col = f"bar5s_deriv_{short_name}_d2_w{window}"
 
-                for window in DERIV_WINDOWS:
-                    d1_col = f"bar5s_deriv_{short_name}_d1_w{window}"
-                    d2_col = f"bar5s_deriv_{short_name}_d2_w{window}"
-
-                    d1 = np.full(len(vals), np.nan)
-                    d2 = np.full(len(vals), np.nan)
-
-                    for i in range(window, len(vals)):
-                        d1[i] = (vals[i] - vals[i - window]) / window
-
-                    for i in range(2 * window, len(vals)):
-                        d2[i] = (d1[i] - d1[i - window]) / window
-
-                    df.loc[idx, d1_col] = d1
-                    df.loc[idx, d2_col] = d2
+                df[d1_col] = g[full_col].transform(lambda x: (x - x.shift(window)) / window)
+                df[d2_col] = g[d1_col].transform(lambda x: (x - x.shift(window)) / window)
 
         return df
 
@@ -330,82 +299,79 @@ class SilverComputeApproachFeatures(Stage):
         return df
 
     def _compute_setup_signature_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        for touch_id in df["touch_id"].unique():
-            mask = df["touch_id"] == touch_id
-            idx = df.index[mask]
-            n_bars = mask.sum()
+        g = df.groupby("touch_id", sort=False)
+        dist_col = "bar5s_approach_dist_to_level_pts_eob"
 
-            dist_col = "bar5s_approach_dist_to_level_pts_eob"
-            dist = df.loc[mask, dist_col].values
+        df["_abs_dist"] = np.abs(df[dist_col])
 
-            df.loc[idx, "bar5s_setup_start_dist_pts"] = dist[0]
-            df.loc[idx, "bar5s_setup_min_dist_pts"] = np.minimum.accumulate(np.abs(dist))[-1] if len(dist) > 0 else np.nan
-            df.loc[idx, "bar5s_setup_max_dist_pts"] = np.maximum.accumulate(np.abs(dist))[-1] if len(dist) > 0 else np.nan
-            df.loc[idx, "bar5s_setup_dist_range_pts"] = (
-                df.loc[idx, "bar5s_setup_max_dist_pts"].values -
-                df.loc[idx, "bar5s_setup_min_dist_pts"].values
-            )
+        df["bar5s_setup_start_dist_pts"] = g[dist_col].transform("first")
+        df["bar5s_setup_min_dist_pts"] = g["_abs_dist"].transform("min")
+        df["bar5s_setup_max_dist_pts"] = g["_abs_dist"].transform("max")
+        df["bar5s_setup_dist_range_pts"] = df["bar5s_setup_max_dist_pts"] - df["bar5s_setup_min_dist_pts"]
 
-            delta_dist = np.diff(np.abs(dist), prepend=np.abs(dist[0]) if len(dist) > 0 else 0)
-            approach_bars = (delta_dist < 0).sum()
-            retreat_bars = (delta_dist > 0).sum()
+        df["_delta_dist"] = g["_abs_dist"].diff().fillna(0.0)
+        df["bar5s_setup_approach_bars"] = g["_delta_dist"].transform(lambda x: (x < 0).sum())
+        df["bar5s_setup_retreat_bars"] = g["_delta_dist"].transform(lambda x: (x > 0).sum())
+        n_bars = g["_delta_dist"].transform("count")
+        df["bar5s_setup_approach_ratio"] = df["bar5s_setup_approach_bars"] / (n_bars + EPSILON)
 
-            df.loc[idx, "bar5s_setup_approach_bars"] = approach_bars
-            df.loc[idx, "bar5s_setup_retreat_bars"] = retreat_bars
-            df.loc[idx, "bar5s_setup_approach_ratio"] = approach_bars / (n_bars + EPSILON)
+        d1_col = "bar5s_deriv_dist_d1_w3"
+        if d1_col in df.columns:
+            df["_bar_idx"] = g.cumcount()
+            df["_n_bars"] = n_bars
+            df["_third"] = np.maximum(1, df["_n_bars"] // 3)
 
-            third = max(1, n_bars // 3)
+            def _velocity_stats(grp: pd.DataFrame) -> pd.Series:
+                d1 = grp[d1_col].values
+                n = len(d1)
+                third = max(1, n // 3)
+                early = np.nanmean(d1[:third]) if third > 0 else 0.0
+                mid = np.nanmean(d1[third:2*third]) if 2*third > third else 0.0
+                late = np.nanmean(d1[2*third:]) if n > 2*third else 0.0
+                return pd.Series({"early": early, "mid": mid, "late": late, "trend": late - early}, index=["early", "mid", "late", "trend"])
 
-            d1_col = "bar5s_deriv_dist_d1_w3"
-            if d1_col in df.columns:
-                d1_vals = df.loc[mask, d1_col].values
+            vel_stats = g.apply(_velocity_stats, include_groups=False).reset_index()
+            vel_stats.columns = ["touch_id", "early", "mid", "late", "trend"]
+            df = df.merge(vel_stats.rename(columns={
+                "early": "bar5s_setup_early_velocity",
+                "mid": "bar5s_setup_mid_velocity",
+                "late": "bar5s_setup_late_velocity",
+                "trend": "bar5s_setup_velocity_trend",
+            }), on="touch_id", how="left")
+        else:
+            df["bar5s_setup_early_velocity"] = 0.0
+            df["bar5s_setup_mid_velocity"] = 0.0
+            df["bar5s_setup_late_velocity"] = 0.0
+            df["bar5s_setup_velocity_trend"] = 0.0
 
-                early_vel = np.nanmean(d1_vals[:third]) if third > 0 else 0.0
-                mid_vel = np.nanmean(d1_vals[third:2*third]) if 2*third > third else 0.0
-                late_vel = np.nanmean(d1_vals[2*third:]) if n_bars > 2*third else 0.0
+        g = df.groupby("touch_id", sort=False)
 
-                df.loc[idx, "bar5s_setup_early_velocity"] = early_vel
-                df.loc[idx, "bar5s_setup_mid_velocity"] = mid_vel
-                df.loc[idx, "bar5s_setup_late_velocity"] = late_vel
-                df.loc[idx, "bar5s_setup_velocity_trend"] = late_vel - early_vel
-            else:
-                df.loc[idx, "bar5s_setup_early_velocity"] = 0.0
-                df.loc[idx, "bar5s_setup_mid_velocity"] = 0.0
-                df.loc[idx, "bar5s_setup_late_velocity"] = 0.0
-                df.loc[idx, "bar5s_setup_velocity_trend"] = 0.0
+        for metric, col in [("obi0", "bar5s_state_obi0_eob"), ("obi10", "bar5s_state_obi10_eob")]:
+            if col in df.columns:
+                df[f"bar5s_setup_{metric}_start"] = g[col].transform("first")
+                df[f"bar5s_setup_{metric}_end"] = g[col].transform("last")
+                df[f"bar5s_setup_{metric}_delta"] = df[f"bar5s_setup_{metric}_end"] - df[f"bar5s_setup_{metric}_start"]
+                df[f"bar5s_setup_{metric}_min"] = g[col].transform("min")
+                df[f"bar5s_setup_{metric}_max"] = g[col].transform("max")
 
-            for metric, col in [("obi0", "bar5s_state_obi0_eob"), ("obi10", "bar5s_state_obi10_eob")]:
-                if col in df.columns:
-                    vals = df.loc[mask, col].values
-                    df.loc[idx, f"bar5s_setup_{metric}_start"] = vals[0] if len(vals) > 0 else np.nan
-                    df.loc[idx, f"bar5s_setup_{metric}_end"] = vals[-1] if len(vals) > 0 else np.nan
-                    df.loc[idx, f"bar5s_setup_{metric}_delta"] = (
-                        vals[-1] - vals[0] if len(vals) > 1 else 0.0
-                    )
-                    df.loc[idx, f"bar5s_setup_{metric}_min"] = np.min(vals) if len(vals) > 0 else np.nan
-                    df.loc[idx, f"bar5s_setup_{metric}_max"] = np.max(vals) if len(vals) > 0 else np.nan
+        df["bar5s_setup_total_trade_vol"] = g["bar5s_trade_vol_sum"].transform("sum")
+        df["bar5s_setup_total_signed_vol"] = g["bar5s_trade_signed_vol_sum"].transform("sum")
+        df["bar5s_setup_trade_imbal_pct"] = df["bar5s_setup_total_signed_vol"] / (df["bar5s_setup_total_trade_vol"] + EPSILON)
 
-            trade_vol = df.loc[mask, "bar5s_trade_vol_sum"].values
-            signed_vol = df.loc[mask, "bar5s_trade_signed_vol_sum"].values
+        df["bar5s_setup_flow_imbal_total"] = g["bar5s_cumul_flow_imbal"].transform("last")
 
-            df.loc[idx, "bar5s_setup_total_trade_vol"] = trade_vol.sum()
-            df.loc[idx, "bar5s_setup_total_signed_vol"] = signed_vol.sum()
-            df.loc[idx, "bar5s_setup_trade_imbal_pct"] = (
-                signed_vol.sum() / (trade_vol.sum() + EPSILON)
-            )
+        df["bar5s_setup_bid_wall_max_z"] = g["bar5s_wall_bid_maxz_eob"].transform("max")
+        df["bar5s_setup_ask_wall_max_z"] = g["bar5s_wall_ask_maxz_eob"].transform("max")
 
-            flow_imbal = df.loc[mask, "bar5s_cumul_flow_imbal"].values
-            df.loc[idx, "bar5s_setup_flow_imbal_total"] = flow_imbal[-1] if len(flow_imbal) > 0 else 0.0
+        df["_bid_wall_strong"] = (df["bar5s_wall_bid_maxz_eob"] > 2.0).astype(np.int32)
+        df["_ask_wall_strong"] = (df["bar5s_wall_ask_maxz_eob"] > 2.0).astype(np.int32)
 
-            bid_wall_z = df.loc[mask, "bar5s_wall_bid_maxz_eob"].values
-            ask_wall_z = df.loc[mask, "bar5s_wall_ask_maxz_eob"].values
+        g = df.groupby("touch_id", sort=False)
+        df["bar5s_setup_bid_wall_bars"] = g["_bid_wall_strong"].transform("sum")
+        df["bar5s_setup_ask_wall_bars"] = g["_ask_wall_strong"].transform("sum")
+        df["bar5s_setup_wall_imbal"] = df["bar5s_setup_ask_wall_bars"] - df["bar5s_setup_bid_wall_bars"]
 
-            df.loc[idx, "bar5s_setup_bid_wall_max_z"] = np.max(bid_wall_z) if len(bid_wall_z) > 0 else 0.0
-            df.loc[idx, "bar5s_setup_ask_wall_max_z"] = np.max(ask_wall_z) if len(ask_wall_z) > 0 else 0.0
-            df.loc[idx, "bar5s_setup_bid_wall_bars"] = (bid_wall_z > 2.0).sum()
-            df.loc[idx, "bar5s_setup_ask_wall_bars"] = (ask_wall_z > 2.0).sum()
-            df.loc[idx, "bar5s_setup_wall_imbal"] = (
-                (ask_wall_z > 2.0).sum() - (bid_wall_z > 2.0).sum()
-            )
+        temp_cols = [c for c in df.columns if c.startswith("_")]
+        df.drop(columns=temp_cols, inplace=True)
 
         return df
