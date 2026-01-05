@@ -383,6 +383,46 @@
     {"name": "bar5s_setup_ask_wall_max_z", "type": "double", "doc": "Max ask wall z-score in lookback."},
     {"name": "bar5s_setup_bid_wall_bars", "type": "double", "doc": "Bars with bid wall z > 2."},
     {"name": "bar5s_setup_ask_wall_bars", "type": "double", "doc": "Bars with ask wall z > 2."},
-    {"name": "bar5s_setup_wall_imbal", "type": "double", "doc": "Wall imbalance (ask - bid bars)."}
+    {"name": "bar5s_setup_wall_imbal", "type": "double", "doc": "Wall imbalance (ask - bid bars)."},
+
+    {"name": "rvol_trade_vol_ratio", "type": ["null", "double"], "doc": "Trade volume ratio vs historical mean."},
+    {"name": "rvol_trade_vol_zscore", "type": ["null", "double"], "doc": "Trade volume z-score vs historical."},
+    {"name": "rvol_trade_cnt_ratio", "type": ["null", "double"], "doc": "Trade count ratio vs historical mean."},
+    {"name": "rvol_trade_cnt_zscore", "type": ["null", "double"], "doc": "Trade count z-score vs historical."},
+    {"name": "rvol_trade_aggbuy_ratio", "type": ["null", "double"], "doc": "Aggressive buy volume ratio vs historical."},
+    {"name": "rvol_trade_aggsell_ratio", "type": ["null", "double"], "doc": "Aggressive sell volume ratio vs historical."},
+    {"name": "rvol_trade_aggbuy_zscore", "type": ["null", "double"], "doc": "Aggressive buy volume z-score vs historical."},
+    {"name": "rvol_trade_aggsell_zscore", "type": ["null", "double"], "doc": "Aggressive sell volume z-score vs historical."},
+
+    {"name": "rvol_flow_add_bid_ratio", "type": ["null", "double"], "doc": "Bid-side add flow ratio vs historical."},
+    {"name": "rvol_flow_add_ask_ratio", "type": ["null", "double"], "doc": "Ask-side add flow ratio vs historical."},
+    {"name": "rvol_flow_add_bid_zscore", "type": ["null", "double"], "doc": "Bid-side add flow z-score vs historical."},
+    {"name": "rvol_flow_add_ask_zscore", "type": ["null", "double"], "doc": "Ask-side add flow z-score vs historical."},
+    {"name": "rvol_flow_net_bid_ratio", "type": ["null", "double"], "doc": "Net bid flow ratio vs historical."},
+    {"name": "rvol_flow_net_ask_ratio", "type": ["null", "double"], "doc": "Net ask flow ratio vs historical."},
+    {"name": "rvol_flow_net_bid_zscore", "type": ["null", "double"], "doc": "Net bid flow z-score vs historical."},
+    {"name": "rvol_flow_net_ask_zscore", "type": ["null", "double"], "doc": "Net ask flow z-score vs historical."},
+    {"name": "rvol_flow_add_total_ratio", "type": ["null", "double"], "doc": "Total add flow ratio vs historical."},
+    {"name": "rvol_flow_add_total_zscore", "type": ["null", "double"], "doc": "Total add flow z-score vs historical."},
+
+    {"name": "rvol_cumul_trade_vol_dev", "type": ["null", "double"], "doc": "Cumulative trade volume deviation from expected."},
+    {"name": "rvol_cumul_trade_vol_dev_pct", "type": ["null", "double"], "doc": "Cumulative trade volume deviation percentage."},
+    {"name": "rvol_cumul_flow_imbal_dev", "type": ["null", "double"], "doc": "Cumulative flow imbalance deviation."},
+    {"name": "rvol_cumul_msg_dev", "type": ["null", "double"], "doc": "Cumulative message count deviation."},
+
+    {"name": "rvol_bid_ask_add_asymmetry", "type": ["null", "double"], "doc": "Bid-ask add flow asymmetry (bid_z - ask_z)."},
+    {"name": "rvol_bid_ask_rem_asymmetry", "type": ["null", "double"], "doc": "Bid-ask remove flow asymmetry."},
+    {"name": "rvol_bid_ask_net_asymmetry", "type": ["null", "double"], "doc": "Bid-ask net flow asymmetry."},
+    {"name": "rvol_aggbuy_aggsell_asymmetry", "type": ["null", "double"], "doc": "Aggressive buy-sell asymmetry."},
+
+    {"name": "rvol_lookback_trade_vol_mean_ratio", "type": ["null", "double"], "doc": "Mean trade volume ratio over lookback."},
+    {"name": "rvol_lookback_trade_vol_max_ratio", "type": ["null", "double"], "doc": "Max trade volume ratio over lookback."},
+    {"name": "rvol_lookback_trade_vol_trend", "type": ["null", "double"], "doc": "Trade volume ratio trend (late - early)."},
+    {"name": "rvol_lookback_elevated_bars", "type": ["null", "double"], "doc": "Count of bars with ratio > 1.5."},
+    {"name": "rvol_lookback_depressed_bars", "type": ["null", "double"], "doc": "Count of bars with ratio < 0.5."},
+    {"name": "rvol_lookback_asymmetry_mean", "type": ["null", "double"], "doc": "Mean bid-ask net asymmetry over lookback."},
+
+    {"name": "rvol_recent_vs_lookback_vol_ratio", "type": ["null", "double"], "doc": "Recent 1min vs lookback volume ratio."},
+    {"name": "rvol_recent_vs_lookback_asymmetry", "type": ["null", "double"], "doc": "Recent 1min vs lookback asymmetry."}
   ]
 }
