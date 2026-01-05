@@ -1,4 +1,4 @@
-# Stage 3 — Approach & Setup Feature Engineering
+# Stage 3 — Approach & Setup Feature Engineering [COMPLETE]
 
 ## Context
 
@@ -18,7 +18,7 @@
 
 ---
 
-## Section 0 — Naming Convention
+## Section 0 — Naming Convention [COMPLETE]
 
 Stage 3 features extend the base naming:
 
@@ -45,7 +45,7 @@ Window notation:
 
 ---
 
-## Section 1 — Level-Relative Position Features
+## Section 1 — Level-Relative Position Features [COMPLETE]
 
 These define WHERE price is relative to the level being tested.
 
@@ -121,7 +121,7 @@ approach_alignment = -1 * side_of_level * level_polarity
 
 ---
 
-## Section 2 — Temporal Derivatives
+## Section 2 — Temporal Derivatives [COMPLETE]
 
 Compute derivatives of key base features to capture momentum and acceleration.
 
@@ -222,7 +222,7 @@ bar5s_deriv_cdi01_d1_w36    # Rate of near-level imbalance change (3min)
 
 ---
 
-## Section 3 — Cumulative Features
+## Section 3 — Cumulative Features [COMPLETE]
 
 Track what has accumulated during the approach.
 
@@ -293,7 +293,7 @@ cumul_signed_trade_vol_per_bar = cumul_signed_trade_vol / bars_elapsed
 
 ---
 
-## Section 4 — Level-Relative Book Reframing
+## Section 4 — Level-Relative Book Reframing [COMPLETE]
 
 The base features compute depth "above/below microprice." For level tests, we also need "above/below THE LEVEL."
 
@@ -358,7 +358,7 @@ If price is ABOVE level (approaching from above):
 
 ---
 
-## Section 5 — Setup Signature Features
+## Section 5 — Setup Signature Features [COMPLETE]
 
 Compressed characterization of the full approach pattern.
 
@@ -432,7 +432,7 @@ Same pattern for:
 
 ---
 
-## Section 6 — Feature Groupings for Retrieval
+## Section 6 — Feature Groupings for Retrieval [COMPLETE]
 
 For similarity search, features should be grouped by what they measure.
 
@@ -495,7 +495,7 @@ setup_bid/ask_wall_max_z, wall_bars, wall_imbal
 
 ---
 
-## Section 7 — Computation Notes
+## Section 7 — Computation Notes [COMPLETE]
 
 ### 7.1 Lookback Handling
 
@@ -546,7 +546,7 @@ is_post_touch                   # True if in 8-min forward
 
 ---
 
-## Section 8 — Feature Count Summary
+## Section 8 — Feature Count Summary [COMPLETE]
 
 | Category | Count |
 |----------|-------|
@@ -560,7 +560,7 @@ is_post_touch                   # True if in 8-min forward
 
 ---
 
-## Section 9 — Validation Checks
+## Section 9 — Validation Checks [COMPLETE]
 
 ### 9.1 Position Features
 - `dist_to_level_pts` should be in range [-1, +1] by construction (±1 pt filter)
