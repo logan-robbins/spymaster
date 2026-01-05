@@ -25,17 +25,15 @@ class GoldFilterFirst3Hours(Stage):
 
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         ts = pd.to_datetime(df["ts_event_est"], utc=False)
-        # Ensure timezone is America/New_York
+        
         if ts.dt.tz is None:
-            # If a tz-naive string slips in, interpret as New York time
             ts = ts.dt.tz_localize("America/New_York")
         else:
             ts = ts.dt.tz_convert("America/New_York")
-
-        # Build the RTH window for this partition date in New York time
-        date = ts.dt.normalize().iloc[0]
-        start = date + pd.Timedelta(hours=9, minutes=30)
+        
+        partition_date = pd.Timestamp(dt, tz="America/New_York")
+        start = partition_date + pd.Timedelta(hours=9, minutes=30)
         end = start + pd.Timedelta(hours=3)
-
+        
         mask = (ts >= start) & (ts < end)
         return df.loc[mask].copy()

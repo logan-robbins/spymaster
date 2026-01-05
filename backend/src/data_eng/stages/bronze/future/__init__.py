@@ -1,4 +1,4 @@
-from .process_dbn import process_mbp10_to_bronze
+from .process_dbn import BronzeProcessDBN
 
-__all__ = ["process_mbp10_to_bronze"]
+__all__ = ["BronzeProcessDBN"]
 
