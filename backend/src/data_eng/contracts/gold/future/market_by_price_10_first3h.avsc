@@ -2,7 +2,7 @@
   "namespace": "com.marketdata.gold",
   "type": "record",
   "name": "MarketByPrice10First3H",
-  "doc": "Gold MBP-10 subset restricted to the first three hours of regular trading (America/New_York).",
+  "doc": "Gold MBP-10 filtered to first 3 hours of RTH (09:30-12:30 America/New_York).",
   "fields": [
     {
       "name": "ts_recv",
@@ -23,11 +23,6 @@
       "name": "ts_event_est",
       "type": "string",
       "doc": "The matching-engine-received timestamp converted to America/New_York (ISO-8601 string with timezone offset)."
-    },
-    {
-      "name": "ts_in_delta",
-      "type": "int",
-      "doc": "The matching-engine-sending timestamp expressed as the number of nanoseconds before ts_recv."
     },
     {
       "name": "rtype",
@@ -373,6 +368,31 @@
       "name": "ask_ct_09",
       "type": "long",
       "doc": "The number of ask orders at level 09 (top level if N=00)."
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "The instrument symbol."
+    },
+    {
+      "name": "is_last",
+      "type": "boolean",
+      "doc": "Flag bit 0x80: Last message in the packet from the venue for a given instrument_id+ts_event."
+    },
+    {
+      "name": "is_snapshot",
+      "type": "boolean",
+      "doc": "Flag bit 0x20: Message sourced from a replay, such as a snapshot server."
+    },
+    {
+      "name": "is_bad_ts",
+      "type": "boolean",
+      "doc": "Flag bit 0x08: Timestamp is inaccurate due to clock issues or latency."
+    },
+    {
+      "name": "is_bad_book",
+      "type": "boolean",
+      "doc": "Flag bit 0x04: Top-of-book message where the best bid is above the best ask."
     }
   ]
 }

@@ -61,21 +61,44 @@ Hour-level partitioning (`hour=HH/`) is supported but not currently used.
 ```bash
 cd backend
 
-# Process DBN files to Bronze (vectorized for M4 Silicon)
-uv run python -c "
-from pathlib import Path
-from src.data_eng.config import load_config
-from src.data_eng.stages.bronze.future import process_mbp10_to_bronze
-
-repo_root = Path('.')
-cfg = load_config(repo_root, repo_root / 'src/data_eng/config/datasets.yaml')
-process_mbp10_to_bronze(cfg, repo_root, 'ES', '2025-06-05')
-"
-
-# Run Silver → Gold pipeline
+# Bronze: Process DBN → Parquet (front month only)
 uv run python -m src.data_eng.runner \
   --product-type future \
-  --symbol ESM6 \
+  --layer bronze \
+  --symbol ES \
   --dt 2025-06-05 \
+  --config src/data_eng/config/datasets.yaml
+
+# Silver: UTC → EST conversion (use contract symbol from Bronze output)
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESM5 \
+  --dt 2025-06-05 \
+  --config src/data_eng/config/datasets.yaml
+
+# Gold: Filter first 3 hours RTH
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer gold \
+  --symbol ESM5 \
+  --dt 2025-06-05 \
+  --config src/data_eng/config/datasets.yaml
+
+# Run all layers (Bronze → Silver → Gold)
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer all \
+  --symbol ES \
+  --dt 2025-06-05 \
+  --config src/data_eng/config/datasets.yaml
+
+# Parallel processing (multiple dates)
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer bronze \
+  --symbol ES \
+  --dates 2025-06-05,2025-06-06,2025-06-07 \
+  --workers 4 \
   --config src/data_eng/config/datasets.yaml
 ```
