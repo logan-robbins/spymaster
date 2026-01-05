@@ -46,6 +46,30 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future/market_by_price_10_bar5s.avsc
 
+  silver.future.market_by_price_10_pm_high_episodes:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_pm_high_episodes
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_level_episodes.avsc
+
+  silver.future.market_by_price_10_pm_low_episodes:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_pm_low_episodes
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_level_episodes.avsc
+
+  silver.future.market_by_price_10_or_high_episodes:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_or_high_episodes
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_level_episodes.avsc
+
+  silver.future.market_by_price_10_or_low_episodes:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_or_low_episodes
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_level_episodes.avsc
+
   # Silver - Future Options
   silver.future_option.trades_clean:
     path: silver/product_type=future_option/symbol={symbol}/table=trades_clean

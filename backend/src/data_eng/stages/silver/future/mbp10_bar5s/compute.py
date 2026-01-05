@@ -311,6 +311,8 @@ def finalize_bar(bar: BarAccumulator, final_state: BookState, symbol: str, bars:
     bar_dict = {
         "bar_ts": bar.bar_start_ns,
         "symbol": symbol,
+        "bar5s_microprice_eob": p_ref_eob,
+        "bar5s_midprice_eob": (final_state.bid_px[0] + final_state.ask_px[0]) / 2.0,
         "bar5s_meta_msg_cnt_sum": bar.meta_msg_cnt,
         "bar5s_meta_clear_cnt_sum": bar.meta_clear_cnt,
         "bar5s_meta_add_cnt_sum": bar.meta_add_cnt,

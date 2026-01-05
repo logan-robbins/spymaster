@@ -15,6 +15,16 @@
       "doc": "Instrument symbol (e.g., ESH5)."
     },
     {
+      "name": "bar5s_microprice_eob",
+      "type": "double",
+      "doc": "End-of-bar microprice: size-weighted average of best bid and ask prices."
+    },
+    {
+      "name": "bar5s_midprice_eob",
+      "type": "double",
+      "doc": "End-of-bar midprice: simple average of best bid and ask prices."
+    },
+    {
       "name": "bar5s_meta_msg_cnt_sum",
       "type": "double",
       "doc": "Total event count in bar."
