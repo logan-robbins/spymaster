@@ -19,6 +19,7 @@ from ....io import (
     partition_ref,
     read_partition,
 )
+from ....utils import expand_date_range
 
 TARGET_DIM = 256
 LEVEL_TYPES = ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW"]
@@ -269,7 +270,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="Build FAISS indices and metadata from setup vectors")
     parser.add_argument("--symbol", type=str, default="ESU5", help="Symbol to process")
-    parser.add_argument("--dates", type=str, required=True, help="Comma-separated dates (YYYY-MM-DD)")
+    parser.add_argument("--dates", type=str, help="Comma-separated dates or range (2025-06-05:2025-06-10)")
+    parser.add_argument("--start-date", type=str, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, help="End date (YYYY-MM-DD)")
     parser.add_argument("--output-dir", type=str, default="databases/indices", help="Output directory")
     parser.add_argument("--index-type", type=str, default="flat", choices=["flat", "ivf_flat", "ivf_pq"])
 
@@ -279,7 +282,13 @@ def main():
     config_path = repo_root / "src" / "data_eng" / "config" / "datasets.yaml"
     cfg = load_config(repo_root, config_path)
 
-    dates = [d.strip() for d in args.dates.split(",")]
+    dates = expand_date_range(
+        dates=args.dates,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
+    if not dates:
+        raise ValueError("Must provide --dates or --start-date/--end-date")
     output_dir = repo_root / args.output_dir
 
     result = build_all_indices(

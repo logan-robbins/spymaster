@@ -128,8 +128,11 @@ uv run python -m src.gateway.main
   - Pipeline Integration: GoldExtractSetupVectors registered in pipeline.py and runs as part of the gold layer.
 
   Usage:
-  # Run daily pipeline
+  # Run daily pipeline (single date)
   uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dt 2025-06-05
 
+  # Run pipeline for date range
+  uv run python -m src.data_eng.runner --product-type future --layer gold --symbol ESU5 --dates 2025-06-05:2025-06-10
+
   # Build indices (after accumulating multiple days)
-  ./databases/build_indices.sh ESU5 "2025-06-05,2025-06-06,2025-06-09,2025-06-10" flat databases/indices
+  ./databases/build_indices.sh --dates 2025-06-05:2025-06-10 --symbol ESU5
