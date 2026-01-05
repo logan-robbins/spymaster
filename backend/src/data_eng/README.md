@@ -1,3 +1,15 @@
+# PREFACE
+
+We are currently iterating on our data pipeline. We have two types of pipeline:
+
+1) In the *LEVEL* pipeline, ALL features in the output are relative and DIRECTLY related ONLY to the *LEVEL* we are interested in. The day trader is watching their chart and asking "is this price going to bounce/reject or break through this *LEVEL*". The *LEVEL* is explicity Pre-Market High/Low, Opening Range High/Low, SMA 90 (based on 2 min bars). 
+
+2) in *MARKET* Pipeline, it is GENERAL market context based off of the MBP-10 data we have for Futures, and Trades+NBBO+Statistics data we have for the Futures Options. 
+
+Eventually we may combine ALL feature vectors into a single vector, so it is criticial we do not duplicate/mix features in the final output for each *LEVEL* data pipeline, and prepend the *LEVEL*  name to each feature. The Market/global does not need a prefix, and it is important we dont duplicate features. 
+
+The rules are: *WE ONLY USE* industry STANDARD terminology, we call the features EXACTLY WHAT THEY ARE, we name the stages EXACTLY WHAT WE ARE. We follow BEST PRACTICES for data pipelines as "stages"-- meanting we load -> transform -> write. every stage is atomic and idempotent. Every stage focuses on ONE concern. Every stage has a DEFINED input -> output contract.
+
 # Market data pipeline (Bronze → Silver → Gold)
 
 **Bronze**: DBN → Parquet, front-month contract only, filters spreads, extracts flag bits

@@ -63,19 +63,7 @@ Summary:
 No code in summaries. Skip summaries for simple questions.
 </response_format>
 
-Read @README.md for context. 
-
-We are currently iterating on our data pipeline. We have two types of pipeliens:
-
-1) In the ES Pipeline, ALL features in the output are relative and DIRECTLY related ONLY to the *LEVEL* we are interested in. The day trader is watching their chart and asking "is this price going to bounce/reject or break through this level". The *LEVEL* is explicity Pre-Market High/Low, Opening Range High/Low, SMA 90 (based on 2 min bars). 
-
-2) in the ES Market/Global Pipeline, it is GENERAL market context based off of the MBP-10 data we have for Futures, and Trades+NBBO+Statistics data we have for the underlying Options. 
-
-We have the following features: @backend/src/pipeline/core/feature_definitions.py
-
-Eventually we may combine ALL feature vectors into a single vector, so it is criticial we do not duplicate/mix features in the final output for each *LEVEL* data pipeline, and prepend the level name to each feature. The Market/global does not need a prefix, and it is important we dont duplicate features. 
-
-The rules are: *WE ONLY USE* industry STANDARD terminology, we call the features EXACTLY WHAT THEY ARE, we name the stages EXACTLY WHAT WE ARE. We follow BEST PRACTICES for data pipelines as "stages"-- meanting we load -> transform -> write. every stage is atomic and idempotent. Every stage focuses on ONE concern. Every stage has a DEFINED input -> output contract. 
+Read @README.md for context.  
 
 **IMPORTANT**
 This is a paltform specifically built to visualize market/dealer physics in the first 3 hours of trading (when volume is the highest). The goal is not to predict price, but to retrieve similar "setups" and their labeled outcomes.
