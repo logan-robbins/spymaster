@@ -50,7 +50,6 @@ def build_bronze_to_silver_pipeline() -> Pipeline:
         name="bronze_to_silver",
         version="1.0",  
         stages=[
-            LoadBronzeStage(),
             BuildAllOHLCVStage(),
             InitMarketStateStage(),
             GenerateLevelsStage(),

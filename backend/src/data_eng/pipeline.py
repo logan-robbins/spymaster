@@ -19,18 +19,20 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     if product_type == "future":
         from .stages.bronze.future.process_dbn import BronzeProcessDBN
         from .stages.silver.future.convert_utc_to_est import SilverConvertUtcToEst
+        from .stages.silver.future.add_session_levels import SilverAddSessionLevels
         from .stages.gold.future.filter_first3h import GoldFilterFirst3Hours
         
         if layer == "bronze":
             return [BronzeProcessDBN()]
         elif layer == "silver":
-            return [SilverConvertUtcToEst()]
+            return [SilverConvertUtcToEst(), SilverAddSessionLevels()]
         elif layer == "gold":
             return [GoldFilterFirst3Hours()]
         elif layer == "all":
             return [
                 BronzeProcessDBN(),
                 SilverConvertUtcToEst(),
+                SilverAddSessionLevels(),
                 GoldFilterFirst3Hours(),
             ]
     

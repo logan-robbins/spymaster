@@ -64,7 +64,3 @@ No code in summaries. Skip summaries for simple questions.
 </response_format>
 
 Read @README.md for context.  
-
-**IMPORTANT**
-This is a paltform specifically built to visualize market/dealer physics in the first 3 hours of trading (when volume is the highest). The goal is not to predict price, but to retrieve similar "setups" and their labeled outcomes.
-Here is the core value prop we answer for the trader: "I am watching PM High at 6800. Price is approaching from below. I see call and long physics outpacing put/short physics at 6799 showing that people expect the price go above. At the same time, I see call/long physics at 6800 outpacing put/short physics. At the same time, I see call/long physics at 6801 outpacing put/short physics. BUT At 6802, I see MASSIVE put/short/resting limit sells. Represening both negative sentiment/positioning, and massive liquidity increasing that will make it tough for the price to go above 6802." WE answer THAT specific question- in both directions, for 4-5 key levels (not every singel point/strike). The exhaustive feature permutations in both directions are important for our model. THIS must be in the core of every line of code we write.
