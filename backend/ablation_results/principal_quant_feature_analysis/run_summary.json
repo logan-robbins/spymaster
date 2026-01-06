@@ -1,0 +1,43 @@
+{
+  "symbol": "ESU5",
+  "dates": [
+    "2025-06-04",
+    "2025-06-05",
+    "2025-06-06",
+    "2025-06-07",
+    "2025-06-08",
+    "2025-06-09",
+    "2025-06-10",
+    "2025-06-11",
+    "2025-06-12",
+    "2025-06-13"
+  ],
+  "skipped_dates": [
+    "2025-06-07",
+    "2025-06-08"
+  ],
+  "n_rows": 238,
+  "n_features": 448,
+  "n_representatives": 253,
+  "n_representatives_used": 253,
+  "train_dates": [
+    "2025-06-04",
+    "2025-06-05",
+    "2025-06-06",
+    "2025-06-09",
+    "2025-06-10",
+    "2025-06-11"
+  ],
+  "test_dates": [
+    "2025-06-12",
+    "2025-06-13"
+  ],
+  "outcome_map": {
+    "CHOP": 0,
+    "STRONG_BOUNCE": 1,
+    "STRONG_BREAK": 2,
+    "WEAK_BOUNCE": 3,
+    "WEAK_BREAK": 4
+  },
+  "output_dir": "/Users/loganrobbins/research/qmachina/spymaster/backend/ablation_results/principal_quant_feature_analysis"
+}

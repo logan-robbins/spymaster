@@ -1,0 +1,33 @@
+{
+  "selected_indices": [
+    17,
+    395,
+    374
+  ],
+  "selected_names": [
+    "is_extended_forward",
+    "bar5s_setup_obi10_min",
+    "bar5s_lvl_size_at_level_d1_w12"
+  ],
+  "final_accuracy": 0.5882352941176471,
+  "history": [
+    {
+      "step": 1,
+      "added_feature": "is_extended_forward",
+      "accuracy": 0.5,
+      "improvement": 0.5
+    },
+    {
+      "step": 2,
+      "added_feature": "bar5s_setup_obi10_min",
+      "accuracy": 0.5588235294117647,
+      "improvement": 0.05882352941176472
+    },
+    {
+      "step": 3,
+      "added_feature": "bar5s_lvl_size_at_level_d1_w12",
+      "accuracy": 0.5882352941176471,
+      "improvement": 0.02941176470588236
+    }
+  ]
+}
