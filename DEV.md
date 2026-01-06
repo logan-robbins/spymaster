@@ -72,7 +72,7 @@ Here is the core value prop we answer for the trader: "I am watching PM High at 
 **System**: Retrieves historically similar market setups when price approaches technical levels, presenting empirical outcome distributions.
 
 
-### README ###
+<readme>
 
 # data_eng Module — AI Agent Reference
 
@@ -96,8 +96,9 @@ Level features MUST be prefixed with level name to prevent duplication when vect
 | 2 | `SilverConvertUtcToEst` | `silver.future.market_by_price_10_clean` | Add `ts_event_est` timezone conversion |
 | 3 | `SilverAddSessionLevels` | `silver.future.market_by_price_10_with_levels` | Add PM_HIGH, PM_LOW, OR_HIGH, OR_LOW |
 | 4 | `SilverComputeBar5sFeatures` | `silver.future.market_by_price_10_bar5s` | Aggregate tick data into 5s bars with features |
+| 4.5 | `SilverBuildVolumeProfiles` | `silver.future.volume_profiles` | Build 7-day rolling volume profiles (48 buckets) |
 | 5 | `SilverExtractLevelEpisodes` | `silver.future.market_by_price_10_{level}_episodes` | Extract approach episodes per level (×4) |
-| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative features per episode (×4) |
+| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative + relative volume features (×4) |
 | 7 | `GoldFilterFirst3Hours` | `gold.future.market_by_price_10_first3h` | Filter to RTH 09:30–12:30 NY |
 | 8 | `GoldFilterBandRange` | `gold.future.market_by_price_10_bar5s_filtered` | Nullify out-of-range band features |
 | 9 | `GoldExtractSetupVectors` | **`gold.future.setup_vectors`** | Final output: labeled setup vectors for retrieval |
@@ -107,6 +108,9 @@ Level features MUST be prefixed with level name to prevent duplication when vect
 **Level Tables** (×4 each for PM_HIGH, PM_LOW, OR_HIGH, OR_LOW):
 - Stage 5 outputs: `market_by_price_10_pm_high_episodes`, `market_by_price_10_pm_low_episodes`, `market_by_price_10_or_high_episodes`, `market_by_price_10_or_low_episodes`
 - Stage 6 outputs: `market_by_price_10_pm_high_approach`, `market_by_price_10_pm_low_approach`, `market_by_price_10_or_high_approach`, `market_by_price_10_or_low_approach`
+
+**Volume Profile Table**:
+- Stage 4.5 outputs: `volume_profiles` — 48 rows per date (one per 5-minute bucket from 09:30-13:30)
 
 ## Module Structure
 
@@ -231,6 +235,21 @@ Stages execute sequentially. Each stage's output becomes available for subsequen
 ## CLI Usage
 
 ```bash
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESU5 \
+  --dates 2025-06-11:2025-08-30 \
+  --workers 8
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESZ5 \
+  --dates 2025-09-01:2025-09-30 \
+  --workers 8
+
 # Single date
 uv run python -m src.data_eng.runner \
   --product-type future \
@@ -243,7 +262,15 @@ uv run python -m src.data_eng.runner \
   --product-type future \
   --layer gold \
   --symbol ESU5 \
-  --dates 2025-06-05:2025-06-10
+  --dates 2025-06-11:2025-08-30 \
+  --workers 8
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer gold \
+  --symbol ESZ5 \
+  --dates 2025-09-01:2025-09-30 \
+  --workers 8
 
 # Explicit start/end
 uv run python -m src.data_eng.runner \
@@ -268,6 +295,7 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 ```
 bar5s_<family>_<detail>_<agg>_<suffix>
+rvol_<category>_<metric>
 ```
 
 Families: `state`, `depth`, `flow`, `trade`, `wall`, `shape`, `ladder`, `approach`, `deriv`, `cumul`, `lvl`, `setup`
@@ -322,105 +350,24 @@ Common constants are defined in stage files or dedicated constants modules:
 - `EPSILON = 1e-9` — Prevent division by zero
 - `POINT = 0.25` — ES futures tick size
 - `BAR_DURATION_NS = 5_000_000_000` — 5-second bar duration
+- `LOOKBACK_DAYS = 7` — Days of history for volume profiles
+- `MIN_DAYS = 3` — Minimum days required for valid profile
+- `N_BUCKETS = 48` — 5-minute buckets per session (09:30-13:30)
+- `BARS_PER_BUCKET = 60` — 5-second bars per 5-minute bucket
 
 ## Performance Notes
 
 When adding many columns iteratively, use `df = df.copy()` at the start and consider batch assignment to avoid DataFrame fragmentation warnings. For large-scale column additions, pre-allocate columns or use `pd.concat(axis=1)`.
 
 
-### END README ###
+
+</readme>
 
 
 **IMPORTANT** 
 we are ONLY working on the futures (not futures_options)
-We are using dates from 2025-06-04 to 2025-09-30 BUT this task requires 7 days of lookback, so we must keep that in considieration and adjust dates accoringly. 
+We are using dates from 2025-06-11 to 2025-09-30
 
-Read RELATIVE_VOLUME_FEATURES.md in its entirety. 
-
-Then, consider the following.
-
-## Pipeline Integration
-
-```
-Stage 4: SilverComputeBar5sFeatures
-    ↓
-    └──→ [NEW] SilverBuildVolumeProfiles (reads 7 days of Stage 4 output)
-             ↓
-             └──→ silver.future.volume_profiles
-    ↓
-Stage 5: SilverExtractLevelEpisodes
-    ↓
-Stage 6: SilverComputeApproachFeatures ←── JOINS with volume_profiles
-    ↓
-    (relative volume features now included)
-```
-
-## Profile Builder Spec
-
-| Property | Value |
-|----------|-------|
-| **Input** | `silver.future.market_by_price_10_bar5s` |
-| **Output** | `silver.future.volume_profiles` |
-| **Runs** | Daily (after Stage 4 completes for that date) |
-| **Lookback** | 7 trading days |
-| **Granularity** | 48 buckets per day (5-minute buckets, 09:30-13:30) |
-
-## Output Schema
-
-```
-silver.future.volume_profiles/
-  symbol=ES/
-    profile_date=2024-06-10/
-      part-00000.parquet
-```
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `bucket_id` | int | 0-47 (5-min bucket) |
-| `bucket_start_time` | string | "09:30:00", "09:35:00", etc. |
-| `trade_vol_mean` | float | Historical avg trade volume |
-| `trade_vol_std` | float | Historical std |
-| `trade_aggbuy_vol_mean` | float | |
-| `trade_aggsell_vol_mean` | float | |
-| `flow_add_bid_mean` | float | |
-| `flow_add_ask_mean` | float | |
-| `flow_net_bid_mean` | float | |
-| `flow_net_ask_mean` | float | |
-| `msg_cnt_mean` | float | |
-| ... (all metrics) | | |
-| `days_in_lookback` | int | How many days contributed |
-
-## Stage 6 Join Logic
-
-```python
-# In SilverComputeApproachFeatures:
-
-# 1. Load profiles for this date
-profiles = spark.read.parquet(f"silver.future.volume_profiles/symbol=ES/profile_date={date}")
-
-# 2. Add bucket_id to episode bars
-episodes = episodes.withColumn("bucket_id", get_bucket_id(col("bar_ts")))
-
-# 3. Join
-episodes = episodes.join(profiles, on="bucket_id", how="left")
-
-# 4. Compute relative volume features
-episodes = episodes.withColumn(
-    "rvol_trade_vol_ratio",
-    col("bar5s_trade_vol_sum") / (col("trade_vol_mean") / 60 + EPSILON)
-)
-# ... etc
-```
-
-## Dependency Chain
-
-```
-For date D:
-  - Profile Builder needs: Stage 4 output for dates [D-10, D-1]
-  - Profile Builder outputs: profile valid for date D
-  - Stage 6 (date D) reads: profile for date D + episodes for date D
-```
-
-This means Profile Builder can run as a **nightly batch job** after Stage 4 completes, outputting profiles for the *next* trading day.
+The spec is: 
 
 Implement the spec carefully. Mark the items COMPLETE in the spec documenat as you go. 

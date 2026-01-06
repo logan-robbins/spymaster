@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future/volume_profiles.avsc",
+  "contract_sha256": "1caecddca69f3a38be050efa8ffac8b35f18bba45f2455f408b125127e180f18",
+  "dataset": "silver.future.volume_profiles",
+  "dt": "2025-06-05",
+  "hour": null,
+  "inputs": [],
+  "row_count": 48,
+  "stage": "silver_build_volume_profiles"
+}
