@@ -249,11 +249,21 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         bar_dict["bar5s_ladder_bid_gap_mean_pts_eob"] = bid_gap_mean
 
         for i in range(10):
+            bar_dict[f"bar5s_shape_bid_px_l{i:02d}_eob"] = float(eob_bid_px[i])
+        
+        for i in range(10):
+            bar_dict[f"bar5s_shape_ask_px_l{i:02d}_eob"] = float(eob_ask_px[i])
+        
+        for i in range(10):
             bar_dict[f"bar5s_shape_bid_sz_l{i:02d}_eob"] = float(eob_bid_sz[i])
+        
+        for i in range(10):
             bar_dict[f"bar5s_shape_ask_sz_l{i:02d}_eob"] = float(eob_ask_sz[i])
 
         for i in range(10):
             bar_dict[f"bar5s_shape_bid_ct_l{i:02d}_eob"] = float(eob_bid_ct[i])
+        
+        for i in range(10):
             bar_dict[f"bar5s_shape_ask_ct_l{i:02d}_eob"] = float(eob_ask_ct[i])
 
         for i in range(10):

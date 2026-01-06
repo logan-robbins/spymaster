@@ -1,6 +1,6 @@
 {
   "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future/market_by_price_10_bar5s.avsc",
-  "contract_sha256": "098c5836d74a474cd7c0d4e68bfa25ac185e8f9548e88be55b7cf9aabd82896b",
+  "contract_sha256": "398aed5446ea3c38599e8fe616490d76585d63580886531a2879674ab93c1af3",
   "dataset": "silver.future.market_by_price_10_bar5s",
   "dt": "2025-06-10",
   "hour": null,
