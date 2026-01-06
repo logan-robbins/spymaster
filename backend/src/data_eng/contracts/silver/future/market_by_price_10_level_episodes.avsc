@@ -390,6 +390,106 @@
       "doc": "End-of-bar mean bid price gap between adjacent levels."
     },
     {
+      "name": "bar5s_shape_bid_px_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 9."
+    },
+    {
       "name": "bar5s_shape_bid_sz_l00_eob",
       "type": "double",
       "doc": "End-of-bar bid size at level 0."

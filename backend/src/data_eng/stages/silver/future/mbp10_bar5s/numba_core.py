@@ -428,9 +428,9 @@ def process_all_ticks(
             bar_trade_cnt[bar_idx] += 1
             bar_trade_vol[bar_idx] += sz
             if sd == SIDE_ASK:
-                bar_trade_aggbuy_vol[bar_idx] += sz
-            elif sd == SIDE_BID:
                 bar_trade_aggsell_vol[bar_idx] += sz
+            elif sd == SIDE_BID:
+                bar_trade_aggbuy_vol[bar_idx] += sz
 
         pre_bid_px[:] = post_bid_px
         pre_ask_px[:] = post_ask_px

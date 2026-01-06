@@ -4,425 +4,2674 @@
   "name": "MarketByPrice10LevelApproach",
   "doc": "Level episode data with approach features: position, derivatives, cumulatives, level-relative book, and setup signature features.",
   "fields": [
-    {"name": "bar_ts", "type": "long", "doc": "Bar start timestamp in nanoseconds since Unix epoch (UTC)."},
-    {"name": "symbol", "type": "string", "doc": "Instrument symbol (e.g., ESH5)."},
-    {"name": "episode_id", "type": "string", "doc": "Unique episode identifier: {date}_{symbol}_{level_type}_{trigger_bar_ts}."},
-    {"name": "touch_id", "type": "string", "doc": "Alias for episode_id."},
-    {"name": "level_type", "type": "string", "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."},
-    {"name": "level_price", "type": "double", "doc": "Actual price of the level in points."},
-    {"name": "trigger_bar_ts", "type": "long", "doc": "Timestamp of the trigger bar in nanoseconds."},
-    {"name": "bar_index_in_episode", "type": "long", "doc": "0-indexed position within episode."},
-    {"name": "bar_index_in_touch", "type": "long", "doc": "Alias for bar_index_in_episode."},
-    {"name": "bars_to_trigger", "type": "long", "doc": "Negative = before trigger, 0 = trigger bar, positive = after."},
-    {"name": "is_pre_trigger", "type": "boolean", "doc": "True if bar is in lookback period."},
-    {"name": "is_pre_touch", "type": "boolean", "doc": "Alias for is_pre_trigger."},
-    {"name": "is_trigger_bar", "type": "boolean", "doc": "True if this is the trigger bar."},
-    {"name": "is_post_trigger", "type": "boolean", "doc": "True if bar is after trigger."},
-    {"name": "is_post_touch", "type": "boolean", "doc": "Alias for is_post_trigger."},
-    {"name": "approach_direction", "type": "long", "doc": "+1 = from below, -1 = from above."},
-    {"name": "is_standard_approach", "type": "boolean", "doc": "True if testing HIGH from below or LOW from above."},
-    {"name": "dist_to_level_pts", "type": "double", "doc": "Signed distance: microprice - level_price."},
-    {"name": "signed_dist_pts", "type": "double", "doc": "Normalized: dist_to_level * approach_direction."},
-    {"name": "outcome", "type": "string", "doc": "STRONG_BREAK, WEAK_BREAK, CHOP, WEAK_BOUNCE, STRONG_BOUNCE."},
-    {"name": "outcome_score", "type": "double", "doc": "Continuous outcome measure [-5, +5]."},
-    {"name": "is_truncated_lookback", "type": "boolean", "doc": "True if lookback < 15 min."},
-    {"name": "is_truncated_forward", "type": "boolean", "doc": "True if forward cut short by session end."},
-    {"name": "is_extended_forward", "type": "boolean", "doc": "True if forward window was extended."},
-    {"name": "extension_count", "type": "long", "doc": "Number of re-touch extensions."},
-    {"name": "bar5s_microprice_eob", "type": "double", "doc": "End-of-bar microprice."},
-    {"name": "bar5s_midprice_eob", "type": "double", "doc": "End-of-bar midprice."},
-    {"name": "bar5s_meta_msg_cnt_sum", "type": "double", "doc": "Total event count in bar."},
-    {"name": "bar5s_meta_clear_cnt_sum", "type": "double", "doc": "Count of Clear events."},
-    {"name": "bar5s_meta_add_cnt_sum", "type": "double", "doc": "Count of Add events."},
-    {"name": "bar5s_meta_cancel_cnt_sum", "type": "double", "doc": "Count of Cancel events."},
-    {"name": "bar5s_meta_modify_cnt_sum", "type": "double", "doc": "Count of Modify events."},
-    {"name": "bar5s_meta_trade_cnt_sum", "type": "double", "doc": "Count of Trade events."},
-    {"name": "bar5s_state_spread_pts_twa", "type": "double", "doc": "Time-weighted average spread in points."},
-    {"name": "bar5s_state_spread_pts_eob", "type": "double", "doc": "End-of-bar spread in points."},
-    {"name": "bar5s_state_obi0_twa", "type": "double", "doc": "Time-weighted average top-of-book imbalance."},
-    {"name": "bar5s_state_obi0_eob", "type": "double", "doc": "End-of-bar top-of-book imbalance."},
-    {"name": "bar5s_state_obi10_twa", "type": "double", "doc": "Time-weighted average 10-level depth imbalance."},
-    {"name": "bar5s_state_obi10_eob", "type": "double", "doc": "End-of-bar 10-level depth imbalance."},
-    {"name": "bar5s_state_cdi_p0_1_twa", "type": "double", "doc": "Time-weighted average cross-depth imbalance 0-1 pt."},
-    {"name": "bar5s_state_cdi_p0_1_eob", "type": "double", "doc": "End-of-bar cross-depth imbalance 0-1 pt."},
-    {"name": "bar5s_state_cdi_p1_2_twa", "type": "double", "doc": "Time-weighted average cross-depth imbalance 1-2 pt."},
-    {"name": "bar5s_state_cdi_p1_2_eob", "type": "double", "doc": "End-of-bar cross-depth imbalance 1-2 pt."},
-    {"name": "bar5s_state_cdi_p2_3_twa", "type": "double", "doc": "Time-weighted average cross-depth imbalance 2-3 pt."},
-    {"name": "bar5s_state_cdi_p2_3_eob", "type": "double", "doc": "End-of-bar cross-depth imbalance 2-3 pt."},
-    {"name": "bar5s_depth_bid10_qty_twa", "type": "double", "doc": "Time-weighted average total bid depth."},
-    {"name": "bar5s_depth_bid10_qty_eob", "type": "double", "doc": "End-of-bar total bid depth."},
-    {"name": "bar5s_depth_ask10_qty_twa", "type": "double", "doc": "Time-weighted average total ask depth."},
-    {"name": "bar5s_depth_ask10_qty_eob", "type": "double", "doc": "End-of-bar total ask depth."},
-    {"name": "bar5s_depth_below_p0_1_qty_twa", "type": "double", "doc": "Time-weighted average bid quantity 0-1 pt."},
-    {"name": "bar5s_depth_below_p0_1_qty_eob", "type": "double", "doc": "End-of-bar bid quantity 0-1 pt."},
-    {"name": "bar5s_depth_below_p1_2_qty_twa", "type": "double", "doc": "Time-weighted average bid quantity 1-2 pt."},
-    {"name": "bar5s_depth_below_p1_2_qty_eob", "type": "double", "doc": "End-of-bar bid quantity 1-2 pt."},
-    {"name": "bar5s_depth_below_p2_3_qty_twa", "type": "double", "doc": "Time-weighted average bid quantity 2-3 pt."},
-    {"name": "bar5s_depth_below_p2_3_qty_eob", "type": "double", "doc": "End-of-bar bid quantity 2-3 pt."},
-    {"name": "bar5s_depth_above_p0_1_qty_twa", "type": "double", "doc": "Time-weighted average ask quantity 0-1 pt."},
-    {"name": "bar5s_depth_above_p0_1_qty_eob", "type": "double", "doc": "End-of-bar ask quantity 0-1 pt."},
-    {"name": "bar5s_depth_above_p1_2_qty_twa", "type": "double", "doc": "Time-weighted average ask quantity 1-2 pt."},
-    {"name": "bar5s_depth_above_p1_2_qty_eob", "type": "double", "doc": "End-of-bar ask quantity 1-2 pt."},
-    {"name": "bar5s_depth_above_p2_3_qty_twa", "type": "double", "doc": "Time-weighted average ask quantity 2-3 pt."},
-    {"name": "bar5s_depth_above_p2_3_qty_eob", "type": "double", "doc": "End-of-bar ask quantity 2-3 pt."},
-    {"name": "bar5s_depth_below_p0_1_frac_twa", "type": "double", "doc": "Time-weighted average fractional bid depth 0-1 pt."},
-    {"name": "bar5s_depth_below_p0_1_frac_eob", "type": "double", "doc": "End-of-bar fractional bid depth 0-1 pt."},
-    {"name": "bar5s_depth_below_p1_2_frac_twa", "type": "double", "doc": "Time-weighted average fractional bid depth 1-2 pt."},
-    {"name": "bar5s_depth_below_p1_2_frac_eob", "type": "double", "doc": "End-of-bar fractional bid depth 1-2 pt."},
-    {"name": "bar5s_depth_below_p2_3_frac_twa", "type": "double", "doc": "Time-weighted average fractional bid depth 2-3 pt."},
-    {"name": "bar5s_depth_below_p2_3_frac_eob", "type": "double", "doc": "End-of-bar fractional bid depth 2-3 pt."},
-    {"name": "bar5s_depth_above_p0_1_frac_twa", "type": "double", "doc": "Time-weighted average fractional ask depth 0-1 pt."},
-    {"name": "bar5s_depth_above_p0_1_frac_eob", "type": "double", "doc": "End-of-bar fractional ask depth 0-1 pt."},
-    {"name": "bar5s_depth_above_p1_2_frac_twa", "type": "double", "doc": "Time-weighted average fractional ask depth 1-2 pt."},
-    {"name": "bar5s_depth_above_p1_2_frac_eob", "type": "double", "doc": "End-of-bar fractional ask depth 1-2 pt."},
-    {"name": "bar5s_depth_above_p2_3_frac_twa", "type": "double", "doc": "Time-weighted average fractional ask depth 2-3 pt."},
-    {"name": "bar5s_depth_above_p2_3_frac_eob", "type": "double", "doc": "End-of-bar fractional ask depth 2-3 pt."},
-    {"name": "bar5s_ladder_ask_gap_max_pts_eob", "type": "double", "doc": "Max ask price gap."},
-    {"name": "bar5s_ladder_ask_gap_mean_pts_eob", "type": "double", "doc": "Mean ask price gap."},
-    {"name": "bar5s_ladder_bid_gap_max_pts_eob", "type": "double", "doc": "Max bid price gap."},
-    {"name": "bar5s_ladder_bid_gap_mean_pts_eob", "type": "double", "doc": "Mean bid price gap."},
-    {"name": "bar5s_shape_bid_sz_l00_eob", "type": "double", "doc": "Bid size level 0."},
-    {"name": "bar5s_shape_bid_sz_l01_eob", "type": "double", "doc": "Bid size level 1."},
-    {"name": "bar5s_shape_bid_sz_l02_eob", "type": "double", "doc": "Bid size level 2."},
-    {"name": "bar5s_shape_bid_sz_l03_eob", "type": "double", "doc": "Bid size level 3."},
-    {"name": "bar5s_shape_bid_sz_l04_eob", "type": "double", "doc": "Bid size level 4."},
-    {"name": "bar5s_shape_bid_sz_l05_eob", "type": "double", "doc": "Bid size level 5."},
-    {"name": "bar5s_shape_bid_sz_l06_eob", "type": "double", "doc": "Bid size level 6."},
-    {"name": "bar5s_shape_bid_sz_l07_eob", "type": "double", "doc": "Bid size level 7."},
-    {"name": "bar5s_shape_bid_sz_l08_eob", "type": "double", "doc": "Bid size level 8."},
-    {"name": "bar5s_shape_bid_sz_l09_eob", "type": "double", "doc": "Bid size level 9."},
-    {"name": "bar5s_shape_ask_sz_l00_eob", "type": "double", "doc": "Ask size level 0."},
-    {"name": "bar5s_shape_ask_sz_l01_eob", "type": "double", "doc": "Ask size level 1."},
-    {"name": "bar5s_shape_ask_sz_l02_eob", "type": "double", "doc": "Ask size level 2."},
-    {"name": "bar5s_shape_ask_sz_l03_eob", "type": "double", "doc": "Ask size level 3."},
-    {"name": "bar5s_shape_ask_sz_l04_eob", "type": "double", "doc": "Ask size level 4."},
-    {"name": "bar5s_shape_ask_sz_l05_eob", "type": "double", "doc": "Ask size level 5."},
-    {"name": "bar5s_shape_ask_sz_l06_eob", "type": "double", "doc": "Ask size level 6."},
-    {"name": "bar5s_shape_ask_sz_l07_eob", "type": "double", "doc": "Ask size level 7."},
-    {"name": "bar5s_shape_ask_sz_l08_eob", "type": "double", "doc": "Ask size level 8."},
-    {"name": "bar5s_shape_ask_sz_l09_eob", "type": "double", "doc": "Ask size level 9."},
-    {"name": "bar5s_shape_bid_ct_l00_eob", "type": "double", "doc": "Bid count level 0."},
-    {"name": "bar5s_shape_bid_ct_l01_eob", "type": "double", "doc": "Bid count level 1."},
-    {"name": "bar5s_shape_bid_ct_l02_eob", "type": "double", "doc": "Bid count level 2."},
-    {"name": "bar5s_shape_bid_ct_l03_eob", "type": "double", "doc": "Bid count level 3."},
-    {"name": "bar5s_shape_bid_ct_l04_eob", "type": "double", "doc": "Bid count level 4."},
-    {"name": "bar5s_shape_bid_ct_l05_eob", "type": "double", "doc": "Bid count level 5."},
-    {"name": "bar5s_shape_bid_ct_l06_eob", "type": "double", "doc": "Bid count level 6."},
-    {"name": "bar5s_shape_bid_ct_l07_eob", "type": "double", "doc": "Bid count level 7."},
-    {"name": "bar5s_shape_bid_ct_l08_eob", "type": "double", "doc": "Bid count level 8."},
-    {"name": "bar5s_shape_bid_ct_l09_eob", "type": "double", "doc": "Bid count level 9."},
-    {"name": "bar5s_shape_ask_ct_l00_eob", "type": "double", "doc": "Ask count level 0."},
-    {"name": "bar5s_shape_ask_ct_l01_eob", "type": "double", "doc": "Ask count level 1."},
-    {"name": "bar5s_shape_ask_ct_l02_eob", "type": "double", "doc": "Ask count level 2."},
-    {"name": "bar5s_shape_ask_ct_l03_eob", "type": "double", "doc": "Ask count level 3."},
-    {"name": "bar5s_shape_ask_ct_l04_eob", "type": "double", "doc": "Ask count level 4."},
-    {"name": "bar5s_shape_ask_ct_l05_eob", "type": "double", "doc": "Ask count level 5."},
-    {"name": "bar5s_shape_ask_ct_l06_eob", "type": "double", "doc": "Ask count level 6."},
-    {"name": "bar5s_shape_ask_ct_l07_eob", "type": "double", "doc": "Ask count level 7."},
-    {"name": "bar5s_shape_ask_ct_l08_eob", "type": "double", "doc": "Ask count level 8."},
-    {"name": "bar5s_shape_ask_ct_l09_eob", "type": "double", "doc": "Ask count level 9."},
-    {"name": "bar5s_shape_bid_sz_frac_l00_eob", "type": "double", "doc": "Fractional bid size level 0."},
-    {"name": "bar5s_shape_bid_sz_frac_l01_eob", "type": "double", "doc": "Fractional bid size level 1."},
-    {"name": "bar5s_shape_bid_sz_frac_l02_eob", "type": "double", "doc": "Fractional bid size level 2."},
-    {"name": "bar5s_shape_bid_sz_frac_l03_eob", "type": "double", "doc": "Fractional bid size level 3."},
-    {"name": "bar5s_shape_bid_sz_frac_l04_eob", "type": "double", "doc": "Fractional bid size level 4."},
-    {"name": "bar5s_shape_bid_sz_frac_l05_eob", "type": "double", "doc": "Fractional bid size level 5."},
-    {"name": "bar5s_shape_bid_sz_frac_l06_eob", "type": "double", "doc": "Fractional bid size level 6."},
-    {"name": "bar5s_shape_bid_sz_frac_l07_eob", "type": "double", "doc": "Fractional bid size level 7."},
-    {"name": "bar5s_shape_bid_sz_frac_l08_eob", "type": "double", "doc": "Fractional bid size level 8."},
-    {"name": "bar5s_shape_bid_sz_frac_l09_eob", "type": "double", "doc": "Fractional bid size level 9."},
-    {"name": "bar5s_shape_ask_sz_frac_l00_eob", "type": "double", "doc": "Fractional ask size level 0."},
-    {"name": "bar5s_shape_ask_sz_frac_l01_eob", "type": "double", "doc": "Fractional ask size level 1."},
-    {"name": "bar5s_shape_ask_sz_frac_l02_eob", "type": "double", "doc": "Fractional ask size level 2."},
-    {"name": "bar5s_shape_ask_sz_frac_l03_eob", "type": "double", "doc": "Fractional ask size level 3."},
-    {"name": "bar5s_shape_ask_sz_frac_l04_eob", "type": "double", "doc": "Fractional ask size level 4."},
-    {"name": "bar5s_shape_ask_sz_frac_l05_eob", "type": "double", "doc": "Fractional ask size level 5."},
-    {"name": "bar5s_shape_ask_sz_frac_l06_eob", "type": "double", "doc": "Fractional ask size level 6."},
-    {"name": "bar5s_shape_ask_sz_frac_l07_eob", "type": "double", "doc": "Fractional ask size level 7."},
-    {"name": "bar5s_shape_ask_sz_frac_l08_eob", "type": "double", "doc": "Fractional ask size level 8."},
-    {"name": "bar5s_shape_ask_sz_frac_l09_eob", "type": "double", "doc": "Fractional ask size level 9."},
-    {"name": "bar5s_shape_bid_ct_frac_l00_eob", "type": "double", "doc": "Fractional bid count level 0."},
-    {"name": "bar5s_shape_bid_ct_frac_l01_eob", "type": "double", "doc": "Fractional bid count level 1."},
-    {"name": "bar5s_shape_bid_ct_frac_l02_eob", "type": "double", "doc": "Fractional bid count level 2."},
-    {"name": "bar5s_shape_bid_ct_frac_l03_eob", "type": "double", "doc": "Fractional bid count level 3."},
-    {"name": "bar5s_shape_bid_ct_frac_l04_eob", "type": "double", "doc": "Fractional bid count level 4."},
-    {"name": "bar5s_shape_bid_ct_frac_l05_eob", "type": "double", "doc": "Fractional bid count level 5."},
-    {"name": "bar5s_shape_bid_ct_frac_l06_eob", "type": "double", "doc": "Fractional bid count level 6."},
-    {"name": "bar5s_shape_bid_ct_frac_l07_eob", "type": "double", "doc": "Fractional bid count level 7."},
-    {"name": "bar5s_shape_bid_ct_frac_l08_eob", "type": "double", "doc": "Fractional bid count level 8."},
-    {"name": "bar5s_shape_bid_ct_frac_l09_eob", "type": "double", "doc": "Fractional bid count level 9."},
-    {"name": "bar5s_shape_ask_ct_frac_l00_eob", "type": "double", "doc": "Fractional ask count level 0."},
-    {"name": "bar5s_shape_ask_ct_frac_l01_eob", "type": "double", "doc": "Fractional ask count level 1."},
-    {"name": "bar5s_shape_ask_ct_frac_l02_eob", "type": "double", "doc": "Fractional ask count level 2."},
-    {"name": "bar5s_shape_ask_ct_frac_l03_eob", "type": "double", "doc": "Fractional ask count level 3."},
-    {"name": "bar5s_shape_ask_ct_frac_l04_eob", "type": "double", "doc": "Fractional ask count level 4."},
-    {"name": "bar5s_shape_ask_ct_frac_l05_eob", "type": "double", "doc": "Fractional ask count level 5."},
-    {"name": "bar5s_shape_ask_ct_frac_l06_eob", "type": "double", "doc": "Fractional ask count level 6."},
-    {"name": "bar5s_shape_ask_ct_frac_l07_eob", "type": "double", "doc": "Fractional ask count level 7."},
-    {"name": "bar5s_shape_ask_ct_frac_l08_eob", "type": "double", "doc": "Fractional ask count level 8."},
-    {"name": "bar5s_shape_ask_ct_frac_l09_eob", "type": "double", "doc": "Fractional ask count level 9."},
-    {"name": "bar5s_flow_add_vol_bid_p0_1_sum", "type": "double", "doc": "Add volume bid 0-1 pt."},
-    {"name": "bar5s_flow_add_vol_bid_p1_2_sum", "type": "double", "doc": "Add volume bid 1-2 pt."},
-    {"name": "bar5s_flow_add_vol_bid_p2_3_sum", "type": "double", "doc": "Add volume bid 2-3 pt."},
-    {"name": "bar5s_flow_add_vol_ask_p0_1_sum", "type": "double", "doc": "Add volume ask 0-1 pt."},
-    {"name": "bar5s_flow_add_vol_ask_p1_2_sum", "type": "double", "doc": "Add volume ask 1-2 pt."},
-    {"name": "bar5s_flow_add_vol_ask_p2_3_sum", "type": "double", "doc": "Add volume ask 2-3 pt."},
-    {"name": "bar5s_flow_rem_vol_bid_p0_1_sum", "type": "double", "doc": "Removal volume bid 0-1 pt."},
-    {"name": "bar5s_flow_rem_vol_bid_p1_2_sum", "type": "double", "doc": "Removal volume bid 1-2 pt."},
-    {"name": "bar5s_flow_rem_vol_bid_p2_3_sum", "type": "double", "doc": "Removal volume bid 2-3 pt."},
-    {"name": "bar5s_flow_rem_vol_ask_p0_1_sum", "type": "double", "doc": "Removal volume ask 0-1 pt."},
-    {"name": "bar5s_flow_rem_vol_ask_p1_2_sum", "type": "double", "doc": "Removal volume ask 1-2 pt."},
-    {"name": "bar5s_flow_rem_vol_ask_p2_3_sum", "type": "double", "doc": "Removal volume ask 2-3 pt."},
-    {"name": "bar5s_flow_net_vol_bid_p0_1_sum", "type": "double", "doc": "Net volume bid 0-1 pt."},
-    {"name": "bar5s_flow_net_vol_bid_p1_2_sum", "type": "double", "doc": "Net volume bid 1-2 pt."},
-    {"name": "bar5s_flow_net_vol_bid_p2_3_sum", "type": "double", "doc": "Net volume bid 2-3 pt."},
-    {"name": "bar5s_flow_net_vol_ask_p0_1_sum", "type": "double", "doc": "Net volume ask 0-1 pt."},
-    {"name": "bar5s_flow_net_vol_ask_p1_2_sum", "type": "double", "doc": "Net volume ask 1-2 pt."},
-    {"name": "bar5s_flow_net_vol_ask_p2_3_sum", "type": "double", "doc": "Net volume ask 2-3 pt."},
-    {"name": "bar5s_flow_cnt_add_bid_p0_1_sum", "type": "double", "doc": "Add count bid 0-1 pt."},
-    {"name": "bar5s_flow_cnt_add_bid_p1_2_sum", "type": "double", "doc": "Add count bid 1-2 pt."},
-    {"name": "bar5s_flow_cnt_add_bid_p2_3_sum", "type": "double", "doc": "Add count bid 2-3 pt."},
-    {"name": "bar5s_flow_cnt_add_ask_p0_1_sum", "type": "double", "doc": "Add count ask 0-1 pt."},
-    {"name": "bar5s_flow_cnt_add_ask_p1_2_sum", "type": "double", "doc": "Add count ask 1-2 pt."},
-    {"name": "bar5s_flow_cnt_add_ask_p2_3_sum", "type": "double", "doc": "Add count ask 2-3 pt."},
-    {"name": "bar5s_flow_cnt_cancel_bid_p0_1_sum", "type": "double", "doc": "Cancel count bid 0-1 pt."},
-    {"name": "bar5s_flow_cnt_cancel_bid_p1_2_sum", "type": "double", "doc": "Cancel count bid 1-2 pt."},
-    {"name": "bar5s_flow_cnt_cancel_bid_p2_3_sum", "type": "double", "doc": "Cancel count bid 2-3 pt."},
-    {"name": "bar5s_flow_cnt_cancel_ask_p0_1_sum", "type": "double", "doc": "Cancel count ask 0-1 pt."},
-    {"name": "bar5s_flow_cnt_cancel_ask_p1_2_sum", "type": "double", "doc": "Cancel count ask 1-2 pt."},
-    {"name": "bar5s_flow_cnt_cancel_ask_p2_3_sum", "type": "double", "doc": "Cancel count ask 2-3 pt."},
-    {"name": "bar5s_flow_cnt_modify_bid_p0_1_sum", "type": "double", "doc": "Modify count bid 0-1 pt."},
-    {"name": "bar5s_flow_cnt_modify_bid_p1_2_sum", "type": "double", "doc": "Modify count bid 1-2 pt."},
-    {"name": "bar5s_flow_cnt_modify_bid_p2_3_sum", "type": "double", "doc": "Modify count bid 2-3 pt."},
-    {"name": "bar5s_flow_cnt_modify_ask_p0_1_sum", "type": "double", "doc": "Modify count ask 0-1 pt."},
-    {"name": "bar5s_flow_cnt_modify_ask_p1_2_sum", "type": "double", "doc": "Modify count ask 1-2 pt."},
-    {"name": "bar5s_flow_cnt_modify_ask_p2_3_sum", "type": "double", "doc": "Modify count ask 2-3 pt."},
-    {"name": "bar5s_flow_net_volnorm_bid_p0_1_sum", "type": "double", "doc": "Normalized net volume bid 0-1 pt."},
-    {"name": "bar5s_flow_net_volnorm_bid_p1_2_sum", "type": "double", "doc": "Normalized net volume bid 1-2 pt."},
-    {"name": "bar5s_flow_net_volnorm_bid_p2_3_sum", "type": "double", "doc": "Normalized net volume bid 2-3 pt."},
-    {"name": "bar5s_flow_net_volnorm_ask_p0_1_sum", "type": "double", "doc": "Normalized net volume ask 0-1 pt."},
-    {"name": "bar5s_flow_net_volnorm_ask_p1_2_sum", "type": "double", "doc": "Normalized net volume ask 1-2 pt."},
-    {"name": "bar5s_flow_net_volnorm_ask_p2_3_sum", "type": "double", "doc": "Normalized net volume ask 2-3 pt."},
-    {"name": "bar5s_trade_cnt_sum", "type": "double", "doc": "Total trade count."},
-    {"name": "bar5s_trade_vol_sum", "type": "double", "doc": "Total trade volume."},
-    {"name": "bar5s_trade_aggbuy_vol_sum", "type": "double", "doc": "Aggressive buy volume."},
-    {"name": "bar5s_trade_aggsell_vol_sum", "type": "double", "doc": "Aggressive sell volume."},
-    {"name": "bar5s_trade_signed_vol_sum", "type": "double", "doc": "Signed trade volume."},
-    {"name": "bar5s_wall_bid_maxz_eob", "type": "double", "doc": "Max z-score bid wall."},
-    {"name": "bar5s_wall_ask_maxz_eob", "type": "double", "doc": "Max z-score ask wall."},
-    {"name": "bar5s_wall_bid_maxz_levelidx_eob", "type": "double", "doc": "Level index of max bid wall."},
-    {"name": "bar5s_wall_ask_maxz_levelidx_eob", "type": "double", "doc": "Level index of max ask wall."},
-    {"name": "bar5s_wall_bid_nearest_strong_dist_pts_eob", "type": "double", "doc": "Distance to nearest strong bid wall."},
-    {"name": "bar5s_wall_ask_nearest_strong_dist_pts_eob", "type": "double", "doc": "Distance to nearest strong ask wall."},
-    {"name": "bar5s_wall_bid_nearest_strong_levelidx_eob", "type": "double", "doc": "Level index of nearest strong bid wall."},
-    {"name": "bar5s_wall_ask_nearest_strong_levelidx_eob", "type": "double", "doc": "Level index of nearest strong ask wall."},
-
-    {"name": "bar5s_approach_dist_to_level_pts_eob", "type": "double", "doc": "Signed distance to level at bar end (points)."},
-    {"name": "bar5s_approach_dist_to_level_pts_twa", "type": "double", "doc": "TWA signed distance to level."},
-    {"name": "bar5s_approach_abs_dist_to_level_pts_eob", "type": "double", "doc": "Absolute distance to level."},
-    {"name": "bar5s_approach_side_of_level_eob", "type": "long", "doc": "+1 = above level, -1 = below level."},
-    {"name": "bar5s_approach_is_pm_high", "type": "long", "doc": "1 if testing PM_HIGH."},
-    {"name": "bar5s_approach_is_pm_low", "type": "long", "doc": "1 if testing PM_LOW."},
-    {"name": "bar5s_approach_is_or_high", "type": "long", "doc": "1 if testing OR_HIGH."},
-    {"name": "bar5s_approach_is_or_low", "type": "long", "doc": "1 if testing OR_LOW."},
-    {"name": "bar5s_approach_level_polarity", "type": "long", "doc": "+1 = high (resistance), -1 = low (support)."},
-    {"name": "bar5s_approach_alignment_eob", "type": "long", "doc": "+1 = normal approach, -1 = retest."},
-
-    {"name": "bar5s_deriv_dist_d1_w3", "type": ["null", "double"], "doc": "Velocity toward level (15s window)."},
-    {"name": "bar5s_deriv_dist_d1_w12", "type": ["null", "double"], "doc": "Velocity toward level (1min window)."},
-    {"name": "bar5s_deriv_dist_d1_w36", "type": ["null", "double"], "doc": "Velocity toward level (3min window)."},
-    {"name": "bar5s_deriv_dist_d1_w72", "type": ["null", "double"], "doc": "Velocity toward level (6min window)."},
-    {"name": "bar5s_deriv_dist_d2_w3", "type": ["null", "double"], "doc": "Acceleration toward level (15s window)."},
-    {"name": "bar5s_deriv_dist_d2_w12", "type": ["null", "double"], "doc": "Acceleration toward level (1min window)."},
-    {"name": "bar5s_deriv_dist_d2_w36", "type": ["null", "double"], "doc": "Acceleration toward level (3min window)."},
-    {"name": "bar5s_deriv_dist_d2_w72", "type": ["null", "double"], "doc": "Acceleration toward level (6min window)."},
-    {"name": "bar5s_deriv_obi0_d1_w3", "type": ["null", "double"], "doc": "Rate of OBI0 change (15s)."},
-    {"name": "bar5s_deriv_obi0_d1_w12", "type": ["null", "double"], "doc": "Rate of OBI0 change (1min)."},
-    {"name": "bar5s_deriv_obi0_d1_w36", "type": ["null", "double"], "doc": "Rate of OBI0 change (3min)."},
-    {"name": "bar5s_deriv_obi0_d1_w72", "type": ["null", "double"], "doc": "Rate of OBI0 change (6min)."},
-    {"name": "bar5s_deriv_obi0_d2_w3", "type": ["null", "double"], "doc": "Acceleration of OBI0 (15s)."},
-    {"name": "bar5s_deriv_obi0_d2_w12", "type": ["null", "double"], "doc": "Acceleration of OBI0 (1min)."},
-    {"name": "bar5s_deriv_obi0_d2_w36", "type": ["null", "double"], "doc": "Acceleration of OBI0 (3min)."},
-    {"name": "bar5s_deriv_obi0_d2_w72", "type": ["null", "double"], "doc": "Acceleration of OBI0 (6min)."},
-    {"name": "bar5s_deriv_obi10_d1_w3", "type": ["null", "double"], "doc": "Rate of OBI10 change (15s)."},
-    {"name": "bar5s_deriv_obi10_d1_w12", "type": ["null", "double"], "doc": "Rate of OBI10 change (1min)."},
-    {"name": "bar5s_deriv_obi10_d1_w36", "type": ["null", "double"], "doc": "Rate of OBI10 change (3min)."},
-    {"name": "bar5s_deriv_obi10_d1_w72", "type": ["null", "double"], "doc": "Rate of OBI10 change (6min)."},
-    {"name": "bar5s_deriv_obi10_d2_w3", "type": ["null", "double"], "doc": "Acceleration of OBI10 (15s)."},
-    {"name": "bar5s_deriv_obi10_d2_w12", "type": ["null", "double"], "doc": "Acceleration of OBI10 (1min)."},
-    {"name": "bar5s_deriv_obi10_d2_w36", "type": ["null", "double"], "doc": "Acceleration of OBI10 (3min)."},
-    {"name": "bar5s_deriv_obi10_d2_w72", "type": ["null", "double"], "doc": "Acceleration of OBI10 (6min)."},
-    {"name": "bar5s_deriv_cdi01_d1_w3", "type": ["null", "double"], "doc": "Rate of CDI 0-1pt change (15s)."},
-    {"name": "bar5s_deriv_cdi01_d1_w12", "type": ["null", "double"], "doc": "Rate of CDI 0-1pt change (1min)."},
-    {"name": "bar5s_deriv_cdi01_d1_w36", "type": ["null", "double"], "doc": "Rate of CDI 0-1pt change (3min)."},
-    {"name": "bar5s_deriv_cdi01_d1_w72", "type": ["null", "double"], "doc": "Rate of CDI 0-1pt change (6min)."},
-    {"name": "bar5s_deriv_cdi01_d2_w3", "type": ["null", "double"], "doc": "Acceleration of CDI 0-1pt (15s)."},
-    {"name": "bar5s_deriv_cdi01_d2_w12", "type": ["null", "double"], "doc": "Acceleration of CDI 0-1pt (1min)."},
-    {"name": "bar5s_deriv_cdi01_d2_w36", "type": ["null", "double"], "doc": "Acceleration of CDI 0-1pt (3min)."},
-    {"name": "bar5s_deriv_cdi01_d2_w72", "type": ["null", "double"], "doc": "Acceleration of CDI 0-1pt (6min)."},
-    {"name": "bar5s_deriv_cdi12_d1_w3", "type": ["null", "double"], "doc": "Rate of CDI 1-2pt change (15s)."},
-    {"name": "bar5s_deriv_cdi12_d1_w12", "type": ["null", "double"], "doc": "Rate of CDI 1-2pt change (1min)."},
-    {"name": "bar5s_deriv_cdi12_d1_w36", "type": ["null", "double"], "doc": "Rate of CDI 1-2pt change (3min)."},
-    {"name": "bar5s_deriv_cdi12_d1_w72", "type": ["null", "double"], "doc": "Rate of CDI 1-2pt change (6min)."},
-    {"name": "bar5s_deriv_cdi12_d2_w3", "type": ["null", "double"], "doc": "Acceleration of CDI 1-2pt (15s)."},
-    {"name": "bar5s_deriv_cdi12_d2_w12", "type": ["null", "double"], "doc": "Acceleration of CDI 1-2pt (1min)."},
-    {"name": "bar5s_deriv_cdi12_d2_w36", "type": ["null", "double"], "doc": "Acceleration of CDI 1-2pt (3min)."},
-    {"name": "bar5s_deriv_cdi12_d2_w72", "type": ["null", "double"], "doc": "Acceleration of CDI 1-2pt (6min)."},
-    {"name": "bar5s_deriv_dbid10_d1_w3", "type": ["null", "double"], "doc": "Rate of bid depth change (15s)."},
-    {"name": "bar5s_deriv_dbid10_d1_w12", "type": ["null", "double"], "doc": "Rate of bid depth change (1min)."},
-    {"name": "bar5s_deriv_dbid10_d1_w36", "type": ["null", "double"], "doc": "Rate of bid depth change (3min)."},
-    {"name": "bar5s_deriv_dbid10_d1_w72", "type": ["null", "double"], "doc": "Rate of bid depth change (6min)."},
-    {"name": "bar5s_deriv_dbid10_d2_w3", "type": ["null", "double"], "doc": "Acceleration of bid depth (15s)."},
-    {"name": "bar5s_deriv_dbid10_d2_w12", "type": ["null", "double"], "doc": "Acceleration of bid depth (1min)."},
-    {"name": "bar5s_deriv_dbid10_d2_w36", "type": ["null", "double"], "doc": "Acceleration of bid depth (3min)."},
-    {"name": "bar5s_deriv_dbid10_d2_w72", "type": ["null", "double"], "doc": "Acceleration of bid depth (6min)."},
-    {"name": "bar5s_deriv_dask10_d1_w3", "type": ["null", "double"], "doc": "Rate of ask depth change (15s)."},
-    {"name": "bar5s_deriv_dask10_d1_w12", "type": ["null", "double"], "doc": "Rate of ask depth change (1min)."},
-    {"name": "bar5s_deriv_dask10_d1_w36", "type": ["null", "double"], "doc": "Rate of ask depth change (3min)."},
-    {"name": "bar5s_deriv_dask10_d1_w72", "type": ["null", "double"], "doc": "Rate of ask depth change (6min)."},
-    {"name": "bar5s_deriv_dask10_d2_w3", "type": ["null", "double"], "doc": "Acceleration of ask depth (15s)."},
-    {"name": "bar5s_deriv_dask10_d2_w12", "type": ["null", "double"], "doc": "Acceleration of ask depth (1min)."},
-    {"name": "bar5s_deriv_dask10_d2_w36", "type": ["null", "double"], "doc": "Acceleration of ask depth (3min)."},
-    {"name": "bar5s_deriv_dask10_d2_w72", "type": ["null", "double"], "doc": "Acceleration of ask depth (6min)."},
-    {"name": "bar5s_deriv_dbelow01_d1_w3", "type": ["null", "double"], "doc": "Rate of near-bid depth change (15s)."},
-    {"name": "bar5s_deriv_dbelow01_d1_w12", "type": ["null", "double"], "doc": "Rate of near-bid depth change (1min)."},
-    {"name": "bar5s_deriv_dbelow01_d1_w36", "type": ["null", "double"], "doc": "Rate of near-bid depth change (3min)."},
-    {"name": "bar5s_deriv_dbelow01_d1_w72", "type": ["null", "double"], "doc": "Rate of near-bid depth change (6min)."},
-    {"name": "bar5s_deriv_dbelow01_d2_w3", "type": ["null", "double"], "doc": "Acceleration of near-bid depth (15s)."},
-    {"name": "bar5s_deriv_dbelow01_d2_w12", "type": ["null", "double"], "doc": "Acceleration of near-bid depth (1min)."},
-    {"name": "bar5s_deriv_dbelow01_d2_w36", "type": ["null", "double"], "doc": "Acceleration of near-bid depth (3min)."},
-    {"name": "bar5s_deriv_dbelow01_d2_w72", "type": ["null", "double"], "doc": "Acceleration of near-bid depth (6min)."},
-    {"name": "bar5s_deriv_dabove01_d1_w3", "type": ["null", "double"], "doc": "Rate of near-ask depth change (15s)."},
-    {"name": "bar5s_deriv_dabove01_d1_w12", "type": ["null", "double"], "doc": "Rate of near-ask depth change (1min)."},
-    {"name": "bar5s_deriv_dabove01_d1_w36", "type": ["null", "double"], "doc": "Rate of near-ask depth change (3min)."},
-    {"name": "bar5s_deriv_dabove01_d1_w72", "type": ["null", "double"], "doc": "Rate of near-ask depth change (6min)."},
-    {"name": "bar5s_deriv_dabove01_d2_w3", "type": ["null", "double"], "doc": "Acceleration of near-ask depth (15s)."},
-    {"name": "bar5s_deriv_dabove01_d2_w12", "type": ["null", "double"], "doc": "Acceleration of near-ask depth (1min)."},
-    {"name": "bar5s_deriv_dabove01_d2_w36", "type": ["null", "double"], "doc": "Acceleration of near-ask depth (3min)."},
-    {"name": "bar5s_deriv_dabove01_d2_w72", "type": ["null", "double"], "doc": "Acceleration of near-ask depth (6min)."},
-    {"name": "bar5s_deriv_wbidz_d1_w3", "type": ["null", "double"], "doc": "Rate of bid wall z change (15s)."},
-    {"name": "bar5s_deriv_wbidz_d1_w12", "type": ["null", "double"], "doc": "Rate of bid wall z change (1min)."},
-    {"name": "bar5s_deriv_wbidz_d1_w36", "type": ["null", "double"], "doc": "Rate of bid wall z change (3min)."},
-    {"name": "bar5s_deriv_wbidz_d1_w72", "type": ["null", "double"], "doc": "Rate of bid wall z change (6min)."},
-    {"name": "bar5s_deriv_wbidz_d2_w3", "type": ["null", "double"], "doc": "Acceleration of bid wall z (15s)."},
-    {"name": "bar5s_deriv_wbidz_d2_w12", "type": ["null", "double"], "doc": "Acceleration of bid wall z (1min)."},
-    {"name": "bar5s_deriv_wbidz_d2_w36", "type": ["null", "double"], "doc": "Acceleration of bid wall z (3min)."},
-    {"name": "bar5s_deriv_wbidz_d2_w72", "type": ["null", "double"], "doc": "Acceleration of bid wall z (6min)."},
-    {"name": "bar5s_deriv_waskz_d1_w3", "type": ["null", "double"], "doc": "Rate of ask wall z change (15s)."},
-    {"name": "bar5s_deriv_waskz_d1_w12", "type": ["null", "double"], "doc": "Rate of ask wall z change (1min)."},
-    {"name": "bar5s_deriv_waskz_d1_w36", "type": ["null", "double"], "doc": "Rate of ask wall z change (3min)."},
-    {"name": "bar5s_deriv_waskz_d1_w72", "type": ["null", "double"], "doc": "Rate of ask wall z change (6min)."},
-    {"name": "bar5s_deriv_waskz_d2_w3", "type": ["null", "double"], "doc": "Acceleration of ask wall z (15s)."},
-    {"name": "bar5s_deriv_waskz_d2_w12", "type": ["null", "double"], "doc": "Acceleration of ask wall z (1min)."},
-    {"name": "bar5s_deriv_waskz_d2_w36", "type": ["null", "double"], "doc": "Acceleration of ask wall z (3min)."},
-    {"name": "bar5s_deriv_waskz_d2_w72", "type": ["null", "double"], "doc": "Acceleration of ask wall z (6min)."},
-
-    {"name": "bar5s_cumul_trade_vol", "type": "double", "doc": "Cumulative trade volume."},
-    {"name": "bar5s_cumul_signed_trade_vol", "type": "double", "doc": "Cumulative signed trade volume."},
-    {"name": "bar5s_cumul_aggbuy_vol", "type": "double", "doc": "Cumulative aggressive buy volume."},
-    {"name": "bar5s_cumul_aggsell_vol", "type": "double", "doc": "Cumulative aggressive sell volume."},
-    {"name": "bar5s_cumul_signed_trade_vol_rate", "type": "double", "doc": "Avg signed trade vol per bar."},
-    {"name": "bar5s_cumul_flow_net_bid", "type": "double", "doc": "Cumulative net bid-side flow."},
-    {"name": "bar5s_cumul_flow_net_ask", "type": "double", "doc": "Cumulative net ask-side flow."},
-    {"name": "bar5s_cumul_flow_imbal", "type": "double", "doc": "Cumulative flow imbalance."},
-    {"name": "bar5s_cumul_flow_imbal_rate", "type": "double", "doc": "Avg flow imbalance per bar."},
-    {"name": "bar5s_cumul_flow_net_bid_p0_1", "type": "double", "doc": "Cumulative net bid flow 0-1pt."},
-    {"name": "bar5s_cumul_flow_net_bid_p1_2", "type": "double", "doc": "Cumulative net bid flow 1-2pt."},
-    {"name": "bar5s_cumul_flow_net_bid_p2_3", "type": "double", "doc": "Cumulative net bid flow 2-3pt."},
-    {"name": "bar5s_cumul_flow_net_ask_p0_1", "type": "double", "doc": "Cumulative net ask flow 0-1pt."},
-    {"name": "bar5s_cumul_flow_net_ask_p1_2", "type": "double", "doc": "Cumulative net ask flow 1-2pt."},
-    {"name": "bar5s_cumul_flow_net_ask_p2_3", "type": "double", "doc": "Cumulative net ask flow 2-3pt."},
-    {"name": "bar5s_cumul_msg_cnt", "type": "double", "doc": "Cumulative message count."},
-    {"name": "bar5s_cumul_trade_cnt", "type": "double", "doc": "Cumulative trade count."},
-    {"name": "bar5s_cumul_add_cnt", "type": "double", "doc": "Cumulative add count."},
-    {"name": "bar5s_cumul_cancel_cnt", "type": "double", "doc": "Cumulative cancel count."},
-
-    {"name": "bar5s_lvl_depth_above_qty_eob", "type": "double", "doc": "Depth above the level."},
-    {"name": "bar5s_lvl_depth_below_qty_eob", "type": "double", "doc": "Depth below the level."},
-    {"name": "bar5s_lvl_depth_at_qty_eob", "type": "double", "doc": "Depth at the level."},
-    {"name": "bar5s_lvl_depth_imbal_eob", "type": "double", "doc": "Level-relative depth imbalance."},
-    {"name": "bar5s_lvl_depth_above_p0_1_qty_eob", "type": "double", "doc": "Ask depth 0-1pt above level."},
-    {"name": "bar5s_lvl_depth_below_p0_1_qty_eob", "type": "double", "doc": "Bid depth 0-1pt below level."},
-    {"name": "bar5s_lvl_cdi_p0_1_eob", "type": "double", "doc": "Level-relative CDI 0-1pt."},
-    {"name": "bar5s_lvl_depth_above_p1_2_qty_eob", "type": "double", "doc": "Ask depth 1-2pt above level."},
-    {"name": "bar5s_lvl_depth_below_p1_2_qty_eob", "type": "double", "doc": "Bid depth 1-2pt below level."},
-    {"name": "bar5s_lvl_cdi_p1_2_eob", "type": "double", "doc": "Level-relative CDI 1-2pt."},
-    {"name": "bar5s_lvl_depth_above_p2_3_qty_eob", "type": "double", "doc": "Ask depth 2-3pt above level."},
-    {"name": "bar5s_lvl_depth_below_p2_3_qty_eob", "type": "double", "doc": "Bid depth 2-3pt below level."},
-    {"name": "bar5s_lvl_cdi_p2_3_eob", "type": "double", "doc": "Level-relative CDI 2-3pt."},
-    {"name": "bar5s_lvl_flow_toward_net_sum", "type": "double", "doc": "Net flow toward level."},
-    {"name": "bar5s_lvl_flow_away_net_sum", "type": "double", "doc": "Net flow away from level."},
-    {"name": "bar5s_lvl_flow_toward_away_imbal_sum", "type": "double", "doc": "Flow toward-away imbalance."},
-
-    {"name": "bar5s_setup_start_dist_pts", "type": "double", "doc": "Distance at lookback start."},
-    {"name": "bar5s_setup_min_dist_pts", "type": "double", "doc": "Minimum distance during lookback."},
-    {"name": "bar5s_setup_max_dist_pts", "type": "double", "doc": "Maximum distance during lookback."},
-    {"name": "bar5s_setup_dist_range_pts", "type": "double", "doc": "Distance range during lookback."},
-    {"name": "bar5s_setup_approach_bars", "type": "double", "doc": "Bars spent approaching level."},
-    {"name": "bar5s_setup_retreat_bars", "type": "double", "doc": "Bars spent retreating from level."},
-    {"name": "bar5s_setup_approach_ratio", "type": "double", "doc": "Ratio of approach bars."},
-    {"name": "bar5s_setup_early_velocity", "type": "double", "doc": "Approach velocity in first third."},
-    {"name": "bar5s_setup_mid_velocity", "type": "double", "doc": "Approach velocity in middle third."},
-    {"name": "bar5s_setup_late_velocity", "type": "double", "doc": "Approach velocity in final third."},
-    {"name": "bar5s_setup_velocity_trend", "type": "double", "doc": "Velocity trend (late - early)."},
-    {"name": "bar5s_setup_obi0_start", "type": ["null", "double"], "doc": "OBI0 at lookback start."},
-    {"name": "bar5s_setup_obi0_end", "type": ["null", "double"], "doc": "OBI0 at current bar."},
-    {"name": "bar5s_setup_obi0_delta", "type": "double", "doc": "OBI0 change over lookback."},
-    {"name": "bar5s_setup_obi0_min", "type": ["null", "double"], "doc": "Minimum OBI0 during lookback."},
-    {"name": "bar5s_setup_obi0_max", "type": ["null", "double"], "doc": "Maximum OBI0 during lookback."},
-    {"name": "bar5s_setup_obi10_start", "type": ["null", "double"], "doc": "OBI10 at lookback start."},
-    {"name": "bar5s_setup_obi10_end", "type": ["null", "double"], "doc": "OBI10 at current bar."},
-    {"name": "bar5s_setup_obi10_delta", "type": "double", "doc": "OBI10 change over lookback."},
-    {"name": "bar5s_setup_obi10_min", "type": ["null", "double"], "doc": "Minimum OBI10 during lookback."},
-    {"name": "bar5s_setup_obi10_max", "type": ["null", "double"], "doc": "Maximum OBI10 during lookback."},
-    {"name": "bar5s_setup_total_trade_vol", "type": "double", "doc": "Total trade volume in lookback."},
-    {"name": "bar5s_setup_total_signed_vol", "type": "double", "doc": "Net signed volume in lookback."},
-    {"name": "bar5s_setup_trade_imbal_pct", "type": "double", "doc": "Trade imbalance percentage."},
-    {"name": "bar5s_setup_flow_imbal_total", "type": "double", "doc": "Total flow imbalance."},
-    {"name": "bar5s_setup_bid_wall_max_z", "type": "double", "doc": "Max bid wall z-score in lookback."},
-    {"name": "bar5s_setup_ask_wall_max_z", "type": "double", "doc": "Max ask wall z-score in lookback."},
-    {"name": "bar5s_setup_bid_wall_bars", "type": "double", "doc": "Bars with bid wall z > 2."},
-    {"name": "bar5s_setup_ask_wall_bars", "type": "double", "doc": "Bars with ask wall z > 2."},
-    {"name": "bar5s_setup_wall_imbal", "type": "double", "doc": "Wall imbalance (ask - bid bars)."},
-
-    {"name": "rvol_trade_vol_ratio", "type": ["null", "double"], "doc": "Trade volume ratio vs historical mean."},
-    {"name": "rvol_trade_vol_zscore", "type": ["null", "double"], "doc": "Trade volume z-score vs historical."},
-    {"name": "rvol_trade_cnt_ratio", "type": ["null", "double"], "doc": "Trade count ratio vs historical mean."},
-    {"name": "rvol_trade_cnt_zscore", "type": ["null", "double"], "doc": "Trade count z-score vs historical."},
-    {"name": "rvol_trade_aggbuy_ratio", "type": ["null", "double"], "doc": "Aggressive buy volume ratio vs historical."},
-    {"name": "rvol_trade_aggsell_ratio", "type": ["null", "double"], "doc": "Aggressive sell volume ratio vs historical."},
-    {"name": "rvol_trade_aggbuy_zscore", "type": ["null", "double"], "doc": "Aggressive buy volume z-score vs historical."},
-    {"name": "rvol_trade_aggsell_zscore", "type": ["null", "double"], "doc": "Aggressive sell volume z-score vs historical."},
-
-    {"name": "rvol_flow_add_bid_ratio", "type": ["null", "double"], "doc": "Bid-side add flow ratio vs historical."},
-    {"name": "rvol_flow_add_ask_ratio", "type": ["null", "double"], "doc": "Ask-side add flow ratio vs historical."},
-    {"name": "rvol_flow_add_bid_zscore", "type": ["null", "double"], "doc": "Bid-side add flow z-score vs historical."},
-    {"name": "rvol_flow_add_ask_zscore", "type": ["null", "double"], "doc": "Ask-side add flow z-score vs historical."},
-    {"name": "rvol_flow_net_bid_ratio", "type": ["null", "double"], "doc": "Net bid flow ratio vs historical."},
-    {"name": "rvol_flow_net_ask_ratio", "type": ["null", "double"], "doc": "Net ask flow ratio vs historical."},
-    {"name": "rvol_flow_net_bid_zscore", "type": ["null", "double"], "doc": "Net bid flow z-score vs historical."},
-    {"name": "rvol_flow_net_ask_zscore", "type": ["null", "double"], "doc": "Net ask flow z-score vs historical."},
-    {"name": "rvol_flow_add_total_ratio", "type": ["null", "double"], "doc": "Total add flow ratio vs historical."},
-    {"name": "rvol_flow_add_total_zscore", "type": ["null", "double"], "doc": "Total add flow z-score vs historical."},
-
-    {"name": "rvol_cumul_trade_vol_dev", "type": ["null", "double"], "doc": "Cumulative trade volume deviation from expected."},
-    {"name": "rvol_cumul_trade_vol_dev_pct", "type": ["null", "double"], "doc": "Cumulative trade volume deviation percentage."},
-    {"name": "rvol_cumul_flow_imbal_dev", "type": ["null", "double"], "doc": "Cumulative flow imbalance deviation."},
-    {"name": "rvol_cumul_msg_dev", "type": ["null", "double"], "doc": "Cumulative message count deviation."},
-
-    {"name": "rvol_bid_ask_add_asymmetry", "type": ["null", "double"], "doc": "Bid-ask add flow asymmetry (bid_z - ask_z)."},
-    {"name": "rvol_bid_ask_rem_asymmetry", "type": ["null", "double"], "doc": "Bid-ask remove flow asymmetry."},
-    {"name": "rvol_bid_ask_net_asymmetry", "type": ["null", "double"], "doc": "Bid-ask net flow asymmetry."},
-    {"name": "rvol_aggbuy_aggsell_asymmetry", "type": ["null", "double"], "doc": "Aggressive buy-sell asymmetry."},
-
-    {"name": "rvol_lookback_trade_vol_mean_ratio", "type": ["null", "double"], "doc": "Mean trade volume ratio over lookback."},
-    {"name": "rvol_lookback_trade_vol_max_ratio", "type": ["null", "double"], "doc": "Max trade volume ratio over lookback."},
-    {"name": "rvol_lookback_trade_vol_trend", "type": ["null", "double"], "doc": "Trade volume ratio trend (late - early)."},
-    {"name": "rvol_lookback_elevated_bars", "type": ["null", "double"], "doc": "Count of bars with ratio > 1.5."},
-    {"name": "rvol_lookback_depressed_bars", "type": ["null", "double"], "doc": "Count of bars with ratio < 0.5."},
-    {"name": "rvol_lookback_asymmetry_mean", "type": ["null", "double"], "doc": "Mean bid-ask net asymmetry over lookback."},
-
-    {"name": "rvol_recent_vs_lookback_vol_ratio", "type": ["null", "double"], "doc": "Recent 1min vs lookback volume ratio."},
-    {"name": "rvol_recent_vs_lookback_asymmetry", "type": ["null", "double"], "doc": "Recent 1min vs lookback asymmetry."}
+    {
+      "name": "bar_ts",
+      "type": "long",
+      "doc": "Bar start timestamp in nanoseconds since Unix epoch (UTC)."
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Instrument symbol (e.g., ESH5)."
+    },
+    {
+      "name": "episode_id",
+      "type": "string",
+      "doc": "Unique episode identifier: {date}_{symbol}_{level_type}_{trigger_bar_ts}."
+    },
+    {
+      "name": "touch_id",
+      "type": "string",
+      "doc": "Alias for episode_id."
+    },
+    {
+      "name": "level_type",
+      "type": "string",
+      "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."
+    },
+    {
+      "name": "level_price",
+      "type": "double",
+      "doc": "Actual price of the level in points."
+    },
+    {
+      "name": "trigger_bar_ts",
+      "type": "long",
+      "doc": "Timestamp of the trigger bar in nanoseconds."
+    },
+    {
+      "name": "bar_index_in_episode",
+      "type": "long",
+      "doc": "0-indexed position within episode."
+    },
+    {
+      "name": "bar_index_in_touch",
+      "type": "long",
+      "doc": "Alias for bar_index_in_episode."
+    },
+    {
+      "name": "bars_to_trigger",
+      "type": "long",
+      "doc": "Negative = before trigger, 0 = trigger bar, positive = after."
+    },
+    {
+      "name": "is_pre_trigger",
+      "type": "boolean",
+      "doc": "True if bar is in lookback period."
+    },
+    {
+      "name": "is_pre_touch",
+      "type": "boolean",
+      "doc": "Alias for is_pre_trigger."
+    },
+    {
+      "name": "is_trigger_bar",
+      "type": "boolean",
+      "doc": "True if this is the trigger bar."
+    },
+    {
+      "name": "is_post_trigger",
+      "type": "boolean",
+      "doc": "True if bar is after trigger."
+    },
+    {
+      "name": "is_post_touch",
+      "type": "boolean",
+      "doc": "Alias for is_post_trigger."
+    },
+    {
+      "name": "approach_direction",
+      "type": "long",
+      "doc": "+1 = from below, -1 = from above."
+    },
+    {
+      "name": "is_standard_approach",
+      "type": "boolean",
+      "doc": "True if testing HIGH from below or LOW from above."
+    },
+    {
+      "name": "dist_to_level_pts",
+      "type": "double",
+      "doc": "Signed distance: microprice - level_price."
+    },
+    {
+      "name": "signed_dist_pts",
+      "type": "double",
+      "doc": "Normalized: dist_to_level * approach_direction."
+    },
+    {
+      "name": "outcome",
+      "type": "string",
+      "doc": "STRONG_BREAK, WEAK_BREAK, CHOP, WEAK_BOUNCE, STRONG_BOUNCE."
+    },
+    {
+      "name": "outcome_score",
+      "type": "double",
+      "doc": "Continuous outcome measure [-5, +5]."
+    },
+    {
+      "name": "is_truncated_lookback",
+      "type": "boolean",
+      "doc": "True if lookback < 15 min."
+    },
+    {
+      "name": "is_truncated_forward",
+      "type": "boolean",
+      "doc": "True if forward cut short by session end."
+    },
+    {
+      "name": "is_extended_forward",
+      "type": "boolean",
+      "doc": "True if forward window was extended."
+    },
+    {
+      "name": "extension_count",
+      "type": "long",
+      "doc": "Number of re-touch extensions."
+    },
+    {
+      "name": "bar5s_microprice_eob",
+      "type": "double",
+      "doc": "End-of-bar microprice."
+    },
+    {
+      "name": "bar5s_midprice_eob",
+      "type": "double",
+      "doc": "End-of-bar midprice."
+    },
+    {
+      "name": "bar5s_meta_msg_cnt_sum",
+      "type": "double",
+      "doc": "Total event count in bar."
+    },
+    {
+      "name": "bar5s_meta_clear_cnt_sum",
+      "type": "double",
+      "doc": "Count of Clear events."
+    },
+    {
+      "name": "bar5s_meta_add_cnt_sum",
+      "type": "double",
+      "doc": "Count of Add events."
+    },
+    {
+      "name": "bar5s_meta_cancel_cnt_sum",
+      "type": "double",
+      "doc": "Count of Cancel events."
+    },
+    {
+      "name": "bar5s_meta_modify_cnt_sum",
+      "type": "double",
+      "doc": "Count of Modify events."
+    },
+    {
+      "name": "bar5s_meta_trade_cnt_sum",
+      "type": "double",
+      "doc": "Count of Trade events."
+    },
+    {
+      "name": "bar5s_state_spread_pts_twa",
+      "type": "double",
+      "doc": "Time-weighted average spread in points."
+    },
+    {
+      "name": "bar5s_state_spread_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar spread in points."
+    },
+    {
+      "name": "bar5s_state_obi0_twa",
+      "type": "double",
+      "doc": "Time-weighted average top-of-book imbalance."
+    },
+    {
+      "name": "bar5s_state_obi0_eob",
+      "type": "double",
+      "doc": "End-of-bar top-of-book imbalance."
+    },
+    {
+      "name": "bar5s_state_obi10_twa",
+      "type": "double",
+      "doc": "Time-weighted average 10-level depth imbalance."
+    },
+    {
+      "name": "bar5s_state_obi10_eob",
+      "type": "double",
+      "doc": "End-of-bar 10-level depth imbalance."
+    },
+    {
+      "name": "bar5s_state_cdi_p0_1_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance 0-1 pt."
+    },
+    {
+      "name": "bar5s_state_cdi_p0_1_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance 0-1 pt."
+    },
+    {
+      "name": "bar5s_state_cdi_p1_2_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance 1-2 pt."
+    },
+    {
+      "name": "bar5s_state_cdi_p1_2_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance 1-2 pt."
+    },
+    {
+      "name": "bar5s_state_cdi_p2_3_twa",
+      "type": "double",
+      "doc": "Time-weighted average cross-depth imbalance 2-3 pt."
+    },
+    {
+      "name": "bar5s_state_cdi_p2_3_eob",
+      "type": "double",
+      "doc": "End-of-bar cross-depth imbalance 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_bid10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average total bid depth."
+    },
+    {
+      "name": "bar5s_depth_bid10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar total bid depth."
+    },
+    {
+      "name": "bar5s_depth_ask10_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average total ask depth."
+    },
+    {
+      "name": "bar5s_depth_ask10_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar total ask depth."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average bid quantity 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar bid quantity 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Time-weighted average ask quantity 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "End-of-bar ask quantity 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p0_1_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p1_2_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional bid depth 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_below_p2_3_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional bid depth 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p0_1_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth 0-1 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p1_2_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth 1-2 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Time-weighted average fractional ask depth 2-3 pt."
+    },
+    {
+      "name": "bar5s_depth_above_p2_3_frac_eob",
+      "type": "double",
+      "doc": "End-of-bar fractional ask depth 2-3 pt."
+    },
+    {
+      "name": "bar5s_ladder_ask_gap_max_pts_eob",
+      "type": "double",
+      "doc": "Max ask price gap."
+    },
+    {
+      "name": "bar5s_ladder_ask_gap_mean_pts_eob",
+      "type": "double",
+      "doc": "Mean ask price gap."
+    },
+    {
+      "name": "bar5s_ladder_bid_gap_max_pts_eob",
+      "type": "double",
+      "doc": "Max bid price gap."
+    },
+    {
+      "name": "bar5s_ladder_bid_gap_mean_pts_eob",
+      "type": "double",
+      "doc": "Mean bid price gap."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_px_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar bid price at level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l00_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l01_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l02_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l03_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l04_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l05_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l06_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l07_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l08_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_px_l09_eob",
+      "type": "double",
+      "doc": "End-of-bar ask price at level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l00_eob",
+      "type": "double",
+      "doc": "Bid size level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l01_eob",
+      "type": "double",
+      "doc": "Bid size level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l02_eob",
+      "type": "double",
+      "doc": "Bid size level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l03_eob",
+      "type": "double",
+      "doc": "Bid size level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l04_eob",
+      "type": "double",
+      "doc": "Bid size level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l05_eob",
+      "type": "double",
+      "doc": "Bid size level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l06_eob",
+      "type": "double",
+      "doc": "Bid size level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l07_eob",
+      "type": "double",
+      "doc": "Bid size level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l08_eob",
+      "type": "double",
+      "doc": "Bid size level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_l09_eob",
+      "type": "double",
+      "doc": "Bid size level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l00_eob",
+      "type": "double",
+      "doc": "Ask size level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l01_eob",
+      "type": "double",
+      "doc": "Ask size level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l02_eob",
+      "type": "double",
+      "doc": "Ask size level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l03_eob",
+      "type": "double",
+      "doc": "Ask size level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l04_eob",
+      "type": "double",
+      "doc": "Ask size level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l05_eob",
+      "type": "double",
+      "doc": "Ask size level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l06_eob",
+      "type": "double",
+      "doc": "Ask size level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l07_eob",
+      "type": "double",
+      "doc": "Ask size level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l08_eob",
+      "type": "double",
+      "doc": "Ask size level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_l09_eob",
+      "type": "double",
+      "doc": "Ask size level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l00_eob",
+      "type": "double",
+      "doc": "Bid count level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l01_eob",
+      "type": "double",
+      "doc": "Bid count level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l02_eob",
+      "type": "double",
+      "doc": "Bid count level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l03_eob",
+      "type": "double",
+      "doc": "Bid count level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l04_eob",
+      "type": "double",
+      "doc": "Bid count level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l05_eob",
+      "type": "double",
+      "doc": "Bid count level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l06_eob",
+      "type": "double",
+      "doc": "Bid count level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l07_eob",
+      "type": "double",
+      "doc": "Bid count level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l08_eob",
+      "type": "double",
+      "doc": "Bid count level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_l09_eob",
+      "type": "double",
+      "doc": "Bid count level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l00_eob",
+      "type": "double",
+      "doc": "Ask count level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l01_eob",
+      "type": "double",
+      "doc": "Ask count level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l02_eob",
+      "type": "double",
+      "doc": "Ask count level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l03_eob",
+      "type": "double",
+      "doc": "Ask count level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l04_eob",
+      "type": "double",
+      "doc": "Ask count level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l05_eob",
+      "type": "double",
+      "doc": "Ask count level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l06_eob",
+      "type": "double",
+      "doc": "Ask count level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l07_eob",
+      "type": "double",
+      "doc": "Ask count level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l08_eob",
+      "type": "double",
+      "doc": "Ask count level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_l09_eob",
+      "type": "double",
+      "doc": "Ask count level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l00_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l01_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l02_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l03_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l04_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l05_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l06_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l07_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l08_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_sz_frac_l09_eob",
+      "type": "double",
+      "doc": "Fractional bid size level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l00_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l01_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l02_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l03_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l04_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l05_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l06_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l07_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l08_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_sz_frac_l09_eob",
+      "type": "double",
+      "doc": "Fractional ask size level 9."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l00_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 0."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l01_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 1."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l02_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 2."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l03_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 3."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l04_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 4."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l05_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 5."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l06_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 6."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l07_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 7."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l08_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 8."
+    },
+    {
+      "name": "bar5s_shape_bid_ct_frac_l09_eob",
+      "type": "double",
+      "doc": "Fractional bid count level 9."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l00_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 0."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l01_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 1."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l02_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 2."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l03_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 3."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l04_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 4."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l05_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 5."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l06_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 6."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l07_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 7."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l08_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 8."
+    },
+    {
+      "name": "bar5s_shape_ask_ct_frac_l09_eob",
+      "type": "double",
+      "doc": "Fractional ask count level 9."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Add volume bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Add volume bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_add_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Add volume bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Add volume ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Add volume ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_add_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Add volume ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Removal volume bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Removal volume bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Removal volume bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Removal volume ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Removal volume ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_rem_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Removal volume ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Net volume bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Net volume bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Net volume bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Net volume ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Net volume ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_net_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Net volume ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Add count bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Add count bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Add count bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Add count ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Add count ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_add_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Add count ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Cancel count bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Cancel count bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Cancel count bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Cancel count ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Cancel count ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_cancel_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Cancel count ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Modify count bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Modify count bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Modify count bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Modify count ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Modify count ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_cnt_modify_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Modify count ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Normalized net volume bid 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Normalized net volume bid 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Normalized net volume bid 2-3 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Normalized net volume ask 0-1 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Normalized net volume ask 1-2 pt."
+    },
+    {
+      "name": "bar5s_flow_net_volnorm_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Normalized net volume ask 2-3 pt."
+    },
+    {
+      "name": "bar5s_trade_cnt_sum",
+      "type": "double",
+      "doc": "Total trade count."
+    },
+    {
+      "name": "bar5s_trade_vol_sum",
+      "type": "double",
+      "doc": "Total trade volume."
+    },
+    {
+      "name": "bar5s_trade_aggbuy_vol_sum",
+      "type": "double",
+      "doc": "Aggressive buy volume."
+    },
+    {
+      "name": "bar5s_trade_aggsell_vol_sum",
+      "type": "double",
+      "doc": "Aggressive sell volume."
+    },
+    {
+      "name": "bar5s_trade_signed_vol_sum",
+      "type": "double",
+      "doc": "Signed trade volume."
+    },
+    {
+      "name": "bar5s_wall_bid_maxz_eob",
+      "type": "double",
+      "doc": "Max z-score bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_maxz_eob",
+      "type": "double",
+      "doc": "Max z-score ask wall."
+    },
+    {
+      "name": "bar5s_wall_bid_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "Level index of max bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "Level index of max ask wall."
+    },
+    {
+      "name": "bar5s_wall_bid_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Distance to nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Distance to nearest strong ask wall."
+    },
+    {
+      "name": "bar5s_wall_bid_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "Level index of nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_wall_ask_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "Level index of nearest strong ask wall."
+    },
+    {
+      "name": "bar5s_approach_dist_to_level_pts_eob",
+      "type": "double",
+      "doc": "Signed distance to level at bar end (points)."
+    },
+    {
+      "name": "bar5s_approach_dist_to_level_pts_twa",
+      "type": "double",
+      "doc": "TWA signed distance to level."
+    },
+    {
+      "name": "bar5s_approach_abs_dist_to_level_pts_eob",
+      "type": "double",
+      "doc": "Absolute distance to level."
+    },
+    {
+      "name": "bar5s_approach_side_of_level_eob",
+      "type": "long",
+      "doc": "+1 = above level, -1 = below level."
+    },
+    {
+      "name": "bar5s_approach_is_pm_high",
+      "type": "long",
+      "doc": "1 if testing PM_HIGH."
+    },
+    {
+      "name": "bar5s_approach_is_pm_low",
+      "type": "long",
+      "doc": "1 if testing PM_LOW."
+    },
+    {
+      "name": "bar5s_approach_is_or_high",
+      "type": "long",
+      "doc": "1 if testing OR_HIGH."
+    },
+    {
+      "name": "bar5s_approach_is_or_low",
+      "type": "long",
+      "doc": "1 if testing OR_LOW."
+    },
+    {
+      "name": "bar5s_approach_level_polarity",
+      "type": "long",
+      "doc": "+1 = high (resistance), -1 = low (support)."
+    },
+    {
+      "name": "bar5s_approach_alignment_eob",
+      "type": "long",
+      "doc": "+1 = normal approach, -1 = retest."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Velocity toward level (15s window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Velocity toward level (1min window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Velocity toward level (3min window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Velocity toward level (6min window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration toward level (15s window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration toward level (1min window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration toward level (3min window)."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration toward level (6min window)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI0 change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI0 change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI0 change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI0 change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI0 (15s)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI0 (1min)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI0 (3min)."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI0 (6min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI10 change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI10 change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI10 change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of OBI10 change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI10 (15s)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI10 (1min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI10 (3min)."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of OBI10 (6min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 0-1pt change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 0-1pt change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 0-1pt change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 0-1pt change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 0-1pt (15s)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 0-1pt (1min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 0-1pt (3min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 0-1pt (6min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 1-2pt change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 1-2pt change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 1-2pt change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of CDI 1-2pt change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 1-2pt (15s)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 1-2pt (1min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 1-2pt (3min)."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of CDI 1-2pt (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid depth change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid depth change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid depth change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid depth change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid depth (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid depth (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid depth (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid depth (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask depth change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask depth change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask depth change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask depth change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask depth (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask depth (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask depth (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask depth (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-bid depth change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-bid depth change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-bid depth change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-bid depth change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-bid depth (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-bid depth (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-bid depth (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-bid depth (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-ask depth change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-ask depth change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-ask depth change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of near-ask depth change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-ask depth (15s)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-ask depth (1min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-ask depth (3min)."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of near-ask depth (6min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid wall z change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid wall z change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid wall z change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of bid wall z change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid wall z (15s)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid wall z (1min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid wall z (3min)."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of bid wall z (6min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask wall z change (15s)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask wall z change (1min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask wall z change (3min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Rate of ask wall z change (6min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask wall z (15s)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask wall z (1min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask wall z (3min)."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Acceleration of ask wall z (6min)."
+    },
+    {
+      "name": "bar5s_cumul_trade_vol",
+      "type": "double",
+      "doc": "Cumulative trade volume."
+    },
+    {
+      "name": "bar5s_cumul_signed_trade_vol",
+      "type": "double",
+      "doc": "Cumulative signed trade volume."
+    },
+    {
+      "name": "bar5s_cumul_aggbuy_vol",
+      "type": "double",
+      "doc": "Cumulative aggressive buy volume."
+    },
+    {
+      "name": "bar5s_cumul_aggsell_vol",
+      "type": "double",
+      "doc": "Cumulative aggressive sell volume."
+    },
+    {
+      "name": "bar5s_cumul_signed_trade_vol_rate",
+      "type": "double",
+      "doc": "Avg signed trade vol per bar."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid",
+      "type": "double",
+      "doc": "Cumulative net bid-side flow."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask",
+      "type": "double",
+      "doc": "Cumulative net ask-side flow."
+    },
+    {
+      "name": "bar5s_cumul_flow_imbal",
+      "type": "double",
+      "doc": "Cumulative flow imbalance."
+    },
+    {
+      "name": "bar5s_cumul_flow_imbal_rate",
+      "type": "double",
+      "doc": "Avg flow imbalance per bar."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p0_1",
+      "type": "double",
+      "doc": "Cumulative net bid flow 0-1pt."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p1_2",
+      "type": "double",
+      "doc": "Cumulative net bid flow 1-2pt."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p2_3",
+      "type": "double",
+      "doc": "Cumulative net bid flow 2-3pt."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p0_1",
+      "type": "double",
+      "doc": "Cumulative net ask flow 0-1pt."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p1_2",
+      "type": "double",
+      "doc": "Cumulative net ask flow 1-2pt."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p2_3",
+      "type": "double",
+      "doc": "Cumulative net ask flow 2-3pt."
+    },
+    {
+      "name": "bar5s_cumul_msg_cnt",
+      "type": "double",
+      "doc": "Cumulative message count."
+    },
+    {
+      "name": "bar5s_cumul_trade_cnt",
+      "type": "double",
+      "doc": "Cumulative trade count."
+    },
+    {
+      "name": "bar5s_cumul_add_cnt",
+      "type": "double",
+      "doc": "Cumulative add count."
+    },
+    {
+      "name": "bar5s_cumul_cancel_cnt",
+      "type": "double",
+      "doc": "Cumulative cancel count."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_qty_eob",
+      "type": "double",
+      "doc": "Depth above the level."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_qty_eob",
+      "type": "double",
+      "doc": "Depth below the level."
+    },
+    {
+      "name": "bar5s_lvl_depth_at_qty_eob",
+      "type": "double",
+      "doc": "Depth at the level."
+    },
+    {
+      "name": "bar5s_lvl_depth_imbal_eob",
+      "type": "double",
+      "doc": "Level-relative depth imbalance."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Ask depth 0-1pt above level."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Bid depth 0-1pt below level."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p0_1_eob",
+      "type": "double",
+      "doc": "Level-relative CDI 0-1pt."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Ask depth 1-2pt above level."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Bid depth 1-2pt below level."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p1_2_eob",
+      "type": "double",
+      "doc": "Level-relative CDI 1-2pt."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Ask depth 2-3pt above level."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Bid depth 2-3pt below level."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p2_3_eob",
+      "type": "double",
+      "doc": "Level-relative CDI 2-3pt."
+    },
+    {
+      "name": "bar5s_lvl_flow_toward_net_sum",
+      "type": "double",
+      "doc": "Net flow toward level."
+    },
+    {
+      "name": "bar5s_lvl_flow_away_net_sum",
+      "type": "double",
+      "doc": "Net flow away from level."
+    },
+    {
+      "name": "bar5s_lvl_flow_toward_away_imbal_sum",
+      "type": "double",
+      "doc": "Flow toward-away imbalance."
+    },
+    {
+      "name": "bar5s_lvl_bid_size_at_level_eob",
+      "type": "double",
+      "doc": "Bid size at exact level price (0 if not visible in MBP-10)."
+    },
+    {
+      "name": "bar5s_lvl_ask_size_at_level_eob",
+      "type": "double",
+      "doc": "Ask size at exact level price (0 if not visible in MBP-10)."
+    },
+    {
+      "name": "bar5s_lvl_total_size_at_level_eob",
+      "type": "double",
+      "doc": "Combined bid+ask size at exact level price."
+    },
+    {
+      "name": "bar5s_lvl_level_is_visible",
+      "type": "double",
+      "doc": "Boolean: 1 if level price is within MBP-10 range, 0 otherwise."
+    },
+    {
+      "name": "bar5s_lvl_level_book_index_bid",
+      "type": "double",
+      "doc": "Ladder index (0-9) containing level on bid side, -1 if not found."
+    },
+    {
+      "name": "bar5s_lvl_level_book_index_ask",
+      "type": "double",
+      "doc": "Ladder index (0-9) containing level on ask side, -1 if not found."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_imbal_eob",
+      "type": "double",
+      "doc": "Imbalance of size at level (bid-ask)/(bid+ask)."
+    },
+    {
+      "name": "bar5s_lvl_wall_at_level",
+      "type": "double",
+      "doc": "Boolean: 1 if strong wall (z>2) detected AT the target level."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_0to1_qty_eob",
+      "type": "double",
+      "doc": "Total size within 0-1 pts from level (level-centric)."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_1to2_qty_eob",
+      "type": "double",
+      "doc": "Total size within 1-2 pts from level (level-centric)."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_beyond2_qty_eob",
+      "type": "double",
+      "doc": "Total size beyond 2 pts from level (level-centric)."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_0to1_frac_eob",
+      "type": "double",
+      "doc": "Fraction of total depth in 0-1pt band."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_1to2_frac_eob",
+      "type": "double",
+      "doc": "Fraction of total depth in 1-2pt band."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_beyond2_frac_eob",
+      "type": "double",
+      "doc": "Fraction of total depth beyond 2pt band."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "First derivative of size at level (3-bar window)."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "First derivative of size at level (12-bar window)."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Second derivative of size at level (12-bar window)."
+    },
+    {
+      "name": "bar5s_setup_start_dist_pts",
+      "type": "double",
+      "doc": "Distance at lookback start."
+    },
+    {
+      "name": "bar5s_setup_min_dist_pts",
+      "type": "double",
+      "doc": "Minimum distance during lookback."
+    },
+    {
+      "name": "bar5s_setup_max_dist_pts",
+      "type": "double",
+      "doc": "Maximum distance during lookback."
+    },
+    {
+      "name": "bar5s_setup_dist_range_pts",
+      "type": "double",
+      "doc": "Distance range during lookback."
+    },
+    {
+      "name": "bar5s_setup_approach_bars",
+      "type": "double",
+      "doc": "Bars spent approaching level."
+    },
+    {
+      "name": "bar5s_setup_retreat_bars",
+      "type": "double",
+      "doc": "Bars spent retreating from level."
+    },
+    {
+      "name": "bar5s_setup_approach_ratio",
+      "type": "double",
+      "doc": "Ratio of approach bars."
+    },
+    {
+      "name": "bar5s_setup_early_velocity",
+      "type": "double",
+      "doc": "Approach velocity in first third."
+    },
+    {
+      "name": "bar5s_setup_mid_velocity",
+      "type": "double",
+      "doc": "Approach velocity in middle third."
+    },
+    {
+      "name": "bar5s_setup_late_velocity",
+      "type": "double",
+      "doc": "Approach velocity in final third."
+    },
+    {
+      "name": "bar5s_setup_velocity_trend",
+      "type": "double",
+      "doc": "Velocity trend (late - early)."
+    },
+    {
+      "name": "bar5s_setup_obi0_start",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "OBI0 at lookback start."
+    },
+    {
+      "name": "bar5s_setup_obi0_end",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "OBI0 at current bar."
+    },
+    {
+      "name": "bar5s_setup_obi0_delta",
+      "type": "double",
+      "doc": "OBI0 change over lookback."
+    },
+    {
+      "name": "bar5s_setup_obi0_min",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Minimum OBI0 during lookback."
+    },
+    {
+      "name": "bar5s_setup_obi0_max",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Maximum OBI0 during lookback."
+    },
+    {
+      "name": "bar5s_setup_obi10_start",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "OBI10 at lookback start."
+    },
+    {
+      "name": "bar5s_setup_obi10_end",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "OBI10 at current bar."
+    },
+    {
+      "name": "bar5s_setup_obi10_delta",
+      "type": "double",
+      "doc": "OBI10 change over lookback."
+    },
+    {
+      "name": "bar5s_setup_obi10_min",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Minimum OBI10 during lookback."
+    },
+    {
+      "name": "bar5s_setup_obi10_max",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Maximum OBI10 during lookback."
+    },
+    {
+      "name": "bar5s_setup_total_trade_vol",
+      "type": "double",
+      "doc": "Total trade volume in lookback."
+    },
+    {
+      "name": "bar5s_setup_total_signed_vol",
+      "type": "double",
+      "doc": "Net signed volume in lookback."
+    },
+    {
+      "name": "bar5s_setup_trade_imbal_pct",
+      "type": "double",
+      "doc": "Trade imbalance percentage."
+    },
+    {
+      "name": "bar5s_setup_flow_imbal_total",
+      "type": "double",
+      "doc": "Total flow imbalance."
+    },
+    {
+      "name": "bar5s_setup_bid_wall_max_z",
+      "type": "double",
+      "doc": "Max bid wall z-score in lookback."
+    },
+    {
+      "name": "bar5s_setup_ask_wall_max_z",
+      "type": "double",
+      "doc": "Max ask wall z-score in lookback."
+    },
+    {
+      "name": "bar5s_setup_bid_wall_bars",
+      "type": "double",
+      "doc": "Bars with bid wall z > 2."
+    },
+    {
+      "name": "bar5s_setup_ask_wall_bars",
+      "type": "double",
+      "doc": "Bars with ask wall z > 2."
+    },
+    {
+      "name": "bar5s_setup_wall_imbal",
+      "type": "double",
+      "doc": "Wall imbalance (ask - bid bars)."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_start",
+      "type": "double",
+      "doc": "Size at level at lookback start."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_end",
+      "type": "double",
+      "doc": "Size at level at current bar."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_delta",
+      "type": "double",
+      "doc": "Change in size at level over lookback."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_max",
+      "type": "double",
+      "doc": "Maximum size at level during lookback."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_recent12_sum",
+      "type": "double",
+      "doc": "Sum of size at level in recent 12 bars."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_early_late_ratio",
+      "type": "double",
+      "doc": "Ratio of size at level: late third / early third."
+    },
+    {
+      "name": "bar5s_setup_flow_toward_recent12_sum",
+      "type": "double",
+      "doc": "Flow toward level in recent 12 bars."
+    },
+    {
+      "name": "bar5s_setup_flow_toward_early_late_ratio",
+      "type": "double",
+      "doc": "Ratio of flow toward: late third / early third."
+    },
+    {
+      "name": "rvol_trade_vol_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Trade volume ratio vs historical mean."
+    },
+    {
+      "name": "rvol_trade_vol_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Trade volume z-score vs historical."
+    },
+    {
+      "name": "rvol_trade_cnt_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Trade count ratio vs historical mean."
+    },
+    {
+      "name": "rvol_trade_cnt_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Trade count z-score vs historical."
+    },
+    {
+      "name": "rvol_trade_aggbuy_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Aggressive buy volume ratio vs historical."
+    },
+    {
+      "name": "rvol_trade_aggsell_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Aggressive sell volume ratio vs historical."
+    },
+    {
+      "name": "rvol_trade_aggbuy_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Aggressive buy volume z-score vs historical."
+    },
+    {
+      "name": "rvol_trade_aggsell_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Aggressive sell volume z-score vs historical."
+    },
+    {
+      "name": "rvol_flow_add_bid_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Bid-side add flow ratio vs historical."
+    },
+    {
+      "name": "rvol_flow_add_ask_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Ask-side add flow ratio vs historical."
+    },
+    {
+      "name": "rvol_flow_add_bid_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Bid-side add flow z-score vs historical."
+    },
+    {
+      "name": "rvol_flow_add_ask_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Ask-side add flow z-score vs historical."
+    },
+    {
+      "name": "rvol_flow_net_bid_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Net bid flow ratio vs historical."
+    },
+    {
+      "name": "rvol_flow_net_ask_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Net ask flow ratio vs historical."
+    },
+    {
+      "name": "rvol_flow_net_bid_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Net bid flow z-score vs historical."
+    },
+    {
+      "name": "rvol_flow_net_ask_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Net ask flow z-score vs historical."
+    },
+    {
+      "name": "rvol_flow_add_total_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Total add flow ratio vs historical."
+    },
+    {
+      "name": "rvol_flow_add_total_zscore",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Total add flow z-score vs historical."
+    },
+    {
+      "name": "rvol_cumul_trade_vol_dev",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Cumulative trade volume deviation from expected."
+    },
+    {
+      "name": "rvol_cumul_trade_vol_dev_pct",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Cumulative trade volume deviation percentage."
+    },
+    {
+      "name": "rvol_cumul_flow_imbal_dev",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Cumulative flow imbalance deviation."
+    },
+    {
+      "name": "rvol_cumul_msg_dev",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Cumulative message count deviation."
+    },
+    {
+      "name": "rvol_bid_ask_add_asymmetry",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Bid-ask add flow asymmetry (bid_z - ask_z)."
+    },
+    {
+      "name": "rvol_bid_ask_rem_asymmetry",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Bid-ask remove flow asymmetry."
+    },
+    {
+      "name": "rvol_bid_ask_net_asymmetry",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Bid-ask net flow asymmetry."
+    },
+    {
+      "name": "rvol_aggbuy_aggsell_asymmetry",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Aggressive buy-sell asymmetry."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_mean_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Mean trade volume ratio over lookback."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_max_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Max trade volume ratio over lookback."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_trend",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Trade volume ratio trend (late - early)."
+    },
+    {
+      "name": "rvol_lookback_elevated_bars",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Count of bars with ratio > 1.5."
+    },
+    {
+      "name": "rvol_lookback_depressed_bars",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Count of bars with ratio < 0.5."
+    },
+    {
+      "name": "rvol_lookback_asymmetry_mean",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Mean bid-ask net asymmetry over lookback."
+    },
+    {
+      "name": "rvol_recent_vs_lookback_vol_ratio",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Recent 1min vs lookback volume ratio."
+    },
+    {
+      "name": "rvol_recent_vs_lookback_asymmetry",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Recent 1min vs lookback asymmetry."
+    }
   ]
 }

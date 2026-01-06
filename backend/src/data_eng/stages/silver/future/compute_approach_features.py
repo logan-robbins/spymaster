@@ -18,7 +18,7 @@ from ....io import (
 )
 
 EPSILON = 1e-9
-POINT = 0.25
+POINT = 1.0
 BARS_PER_BUCKET = 60
 RTH_START_HOUR = 9
 RTH_START_MINUTE = 30
@@ -144,6 +144,8 @@ class SilverComputeApproachFeatures(Stage):
         df["bar5s_approach_dist_to_level_pts_eob"] = new_cols["bar5s_approach_dist_to_level_pts_eob"]
         df["bar5s_approach_side_of_level_eob"] = new_cols["bar5s_approach_side_of_level_eob"]
 
+        self._compute_spatial_lookahead_features(df, new_cols)
+        self._compute_level_centric_bands(df, new_cols)
         self._compute_cumulative_features(df, new_cols)
         self._compute_derivative_features(df, new_cols)
         self._compute_level_relative_book_features(df, new_cols)
@@ -186,6 +188,105 @@ class SilverComputeApproachFeatures(Stage):
         level_polarity = 1 if level_type in ["PM_HIGH", "OR_HIGH"] else -1
         out["bar5s_approach_level_polarity"] = np.full(n, level_polarity, dtype=np.int8)
         out["bar5s_approach_alignment_eob"] = -1 * out["bar5s_approach_side_of_level_eob"] * level_polarity
+
+    def _compute_spatial_lookahead_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        n = len(df)
+        level_price = df["level_price"].values
+        
+        bid_px_cols = [f"bar5s_shape_bid_px_l{i:02d}_eob" for i in range(10)]
+        ask_px_cols = [f"bar5s_shape_ask_px_l{i:02d}_eob" for i in range(10)]
+        bid_sz_cols = [f"bar5s_shape_bid_sz_l{i:02d}_eob" for i in range(10)]
+        ask_sz_cols = [f"bar5s_shape_ask_sz_l{i:02d}_eob" for i in range(10)]
+        
+        bid_px = df[bid_px_cols].values
+        ask_px = df[ask_px_cols].values
+        bid_sz = df[bid_sz_cols].values
+        ask_sz = df[ask_sz_cols].values
+        
+        bid_dist = np.abs(bid_px - level_price[:, np.newaxis])
+        ask_dist = np.abs(ask_px - level_price[:, np.newaxis])
+        
+        bid_matches = bid_dist < EPSILON
+        ask_matches = ask_dist < EPSILON
+        
+        bid_size_at_level = np.where(bid_matches.any(axis=1), (bid_sz * bid_matches).sum(axis=1), 0.0)
+        ask_size_at_level = np.where(ask_matches.any(axis=1), (ask_sz * ask_matches).sum(axis=1), 0.0)
+        
+        level_is_visible = ((bid_matches.any(axis=1)) | (ask_matches.any(axis=1))).astype(np.int8)
+        
+        level_book_index_bid = np.where(
+            bid_matches.any(axis=1),
+            np.argmax(bid_matches, axis=1),
+            -1
+        ).astype(np.float64)
+        
+        level_book_index_ask = np.where(
+            ask_matches.any(axis=1),
+            np.argmax(ask_matches, axis=1),
+            -1
+        ).astype(np.float64)
+        
+        out["bar5s_lvl_bid_size_at_level_eob"] = bid_size_at_level
+        out["bar5s_lvl_ask_size_at_level_eob"] = ask_size_at_level
+        out["bar5s_lvl_total_size_at_level_eob"] = bid_size_at_level + ask_size_at_level
+        out["bar5s_lvl_level_is_visible"] = level_is_visible
+        out["bar5s_lvl_level_book_index_bid"] = level_book_index_bid
+        out["bar5s_lvl_level_book_index_ask"] = level_book_index_ask
+        
+        imbal_denom = bid_size_at_level + ask_size_at_level + EPSILON
+        out["bar5s_lvl_size_at_level_imbal_eob"] = (bid_size_at_level - ask_size_at_level) / imbal_denom
+        
+        bid_wall_z = df["bar5s_wall_bid_maxz_eob"].values
+        ask_wall_z = df["bar5s_wall_ask_maxz_eob"].values
+        bid_wall_idx = df["bar5s_wall_bid_maxz_levelidx_eob"].values
+        ask_wall_idx = df["bar5s_wall_ask_maxz_levelidx_eob"].values
+        
+        bid_wall_at_level = (bid_wall_z > 2.0) & (np.abs(bid_wall_idx - level_book_index_bid) < 0.5)
+        ask_wall_at_level = (ask_wall_z > 2.0) & (np.abs(ask_wall_idx - level_book_index_ask) < 0.5)
+        wall_at_level = (bid_wall_at_level | ask_wall_at_level).astype(np.int8)
+        
+        out["bar5s_lvl_wall_at_level"] = wall_at_level
+
+    def _compute_level_centric_bands(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        n = len(df)
+        level_price = df["level_price"].values
+        
+        bid_px_cols = [f"bar5s_shape_bid_px_l{i:02d}_eob" for i in range(10)]
+        ask_px_cols = [f"bar5s_shape_ask_px_l{i:02d}_eob" for i in range(10)]
+        bid_sz_cols = [f"bar5s_shape_bid_sz_l{i:02d}_eob" for i in range(10)]
+        ask_sz_cols = [f"bar5s_shape_ask_sz_l{i:02d}_eob" for i in range(10)]
+        
+        bid_px = df[bid_px_cols].values
+        ask_px = df[ask_px_cols].values
+        bid_sz = df[bid_sz_cols].values
+        ask_sz = df[ask_sz_cols].values
+        
+        bid_dist = np.abs(bid_px - level_price[:, np.newaxis]) / POINT
+        ask_dist = np.abs(ask_px - level_price[:, np.newaxis]) / POINT
+        
+        bid_valid = bid_px > EPSILON
+        ask_valid = ask_px > EPSILON
+        
+        bid_mask_0to1 = (bid_dist <= 1.0) & bid_valid
+        bid_mask_1to2 = (bid_dist > 1.0) & (bid_dist <= 2.0) & bid_valid
+        bid_mask_beyond2 = (bid_dist > 2.0) & bid_valid
+        
+        ask_mask_0to1 = (ask_dist <= 1.0) & ask_valid
+        ask_mask_1to2 = (ask_dist > 1.0) & (ask_dist <= 2.0) & ask_valid
+        ask_mask_beyond2 = (ask_dist > 2.0) & ask_valid
+        
+        band_0to1 = (bid_sz * bid_mask_0to1).sum(axis=1) + (ask_sz * ask_mask_0to1).sum(axis=1)
+        band_1to2 = (bid_sz * bid_mask_1to2).sum(axis=1) + (ask_sz * ask_mask_1to2).sum(axis=1)
+        band_beyond2 = (bid_sz * bid_mask_beyond2).sum(axis=1) + (ask_sz * ask_mask_beyond2).sum(axis=1)
+        
+        out["bar5s_lvl_depth_band_0to1_qty_eob"] = band_0to1
+        out["bar5s_lvl_depth_band_1to2_qty_eob"] = band_1to2
+        out["bar5s_lvl_depth_band_beyond2_qty_eob"] = band_beyond2
+        
+        total_banded = band_0to1 + band_1to2 + band_beyond2 + EPSILON
+        out["bar5s_lvl_depth_band_0to1_frac_eob"] = band_0to1 / total_banded
+        out["bar5s_lvl_depth_band_1to2_frac_eob"] = band_1to2 / total_banded
+        out["bar5s_lvl_depth_band_beyond2_frac_eob"] = band_beyond2 / total_banded
 
     def _compute_cumulative_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
         touch_id = df["touch_id"].values
@@ -261,6 +362,18 @@ class SilverComputeApproachFeatures(Stage):
                 df_temp["_d1"] = d1_vals
                 g_temp = df_temp.groupby("touch_id", sort=False)
                 out[d2_col] = g_temp["_d1"].transform(lambda x: (x - x.shift(window)) / window).values
+        
+        if "bar5s_lvl_total_size_at_level_eob" in out:
+            df_size = df[["touch_id"]].copy()
+            df_size["_size"] = out["bar5s_lvl_total_size_at_level_eob"]
+            g_size = df_size.groupby("touch_id", sort=False)
+            
+            out["bar5s_lvl_size_at_level_d1_w3"] = g_size["_size"].transform(lambda x: (x - x.shift(3)) / 3).values
+            out["bar5s_lvl_size_at_level_d1_w12"] = g_size["_size"].transform(lambda x: (x - x.shift(12)) / 12).values
+            
+            df_size["_d1"] = out["bar5s_lvl_size_at_level_d1_w12"]
+            g_size2 = df_size.groupby("touch_id", sort=False)
+            out["bar5s_lvl_size_at_level_d2_w12"] = g_size2["_d1"].transform(lambda x: (x - x.shift(12)) / 12).values
 
     def _compute_level_relative_book_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
         n = len(df)
@@ -408,6 +521,79 @@ class SilverComputeApproachFeatures(Stage):
         out["bar5s_setup_bid_wall_bars"] = g_wall["_bid"].transform("sum").values.astype(np.float64)
         out["bar5s_setup_ask_wall_bars"] = g_wall["_ask"].transform("sum").values.astype(np.float64)
         out["bar5s_setup_wall_imbal"] = out["bar5s_setup_ask_wall_bars"] - out["bar5s_setup_bid_wall_bars"]
+        
+        if "bar5s_lvl_total_size_at_level_eob" in out:
+            df_lvl = df[["touch_id"]].copy()
+            df_lvl["_size"] = out["bar5s_lvl_total_size_at_level_eob"]
+            g_lvl = df_lvl.groupby("touch_id", sort=False)
+            
+            out["bar5s_setup_size_at_level_start"] = g_lvl["_size"].transform("first").values
+            out["bar5s_setup_size_at_level_end"] = g_lvl["_size"].transform("last").values
+            out["bar5s_setup_size_at_level_delta"] = out["bar5s_setup_size_at_level_end"] - out["bar5s_setup_size_at_level_start"]
+            out["bar5s_setup_size_at_level_max"] = g_lvl["_size"].transform("max").values
+            
+            recent_12 = df_lvl.groupby("touch_id", sort=False).apply(
+                lambda x: x["_size"].iloc[-12:].sum() if len(x) >= 12 else x["_size"].sum(),
+                include_groups=False
+            )
+            df_lvl = df_lvl.merge(recent_12.reset_index(name="_recent12"), on="touch_id", how="left")
+            out["bar5s_setup_size_at_level_recent12_sum"] = df_lvl["_recent12"].values.astype(np.float64)
+            
+            early_late_ratio = df_lvl.groupby("touch_id", sort=False).apply(
+                self._compute_early_late_ratio, include_groups=False
+            )
+            if isinstance(early_late_ratio, pd.DataFrame):
+                early_late_ratio = early_late_ratio.reset_index()
+            else:
+                early_late_ratio = early_late_ratio.reset_index(name="ratio")
+            df_lvl = df_lvl.merge(early_late_ratio[["touch_id", "ratio"]], on="touch_id", how="left")
+            out["bar5s_setup_size_at_level_early_late_ratio"] = df_lvl["ratio"].values.astype(np.float64)
+        
+        toward_col = "bar5s_lvl_flow_toward_net_sum"
+        if toward_col in out:
+            df_toward = df[["touch_id"]].copy()
+            df_toward[toward_col] = out[toward_col]
+            g_toward = df_toward.groupby("touch_id", sort=False)
+            
+            recent_12_toward = g_toward.apply(
+                lambda x: x[toward_col].iloc[-12:].sum() if len(x) >= 12 else x[toward_col].sum(),
+                include_groups=False
+            )
+            df_toward = df_toward.merge(recent_12_toward.reset_index(name="_recent12"), on="touch_id", how="left")
+            out["bar5s_setup_flow_toward_recent12_sum"] = df_toward["_recent12"].values.astype(np.float64)
+            
+            early_late_flow = g_toward.apply(self._compute_early_late_ratio_from_col, toward_col, include_groups=False)
+            if isinstance(early_late_flow, pd.DataFrame):
+                early_late_flow = early_late_flow.reset_index()
+            else:
+                early_late_flow = early_late_flow.reset_index(name="ratio")
+            df_toward = df_toward.merge(early_late_flow[["touch_id", "ratio"]], on="touch_id", how="left")
+            out["bar5s_setup_flow_toward_early_late_ratio"] = df_toward["ratio"].values.astype(np.float64)
+        else:
+            out["bar5s_setup_flow_toward_recent12_sum"] = np.zeros(n, dtype=np.float64)
+            out["bar5s_setup_flow_toward_early_late_ratio"] = np.zeros(n, dtype=np.float64)
+
+    def _compute_early_late_ratio(self, grp: pd.DataFrame) -> pd.Series:
+        vals = grp["_size"].values
+        n_vals = len(vals)
+        if n_vals < 3:
+            return pd.Series({"ratio": 0.0})
+        third = max(1, n_vals // 3)
+        early_sum = np.sum(vals[:third])
+        late_sum = np.sum(vals[-third:])
+        ratio = late_sum / (early_sum + EPSILON) if early_sum > 0 else 0.0
+        return pd.Series({"ratio": ratio})
+    
+    def _compute_early_late_ratio_from_col(self, grp: pd.DataFrame, col: str) -> pd.Series:
+        vals = grp[col].values
+        n_vals = len(vals)
+        if n_vals < 3:
+            return pd.Series({"ratio": 0.0})
+        third = max(1, n_vals // 3)
+        early_sum = np.sum(vals[:third])
+        late_sum = np.sum(vals[-third:])
+        ratio = late_sum / (early_sum + EPSILON) if early_sum > 0 else 0.0
+        return pd.Series({"ratio": ratio})
 
     def _compute_velocity_stats(self, grp: pd.DataFrame) -> pd.Series:
         d1 = grp["_d1"].values

@@ -18,7 +18,6 @@ from ....io import (
 )
 
 EPSILON = 1e-9
-POINT = 0.25
 LEVEL_TYPES = ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW"]
 TARGET_DIM = 256
 LOOKBACK_BARS = 180
