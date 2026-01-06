@@ -366,8 +366,9 @@ When adding many columns iteratively, use `df = df.copy()` at the start and cons
 
 **IMPORTANT** 
 we are ONLY working on the futures (not futures_options)
-We are using dates from 2025-06-11 to 2025-09-30
+We are using dates from 2025-06-04 to 2025-09-30 
 
-The spec is: 
 
-Implement the spec carefully. Mark the items COMPLETE in the spec documenat as you go. 
+⏺ uv run python -m src.data_eng.analysis.principal_quant_feature_analysis \
+    --symbol ESU5 \
+    --dates 2025-06-04:2025-08-30

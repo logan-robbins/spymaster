@@ -1,0 +1,14 @@
+{
+  "final_set": [
+    17,
+    395,
+    374
+  ],
+  "final_names": [
+    "is_extended_forward",
+    "bar5s_setup_obi10_min",
+    "bar5s_lvl_size_at_level_d1_w12"
+  ],
+  "eliminated": [],
+  "final_accuracy": 0.5
+}

@@ -12,26 +12,12 @@ Two pipeline families:
 
 Level features MUST be prefixed with level name to prevent duplication when vectors are combined.
 
-## Current Schema Progression (Futures Pipeline)
+## Last Schema P
 
-| # | Stage | Output Dataset | Description |
-|---|-------|----------------|-------------|
-| 1 | `BronzeProcessDBN` | `bronze.future.market_by_price_10` | DBN → Parquet, filter MBP-10 records |
-| 2 | `SilverConvertUtcToEst` | `silver.future.market_by_price_10_clean` | Add `ts_event_est` timezone conversion |
-| 3 | `SilverAddSessionLevels` | `silver.future.market_by_price_10_with_levels` | Add PM_HIGH, PM_LOW, OR_HIGH, OR_LOW |
-| 4 | `SilverComputeBar5sFeatures` | `silver.future.market_by_price_10_bar5s` | Aggregate tick data into 5s bars with features |
-| 4.5 | `SilverBuildVolumeProfiles` | `silver.future.volume_profiles` | Build 7-day rolling volume profiles (48 buckets) |
-| 5 | `SilverExtractLevelEpisodes` | `silver.future.market_by_price_10_{level}_episodes` | Extract approach episodes per level (×4) |
-| 6 | `SilverComputeApproachFeatures` | `silver.future.market_by_price_10_{level}_approach` | Compute level-relative + relative volume features (×4) |
-| 7 | `GoldFilterFirst3Hours` | `gold.future.market_by_price_10_first3h` | Filter to RTH 09:30–12:30 NY |
-| 8 | `GoldFilterBandRange` | `gold.future.market_by_price_10_bar5s_filtered` | Nullify out-of-range band features |
-| 9 | `GoldExtractSetupVectors` | **`gold.future.setup_vectors`** | Final output: labeled setup vectors for retrieval |
+- ALWAYS refer to the pipeline definition to find the final Stage output Schema per layer. 
+
 
 **Final Output**: `gold.future.setup_vectors` — Contains labeled setup vectors ready for similarity search.
-
-**Level Tables** (×4 each for PM_HIGH, PM_LOW, OR_HIGH, OR_LOW):
-- Stage 5 outputs: `market_by_price_10_pm_high_episodes`, `market_by_price_10_pm_low_episodes`, `market_by_price_10_or_high_episodes`, `market_by_price_10_or_low_episodes`
-- Stage 6 outputs: `market_by_price_10_pm_high_approach`, `market_by_price_10_pm_low_approach`, `market_by_price_10_or_high_approach`, `market_by_price_10_or_low_approach`
 
 **Volume Profile Table**:
 - Stage 4.5 outputs: `volume_profiles` — 48 rows per date (one per 5-minute bucket from 09:30-13:30)
@@ -217,19 +203,59 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 ## Feature Naming Convention
 
-```
-bar5s_<family>_<detail>_<agg>_<suffix>
-rvol_<category>_<metric>
-```
+### bar5s Features (5-second bar aggregates)
 
-Families: `state`, `depth`, `flow`, `trade`, `wall`, `shape`, `ladder`, `approach`, `deriv`, `cumul`, `lvl`, `setup`
+Pattern: `bar5s_<family>_<detail>_<suffix>`
 
-Suffixes:
+**Families (14 total):**
+| Family | Count | Description |
+|--------|-------|-------------|
+| `shape` | 100 | Order book shape metrics (imbalance, slopes, curvature) |
+| `deriv` | 88 | First/second derivatives of other features |
+| `flow` | 42 | Order flow dynamics (adds, removes, modifications) |
+| `setup` | 38 | Setup-specific features for retrieval |
+| `lvl` | 33 | Level-relative features (distance, velocity) |
+| `depth` | 28 | Book depth metrics per price level |
+| `cumul` | 19 | Cumulative sums (volume, imbalance) |
+| `state` | 12 | Market state (spread, mid, volatility) |
+| `wall` | 8 | Large resting order detection |
+| `meta` | 6 | Message counts (add, cancel, modify) |
+| `trade` | 5 | Trade execution metrics |
+| `ladder` | 4 | Price ladder structure |
+| `microprice` | 1 | Size-weighted microprice |
+| `midprice` | 1 | Mid price snapshot |
+
+**Suffixes:**
 - `_eob` — End-of-bar snapshot
 - `_twa` — Time-weighted average
 - `_sum` — Aggregated sum over bar
 - `_d1_wN` — First derivative over N bars
 - `_d2_wN` — Second derivative over N bars
+
+### rvol Features (Relative Volume)
+
+Pattern: `rvol_<category>_<metric>`
+
+**Categories (7 total):**
+| Category | Count | Description |
+|----------|-------|-------------|
+| `flow` | 10 | Flow ratios and z-scores vs profile |
+| `trade` | 8 | Trade volume ratios/z-scores |
+| `lookback` | 6 | 7-day lookback comparisons |
+| `cumul` | 4 | Cumulative volume deviations |
+| `bid` | 3 | Bid/ask flow asymmetries |
+| `recent` | 2 | Recent vs lookback ratios |
+| `aggbuy` | 1 | Aggressive buy/sell asymmetry |
+
+### Metadata Fields (not features)
+
+These are context/label fields excluded from feature vectors:
+- `symbol`, `bar_ts`, `episode_id`, `touch_id`
+- `level_type`, `level_price`, `approach_direction`
+- `dist_to_level_pts`, `signed_dist_pts`
+- `bar_index_in_episode`, `bar_index_in_touch`, `bars_to_trigger`
+- `is_*` flags (trigger states)
+- `outcome`, `outcome_score` (labels)
 
 ## Adding a New Stage
 
@@ -272,7 +298,7 @@ df = enforce_contract(df, contract)  # Raises if mismatch
 
 Common constants are defined in stage files or dedicated constants modules:
 - `EPSILON = 1e-9` — Prevent division by zero
-- `POINT = 0.25` — ES futures tick size
+- `POINT = 1`
 - `BAR_DURATION_NS = 5_000_000_000` — 5-second bar duration
 - `LOOKBACK_DAYS = 7` — Days of history for volume profiles
 - `MIN_DAYS = 3` — Minimum days required for valid profile
@@ -282,3 +308,9 @@ Common constants are defined in stage files or dedicated constants modules:
 ## Performance Notes
 
 When adding many columns iteratively, use `df = df.copy()` at the start and consider batch assignment to avoid DataFrame fragmentation warnings. For large-scale column additions, pre-allocate columns or use `pd.concat(axis=1)`.
+
+# Analysis and Ablation
+
+  uv run python -m src.data_eng.analysis.principal_quant_feature_analysis \
+      --root-symbol ES \
+      --dates 2025-06-04:2025-09-30
