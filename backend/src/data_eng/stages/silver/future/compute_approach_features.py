@@ -46,11 +46,11 @@ DERIV_BASE_FEATURES = {
 FLOW_BANDS = ["p0_1", "p1_2", "p2_3"]
 
 
-def get_bucket_id(ts_ns: int) -> int:
-    dt = pd.Timestamp(ts_ns, unit="ns", tz="UTC").tz_convert("America/New_York")
-    minutes_since_open = (dt.hour - RTH_START_HOUR) * 60 + dt.minute - RTH_START_MINUTE
-    bucket_id = minutes_since_open // BUCKET_MINUTES
-    return max(0, min(N_BUCKETS - 1, bucket_id))
+def _vectorized_bucket_id(ts_ns: np.ndarray) -> np.ndarray:
+    ts_series = pd.to_datetime(ts_ns, unit="ns", utc=True).tz_convert("America/New_York")
+    minutes_since_open = (ts_series.hour - RTH_START_HOUR) * 60 + ts_series.minute - RTH_START_MINUTE
+    bucket_ids = minutes_since_open // BUCKET_MINUTES
+    return np.clip(bucket_ids.values, 0, N_BUCKETS - 1).astype(np.int32)
 
 
 class SilverComputeApproachFeatures(Stage):
@@ -139,62 +139,64 @@ class SilverComputeApproachFeatures(Stage):
     ) -> pd.DataFrame:
         df = df.copy()
 
-        df = self._compute_position_features(df, level_type)
-        df = self._compute_cumulative_features(df)
-        df = self._compute_derivative_features(df)
-        df = self._compute_level_relative_book_features(df)
-        df = self._compute_setup_signature_features(df)
-        df = self._compute_relative_volume_features(df, df_profile)
+        new_cols: Dict[str, np.ndarray] = {}
+        self._compute_position_features(df, level_type, new_cols)
+        df["bar5s_approach_dist_to_level_pts_eob"] = new_cols["bar5s_approach_dist_to_level_pts_eob"]
+        df["bar5s_approach_side_of_level_eob"] = new_cols["bar5s_approach_side_of_level_eob"]
 
-        return df
+        self._compute_cumulative_features(df, new_cols)
+        self._compute_derivative_features(df, new_cols)
+        self._compute_level_relative_book_features(df, new_cols)
+        self._compute_setup_signature_features(df, new_cols)
+        self._compute_relative_volume_features(df, df_profile, new_cols)
+
+        cols_to_add = {k: v for k, v in new_cols.items() if k not in df.columns}
+        new_df = pd.DataFrame(cols_to_add, index=df.index)
+        return pd.concat([df, new_df], axis=1)
 
     def _compute_position_features(
-        self, df: pd.DataFrame, level_type: str
-    ) -> pd.DataFrame:
+        self, df: pd.DataFrame, level_type: str, out: Dict[str, np.ndarray]
+    ) -> None:
+        n = len(df)
         level_price = df["level_price"].values
         microprice = df["bar5s_microprice_eob"].values
 
-        df["bar5s_approach_dist_to_level_pts_eob"] = (microprice - level_price) / POINT
+        out["bar5s_approach_dist_to_level_pts_eob"] = (microprice - level_price) / POINT
 
-        mid_bid = df["bar5s_depth_bid10_qty_eob"].values
-        mid_ask = df["bar5s_depth_ask10_qty_eob"].values
         bid_px_00 = microprice - df["bar5s_state_spread_pts_eob"].values * POINT / 2
         ask_px_00 = microprice + df["bar5s_state_spread_pts_eob"].values * POINT / 2
         bid_sz_00 = df["bar5s_shape_bid_sz_l00_eob"].values
         ask_sz_00 = df["bar5s_shape_ask_sz_l00_eob"].values
 
+        denom = bid_sz_00 + ask_sz_00 + EPSILON
         micro_twa = np.where(
             (bid_sz_00 + ask_sz_00) > EPSILON,
-            (ask_px_00 * bid_sz_00 + bid_px_00 * ask_sz_00) / (bid_sz_00 + ask_sz_00 + EPSILON),
+            (ask_px_00 * bid_sz_00 + bid_px_00 * ask_sz_00) / denom,
             microprice,
         )
-        df["bar5s_approach_dist_to_level_pts_twa"] = (micro_twa - level_price) / POINT
+        out["bar5s_approach_dist_to_level_pts_twa"] = (micro_twa - level_price) / POINT
+        out["bar5s_approach_abs_dist_to_level_pts_eob"] = np.abs(out["bar5s_approach_dist_to_level_pts_eob"])
+        out["bar5s_approach_side_of_level_eob"] = np.where(microprice > level_price, 1, -1).astype(np.int8)
 
-        df["bar5s_approach_abs_dist_to_level_pts_eob"] = np.abs(
-            df["bar5s_approach_dist_to_level_pts_eob"]
-        )
+        out["bar5s_approach_is_pm_high"] = np.full(n, 1 if level_type == "PM_HIGH" else 0, dtype=np.int8)
+        out["bar5s_approach_is_pm_low"] = np.full(n, 1 if level_type == "PM_LOW" else 0, dtype=np.int8)
+        out["bar5s_approach_is_or_high"] = np.full(n, 1 if level_type == "OR_HIGH" else 0, dtype=np.int8)
+        out["bar5s_approach_is_or_low"] = np.full(n, 1 if level_type == "OR_LOW" else 0, dtype=np.int8)
 
-        df["bar5s_approach_side_of_level_eob"] = np.where(
-            microprice > level_price, 1, -1
-        ).astype(np.int8)
+        level_polarity = 1 if level_type in ["PM_HIGH", "OR_HIGH"] else -1
+        out["bar5s_approach_level_polarity"] = np.full(n, level_polarity, dtype=np.int8)
+        out["bar5s_approach_alignment_eob"] = -1 * out["bar5s_approach_side_of_level_eob"] * level_polarity
 
-        df["bar5s_approach_is_pm_high"] = 1 if level_type == "PM_HIGH" else 0
-        df["bar5s_approach_is_pm_low"] = 1 if level_type == "PM_LOW" else 0
-        df["bar5s_approach_is_or_high"] = 1 if level_type == "OR_HIGH" else 0
-        df["bar5s_approach_is_or_low"] = 1 if level_type == "OR_LOW" else 0
+    def _compute_cumulative_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        touch_id = df["touch_id"].values
+        unique_ids, inverse = np.unique(touch_id, return_inverse=True)
+        n_groups = len(unique_ids)
+        n = len(df)
 
-        df["bar5s_approach_level_polarity"] = (
-            1 if level_type in ["PM_HIGH", "OR_HIGH"] else -1
-        )
-
-        df["bar5s_approach_alignment_eob"] = (
-            -1 * df["bar5s_approach_side_of_level_eob"] * df["bar5s_approach_level_polarity"]
-        )
-
-        return df
-
-    def _compute_cumulative_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        g = df.groupby("touch_id", sort=False)
+        group_starts = np.zeros(n_groups + 1, dtype=np.int64)
+        for i in range(n):
+            group_starts[inverse[i] + 1] += 1
+        group_starts = np.cumsum(group_starts)
 
         cumsum_mappings = {
             "bar5s_cumul_trade_vol": "bar5s_trade_vol_sum",
@@ -207,52 +209,61 @@ class SilverComputeApproachFeatures(Stage):
             "bar5s_cumul_cancel_cnt": "bar5s_meta_cancel_cnt_sum",
         }
 
+        g = df.groupby("touch_id", sort=False)
         for out_col, in_col in cumsum_mappings.items():
             if in_col in df.columns:
-                df[out_col] = g[in_col].cumsum()
+                out[out_col] = g[in_col].cumsum().values
 
-        bars_elapsed = g.cumcount() + 1
-        df["bar5s_cumul_signed_trade_vol_rate"] = df["bar5s_cumul_signed_trade_vol"] / bars_elapsed
+        bars_elapsed = g.cumcount().values + 1
+        out["bar5s_cumul_signed_trade_vol_rate"] = out.get("bar5s_cumul_signed_trade_vol", np.zeros(n)) / bars_elapsed
 
-        flow_bid_total = np.zeros(len(df), dtype=np.float64)
-        flow_ask_total = np.zeros(len(df), dtype=np.float64)
+        flow_bid_total = np.zeros(n, dtype=np.float64)
+        flow_ask_total = np.zeros(n, dtype=np.float64)
 
         for band in FLOW_BANDS:
             bid_col = f"bar5s_flow_net_vol_bid_{band}_sum"
             ask_col = f"bar5s_flow_net_vol_ask_{band}_sum"
 
             if bid_col in df.columns:
-                df[f"bar5s_cumul_flow_net_bid_{band}"] = g[bid_col].cumsum()
-                flow_bid_total += df[f"bar5s_cumul_flow_net_bid_{band}"].values
+                cumul = g[bid_col].cumsum().values
+                out[f"bar5s_cumul_flow_net_bid_{band}"] = cumul
+                flow_bid_total += cumul
 
             if ask_col in df.columns:
-                df[f"bar5s_cumul_flow_net_ask_{band}"] = g[ask_col].cumsum()
-                flow_ask_total += df[f"bar5s_cumul_flow_net_ask_{band}"].values
+                cumul = g[ask_col].cumsum().values
+                out[f"bar5s_cumul_flow_net_ask_{band}"] = cumul
+                flow_ask_total += cumul
 
-        df["bar5s_cumul_flow_net_bid"] = flow_bid_total
-        df["bar5s_cumul_flow_net_ask"] = flow_ask_total
-        df["bar5s_cumul_flow_imbal"] = flow_bid_total - flow_ask_total
-        df["bar5s_cumul_flow_imbal_rate"] = df["bar5s_cumul_flow_imbal"] / bars_elapsed
+        out["bar5s_cumul_flow_net_bid"] = flow_bid_total
+        out["bar5s_cumul_flow_net_ask"] = flow_ask_total
+        out["bar5s_cumul_flow_imbal"] = flow_bid_total - flow_ask_total
+        out["bar5s_cumul_flow_imbal_rate"] = out["bar5s_cumul_flow_imbal"] / bars_elapsed
 
-        return df
-
-    def _compute_derivative_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _compute_derivative_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
         g = df.groupby("touch_id", sort=False)
 
         for short_name, full_col in DERIV_BASE_FEATURES.items():
             if full_col not in df.columns:
                 continue
 
+            base_vals = df[full_col].values if full_col in df.columns else out.get(full_col)
+            if base_vals is None:
+                continue
+
             for window in DERIV_WINDOWS:
                 d1_col = f"bar5s_deriv_{short_name}_d1_w{window}"
                 d2_col = f"bar5s_deriv_{short_name}_d2_w{window}"
 
-                df[d1_col] = g[full_col].transform(lambda x: (x - x.shift(window)) / window)
-                df[d2_col] = g[d1_col].transform(lambda x: (x - x.shift(window)) / window)
+                d1_vals = g[full_col].transform(lambda x: (x - x.shift(window)) / window).values
+                out[d1_col] = d1_vals
 
-        return df
+                df_temp = df[["touch_id"]].copy()
+                df_temp["_d1"] = d1_vals
+                g_temp = df_temp.groupby("touch_id", sort=False)
+                out[d2_col] = g_temp["_d1"].transform(lambda x: (x - x.shift(window)) / window).values
 
-    def _compute_level_relative_book_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _compute_level_relative_book_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        n = len(df)
         level_price = df["level_price"].values
         microprice = df["bar5s_microprice_eob"].values
         spread = df["bar5s_state_spread_pts_eob"].values * POINT
@@ -260,44 +271,43 @@ class SilverComputeApproachFeatures(Stage):
         bid_px_00 = microprice - spread / 2
         ask_px_00 = microprice + spread / 2
 
-        df["bar5s_lvl_depth_above_qty_eob"] = np.where(
+        out["bar5s_lvl_depth_above_qty_eob"] = np.where(
             ask_px_00 > level_price,
             df["bar5s_depth_ask10_qty_eob"].values,
             0,
         )
-        df["bar5s_lvl_depth_below_qty_eob"] = np.where(
+        out["bar5s_lvl_depth_below_qty_eob"] = np.where(
             bid_px_00 < level_price,
             df["bar5s_depth_bid10_qty_eob"].values,
             0,
         )
 
         dist_from_level = np.abs(microprice - level_price)
-        df["bar5s_lvl_depth_at_qty_eob"] = np.where(
+        out["bar5s_lvl_depth_at_qty_eob"] = np.where(
             dist_from_level <= 0.5 * POINT,
             df["bar5s_shape_bid_sz_l00_eob"].values + df["bar5s_shape_ask_sz_l00_eob"].values,
             0,
         )
 
-        above = df["bar5s_lvl_depth_above_qty_eob"].values
-        below = df["bar5s_lvl_depth_below_qty_eob"].values
-        df["bar5s_lvl_depth_imbal_eob"] = (below - above) / (below + above + EPSILON)
+        above = out["bar5s_lvl_depth_above_qty_eob"]
+        below = out["bar5s_lvl_depth_below_qty_eob"]
+        out["bar5s_lvl_depth_imbal_eob"] = (below - above) / (below + above + EPSILON)
 
         for band in ["p0_1", "p1_2", "p2_3"]:
             below_col = f"bar5s_depth_below_{band}_qty_eob"
             above_col = f"bar5s_depth_above_{band}_qty_eob"
 
             if below_col in df.columns and above_col in df.columns:
-                df[f"bar5s_lvl_depth_above_{band}_qty_eob"] = df[above_col].values
-                df[f"bar5s_lvl_depth_below_{band}_qty_eob"] = df[below_col].values
-
                 b = df[below_col].values
                 a = df[above_col].values
-                df[f"bar5s_lvl_cdi_{band}_eob"] = (b - a) / (b + a + EPSILON)
+                out[f"bar5s_lvl_depth_above_{band}_qty_eob"] = a
+                out[f"bar5s_lvl_depth_below_{band}_qty_eob"] = b
+                out[f"bar5s_lvl_cdi_{band}_eob"] = (b - a) / (b + a + EPSILON)
 
-        side_of_level = df["bar5s_approach_side_of_level_eob"].values
+        side_of_level = out["bar5s_approach_side_of_level_eob"]
 
-        flow_bid_sum = np.zeros(len(df))
-        flow_ask_sum = np.zeros(len(df))
+        flow_bid_sum = np.zeros(n, dtype=np.float64)
+        flow_ask_sum = np.zeros(n, dtype=np.float64)
 
         for band in FLOW_BANDS:
             bid_col = f"bar5s_flow_net_vol_bid_{band}_sum"
@@ -310,93 +320,107 @@ class SilverComputeApproachFeatures(Stage):
         toward_flow = np.where(side_of_level < 0, flow_ask_sum, flow_bid_sum)
         away_flow = np.where(side_of_level < 0, flow_bid_sum, flow_ask_sum)
 
-        df["bar5s_lvl_flow_toward_net_sum"] = toward_flow
-        df["bar5s_lvl_flow_away_net_sum"] = away_flow
-        df["bar5s_lvl_flow_toward_away_imbal_sum"] = toward_flow - away_flow
+        out["bar5s_lvl_flow_toward_net_sum"] = toward_flow
+        out["bar5s_lvl_flow_away_net_sum"] = away_flow
+        out["bar5s_lvl_flow_toward_away_imbal_sum"] = toward_flow - away_flow
 
-        return df
-
-    def _compute_setup_signature_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _compute_setup_signature_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        n = len(df)
         g = df.groupby("touch_id", sort=False)
         dist_col = "bar5s_approach_dist_to_level_pts_eob"
 
-        df["_abs_dist"] = np.abs(df[dist_col])
+        dist_vals = out.get(dist_col, df[dist_col].values if dist_col in df.columns else np.zeros(n))
+        abs_dist = np.abs(dist_vals)
 
-        df["bar5s_setup_start_dist_pts"] = g[dist_col].transform("first")
-        df["bar5s_setup_min_dist_pts"] = g["_abs_dist"].transform("min")
-        df["bar5s_setup_max_dist_pts"] = g["_abs_dist"].transform("max")
-        df["bar5s_setup_dist_range_pts"] = df["bar5s_setup_max_dist_pts"] - df["bar5s_setup_min_dist_pts"]
+        out["bar5s_setup_start_dist_pts"] = g[dist_col].transform("first").values
 
-        df["_delta_dist"] = g["_abs_dist"].diff().fillna(0.0)
-        df["bar5s_setup_approach_bars"] = g["_delta_dist"].transform(lambda x: (x < 0).sum())
-        df["bar5s_setup_retreat_bars"] = g["_delta_dist"].transform(lambda x: (x > 0).sum())
-        n_bars = g["_delta_dist"].transform("count")
-        df["bar5s_setup_approach_ratio"] = df["bar5s_setup_approach_bars"] / (n_bars + EPSILON)
+        df_temp = df[["touch_id"]].copy()
+        df_temp["_abs_dist"] = abs_dist
+        g_temp = df_temp.groupby("touch_id", sort=False)
+
+        out["bar5s_setup_min_dist_pts"] = g_temp["_abs_dist"].transform("min").values
+        out["bar5s_setup_max_dist_pts"] = g_temp["_abs_dist"].transform("max").values
+        out["bar5s_setup_dist_range_pts"] = out["bar5s_setup_max_dist_pts"] - out["bar5s_setup_min_dist_pts"]
+
+        delta_dist = g_temp["_abs_dist"].diff().fillna(0.0).values
+        df_temp["_delta_dist"] = delta_dist
+        g_temp = df_temp.groupby("touch_id", sort=False)
+
+        out["bar5s_setup_approach_bars"] = g_temp["_delta_dist"].transform(lambda x: (x < 0).sum()).values.astype(np.float64)
+        out["bar5s_setup_retreat_bars"] = g_temp["_delta_dist"].transform(lambda x: (x > 0).sum()).values.astype(np.float64)
+        n_bars = g_temp["_delta_dist"].transform("count").values.astype(np.float64)
+        out["bar5s_setup_approach_ratio"] = out["bar5s_setup_approach_bars"] / (n_bars + EPSILON)
 
         d1_col = "bar5s_deriv_dist_d1_w3"
-        if d1_col in df.columns:
-            df["_bar_idx"] = g.cumcount()
-            df["_n_bars"] = n_bars
-            df["_third"] = np.maximum(1, df["_n_bars"] // 3)
+        if d1_col in out:
+            d1_vals = out[d1_col]
+            df_vel = df[["touch_id"]].copy()
+            df_vel["_d1"] = d1_vals
 
-            def _velocity_stats(grp: pd.DataFrame) -> pd.Series:
-                d1 = grp[d1_col].values
-                n = len(d1)
-                third = max(1, n // 3)
-                early = np.nanmean(d1[:third]) if third > 0 else 0.0
-                mid = np.nanmean(d1[third:2*third]) if 2*third > third else 0.0
-                late = np.nanmean(d1[2*third:]) if n > 2*third else 0.0
-                return pd.Series({"early": early, "mid": mid, "late": late, "trend": late - early}, index=["early", "mid", "late", "trend"])
+            vel_stats = df_vel.groupby("touch_id", sort=False).apply(
+                self._compute_velocity_stats, include_groups=False
+            )
 
-            vel_stats = g.apply(_velocity_stats, include_groups=False).reset_index()
-            vel_stats.columns = ["touch_id", "early", "mid", "late", "trend"]
-            df = df.merge(vel_stats.rename(columns={
-                "early": "bar5s_setup_early_velocity",
-                "mid": "bar5s_setup_mid_velocity",
-                "late": "bar5s_setup_late_velocity",
-                "trend": "bar5s_setup_velocity_trend",
-            }), on="touch_id", how="left")
+            if isinstance(vel_stats, pd.DataFrame):
+                vel_stats = vel_stats.reset_index()
+            else:
+                vel_stats = vel_stats.reset_index(name="stats")
+                vel_stats = pd.concat([vel_stats["touch_id"], vel_stats["stats"].apply(pd.Series)], axis=1)
+
+            df_vel = df_vel.merge(vel_stats, on="touch_id", how="left")
+            out["bar5s_setup_early_velocity"] = df_vel["early"].values.astype(np.float64)
+            out["bar5s_setup_mid_velocity"] = df_vel["mid"].values.astype(np.float64)
+            out["bar5s_setup_late_velocity"] = df_vel["late"].values.astype(np.float64)
+            out["bar5s_setup_velocity_trend"] = df_vel["trend"].values.astype(np.float64)
         else:
-            df["bar5s_setup_early_velocity"] = 0.0
-            df["bar5s_setup_mid_velocity"] = 0.0
-            df["bar5s_setup_late_velocity"] = 0.0
-            df["bar5s_setup_velocity_trend"] = 0.0
-
-        g = df.groupby("touch_id", sort=False)
+            out["bar5s_setup_early_velocity"] = np.zeros(n, dtype=np.float64)
+            out["bar5s_setup_mid_velocity"] = np.zeros(n, dtype=np.float64)
+            out["bar5s_setup_late_velocity"] = np.zeros(n, dtype=np.float64)
+            out["bar5s_setup_velocity_trend"] = np.zeros(n, dtype=np.float64)
 
         for metric, col in [("obi0", "bar5s_state_obi0_eob"), ("obi10", "bar5s_state_obi10_eob")]:
             if col in df.columns:
-                df[f"bar5s_setup_{metric}_start"] = g[col].transform("first")
-                df[f"bar5s_setup_{metric}_end"] = g[col].transform("last")
-                df[f"bar5s_setup_{metric}_delta"] = df[f"bar5s_setup_{metric}_end"] - df[f"bar5s_setup_{metric}_start"]
-                df[f"bar5s_setup_{metric}_min"] = g[col].transform("min")
-                df[f"bar5s_setup_{metric}_max"] = g[col].transform("max")
+                out[f"bar5s_setup_{metric}_start"] = g[col].transform("first").values
+                out[f"bar5s_setup_{metric}_end"] = g[col].transform("last").values
+                out[f"bar5s_setup_{metric}_delta"] = out[f"bar5s_setup_{metric}_end"] - out[f"bar5s_setup_{metric}_start"]
+                out[f"bar5s_setup_{metric}_min"] = g[col].transform("min").values
+                out[f"bar5s_setup_{metric}_max"] = g[col].transform("max").values
 
-        df["bar5s_setup_total_trade_vol"] = g["bar5s_trade_vol_sum"].transform("sum")
-        df["bar5s_setup_total_signed_vol"] = g["bar5s_trade_signed_vol_sum"].transform("sum")
-        df["bar5s_setup_trade_imbal_pct"] = df["bar5s_setup_total_signed_vol"] / (df["bar5s_setup_total_trade_vol"] + EPSILON)
+        out["bar5s_setup_total_trade_vol"] = g["bar5s_trade_vol_sum"].transform("sum").values
+        out["bar5s_setup_total_signed_vol"] = g["bar5s_trade_signed_vol_sum"].transform("sum").values
+        out["bar5s_setup_trade_imbal_pct"] = out["bar5s_setup_total_signed_vol"] / (out["bar5s_setup_total_trade_vol"] + EPSILON)
 
-        df["bar5s_setup_flow_imbal_total"] = g["bar5s_cumul_flow_imbal"].transform("last")
+        cumul_imbal = out.get("bar5s_cumul_flow_imbal", np.zeros(n))
+        df_fi = df[["touch_id"]].copy()
+        df_fi["_imbal"] = cumul_imbal
+        out["bar5s_setup_flow_imbal_total"] = df_fi.groupby("touch_id", sort=False)["_imbal"].transform("last").values
 
-        df["bar5s_setup_bid_wall_max_z"] = g["bar5s_wall_bid_maxz_eob"].transform("max")
-        df["bar5s_setup_ask_wall_max_z"] = g["bar5s_wall_ask_maxz_eob"].transform("max")
+        out["bar5s_setup_bid_wall_max_z"] = g["bar5s_wall_bid_maxz_eob"].transform("max").values
+        out["bar5s_setup_ask_wall_max_z"] = g["bar5s_wall_ask_maxz_eob"].transform("max").values
 
-        df["_bid_wall_strong"] = (df["bar5s_wall_bid_maxz_eob"] > 2.0).astype(np.int32)
-        df["_ask_wall_strong"] = (df["bar5s_wall_ask_maxz_eob"] > 2.0).astype(np.int32)
+        bid_wall_strong = (df["bar5s_wall_bid_maxz_eob"].values > 2.0).astype(np.int32)
+        ask_wall_strong = (df["bar5s_wall_ask_maxz_eob"].values > 2.0).astype(np.int32)
 
-        g = df.groupby("touch_id", sort=False)
-        df["bar5s_setup_bid_wall_bars"] = g["_bid_wall_strong"].transform("sum")
-        df["bar5s_setup_ask_wall_bars"] = g["_ask_wall_strong"].transform("sum")
-        df["bar5s_setup_wall_imbal"] = df["bar5s_setup_ask_wall_bars"] - df["bar5s_setup_bid_wall_bars"]
+        df_wall = df[["touch_id"]].copy()
+        df_wall["_bid"] = bid_wall_strong
+        df_wall["_ask"] = ask_wall_strong
+        g_wall = df_wall.groupby("touch_id", sort=False)
+        out["bar5s_setup_bid_wall_bars"] = g_wall["_bid"].transform("sum").values.astype(np.float64)
+        out["bar5s_setup_ask_wall_bars"] = g_wall["_ask"].transform("sum").values.astype(np.float64)
+        out["bar5s_setup_wall_imbal"] = out["bar5s_setup_ask_wall_bars"] - out["bar5s_setup_bid_wall_bars"]
 
-        temp_cols = [c for c in df.columns if c.startswith("_")]
-        df.drop(columns=temp_cols, inplace=True)
-
-        return df
+    def _compute_velocity_stats(self, grp: pd.DataFrame) -> pd.Series:
+        d1 = grp["_d1"].values
+        n_vals = len(d1)
+        third = max(1, n_vals // 3)
+        early = np.nanmean(d1[:third]) if third > 0 else 0.0
+        mid = np.nanmean(d1[third:2*third]) if 2*third > third else 0.0
+        late = np.nanmean(d1[2*third:]) if n_vals > 2*third else 0.0
+        return pd.Series({"early": early, "mid": mid, "late": late, "trend": late - early})
 
     def _compute_relative_volume_features(
-        self, df: pd.DataFrame, df_profile: Optional[pd.DataFrame] = None
-    ) -> pd.DataFrame:
+        self, df: pd.DataFrame, df_profile: Optional[pd.DataFrame], out: Dict[str, np.ndarray]
+    ) -> None:
         n = len(df)
         rvol_cols = [
             "rvol_trade_vol_ratio", "rvol_trade_vol_zscore",
@@ -420,35 +444,51 @@ class SilverComputeApproachFeatures(Stage):
 
         if df_profile is None or len(df_profile) == 0 or n == 0:
             for col in rvol_cols:
-                df[col] = np.nan
-            return df
+                out[col] = np.full(n, np.nan, dtype=np.float64)
+            return
 
-        df["_bucket_id"] = df["bar_ts"].apply(get_bucket_id)
+        bucket_ids = _vectorized_bucket_id(df["bar_ts"].values)
 
-        profile_dict = {}
+        profile_lookup = {}
         for _, row in df_profile.iterrows():
             bid = int(row["bucket_id"])
-            profile_dict[bid] = row.to_dict()
+            profile_lookup[bid] = {
+                "trade_vol_mean": row.get("trade_vol_mean", 0.0),
+                "trade_vol_std": row.get("trade_vol_std", 0.0),
+                "trade_cnt_mean": row.get("trade_cnt_mean", 0.0),
+                "trade_cnt_std": row.get("trade_cnt_std", 0.0),
+                "trade_aggbuy_vol_mean": row.get("trade_aggbuy_vol_mean", 0.0),
+                "trade_aggbuy_vol_std": row.get("trade_aggbuy_vol_std", 0.0),
+                "trade_aggsell_vol_mean": row.get("trade_aggsell_vol_mean", 0.0),
+                "trade_aggsell_vol_std": row.get("trade_aggsell_vol_std", 0.0),
+                "flow_add_vol_bid_mean": row.get("flow_add_vol_bid_mean", 0.0),
+                "flow_add_vol_bid_std": row.get("flow_add_vol_bid_std", 0.0),
+                "flow_add_vol_ask_mean": row.get("flow_add_vol_ask_mean", 0.0),
+                "flow_add_vol_ask_std": row.get("flow_add_vol_ask_std", 0.0),
+                "flow_net_vol_bid_mean": row.get("flow_net_vol_bid_mean", 0.0),
+                "flow_net_vol_bid_std": row.get("flow_net_vol_bid_std", 0.0),
+                "flow_net_vol_ask_mean": row.get("flow_net_vol_ask_mean", 0.0),
+                "flow_net_vol_ask_std": row.get("flow_net_vol_ask_std", 0.0),
+                "flow_rem_vol_bid_mean": row.get("flow_rem_vol_bid_mean", 0.0),
+                "flow_rem_vol_bid_std": row.get("flow_rem_vol_bid_std", 0.0),
+                "flow_rem_vol_ask_mean": row.get("flow_rem_vol_ask_mean", 0.0),
+                "flow_rem_vol_ask_std": row.get("flow_rem_vol_ask_std", 0.0),
+                "msg_cnt_mean": row.get("msg_cnt_mean", 0.0),
+                "msg_cnt_std": row.get("msg_cnt_std", 0.0),
+            }
 
-        def safe_get(bucket_id: int, key: str, default: float = 0.0) -> float:
-            if bucket_id in profile_dict:
-                val = profile_dict[bucket_id].get(key, default)
-                return val if not np.isnan(val) else default
-            return default
-
-        bucket_ids = df["_bucket_id"].values
         trade_vol = df["bar5s_trade_vol_sum"].values
         trade_cnt = df["bar5s_trade_cnt_sum"].values
         trade_aggbuy = df["bar5s_trade_aggbuy_vol_sum"].values
         trade_aggsell = df["bar5s_trade_aggsell_vol_sum"].values
         msg_cnt = df["bar5s_meta_msg_cnt_sum"].values
 
-        flow_add_bid = np.zeros(n)
-        flow_add_ask = np.zeros(n)
-        flow_net_bid = np.zeros(n)
-        flow_net_ask = np.zeros(n)
-        flow_rem_bid = np.zeros(n)
-        flow_rem_ask = np.zeros(n)
+        flow_add_bid = np.zeros(n, dtype=np.float64)
+        flow_add_ask = np.zeros(n, dtype=np.float64)
+        flow_net_bid = np.zeros(n, dtype=np.float64)
+        flow_net_ask = np.zeros(n, dtype=np.float64)
+        flow_rem_bid = np.zeros(n, dtype=np.float64)
+        flow_rem_ask = np.zeros(n, dtype=np.float64)
 
         for band in FLOW_BANDS:
             bid_add_col = f"bar5s_flow_add_vol_bid_{band}_sum"
@@ -471,175 +511,167 @@ class SilverComputeApproachFeatures(Stage):
             if ask_rem_col in df.columns:
                 flow_rem_ask += df[ask_rem_col].values
 
-        rvol_trade_vol_ratio = np.zeros(n)
-        rvol_trade_vol_zscore = np.zeros(n)
-        rvol_trade_cnt_ratio = np.zeros(n)
-        rvol_trade_cnt_zscore = np.zeros(n)
-        rvol_trade_aggbuy_ratio = np.zeros(n)
-        rvol_trade_aggsell_ratio = np.zeros(n)
-        rvol_trade_aggbuy_zscore = np.zeros(n)
-        rvol_trade_aggsell_zscore = np.zeros(n)
-        rvol_flow_add_bid_ratio = np.zeros(n)
-        rvol_flow_add_ask_ratio = np.zeros(n)
-        rvol_flow_add_bid_zscore = np.zeros(n)
-        rvol_flow_add_ask_zscore = np.zeros(n)
-        rvol_flow_net_bid_ratio = np.zeros(n)
-        rvol_flow_net_ask_ratio = np.zeros(n)
-        rvol_flow_net_bid_zscore = np.zeros(n)
-        rvol_flow_net_ask_zscore = np.zeros(n)
-        rvol_flow_add_total_ratio = np.zeros(n)
-        rvol_flow_add_total_zscore = np.zeros(n)
-        rvol_flow_rem_bid_zscore = np.zeros(n)
-        rvol_flow_rem_ask_zscore = np.zeros(n)
-        expected_trade_vol = np.zeros(n)
-        expected_msg_cnt = np.zeros(n)
-        expected_flow_imbal = np.zeros(n)
+        tv_mean = np.zeros(n, dtype=np.float64)
+        tv_std = np.zeros(n, dtype=np.float64)
+        tc_mean = np.zeros(n, dtype=np.float64)
+        tc_std = np.zeros(n, dtype=np.float64)
+        ab_mean = np.zeros(n, dtype=np.float64)
+        ab_std = np.zeros(n, dtype=np.float64)
+        as_mean = np.zeros(n, dtype=np.float64)
+        as_std = np.zeros(n, dtype=np.float64)
+        fab_mean = np.zeros(n, dtype=np.float64)
+        fab_std = np.zeros(n, dtype=np.float64)
+        faa_mean = np.zeros(n, dtype=np.float64)
+        faa_std = np.zeros(n, dtype=np.float64)
+        fnb_mean = np.zeros(n, dtype=np.float64)
+        fnb_std = np.zeros(n, dtype=np.float64)
+        fna_mean = np.zeros(n, dtype=np.float64)
+        fna_std = np.zeros(n, dtype=np.float64)
+        frb_mean = np.zeros(n, dtype=np.float64)
+        frb_std = np.zeros(n, dtype=np.float64)
+        fra_mean = np.zeros(n, dtype=np.float64)
+        fra_std = np.zeros(n, dtype=np.float64)
+        msg_mean = np.zeros(n, dtype=np.float64)
 
+        sqrt_bars = np.sqrt(BARS_PER_BUCKET)
         for i in range(n):
             bid = int(bucket_ids[i])
+            p = profile_lookup.get(bid, {})
+            tv_mean[i] = p.get("trade_vol_mean", 0.0) / BARS_PER_BUCKET
+            tv_std[i] = p.get("trade_vol_std", 0.0) / sqrt_bars
+            tc_mean[i] = p.get("trade_cnt_mean", 0.0) / BARS_PER_BUCKET
+            tc_std[i] = p.get("trade_cnt_std", 0.0) / sqrt_bars
+            ab_mean[i] = p.get("trade_aggbuy_vol_mean", 0.0) / BARS_PER_BUCKET
+            ab_std[i] = p.get("trade_aggbuy_vol_std", 0.0) / sqrt_bars
+            as_mean[i] = p.get("trade_aggsell_vol_mean", 0.0) / BARS_PER_BUCKET
+            as_std[i] = p.get("trade_aggsell_vol_std", 0.0) / sqrt_bars
+            fab_mean[i] = p.get("flow_add_vol_bid_mean", 0.0) / BARS_PER_BUCKET
+            fab_std[i] = p.get("flow_add_vol_bid_std", 0.0) / sqrt_bars
+            faa_mean[i] = p.get("flow_add_vol_ask_mean", 0.0) / BARS_PER_BUCKET
+            faa_std[i] = p.get("flow_add_vol_ask_std", 0.0) / sqrt_bars
+            fnb_mean[i] = p.get("flow_net_vol_bid_mean", 0.0) / BARS_PER_BUCKET
+            fnb_std[i] = p.get("flow_net_vol_bid_std", 0.0) / sqrt_bars
+            fna_mean[i] = p.get("flow_net_vol_ask_mean", 0.0) / BARS_PER_BUCKET
+            fna_std[i] = p.get("flow_net_vol_ask_std", 0.0) / sqrt_bars
+            frb_mean[i] = p.get("flow_rem_vol_bid_mean", 0.0) / BARS_PER_BUCKET
+            frb_std[i] = p.get("flow_rem_vol_bid_std", 0.0) / sqrt_bars
+            fra_mean[i] = p.get("flow_rem_vol_ask_mean", 0.0) / BARS_PER_BUCKET
+            fra_std[i] = p.get("flow_rem_vol_ask_std", 0.0) / sqrt_bars
+            msg_mean[i] = p.get("msg_cnt_mean", 0.0) / BARS_PER_BUCKET
 
-            tv_mean = safe_get(bid, "trade_vol_mean") / BARS_PER_BUCKET
-            tv_std = safe_get(bid, "trade_vol_std") / np.sqrt(BARS_PER_BUCKET)
-            tc_mean = safe_get(bid, "trade_cnt_mean") / BARS_PER_BUCKET
-            tc_std = safe_get(bid, "trade_cnt_std") / np.sqrt(BARS_PER_BUCKET)
-            ab_mean = safe_get(bid, "trade_aggbuy_vol_mean") / BARS_PER_BUCKET
-            ab_std = safe_get(bid, "trade_aggbuy_vol_std") / np.sqrt(BARS_PER_BUCKET)
-            as_mean = safe_get(bid, "trade_aggsell_vol_mean") / BARS_PER_BUCKET
-            as_std = safe_get(bid, "trade_aggsell_vol_std") / np.sqrt(BARS_PER_BUCKET)
-            fab_mean = safe_get(bid, "flow_add_vol_bid_mean") / BARS_PER_BUCKET
-            fab_std = safe_get(bid, "flow_add_vol_bid_std") / np.sqrt(BARS_PER_BUCKET)
-            faa_mean = safe_get(bid, "flow_add_vol_ask_mean") / BARS_PER_BUCKET
-            faa_std = safe_get(bid, "flow_add_vol_ask_std") / np.sqrt(BARS_PER_BUCKET)
-            fnb_mean = safe_get(bid, "flow_net_vol_bid_mean") / BARS_PER_BUCKET
-            fnb_std = safe_get(bid, "flow_net_vol_bid_std") / np.sqrt(BARS_PER_BUCKET)
-            fna_mean = safe_get(bid, "flow_net_vol_ask_mean") / BARS_PER_BUCKET
-            fna_std = safe_get(bid, "flow_net_vol_ask_std") / np.sqrt(BARS_PER_BUCKET)
-            frb_mean = safe_get(bid, "flow_rem_vol_bid_mean") / BARS_PER_BUCKET
-            frb_std = safe_get(bid, "flow_rem_vol_bid_std") / np.sqrt(BARS_PER_BUCKET)
-            fra_mean = safe_get(bid, "flow_rem_vol_ask_mean") / BARS_PER_BUCKET
-            fra_std = safe_get(bid, "flow_rem_vol_ask_std") / np.sqrt(BARS_PER_BUCKET)
-            msg_mean = safe_get(bid, "msg_cnt_mean") / BARS_PER_BUCKET
-            msg_std = safe_get(bid, "msg_cnt_std") / np.sqrt(BARS_PER_BUCKET)
+        out["rvol_trade_vol_ratio"] = trade_vol / (tv_mean + EPSILON)
+        out["rvol_trade_vol_zscore"] = (trade_vol - tv_mean) / (tv_std + EPSILON)
+        out["rvol_trade_cnt_ratio"] = trade_cnt / (tc_mean + EPSILON)
+        out["rvol_trade_cnt_zscore"] = (trade_cnt - tc_mean) / (tc_std + EPSILON)
+        out["rvol_trade_aggbuy_ratio"] = trade_aggbuy / (ab_mean + EPSILON)
+        out["rvol_trade_aggsell_ratio"] = trade_aggsell / (as_mean + EPSILON)
+        out["rvol_trade_aggbuy_zscore"] = (trade_aggbuy - ab_mean) / (ab_std + EPSILON)
+        out["rvol_trade_aggsell_zscore"] = (trade_aggsell - as_mean) / (as_std + EPSILON)
+        out["rvol_flow_add_bid_ratio"] = flow_add_bid / (fab_mean + EPSILON)
+        out["rvol_flow_add_ask_ratio"] = flow_add_ask / (faa_mean + EPSILON)
+        out["rvol_flow_add_bid_zscore"] = (flow_add_bid - fab_mean) / (fab_std + EPSILON)
+        out["rvol_flow_add_ask_zscore"] = (flow_add_ask - faa_mean) / (faa_std + EPSILON)
+        out["rvol_flow_net_bid_ratio"] = np.where(fnb_mean != 0, flow_net_bid / (fnb_mean + EPSILON), 1.0)
+        out["rvol_flow_net_ask_ratio"] = np.where(fna_mean != 0, flow_net_ask / (fna_mean + EPSILON), 1.0)
+        out["rvol_flow_net_bid_zscore"] = (flow_net_bid - fnb_mean) / (fnb_std + EPSILON)
+        out["rvol_flow_net_ask_zscore"] = (flow_net_ask - fna_mean) / (fna_std + EPSILON)
+        out["rvol_flow_add_total_ratio"] = (flow_add_bid + flow_add_ask) / (fab_mean + faa_mean + EPSILON)
+        out["rvol_flow_add_total_zscore"] = ((flow_add_bid + flow_add_ask) - (fab_mean + faa_mean)) / (np.sqrt(fab_std**2 + faa_std**2) + EPSILON)
 
-            rvol_trade_vol_ratio[i] = trade_vol[i] / (tv_mean + EPSILON)
-            rvol_trade_vol_zscore[i] = (trade_vol[i] - tv_mean) / (tv_std + EPSILON)
-            rvol_trade_cnt_ratio[i] = trade_cnt[i] / (tc_mean + EPSILON)
-            rvol_trade_cnt_zscore[i] = (trade_cnt[i] - tc_mean) / (tc_std + EPSILON)
-            rvol_trade_aggbuy_ratio[i] = trade_aggbuy[i] / (ab_mean + EPSILON)
-            rvol_trade_aggsell_ratio[i] = trade_aggsell[i] / (as_mean + EPSILON)
-            rvol_trade_aggbuy_zscore[i] = (trade_aggbuy[i] - ab_mean) / (ab_std + EPSILON)
-            rvol_trade_aggsell_zscore[i] = (trade_aggsell[i] - as_mean) / (as_std + EPSILON)
-            rvol_flow_add_bid_ratio[i] = flow_add_bid[i] / (fab_mean + EPSILON)
-            rvol_flow_add_ask_ratio[i] = flow_add_ask[i] / (faa_mean + EPSILON)
-            rvol_flow_add_bid_zscore[i] = (flow_add_bid[i] - fab_mean) / (fab_std + EPSILON)
-            rvol_flow_add_ask_zscore[i] = (flow_add_ask[i] - faa_mean) / (faa_std + EPSILON)
-            rvol_flow_net_bid_ratio[i] = flow_net_bid[i] / (fnb_mean + EPSILON) if fnb_mean != 0 else 1.0
-            rvol_flow_net_ask_ratio[i] = flow_net_ask[i] / (fna_mean + EPSILON) if fna_mean != 0 else 1.0
-            rvol_flow_net_bid_zscore[i] = (flow_net_bid[i] - fnb_mean) / (fnb_std + EPSILON)
-            rvol_flow_net_ask_zscore[i] = (flow_net_ask[i] - fna_mean) / (fna_std + EPSILON)
-            rvol_flow_add_total_ratio[i] = (flow_add_bid[i] + flow_add_ask[i]) / (fab_mean + faa_mean + EPSILON)
-            rvol_flow_add_total_zscore[i] = ((flow_add_bid[i] + flow_add_ask[i]) - (fab_mean + faa_mean)) / (np.sqrt(fab_std**2 + faa_std**2) + EPSILON)
-            rvol_flow_rem_bid_zscore[i] = (flow_rem_bid[i] - frb_mean) / (frb_std + EPSILON)
-            rvol_flow_rem_ask_zscore[i] = (flow_rem_ask[i] - fra_mean) / (fra_std + EPSILON)
+        rvol_flow_rem_bid_zscore = (flow_rem_bid - frb_mean) / (frb_std + EPSILON)
+        rvol_flow_rem_ask_zscore = (flow_rem_ask - fra_mean) / (fra_std + EPSILON)
 
-            expected_trade_vol[i] = tv_mean
-            expected_msg_cnt[i] = msg_mean
-            expected_flow_imbal[i] = fnb_mean - fna_mean
-
-        df["rvol_trade_vol_ratio"] = rvol_trade_vol_ratio
-        df["rvol_trade_vol_zscore"] = rvol_trade_vol_zscore
-        df["rvol_trade_cnt_ratio"] = rvol_trade_cnt_ratio
-        df["rvol_trade_cnt_zscore"] = rvol_trade_cnt_zscore
-        df["rvol_trade_aggbuy_ratio"] = rvol_trade_aggbuy_ratio
-        df["rvol_trade_aggsell_ratio"] = rvol_trade_aggsell_ratio
-        df["rvol_trade_aggbuy_zscore"] = rvol_trade_aggbuy_zscore
-        df["rvol_trade_aggsell_zscore"] = rvol_trade_aggsell_zscore
-        df["rvol_flow_add_bid_ratio"] = rvol_flow_add_bid_ratio
-        df["rvol_flow_add_ask_ratio"] = rvol_flow_add_ask_ratio
-        df["rvol_flow_add_bid_zscore"] = rvol_flow_add_bid_zscore
-        df["rvol_flow_add_ask_zscore"] = rvol_flow_add_ask_zscore
-        df["rvol_flow_net_bid_ratio"] = rvol_flow_net_bid_ratio
-        df["rvol_flow_net_ask_ratio"] = rvol_flow_net_ask_ratio
-        df["rvol_flow_net_bid_zscore"] = rvol_flow_net_bid_zscore
-        df["rvol_flow_net_ask_zscore"] = rvol_flow_net_ask_zscore
-        df["rvol_flow_add_total_ratio"] = rvol_flow_add_total_ratio
-        df["rvol_flow_add_total_zscore"] = rvol_flow_add_total_zscore
-
-        df["rvol_bid_ask_add_asymmetry"] = rvol_flow_add_bid_zscore - rvol_flow_add_ask_zscore
-        df["rvol_bid_ask_rem_asymmetry"] = rvol_flow_rem_bid_zscore - rvol_flow_rem_ask_zscore
-        df["rvol_bid_ask_net_asymmetry"] = rvol_flow_net_bid_zscore - rvol_flow_net_ask_zscore
-        df["rvol_aggbuy_aggsell_asymmetry"] = rvol_trade_aggbuy_zscore - rvol_trade_aggsell_zscore
+        out["rvol_bid_ask_add_asymmetry"] = out["rvol_flow_add_bid_zscore"] - out["rvol_flow_add_ask_zscore"]
+        out["rvol_bid_ask_rem_asymmetry"] = rvol_flow_rem_bid_zscore - rvol_flow_rem_ask_zscore
+        out["rvol_bid_ask_net_asymmetry"] = out["rvol_flow_net_bid_zscore"] - out["rvol_flow_net_ask_zscore"]
+        out["rvol_aggbuy_aggsell_asymmetry"] = out["rvol_trade_aggbuy_zscore"] - out["rvol_trade_aggsell_zscore"]
 
         g = df.groupby("touch_id", sort=False)
-        df["_expected_trade_vol_cumul"] = g.apply(
-            lambda x: pd.Series(expected_trade_vol[x.index]).cumsum().values,
-            include_groups=False
-        ).explode().astype(float).values
-        df["_actual_trade_vol_cumul"] = g["bar5s_trade_vol_sum"].cumsum()
-        df["rvol_cumul_trade_vol_dev"] = df["_actual_trade_vol_cumul"] - df["_expected_trade_vol_cumul"]
-        df["rvol_cumul_trade_vol_dev_pct"] = df["rvol_cumul_trade_vol_dev"] / (df["_expected_trade_vol_cumul"] + EPSILON)
 
-        df["_expected_msg_cnt_cumul"] = g.apply(
-            lambda x: pd.Series(expected_msg_cnt[x.index]).cumsum().values,
-            include_groups=False
-        ).explode().astype(float).values
-        df["_actual_msg_cnt_cumul"] = g["bar5s_meta_msg_cnt_sum"].cumsum()
-        df["rvol_cumul_msg_dev"] = df["_actual_msg_cnt_cumul"] - df["_expected_msg_cnt_cumul"]
+        df_cumul = df[["touch_id"]].copy()
+        df_cumul["_exp_tv"] = tv_mean
+        df_cumul["_act_tv"] = trade_vol
+        df_cumul["_exp_msg"] = msg_mean
+        df_cumul["_act_msg"] = msg_cnt
+        df_cumul["_exp_fi"] = fnb_mean - fna_mean
+        df_cumul["_act_fi"] = flow_net_bid - flow_net_ask
 
-        actual_flow_imbal = flow_net_bid - flow_net_ask
-        df["_actual_flow_imbal"] = actual_flow_imbal
-        df["_expected_flow_imbal"] = expected_flow_imbal
-        df["_expected_flow_imbal_cumul"] = g.apply(
-            lambda x: pd.Series(expected_flow_imbal[x.index]).cumsum().values,
-            include_groups=False
-        ).explode().astype(float).values
-        df["_actual_flow_imbal_cumul"] = g["_actual_flow_imbal"].cumsum()
-        df["rvol_cumul_flow_imbal_dev"] = df["_actual_flow_imbal_cumul"] - df["_expected_flow_imbal_cumul"]
+        g_cumul = df_cumul.groupby("touch_id", sort=False)
 
-        df["rvol_lookback_trade_vol_mean_ratio"] = g["rvol_trade_vol_ratio"].transform("mean")
-        df["rvol_lookback_trade_vol_max_ratio"] = g["rvol_trade_vol_ratio"].transform("max")
+        exp_tv_cumul = g_cumul["_exp_tv"].cumsum().values
+        act_tv_cumul = g_cumul["_act_tv"].cumsum().values
+        out["rvol_cumul_trade_vol_dev"] = act_tv_cumul - exp_tv_cumul
+        out["rvol_cumul_trade_vol_dev_pct"] = out["rvol_cumul_trade_vol_dev"] / (exp_tv_cumul + EPSILON)
 
-        def compute_trend(grp: pd.DataFrame) -> pd.Series:
-            vals = grp["rvol_trade_vol_ratio"].values
-            n_vals = len(vals)
-            if n_vals < 2:
-                return pd.Series([0.0] * n_vals, index=grp.index)
-            split = max(1, n_vals // 3)
-            early_mean = np.nanmean(vals[:split])
-            late_mean = np.nanmean(vals[-split:])
-            trend = late_mean - early_mean
-            return pd.Series([trend] * n_vals, index=grp.index)
+        exp_msg_cumul = g_cumul["_exp_msg"].cumsum().values
+        act_msg_cumul = g_cumul["_act_msg"].cumsum().values
+        out["rvol_cumul_msg_dev"] = act_msg_cumul - exp_msg_cumul
 
-        df["rvol_lookback_trade_vol_trend"] = g.apply(compute_trend, include_groups=False).values
+        exp_fi_cumul = g_cumul["_exp_fi"].cumsum().values
+        act_fi_cumul = g_cumul["_act_fi"].cumsum().values
+        out["rvol_cumul_flow_imbal_dev"] = act_fi_cumul - exp_fi_cumul
 
-        df["_elevated"] = (df["rvol_trade_vol_ratio"] > 1.5).astype(float)
-        df["_depressed"] = (df["rvol_trade_vol_ratio"] < 0.5).astype(float)
-        df["rvol_lookback_elevated_bars"] = g["_elevated"].transform("sum")
-        df["rvol_lookback_depressed_bars"] = g["_depressed"].transform("sum")
+        df_rvol = df[["touch_id"]].copy()
+        df_rvol["_vol_ratio"] = out["rvol_trade_vol_ratio"]
+        df_rvol["_net_asymmetry"] = out["rvol_bid_ask_net_asymmetry"]
+        g_rvol = df_rvol.groupby("touch_id", sort=False)
 
-        df["rvol_lookback_asymmetry_mean"] = g["rvol_bid_ask_net_asymmetry"].transform("mean")
+        out["rvol_lookback_trade_vol_mean_ratio"] = g_rvol["_vol_ratio"].transform("mean").values
+        out["rvol_lookback_trade_vol_max_ratio"] = g_rvol["_vol_ratio"].transform("max").values
 
-        def compute_recent_vs_lookback(grp: pd.DataFrame, col: str) -> pd.Series:
-            vals = grp[col].values
-            n_vals = len(vals)
-            result = np.zeros(n_vals)
-            for i in range(n_vals):
-                lookback_mean = np.nanmean(vals[:i+1]) if i > 0 else vals[0]
+        trend_stats = g_rvol.apply(self._compute_trend_stats, include_groups=False)
+        if isinstance(trend_stats, pd.DataFrame):
+            trend_stats = trend_stats.reset_index()
+        else:
+            trend_stats = trend_stats.reset_index(name="trend")
+        df_rvol = df_rvol.merge(trend_stats[["touch_id", "trend"]], on="touch_id", how="left")
+        out["rvol_lookback_trade_vol_trend"] = df_rvol["trend"].values.astype(np.float64)
+
+        elevated = (out["rvol_trade_vol_ratio"] > 1.5).astype(np.float64)
+        depressed = (out["rvol_trade_vol_ratio"] < 0.5).astype(np.float64)
+        df_elev = df[["touch_id"]].copy()
+        df_elev["_elev"] = elevated
+        df_elev["_depr"] = depressed
+        g_elev = df_elev.groupby("touch_id", sort=False)
+        out["rvol_lookback_elevated_bars"] = g_elev["_elev"].transform("sum").values
+        out["rvol_lookback_depressed_bars"] = g_elev["_depr"].transform("sum").values
+
+        out["rvol_lookback_asymmetry_mean"] = g_rvol["_net_asymmetry"].transform("mean").values
+
+        recent_vol = self._compute_recent_vs_lookback(df, out["rvol_trade_vol_ratio"])
+        recent_asym = self._compute_recent_vs_lookback(df, out["rvol_bid_ask_net_asymmetry"])
+        out["rvol_recent_vs_lookback_vol_ratio"] = recent_vol
+        out["rvol_recent_vs_lookback_asymmetry"] = recent_asym
+
+    def _compute_trend_stats(self, grp: pd.DataFrame) -> pd.Series:
+        vals = grp["_vol_ratio"].values
+        n_vals = len(vals)
+        if n_vals < 2:
+            return pd.Series({"trend": 0.0})
+        split = max(1, n_vals // 3)
+        early_mean = np.nanmean(vals[:split])
+        late_mean = np.nanmean(vals[-split:])
+        return pd.Series({"trend": late_mean - early_mean})
+
+    def _compute_recent_vs_lookback(self, df: pd.DataFrame, vals: np.ndarray) -> np.ndarray:
+        n = len(df)
+        result = np.zeros(n, dtype=np.float64)
+
+        touch_id = df["touch_id"].values
+        unique_ids, inverse = np.unique(touch_id, return_inverse=True)
+
+        for grp_idx in range(len(unique_ids)):
+            mask = inverse == grp_idx
+            grp_vals = vals[mask]
+            grp_n = len(grp_vals)
+            grp_result = np.zeros(grp_n, dtype=np.float64)
+
+            for i in range(grp_n):
+                lookback_mean = np.nanmean(grp_vals[:i+1]) if i > 0 else grp_vals[0]
                 recent_start = max(0, i - 11)
-                recent_mean = np.nanmean(vals[recent_start:i+1])
-                result[i] = recent_mean / (lookback_mean + EPSILON) if lookback_mean != 0 else 1.0
-            return pd.Series(result, index=grp.index)
+                recent_mean = np.nanmean(grp_vals[recent_start:i+1])
+                grp_result[i] = recent_mean / (lookback_mean + EPSILON) if lookback_mean != 0 else 1.0
 
-        df["rvol_recent_vs_lookback_vol_ratio"] = g.apply(
-            lambda x: compute_recent_vs_lookback(x, "rvol_trade_vol_ratio"),
-            include_groups=False
-        ).values
-        df["rvol_recent_vs_lookback_asymmetry"] = g.apply(
-            lambda x: compute_recent_vs_lookback(x, "rvol_bid_ask_net_asymmetry"),
-            include_groups=False
-        ).values
+            result[mask] = grp_result
 
-        temp_cols = [c for c in df.columns if c.startswith("_")]
-        df.drop(columns=temp_cols, inplace=True)
-
-        return df
+        return result

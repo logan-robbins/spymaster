@@ -159,6 +159,21 @@ Stages execute sequentially. Each stage's output becomes available for subsequen
 ## CLI Usage
 
 ```bash
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESU5 \
+  --dates 2025-06-11:2025-08-30 \
+  --workers 8
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer silver \
+  --symbol ESZ5 \
+  --dates 2025-09-01:2025-09-30 \
+  --workers 8
+
 # Single date
 uv run python -m src.data_eng.runner \
   --product-type future \
@@ -171,7 +186,15 @@ uv run python -m src.data_eng.runner \
   --product-type future \
   --layer gold \
   --symbol ESU5 \
-  --dates 2025-06-05:2025-06-10
+  --dates 2025-06-11:2025-08-30 \
+  --workers 8
+
+uv run python -m src.data_eng.runner \
+  --product-type future \
+  --layer gold \
+  --symbol ESZ5 \
+  --dates 2025-09-01:2025-09-30 \
+  --workers 8
 
 # Explicit start/end
 uv run python -m src.data_eng.runner \
@@ -207,15 +230,6 @@ Suffixes:
 - `_sum` — Aggregated sum over bar
 - `_d1_wN` — First derivative over N bars
 - `_d2_wN` — Second derivative over N bars
-
-**Relative Volume Features** (34 features, `rvol_` prefix):
-- `rvol_trade_*` — Trade volume/count ratios and z-scores vs historical
-- `rvol_flow_*` — Flow add/net ratios and z-scores by side
-- `rvol_cumul_*` — Cumulative deviations from expected
-- `rvol_bid_ask_*_asymmetry` — Bid-ask side asymmetries
-- `rvol_aggbuy_aggsell_asymmetry` — Aggressive buy vs sell asymmetry
-- `rvol_lookback_*` — Aggregations over the approach lookback window
-- `rvol_recent_vs_lookback_*` — Recent 1-min vs full lookback comparison
 
 ## Adding a New Stage
 
