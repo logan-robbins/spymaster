@@ -8,22 +8,22 @@
     {
       "dataset": "silver.future.market_by_price_10_pm_high_approach",
       "dt": "2025-08-11",
-      "manifest_sha256": "3f9ef7250fd1b8795ec3ba2d2d51f1a4624be48660eb3fa433ac5fc2960600cc"
+      "manifest_sha256": "4ee8ec2b4cba9fc7d7e2df94e4bd968438f739c47a9978ffa447da45b428e2d2"
     },
     {
       "dataset": "silver.future.market_by_price_10_pm_low_approach",
       "dt": "2025-08-11",
-      "manifest_sha256": "badc8dbb19cc71b6d22b43799967d6b77bfea69276d57480b6f6d1ecbccfe9ef"
+      "manifest_sha256": "32a9f417e6296d0083d5b7b347fe43af75828c79d9fcff48f58f9b6d0ec0eddb"
     },
     {
       "dataset": "silver.future.market_by_price_10_or_high_approach",
       "dt": "2025-08-11",
-      "manifest_sha256": "d5c7a49c2b4abe50ec0a3b59cd53cd559b10722c023b8e0bea6954b28dc47aab"
+      "manifest_sha256": "0ec2d7b6afe6d6f70bd5d98cb2cf0336d64cc35a6a4627a490086c6d920182bd"
     },
     {
       "dataset": "silver.future.market_by_price_10_or_low_approach",
       "dt": "2025-08-11",
-      "manifest_sha256": "1c39410018ce06070cdcf48d1f7c469b18c5e101a1d6fa90590ffe9488661f7f"
+      "manifest_sha256": "9258dfb041fc5d71e53aa201ff75e7f58c311e3cc33b13888594000794bc1971"
     }
   ],
   "row_count": 85,

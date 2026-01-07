@@ -1,0 +1,440 @@
+# Feature Analysis Report
+
+Analysis of Silver Stage Outputs for Future (ESU5, 2025-06-04)
+
+| Count | Feature Name | Status | Min | Max | Mean | % Zeros | Notes |
+|-------|--------------|--------|-----|-----|------|---------|-------|
+| 1 | bar5s_microprice_eob | OK | 6037.7500 | 6052.3000 | 6047.5763 | 0.0 |  |
+| 2 | bar5s_midprice_eob | OK | 6037.7500 | 6052.2500 | 6047.5784 | 0.0 |  |
+| 3 | bar5s_meta_msg_cnt_sum | OK | 3.0000 | 1050.0000 | 243.0621 | 0.0 |  |
+| 4 | bar5s_meta_clear_cnt_sum | ALL_ZEROS; CONSTANT: 0.0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ⚠️ **Data Gaps**: All zeros. Verify if 'clear' messages exist in source. |
+| 5 | bar5s_meta_add_cnt_sum | OK | 1.0000 | 463.0000 | 113.1027 | 0.0 |  |
+| 6 | bar5s_meta_cancel_cnt_sum | OK | 1.0000 | 433.0000 | 112.9428 | 0.0 |  |
+| 7 | bar5s_meta_modify_cnt_sum | OK | 0.0000 | 149.0000 | 16.4558 | 2.3 |  |
+| 8 | bar5s_meta_trade_cnt_sum | OK | 0.0000 | 13.0000 | 0.5608 | 70.2 |  |
+| 9 | bar5s_state_spread_pts_twa | OK | 0.0614 | 8.6766 | 0.4902 | 0.0 |  |
+| 10 | bar5s_state_spread_pts_eob | OK | 0.2500 | 7.0000 | 0.5082 | 0.0 |  |
+| 11 | bar5s_state_obi0_twa | OK | -0.5424 | 0.4152 | -0.0207 | 0.4 |  |
+| 12 | bar5s_state_obi0_eob | OK | -0.7500 | 0.7500 | -0.0084 | 20.2 |  |
+| 13 | bar5s_state_obi10_twa | OK | -0.4237 | 0.3255 | 0.0221 | 0.0 |  |
+| 14 | bar5s_state_obi10_eob | OK | -0.4386 | 0.3714 | 0.0246 | 5.4 |  |
+| 15 | bar5s_state_cdi_p0_1_twa | OK | -0.3246 | 0.2721 | -0.0079 | 0.1 |  |
+| 16 | bar5s_state_cdi_p0_1_eob | OK | -0.6000 | 0.3636 | -0.0094 | 10.7 |  |
+| 17 | bar5s_state_cdi_p1_2_twa | OK | -0.9288 | 0.7813 | 0.0365 | 0.1 |  |
+| 18 | bar5s_state_cdi_p1_2_eob | OK | -1.0000 | 1.0000 | 0.0355 | 5.7 |  |
+| 19 | bar5s_state_cdi_p2_3_twa | OK | -0.9034 | 0.9048 | 0.0516 | 0.0 |  |
+| 20 | bar5s_state_cdi_p2_3_eob | OK | -1.0000 | 1.0000 | 0.0530 | 6.9 |  |
+| 21 | bar5s_depth_bid10_qty_twa | OK | 6.6919 | 56.1834 | 38.1459 | 0.0 |  |
+| 22 | bar5s_depth_bid10_qty_eob | OK | 10.0000 | 58.0000 | 39.1141 | 0.0 |  |
+| 23 | bar5s_depth_ask10_qty_twa | OK | 3.5700 | 58.0697 | 36.4527 | 0.0 |  |
+| 24 | bar5s_depth_ask10_qty_eob | OK | 13.0000 | 62.0000 | 37.2439 | 0.0 |  |
+| 25 | bar5s_depth_below_p0_1_qty_twa | OK | 0.0031 | 23.0561 | 14.3994 | 0.0 |  |
+| 26 | bar5s_depth_below_p0_1_qty_eob | OK | 0.0000 | 27.0000 | 14.7726 | 0.4 |  |
+| 27 | bar5s_depth_below_p1_2_qty_twa | OK | 0.0113 | 27.5923 | 15.4393 | 0.0 |  |
+| 28 | bar5s_depth_below_p1_2_qty_eob | OK | 0.0000 | 29.0000 | 15.7692 | 0.5 |  |
+| 29 | bar5s_depth_below_p2_3_qty_twa | OK | 0.0000 | 20.0415 | 7.9680 | 0.4 |  |
+| 30 | bar5s_depth_below_p2_3_qty_eob | OK | 0.0000 | 23.0000 | 8.1708 | 1.2 |  |
+| 31 | bar5s_depth_above_p0_1_qty_twa | OK | 0.0099 | 26.8885 | 14.4889 | 0.0 |  |
+| 32 | bar5s_depth_above_p0_1_qty_eob | OK | 0.0000 | 28.0000 | 14.8448 | 0.4 |  |
+| 33 | bar5s_depth_above_p1_2_qty_twa | OK | 0.0170 | 26.8721 | 14.5007 | 0.0 |  |
+| 34 | bar5s_depth_above_p1_2_qty_eob | OK | 0.0000 | 28.0000 | 14.8090 | 0.4 |  |
+| 35 | bar5s_depth_above_p2_3_qty_twa | OK | 0.0422 | 22.5527 | 7.2405 | 0.0 |  |
+| 36 | bar5s_depth_above_p2_3_qty_eob | OK | 0.0000 | 25.0000 | 7.3926 | 0.6 |  |
+| 37 | bar5s_depth_below_p0_1_frac_twa | OK | 0.0001 | 0.6522 | 0.3689 | 0.0 |  |
+| 38 | bar5s_depth_below_p0_1_frac_eob | OK | 0.0000 | 0.6667 | 0.3769 | 0.4 |  |
+| 39 | bar5s_depth_below_p1_2_frac_twa | OK | 0.0006 | 0.5358 | 0.3911 | 0.0 |  |
+| 40 | bar5s_depth_below_p1_2_frac_eob | OK | 0.0000 | 0.5714 | 0.3992 | 0.5 |  |
+| 41 | bar5s_depth_below_p2_3_frac_twa | OK | 0.0000 | 0.3954 | 0.2008 | 0.4 |  |
+| 42 | bar5s_depth_below_p2_3_frac_eob | OK | 0.0000 | 0.5000 | 0.2057 | 1.2 |  |
+| 43 | bar5s_depth_above_p0_1_frac_twa | OK | 0.0003 | 0.7099 | 0.3932 | 0.0 |  |
+| 44 | bar5s_depth_above_p0_1_frac_eob | OK | 0.0000 | 0.7667 | 0.4037 | 0.4 |  |
+| 45 | bar5s_depth_above_p1_2_frac_twa | OK | 0.0005 | 0.5886 | 0.3808 | 0.0 |  |
+| 46 | bar5s_depth_above_p1_2_frac_eob | OK | 0.0000 | 0.5909 | 0.3903 | 0.4 |  |
+| 47 | bar5s_depth_above_p2_3_frac_twa | OK | 0.0012 | 0.4381 | 0.1897 | 0.0 |  |
+| 48 | bar5s_depth_above_p2_3_frac_eob | OK | 0.0000 | 0.5000 | 0.1944 | 0.6 |  |
+| 49 | bar5s_ladder_ask_gap_max_pts_eob | OK | 0.2500 | 4.0000 | 0.2963 | 0.0 |  |
+| 50 | bar5s_ladder_ask_gap_mean_pts_eob | OK | 0.2500 | 1.6667 | 0.2611 | 0.0 |  |
+| 51 | bar5s_ladder_bid_gap_max_pts_eob | OK | 0.2500 | 11.5000 | 0.4078 | 0.0 |  |
+| 52 | bar5s_ladder_bid_gap_mean_pts_eob | OK | 0.2500 | 2.5000 | 0.2838 | 0.0 |  |
+| 53 | bar5s_shape_bid_px_l00_eob | OK | 6037.5000 | 6052.0000 | 6047.3243 | 0.0 |  |
+| 54 | bar5s_shape_bid_px_l01_eob | OK | 6037.2500 | 6051.7500 | 6047.0621 | 0.0 |  |
+| 55 | bar5s_shape_bid_px_l02_eob | OK | 6037.0000 | 6051.5000 | 6046.7886 | 0.0 |  |
+| 56 | bar5s_shape_bid_px_l03_eob | OK | 6034.0000 | 6051.2500 | 6046.5201 | 0.0 |  |
+| 57 | bar5s_shape_bid_px_l04_eob | OK | 6031.7500 | 6051.0000 | 6046.2329 | 0.0 |  |
+| 58 | bar5s_shape_bid_px_l05_eob | OK | 6031.0000 | 6050.7500 | 6045.9454 | 0.0 |  |
+| 59 | bar5s_shape_bid_px_l06_eob | OK | 6030.0000 | 6050.5000 | 6045.6557 | 0.0 |  |
+| 60 | bar5s_shape_bid_px_l07_eob | OK | 6028.0000 | 6050.2500 | 6045.3611 | 0.0 |  |
+| 61 | bar5s_shape_bid_px_l08_eob | OK | 6027.5000 | 6050.0000 | 6045.0453 | 0.0 |  |
+| 62 | bar5s_shape_bid_px_l09_eob | OK | 6026.0000 | 6049.7500 | 6044.7697 | 0.0 |  |
+| 63 | bar5s_shape_ask_px_l00_eob | OK | 6038.0000 | 6052.5000 | 6047.8325 | 0.0 |  |
+| 64 | bar5s_shape_ask_px_l01_eob | OK | 6038.2500 | 6052.7500 | 6048.0887 | 0.0 |  |
+| 65 | bar5s_shape_ask_px_l02_eob | OK | 6038.5000 | 6053.0000 | 6048.3538 | 0.0 |  |
+| 66 | bar5s_shape_ask_px_l03_eob | OK | 6038.7500 | 6053.5000 | 6048.6138 | 0.0 |  |
+| 67 | bar5s_shape_ask_px_l04_eob | OK | 6039.0000 | 6053.7500 | 6048.8698 | 0.0 |  |
+| 68 | bar5s_shape_ask_px_l05_eob | OK | 6039.2500 | 6054.0000 | 6049.1269 | 0.0 |  |
+| 69 | bar5s_shape_ask_px_l06_eob | OK | 6039.5000 | 6056.0000 | 6049.3870 | 0.0 |  |
+| 70 | bar5s_shape_ask_px_l07_eob | OK | 6039.7500 | 6058.5000 | 6049.6496 | 0.0 |  |
+| 71 | bar5s_shape_ask_px_l08_eob | OK | 6040.0000 | 6060.0000 | 6049.9139 | 0.0 |  |
+| 72 | bar5s_shape_ask_px_l09_eob | OK | 6040.2500 | 6061.0000 | 6050.1827 | 0.0 |  |
+| 73 | bar5s_shape_bid_sz_l00_eob | OK | 1.0000 | 9.0000 | 2.9976 | 0.0 |  |
+| 74 | bar5s_shape_bid_sz_l01_eob | OK | 1.0000 | 11.0000 | 4.8577 | 0.0 |  |
+| 75 | bar5s_shape_bid_sz_l02_eob | OK | 1.0000 | 10.0000 | 4.2716 | 0.0 |  |
+| 76 | bar5s_shape_bid_sz_l03_eob | OK | 1.0000 | 13.0000 | 4.2707 | 0.0 |  |
+| 77 | bar5s_shape_bid_sz_l04_eob | OK | 1.0000 | 14.0000 | 4.2161 | 0.0 |  |
+| 78 | bar5s_shape_bid_sz_l05_eob | OK | 1.0000 | 13.0000 | 4.1282 | 0.0 |  |
+| 79 | bar5s_shape_bid_sz_l06_eob | OK | 1.0000 | 14.0000 | 3.7603 | 0.0 |  |
+| 80 | bar5s_shape_bid_sz_l07_eob | OK | 1.0000 | 14.0000 | 3.6221 | 0.0 |  |
+| 81 | bar5s_shape_bid_sz_l08_eob | OK | 1.0000 | 15.0000 | 3.5401 | 0.0 |  |
+| 82 | bar5s_shape_bid_sz_l09_eob | OK | 1.0000 | 16.0000 | 3.4498 | 0.0 |  |
+| 83 | bar5s_shape_ask_sz_l00_eob | OK | 1.0000 | 14.0000 | 3.0518 | 0.0 |  |
+| 84 | bar5s_shape_ask_sz_l01_eob | OK | 1.0000 | 11.0000 | 5.0237 | 0.0 |  |
+| 85 | bar5s_shape_ask_sz_l02_eob | OK | 1.0000 | 18.0000 | 4.2286 | 0.0 |  |
+| 86 | bar5s_shape_ask_sz_l03_eob | OK | 1.0000 | 18.0000 | 4.2863 | 0.0 |  |
+| 87 | bar5s_shape_ask_sz_l04_eob | OK | 1.0000 | 18.0000 | 3.9768 | 0.0 |  |
+| 88 | bar5s_shape_ask_sz_l05_eob | OK | 1.0000 | 16.0000 | 3.8298 | 0.0 |  |
+| 89 | bar5s_shape_ask_sz_l06_eob | OK | 1.0000 | 15.0000 | 3.5663 | 0.0 |  |
+| 90 | bar5s_shape_ask_sz_l07_eob | OK | 1.0000 | 16.0000 | 3.0884 | 0.0 |  |
+| 91 | bar5s_shape_ask_sz_l08_eob | OK | 1.0000 | 19.0000 | 3.0883 | 0.0 |  |
+| 92 | bar5s_shape_ask_sz_l09_eob | OK | 1.0000 | 19.0000 | 3.1039 | 0.0 |  |
+| 93 | bar5s_shape_bid_ct_l00_eob | OK | 1.0000 | 7.0000 | 2.9404 | 0.0 |  |
+| 94 | bar5s_shape_bid_ct_l01_eob | OK | 1.0000 | 8.0000 | 4.8011 | 0.0 |  |
+| 95 | bar5s_shape_bid_ct_l02_eob | OK | 1.0000 | 7.0000 | 4.2012 | 0.0 |  |
+| 96 | bar5s_shape_bid_ct_l03_eob | OK | 1.0000 | 7.0000 | 4.1604 | 0.0 |  |
+| 97 | bar5s_shape_bid_ct_l04_eob | OK | 1.0000 | 8.0000 | 4.1291 | 0.0 |  |
+| 98 | bar5s_shape_bid_ct_l05_eob | OK | 1.0000 | 8.0000 | 4.0022 | 0.0 |  |
+| 99 | bar5s_shape_bid_ct_l06_eob | OK | 1.0000 | 7.0000 | 3.6663 | 0.0 |  |
+| 100 | bar5s_shape_bid_ct_l07_eob | OK | 1.0000 | 8.0000 | 3.4702 | 0.0 |  |
+| 101 | bar5s_shape_bid_ct_l08_eob | OK | 1.0000 | 8.0000 | 3.2972 | 0.0 |  |
+| 102 | bar5s_shape_bid_ct_l09_eob | OK | 1.0000 | 8.0000 | 3.1272 | 0.0 |  |
+| 103 | bar5s_shape_ask_ct_l00_eob | OK | 1.0000 | 7.0000 | 3.0110 | 0.0 |  |
+| 104 | bar5s_shape_ask_ct_l01_eob | OK | 1.0000 | 8.0000 | 4.9742 | 0.0 |  |
+| 105 | bar5s_shape_ask_ct_l02_eob | OK | 1.0000 | 10.0000 | 4.1584 | 0.0 |  |
+| 106 | bar5s_shape_ask_ct_l03_eob | OK | 1.0000 | 10.0000 | 4.1686 | 0.0 |  |
+| 107 | bar5s_shape_ask_ct_l04_eob | OK | 1.0000 | 10.0000 | 3.9166 | 0.0 |  |
+| 108 | bar5s_shape_ask_ct_l05_eob | OK | 1.0000 | 10.0000 | 3.7610 | 0.0 |  |
+| 109 | bar5s_shape_ask_ct_l06_eob | OK | 1.0000 | 10.0000 | 3.4601 | 0.0 |  |
+| 110 | bar5s_shape_ask_ct_l07_eob | OK | 1.0000 | 9.0000 | 2.9579 | 0.0 |  |
+| 111 | bar5s_shape_ask_ct_l08_eob | OK | 1.0000 | 9.0000 | 2.8325 | 0.0 |  |
+| 112 | bar5s_shape_ask_ct_l09_eob | OK | 1.0000 | 9.0000 | 2.7628 | 0.0 |  |
+| 113 | bar5s_shape_bid_sz_frac_l00_eob | OK | 0.0189 | 0.3333 | 0.0791 | 0.0 |  |
+| 114 | bar5s_shape_bid_sz_frac_l01_eob | OK | 0.0333 | 0.2963 | 0.1246 | 0.0 |  |
+| 115 | bar5s_shape_bid_sz_frac_l02_eob | OK | 0.0333 | 0.3810 | 0.1097 | 0.0 |  |
+| 116 | bar5s_shape_bid_sz_frac_l03_eob | OK | 0.0333 | 0.3125 | 0.1096 | 0.0 |  |
+| 117 | bar5s_shape_bid_sz_frac_l04_eob | OK | 0.0333 | 0.2812 | 0.1076 | 0.0 |  |
+| 118 | bar5s_shape_bid_sz_frac_l05_eob | OK | 0.0333 | 0.3125 | 0.1056 | 0.0 |  |
+| 119 | bar5s_shape_bid_sz_frac_l06_eob | OK | 0.0263 | 0.2979 | 0.0958 | 0.0 |  |
+| 120 | bar5s_shape_bid_sz_frac_l07_eob | OK | 0.0256 | 0.3023 | 0.0917 | 0.0 |  |
+| 121 | bar5s_shape_bid_sz_frac_l08_eob | OK | 0.0238 | 0.3191 | 0.0892 | 0.0 |  |
+| 122 | bar5s_shape_bid_sz_frac_l09_eob | OK | 0.0250 | 0.3137 | 0.0871 | 0.0 |  |
+| 123 | bar5s_shape_ask_sz_frac_l00_eob | OK | 0.0182 | 0.3684 | 0.0843 | 0.0 |  |
+| 124 | bar5s_shape_ask_sz_frac_l01_eob | OK | 0.0370 | 0.4091 | 0.1377 | 0.0 |  |
+| 125 | bar5s_shape_ask_sz_frac_l02_eob | OK | 0.0256 | 0.4865 | 0.1152 | 0.0 |  |
+| 126 | bar5s_shape_ask_sz_frac_l03_eob | OK | 0.0333 | 0.4722 | 0.1164 | 0.0 |  |
+| 127 | bar5s_shape_ask_sz_frac_l04_eob | OK | 0.0222 | 0.3488 | 0.1064 | 0.0 |  |
+| 128 | bar5s_shape_ask_sz_frac_l05_eob | OK | 0.0256 | 0.3333 | 0.1006 | 0.0 |  |
+| 129 | bar5s_shape_ask_sz_frac_l06_eob | OK | 0.0250 | 0.3333 | 0.0952 | 0.0 |  |
+| 130 | bar5s_shape_ask_sz_frac_l07_eob | OK | 0.0217 | 0.3261 | 0.0814 | 0.0 |  |
+| 131 | bar5s_shape_ask_sz_frac_l08_eob | OK | 0.0227 | 0.3455 | 0.0813 | 0.0 |  |
+| 132 | bar5s_shape_ask_sz_frac_l09_eob | OK | 0.0213 | 0.3065 | 0.0815 | 0.0 |  |
+| 133 | bar5s_shape_bid_ct_frac_l00_eob | OK | 0.0217 | 0.2667 | 0.0805 | 0.0 |  |
+| 134 | bar5s_shape_bid_ct_frac_l01_eob | OK | 0.0465 | 0.2381 | 0.1270 | 0.0 |  |
+| 135 | bar5s_shape_bid_ct_frac_l02_eob | OK | 0.0455 | 0.2381 | 0.1112 | 0.0 |  |
+| 136 | bar5s_shape_bid_ct_frac_l03_eob | OK | 0.0465 | 0.2500 | 0.1102 | 0.0 |  |
+| 137 | bar5s_shape_bid_ct_frac_l04_eob | OK | 0.0526 | 0.2308 | 0.1087 | 0.0 |  |
+| 138 | bar5s_shape_bid_ct_frac_l05_eob | OK | 0.0333 | 0.2500 | 0.1055 | 0.0 |  |
+| 139 | bar5s_shape_bid_ct_frac_l06_eob | OK | 0.0323 | 0.2308 | 0.0964 | 0.0 |  |
+| 140 | bar5s_shape_bid_ct_frac_l07_eob | OK | 0.0270 | 0.2308 | 0.0910 | 0.0 |  |
+| 141 | bar5s_shape_bid_ct_frac_l08_eob | OK | 0.0256 | 0.2308 | 0.0866 | 0.0 |  |
+| 142 | bar5s_shape_bid_ct_frac_l09_eob | OK | 0.0278 | 0.2308 | 0.0828 | 0.0 |  |
+| 143 | bar5s_shape_ask_ct_frac_l00_eob | OK | 0.0213 | 0.2727 | 0.0864 | 0.0 |  |
+| 144 | bar5s_shape_ask_ct_frac_l01_eob | OK | 0.0385 | 0.3200 | 0.1411 | 0.0 |  |
+| 145 | bar5s_shape_ask_ct_frac_l02_eob | OK | 0.0256 | 0.3448 | 0.1171 | 0.0 |  |
+| 146 | bar5s_shape_ask_ct_frac_l03_eob | OK | 0.0385 | 0.3214 | 0.1163 | 0.0 |  |
+| 147 | bar5s_shape_ask_ct_frac_l04_eob | OK | 0.0238 | 0.2500 | 0.1078 | 0.0 |  |
+| 148 | bar5s_shape_ask_ct_frac_l05_eob | OK | 0.0256 | 0.2143 | 0.1019 | 0.0 |  |
+| 149 | bar5s_shape_ask_ct_frac_l06_eob | OK | 0.0250 | 0.2857 | 0.0952 | 0.0 |  |
+| 150 | bar5s_shape_ask_ct_frac_l07_eob | OK | 0.0238 | 0.2414 | 0.0807 | 0.0 |  |
+| 151 | bar5s_shape_ask_ct_frac_l08_eob | OK | 0.0227 | 0.2667 | 0.0776 | 0.0 |  |
+| 152 | bar5s_shape_ask_ct_frac_l09_eob | OK | 0.0217 | 0.2143 | 0.0760 | 0.0 |  |
+| 153 | bar5s_flow_add_vol_bid_p0_1_sum | OK | 0.0000 | 359.0000 | 58.2223 | 0.7 |  |
+| 154 | bar5s_flow_add_vol_bid_p1_2_sum | OK | 0.0000 | 103.0000 | 4.4278 | 12.0 |  |
+| 155 | bar5s_flow_add_vol_bid_p2_3_sum | OK | 0.0000 | 42.0000 | 2.5234 | 63.3 |  |
+| 156 | bar5s_flow_add_vol_ask_p0_1_sum | OK | 0.0000 | 353.0000 | 59.5033 | 0.7 |  |
+| 157 | bar5s_flow_add_vol_ask_p1_2_sum | OK | 0.0000 | 36.0000 | 4.7631 | 10.2 |  |
+| 158 | bar5s_flow_add_vol_ask_p2_3_sum | OK | 0.0000 | 44.0000 | 3.3515 | 56.7 |  |
+| 159 | bar5s_flow_rem_vol_bid_p0_1_sum | OK | 0.0000 | 228.0000 | 51.1306 | 0.6 |  |
+| 160 | bar5s_flow_rem_vol_bid_p1_2_sum | OK | 0.0000 | 82.0000 | 3.4157 | 17.4 |  |
+| 161 | bar5s_flow_rem_vol_bid_p2_3_sum | OK | 0.0000 | 40.0000 | 2.1691 | 68.1 |  |
+| 162 | bar5s_flow_rem_vol_ask_p0_1_sum | OK | 0.0000 | 218.0000 | 52.6281 | 0.7 |  |
+| 163 | bar5s_flow_rem_vol_ask_p1_2_sum | OK | 0.0000 | 36.0000 | 3.3003 | 15.1 |  |
+| 164 | bar5s_flow_rem_vol_ask_p2_3_sum | OK | 0.0000 | 50.0000 | 3.2344 | 58.5 |  |
+| 165 | bar5s_flow_net_vol_bid_p0_1_sum | OK | -25.0000 | 190.0000 | 7.0917 | 4.6 |  |
+| 166 | bar5s_flow_net_vol_bid_p1_2_sum | OK | -10.0000 | 21.0000 | 1.0121 | 25.9 |  |
+| 167 | bar5s_flow_net_vol_bid_p2_3_sum | OK | -7.0000 | 18.0000 | 0.3542 | 65.9 |  |
+| 168 | bar5s_flow_net_vol_ask_p0_1_sum | OK | -27.0000 | 135.0000 | 6.8752 | 4.8 |  |
+| 169 | bar5s_flow_net_vol_ask_p1_2_sum | OK | -21.0000 | 36.0000 | 1.4628 | 24.3 |  |
+| 170 | bar5s_flow_net_vol_ask_p2_3_sum | OK | -12.0000 | 26.0000 | 0.1172 | 64.9 |  |
+| 171 | bar5s_flow_cnt_add_bid_p0_1_sum | OK | 0.0000 | 242.0000 | 51.5749 | 0.8 |  |
+| 172 | bar5s_flow_cnt_add_bid_p1_2_sum | OK | 0.0000 | 69.0000 | 2.9401 | 19.4 |  |
+| 173 | bar5s_flow_cnt_add_bid_p2_3_sum | OK | 0.0000 | 26.0000 | 1.2500 | 67.3 |  |
+| 174 | bar5s_flow_cnt_add_ask_p0_1_sum | OK | 0.0000 | 229.0000 | 52.4882 | 0.8 |  |
+| 175 | bar5s_flow_cnt_add_ask_p1_2_sum | OK | 0.0000 | 14.0000 | 2.9896 | 16.8 |  |
+| 176 | bar5s_flow_cnt_add_ask_p2_3_sum | OK | 0.0000 | 26.0000 | 1.6610 | 59.6 |  |
+| 177 | bar5s_flow_cnt_cancel_bid_p0_1_sum | OK | 0.0000 | 226.0000 | 50.8970 | 0.6 |  |
+| 178 | bar5s_flow_cnt_cancel_bid_p1_2_sum | OK | 0.0000 | 80.0000 | 3.2440 | 17.4 |  |
+| 179 | bar5s_flow_cnt_cancel_bid_p2_3_sum | OK | 0.0000 | 31.0000 | 1.1592 | 68.1 |  |
+| 180 | bar5s_flow_cnt_cancel_ask_p0_1_sum | OK | 0.0000 | 218.0000 | 52.3471 | 0.7 |  |
+| 181 | bar5s_flow_cnt_cancel_ask_p1_2_sum | OK | 0.0000 | 36.0000 | 3.2341 | 15.1 |  |
+| 182 | bar5s_flow_cnt_cancel_ask_p2_3_sum | OK | 0.0000 | 41.0000 | 1.8648 | 58.5 |  |
+| 183 | bar5s_flow_cnt_modify_bid_p0_1_sum | OK | 0.0000 | 76.0000 | 6.1010 | 5.3 |  |
+| 184 | bar5s_flow_cnt_modify_bid_p1_2_sum | OK | 0.0000 | 34.0000 | 1.3745 | 40.5 |  |
+| 185 | bar5s_flow_cnt_modify_bid_p2_3_sum | OK | 0.0000 | 7.0000 | 0.2184 | 86.2 |  |
+| 186 | bar5s_flow_cnt_modify_ask_p0_1_sum | OK | 0.0000 | 61.0000 | 6.4646 | 4.4 |  |
+| 187 | bar5s_flow_cnt_modify_ask_p1_2_sum | OK | 0.0000 | 18.0000 | 1.6738 | 38.5 |  |
+| 188 | bar5s_flow_cnt_modify_ask_p2_3_sum | OK | 0.0000 | 16.0000 | 0.2685 | 84.8 |  |
+| 189 | bar5s_flow_net_volnorm_bid_p0_1_sum | OK | -6.0000 | 14.0000 | 0.5423 | 4.6 |  |
+| 190 | bar5s_flow_net_volnorm_bid_p1_2_sum | OK | -3.0000 | 9.0000 | 0.0785 | 25.9 |  |
+| 191 | bar5s_flow_net_volnorm_bid_p2_3_sum | OK | -3.1869 | 8.4877 | 0.0448 | 65.9 |  |
+| 192 | bar5s_flow_net_volnorm_ask_p0_1_sum | OK | -2.3323 | 20.0000 | 0.5474 | 4.8 |  |
+| 193 | bar5s_flow_net_volnorm_ask_p1_2_sum | OK | -20.8031 | 36.0000 | 0.1152 | 24.3 |  |
+| 194 | bar5s_flow_net_volnorm_ask_p2_3_sum | OK | -3.8328 | 26.0000 | 0.0324 | 64.9 |  |
+| 195 | bar5s_trade_cnt_sum | OK | 0.0000 | 13.0000 | 0.5608 | 70.2 |  |
+| 196 | bar5s_trade_vol_sum | OK | 0.0000 | 27.0000 | 0.7688 | 70.2 |  |
+| 197 | bar5s_trade_aggbuy_vol_sum | OK | 0.0000 | 22.0000 | 0.3460 | 82.7 |  |
+| 198 | bar5s_trade_aggsell_vol_sum | OK | 0.0000 | 15.0000 | 0.4227 | 81.5 |  |
+| 199 | bar5s_trade_signed_vol_sum | OK | -14.0000 | 17.0000 | -0.0767 | 71.8 |  |
+| 200 | bar5s_wall_bid_maxz_eob | OK | 0.0000 | 3.0000 | 1.6228 | 0.1 |  |
+| 201 | bar5s_wall_ask_maxz_eob | OK | 0.5000 | 2.8724 | 1.6310 | 0.0 |  |
+| 202 | bar5s_wall_bid_maxz_levelidx_eob | OK | 0.0000 | 9.0000 | 2.9806 | 9.5 |  |
+| 203 | bar5s_wall_ask_maxz_levelidx_eob | OK | 0.0000 | 9.0000 | 2.9333 | 8.7 |  |
+| 204 | bar5s_wall_bid_nearest_strong_dist_pts_eob | NULLs: 81.6% | 0.3333 | 19.6250 | 1.7198 | 0.0 |  |
+| 205 | bar5s_wall_ask_nearest_strong_dist_pts_eob | NULLs: 82.1% | 0.2500 | 18.6667 | 1.8131 | 0.0 |  |
+| 206 | bar5s_wall_bid_nearest_strong_levelidx_eob | OK | -1.0000 | 9.0000 | 0.0095 | 1.8 |  |
+| 207 | bar5s_wall_ask_nearest_strong_levelidx_eob | OK | -1.0000 | 9.0000 | 0.0323 | 1.1 |  |
+| 208 | bar5s_approach_dist_to_level_pts_eob | OK | -12.7500 | 1.8000 | -2.9237 | 0.3 |  |
+| 209 | bar5s_approach_dist_to_level_pts_twa | OK | -12.7500 | 1.8500 | -2.9259 | 0.0 |  |
+| 210 | bar5s_approach_abs_dist_to_level_pts_eob | OK | 0.0000 | 12.7500 | 3.0629 | 0.3 |  |
+| 211 | bar5s_approach_side_of_level_eob | OK | -1.0000 | 1.0000 | -0.7612 | 0.0 |  |
+| 212 | bar5s_approach_is_pm_high | CONSTANT: 1 | 1.0000 | 1.0000 | 1.0000 | 0.0 |  |
+| 213 | bar5s_approach_is_pm_low | ALL_ZEROS; CONSTANT: 0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ✅ Expected (filtered dataset) |
+| 214 | bar5s_approach_is_or_high | ALL_ZEROS; CONSTANT: 0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ✅ Expected (filtered dataset) |
+| 215 | bar5s_approach_is_or_low | ALL_ZEROS; CONSTANT: 0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ✅ Expected (filtered dataset) |
+| 216 | bar5s_approach_level_polarity | CONSTANT: 1 | 1.0000 | 1.0000 | 1.0000 | 0.0 |  |
+| 217 | bar5s_approach_alignment_eob | OK | -1.0000 | 1.0000 | 0.7612 | 0.0 |  |
+| 218 | bar5s_deriv_dist_d1_w3 | NULLs: 0.8% | -3.0417 | 1.0958 | 0.0002 | 2.8 |  |
+| 219 | bar5s_deriv_dist_d1_w12 | NULLs: 3.4% | -0.9167 | 0.4206 | -0.0017 | 1.0 |  |
+| 220 | bar5s_deriv_dist_d1_w36 | NULLs: 10.2% | -0.2574 | 0.2054 | 0.0044 | 0.8 |  |
+| 221 | bar5s_deriv_dist_d1_w72 | NULLs: 20.4% | -0.1291 | 0.1319 | 0.0048 | 0.4 |  |
+| 222 | bar5s_deriv_dist_d2_w3 | NULLs: 1.7% | -0.9676 | 1.0139 | 0.0004 | 0.5 |  |
+| 223 | bar5s_deriv_dist_d2_w12 | NULLs: 6.8% | -0.0752 | 0.0567 | -0.0010 | 0.4 |  |
+| 224 | bar5s_deriv_dist_d2_w36 | NULLs: 20.4% | -0.0084 | 0.0069 | -0.0003 | 0.2 |  |
+| 225 | bar5s_deriv_dist_d2_w72 | NULLs: 40.7% | -0.0018 | 0.0025 | -0.0004 | 0.0 |  |
+| 226 | bar5s_deriv_obi0_d1_w3 | NULLs: 0.8% | -0.4000 | 0.4343 | -0.0004 | 11.8 |  |
+| 227 | bar5s_deriv_obi0_d1_w12 | NULLs: 3.4% | -0.1095 | 0.1056 | -0.0003 | 10.7 |  |
+| 228 | bar5s_deriv_obi0_d1_w36 | NULLs: 10.2% | -0.0365 | 0.0352 | -0.0003 | 8.4 |  |
+| 229 | bar5s_deriv_obi0_d1_w72 | NULLs: 20.4% | -0.0172 | 0.0176 | -0.0003 | 6.8 |  |
+| 230 | bar5s_deriv_obi0_d2_w3 | NULLs: 1.7% | -0.2556 | 0.2559 | -0.0001 | 2.7 |  |
+| 231 | bar5s_deriv_obi0_d2_w12 | NULLs: 6.8% | -0.0151 | 0.0175 | -0.0000 | 3.0 |  |
+| 232 | bar5s_deriv_obi0_d2_w36 | NULLs: 20.4% | -0.0017 | 0.0019 | -0.0000 | 1.6 |  |
+| 233 | bar5s_deriv_obi0_d2_w72 | NULLs: 40.7% | -0.0004 | 0.0004 | -0.0000 | 2.4 |  |
+| 234 | bar5s_deriv_obi10_d1_w3 | NULLs: 0.8% | -0.1981 | 0.2060 | 0.0002 | 1.9 |  |
+| 235 | bar5s_deriv_obi10_d1_w12 | NULLs: 3.4% | -0.0354 | 0.0660 | 0.0000 | 0.5 |  |
+| 236 | bar5s_deriv_obi10_d1_w36 | NULLs: 10.2% | -0.0128 | 0.0183 | -0.0002 | 0.6 |  |
+| 237 | bar5s_deriv_obi10_d1_w72 | NULLs: 20.4% | -0.0075 | 0.0073 | -0.0002 | 0.5 |  |
+| 238 | bar5s_deriv_obi10_d2_w3 | NULLs: 1.7% | -0.0729 | 0.1056 | 0.0000 | 0.2 |  |
+| 239 | bar5s_deriv_obi10_d2_w12 | NULLs: 6.8% | -0.0074 | 0.0078 | 0.0000 | 0.0 |  |
+| 240 | bar5s_deriv_obi10_d2_w36 | NULLs: 20.4% | -0.0006 | 0.0008 | 0.0000 | 0.0 |  |
+| 241 | bar5s_deriv_obi10_d2_w72 | NULLs: 40.7% | -0.0002 | 0.0001 | -0.0000 | 0.0 |  |
+| 242 | bar5s_deriv_cdi01_d1_w3 | NULLs: 0.8% | -0.2000 | 0.2063 | 0.0001 | 4.3 |  |
+| 243 | bar5s_deriv_cdi01_d1_w12 | NULLs: 3.4% | -0.0556 | 0.0556 | 0.0000 | 2.4 |  |
+| 244 | bar5s_deriv_cdi01_d1_w36 | NULLs: 10.2% | -0.0149 | 0.0160 | -0.0002 | 2.6 |  |
+| 245 | bar5s_deriv_cdi01_d1_w72 | NULLs: 20.4% | -0.0106 | 0.0089 | -0.0001 | 2.6 |  |
+| 246 | bar5s_deriv_cdi01_d2_w3 | NULLs: 1.7% | -0.1143 | 0.0963 | 0.0001 | 0.4 |  |
+| 247 | bar5s_deriv_cdi01_d2_w12 | NULLs: 6.8% | -0.0072 | 0.0069 | 0.0000 | 0.5 |  |
+| 248 | bar5s_deriv_cdi01_d2_w36 | NULLs: 20.4% | -0.0008 | 0.0008 | -0.0000 | 0.6 |  |
+| 249 | bar5s_deriv_cdi01_d2_w72 | NULLs: 40.7% | -0.0002 | 0.0002 | -0.0000 | 0.2 |  |
+| 250 | bar5s_deriv_cdi12_d1_w3 | NULLs: 0.8% | -0.3333 | 0.3704 | 0.0002 | 6.5 |  |
+| 251 | bar5s_deriv_cdi12_d1_w12 | NULLs: 3.4% | -0.0701 | 0.1037 | 0.0001 | 1.8 |  |
+| 252 | bar5s_deriv_cdi12_d1_w36 | NULLs: 10.2% | -0.0302 | 0.0254 | -0.0005 | 1.1 |  |
+| 253 | bar5s_deriv_cdi12_d1_w72 | NULLs: 20.4% | -0.0208 | 0.0126 | -0.0005 | 0.7 |  |
+| 254 | bar5s_deriv_cdi12_d2_w3 | NULLs: 1.7% | -0.2000 | 0.2346 | 0.0000 | 0.6 |  |
+| 255 | bar5s_deriv_cdi12_d2_w12 | NULLs: 6.8% | -0.0139 | 0.0143 | 0.0001 | 0.0 |  |
+| 256 | bar5s_deriv_cdi12_d2_w36 | NULLs: 20.4% | -0.0014 | 0.0014 | -0.0000 | 0.0 |  |
+| 257 | bar5s_deriv_cdi12_d2_w72 | NULLs: 40.7% | -0.0003 | 0.0005 | -0.0000 | 0.0 |  |
+| 258 | bar5s_deriv_dbid10_d1_w3 | NULLs: 0.8% | -6.6667 | 7.0000 | -0.0046 | 11.2 |  |
+| 259 | bar5s_deriv_dbid10_d1_w12 | NULLs: 3.4% | -1.8333 | 1.8333 | -0.0142 | 7.5 |  |
+| 260 | bar5s_deriv_dbid10_d1_w36 | NULLs: 10.2% | -0.8056 | 0.7500 | -0.0177 | 5.8 |  |
+| 261 | bar5s_deriv_dbid10_d1_w72 | NULLs: 20.4% | -0.4306 | 0.4306 | -0.0122 | 6.2 |  |
+| 262 | bar5s_deriv_dbid10_d2_w3 | NULLs: 1.7% | -2.7778 | 3.1111 | 0.0032 | 5.8 |  |
+| 263 | bar5s_deriv_dbid10_d2_w12 | NULLs: 6.8% | -0.1875 | 0.2569 | -0.0001 | 4.4 |  |
+| 264 | bar5s_deriv_dbid10_d2_w36 | NULLs: 20.4% | -0.0270 | 0.0355 | -0.0004 | 2.9 |  |
+| 265 | bar5s_deriv_dbid10_d2_w72 | NULLs: 40.7% | -0.0093 | 0.0112 | -0.0002 | 2.2 |  |
+| 266 | bar5s_deriv_dask10_d1_w3 | NULLs: 0.8% | -8.6667 | 11.0000 | -0.0148 | 10.2 |  |
+| 267 | bar5s_deriv_dask10_d1_w12 | NULLs: 3.4% | -2.5000 | 1.9167 | -0.0165 | 4.5 |  |
+| 268 | bar5s_deriv_dask10_d1_w36 | NULLs: 10.2% | -0.9444 | 0.8611 | -0.0089 | 3.5 |  |
+| 269 | bar5s_deriv_dask10_d1_w72 | NULLs: 20.4% | -0.3889 | 0.3889 | 0.0021 | 3.9 |  |
+| 270 | bar5s_deriv_dask10_d2_w3 | NULLs: 1.7% | -6.1111 | 3.7778 | 0.0021 | 5.9 |  |
+| 271 | bar5s_deriv_dask10_d2_w12 | NULLs: 6.8% | -0.3333 | 0.3542 | -0.0006 | 3.3 |  |
+| 272 | bar5s_deriv_dask10_d2_w36 | NULLs: 20.4% | -0.0363 | 0.0401 | -0.0008 | 2.0 |  |
+| 273 | bar5s_deriv_dask10_d2_w72 | NULLs: 40.7% | -0.0100 | 0.0098 | -0.0000 | 2.0 |  |
+| 274 | bar5s_deriv_dbelow01_d1_w3 | NULLs: 0.8% | -4.3333 | 4.0000 | -0.0024 | 18.9 |  |
+| 275 | bar5s_deriv_dbelow01_d1_w12 | NULLs: 3.4% | -0.9167 | 1.4167 | -0.0095 | 13.1 |  |
+| 276 | bar5s_deriv_dbelow01_d1_w36 | NULLs: 10.2% | -0.5000 | 0.4722 | -0.0119 | 10.6 |  |
+| 277 | bar5s_deriv_dbelow01_d1_w72 | NULLs: 20.4% | -0.2639 | 0.2500 | -0.0058 | 7.9 |  |
+| 278 | bar5s_deriv_dbelow01_d2_w3 | NULLs: 1.7% | -2.0000 | 1.7778 | 0.0037 | 9.4 |  |
+| 279 | bar5s_deriv_dbelow01_d2_w12 | NULLs: 6.8% | -0.1806 | 0.1528 | 0.0003 | 7.7 |  |
+| 280 | bar5s_deriv_dbelow01_d2_w36 | NULLs: 20.4% | -0.0162 | 0.0231 | -0.0004 | 6.7 |  |
+| 281 | bar5s_deriv_dbelow01_d2_w72 | NULLs: 40.7% | -0.0052 | 0.0069 | -0.0002 | 3.5 |  |
+| 282 | bar5s_deriv_dabove01_d1_w3 | NULLs: 0.8% | -5.3333 | 6.3333 | -0.0061 | 18.5 |  |
+| 283 | bar5s_deriv_dabove01_d1_w12 | NULLs: 3.4% | -1.4167 | 1.7500 | -0.0101 | 12.4 |  |
+| 284 | bar5s_deriv_dabove01_d1_w36 | NULLs: 10.2% | -0.5000 | 0.4722 | -0.0096 | 10.8 |  |
+| 285 | bar5s_deriv_dabove01_d1_w72 | NULLs: 20.4% | -0.2778 | 0.2222 | -0.0048 | 11.3 |  |
+| 286 | bar5s_deriv_dabove01_d2_w3 | NULLs: 1.7% | -3.3333 | 2.5556 | 0.0013 | 8.8 |  |
+| 287 | bar5s_deriv_dabove01_d2_w12 | NULLs: 6.8% | -0.2292 | 0.1944 | 0.0001 | 7.9 |  |
+| 288 | bar5s_deriv_dabove01_d2_w36 | NULLs: 20.4% | -0.0208 | 0.0255 | -0.0004 | 7.0 |  |
+| 289 | bar5s_deriv_dabove01_d2_w72 | NULLs: 40.7% | -0.0054 | 0.0066 | -0.0001 | 5.1 |  |
+| 290 | bar5s_deriv_wbidz_d1_w3 | NULLs: 0.8% | -0.7138 | 0.6518 | 0.0016 | 1.7 |  |
+| 291 | bar5s_deriv_wbidz_d1_w12 | NULLs: 3.4% | -0.1658 | 0.1453 | 0.0011 | 0.3 |  |
+| 292 | bar5s_deriv_wbidz_d1_w36 | NULLs: 10.2% | -0.0468 | 0.0515 | 0.0011 | 0.3 |  |
+| 293 | bar5s_deriv_wbidz_d1_w72 | NULLs: 20.4% | -0.0222 | 0.0222 | 0.0006 | 0.1 |  |
+| 294 | bar5s_deriv_wbidz_d2_w3 | NULLs: 1.7% | -0.3749 | 0.4061 | 0.0002 | 0.0 |  |
+| 295 | bar5s_deriv_wbidz_d2_w12 | NULLs: 6.8% | -0.0238 | 0.0220 | -0.0000 | 0.0 |  |
+| 296 | bar5s_deriv_wbidz_d2_w36 | NULLs: 20.4% | -0.0021 | 0.0025 | 0.0000 | 0.0 |  |
+| 297 | bar5s_deriv_wbidz_d2_w72 | NULLs: 40.7% | -0.0006 | 0.0005 | 0.0000 | 0.0 |  |
+| 298 | bar5s_deriv_waskz_d1_w3 | NULLs: 0.8% | -0.6310 | 0.4856 | 0.0003 | 1.7 |  |
+| 299 | bar5s_deriv_waskz_d1_w12 | NULLs: 3.4% | -0.1280 | 0.1349 | 0.0003 | 0.4 |  |
+| 300 | bar5s_deriv_waskz_d1_w36 | NULLs: 10.2% | -0.0588 | 0.0470 | 0.0006 | 0.0 |  |
+| 301 | bar5s_deriv_waskz_d1_w72 | NULLs: 20.4% | -0.0223 | 0.0263 | 0.0002 | 0.0 |  |
+| 302 | bar5s_deriv_waskz_d2_w3 | NULLs: 1.7% | -0.2650 | 0.3586 | 0.0001 | 0.2 |  |
+| 303 | bar5s_deriv_waskz_d2_w12 | NULLs: 6.8% | -0.0196 | 0.0211 | -0.0000 | 0.0 |  |
+| 304 | bar5s_deriv_waskz_d2_w36 | NULLs: 20.4% | -0.0022 | 0.0023 | 0.0000 | 0.0 |  |
+| 305 | bar5s_deriv_waskz_d2_w72 | NULLs: 40.7% | -0.0005 | 0.0005 | 0.0000 | 0.0 |  |
+| 306 | bar5s_cumul_trade_vol | OK | 0.0000 | 432.0000 | 134.3840 | 0.4 |  |
+| 307 | bar5s_cumul_signed_trade_vol | OK | -72.0000 | 42.0000 | -0.3414 | 2.8 |  |
+| 308 | bar5s_cumul_aggbuy_vol | OK | 0.0000 | 203.0000 | 67.0213 | 0.8 |  |
+| 309 | bar5s_cumul_aggsell_vol | OK | 0.0000 | 229.0000 | 67.3627 | 1.2 |  |
+| 310 | bar5s_cumul_signed_trade_vol_rate | OK | -5.7500 | 3.0000 | -0.0043 | 2.8 |  |
+| 311 | bar5s_cumul_flow_net_bid | OK | -14.0000 | 4496.0000 | 1622.7299 | 0.1 |  |
+| 312 | bar5s_cumul_flow_net_ask | OK | -6.0000 | 4207.0000 | 1535.8164 | 0.0 |  |
+| 313 | bar5s_cumul_flow_imbal | OK | -346.0000 | 579.0000 | 86.9135 | 0.2 |  |
+| 314 | bar5s_cumul_flow_imbal_rate | OK | -36.5000 | 25.0000 | 0.5812 | 0.2 |  |
+| 315 | bar5s_cumul_flow_net_bid_p0_1 | OK | -22.0000 | 4202.0000 | 1400.6346 | 0.1 |  |
+| 316 | bar5s_cumul_flow_net_bid_p1_2 | OK | -70.0000 | 632.0000 | 158.3100 | 0.6 |  |
+| 317 | bar5s_cumul_flow_net_bid_p2_3 | OK | -4.0000 | 201.0000 | 63.7853 | 1.5 |  |
+| 318 | bar5s_cumul_flow_net_ask_p0_1 | OK | -5.0000 | 3980.0000 | 1299.9016 | 0.0 |  |
+| 319 | bar5s_cumul_flow_net_ask_p1_2 | OK | -33.0000 | 851.0000 | 234.7166 | 0.4 |  |
+| 320 | bar5s_cumul_flow_net_ask_p2_3 | OK | -92.0000 | 101.0000 | 1.1982 | 2.0 |  |
+| 321 | bar5s_cumul_msg_cnt | OK | 23.0000 | 117227.0000 | 45007.7277 | 0.0 |  |
+| 322 | bar5s_cumul_trade_cnt | OK | 0.0000 | 327.0000 | 98.3989 | 0.4 |  |
+| 323 | bar5s_cumul_add_cnt | OK | 13.0000 | 54479.0000 | 20933.6425 | 0.0 |  |
+| 324 | bar5s_cumul_cancel_cnt | OK | 10.0000 | 54410.0000 | 20930.2954 | 0.0 |  |
+| 325 | bar5s_lvl_depth_above_qty_eob | OK | 0.0000 | 42.0000 | 4.7137 | 84.6 |  |
+| 326 | bar5s_lvl_depth_below_qty_eob | OK | 0.0000 | 58.0000 | 35.5360 | 9.6 |  |
+| 327 | bar5s_lvl_depth_at_qty_eob | OK | 0.0000 | 16.0000 | 0.9297 | 84.7 |  |
+| 328 | bar5s_lvl_depth_imbal_eob | OK | -1.0000 | 1.0000 | 0.7569 | 0.0 |  |
+| 329 | bar5s_lvl_depth_above_p0_1_qty_eob | OK | 0.0000 | 28.0000 | 14.8448 | 0.4 |  |
+| 330 | bar5s_lvl_depth_below_p0_1_qty_eob | OK | 0.0000 | 27.0000 | 14.7726 | 0.4 |  |
+| 331 | bar5s_lvl_cdi_p0_1_eob | OK | -0.6000 | 0.3636 | -0.0094 | 10.7 |  |
+| 332 | bar5s_lvl_depth_above_p1_2_qty_eob | OK | 0.0000 | 28.0000 | 14.8090 | 0.4 |  |
+| 333 | bar5s_lvl_depth_below_p1_2_qty_eob | OK | 0.0000 | 29.0000 | 15.7692 | 0.5 |  |
+| 334 | bar5s_lvl_cdi_p1_2_eob | OK | -1.0000 | 1.0000 | 0.0355 | 5.7 |  |
+| 335 | bar5s_lvl_depth_above_p2_3_qty_eob | OK | 0.0000 | 25.0000 | 7.3926 | 0.6 |  |
+| 336 | bar5s_lvl_depth_below_p2_3_qty_eob | OK | 0.0000 | 23.0000 | 8.1708 | 1.2 |  |
+| 337 | bar5s_lvl_cdi_p2_3_eob | OK | -1.0000 | 1.0000 | 0.0530 | 6.9 |  |
+| 338 | bar5s_lvl_flow_toward_net_sum | OK | -26.0000 | 151.0000 | 8.8687 | 5.2 |  |
+| 339 | bar5s_lvl_flow_away_net_sum | OK | -22.0000 | 202.0000 | 8.0445 | 5.7 |  |
+| 340 | bar5s_lvl_flow_toward_away_imbal_sum | OK | -79.0000 | 70.0000 | 0.8242 | 3.5 |  |
+| 341 | bar5s_lvl_bid_size_at_level_eob | OK | 0.0000 | 8.0000 | 0.4302 | 89.3 |  |
+| 342 | bar5s_lvl_ask_size_at_level_eob | OK | 0.0000 | 7.0000 | 1.5174 | 57.8 |  |
+| 343 | bar5s_lvl_total_size_at_level_eob | OK | 0.0000 | 8.0000 | 1.9476 | 47.2 |  |
+| 344 | bar5s_lvl_level_is_visible | OK | 0.0000 | 1.0000 | 0.5284 | 47.2 |  |
+| 345 | bar5s_lvl_level_book_index_bid | OK | -1.0000 | 6.0000 | -0.7308 | 3.0 |  |
+| 346 | bar5s_lvl_level_book_index_ask | OK | -1.0000 | 9.0000 | 1.0232 | 4.1 |  |
+| 347 | bar5s_lvl_size_at_level_imbal_eob | OK | -1.0000 | 1.0000 | -0.3149 | 47.2 |  |
+| 348 | bar5s_lvl_wall_at_level | OK | 0.0000 | 1.0000 | 0.0033 | 99.7 |  |
+| 349 | bar5s_lvl_depth_band_0to1_qty_eob | OK | 0.0000 | 50.0000 | 19.3822 | 31.1 |  |
+| 350 | bar5s_lvl_depth_band_1to2_qty_eob | OK | 0.0000 | 37.0000 | 14.0445 | 25.0 |  |
+| 351 | bar5s_lvl_depth_band_beyond2_qty_eob | OK | 5.0000 | 98.0000 | 42.9312 | 0.0 |  |
+| 352 | bar5s_lvl_depth_band_0to1_frac_eob | OK | 0.0000 | 0.6512 | 0.2583 | 31.1 |  |
+| 353 | bar5s_lvl_depth_band_1to2_frac_eob | OK | 0.0000 | 0.4898 | 0.1866 | 25.0 |  |
+| 354 | bar5s_lvl_depth_band_beyond2_frac_eob | OK | 0.0800 | 1.0000 | 0.5551 | 0.0 |  |
+| 355 | bar5s_lvl_size_at_level_d1_w3 | NULLs: 0.8% | -2.3333 | 2.3333 | -0.0013 | 58.1 |  |
+| 356 | bar5s_lvl_size_at_level_d1_w12 | NULLs: 3.4% | -0.5000 | 0.5833 | -0.0011 | 43.3 |  |
+| 357 | bar5s_lvl_size_at_level_d2_w12 | NULLs: 6.8% | -0.0764 | 0.0833 | -0.0002 | 32.1 |  |
+| 358 | bar5s_setup_start_dist_pts | OK | -12.3333 | -0.1667 | -7.1479 | 0.0 |  |
+| 359 | bar5s_setup_min_dist_pts | OK | 0.0000 | 0.0278 | 0.0065 | 76.5 |  |
+| 360 | bar5s_setup_max_dist_pts | OK | 5.6667 | 12.7500 | 10.6951 | 0.0 |  |
+| 361 | bar5s_setup_dist_range_pts | OK | 5.6667 | 12.7500 | 10.6886 | 0.0 |  |
+| 362 | bar5s_setup_approach_bars | OK | 127.0000 | 227.0000 | 176.6429 | 0.0 |  |
+| 363 | bar5s_setup_retreat_bars | OK | 122.0000 | 219.0000 | 168.7134 | 0.0 |  |
+| 364 | bar5s_setup_approach_ratio | OK | 0.4585 | 0.5324 | 0.4862 | 0.0 |  |
+| 365 | bar5s_setup_early_velocity | OK | -0.0107 | 0.0878 | 0.0425 | 0.0 |  |
+| 366 | bar5s_setup_mid_velocity | OK | -0.0223 | 0.0672 | 0.0110 | 0.0 |  |
+| 367 | bar5s_setup_late_velocity | OK | -0.0800 | -0.0239 | -0.0515 | 0.0 |  |
+| 368 | bar5s_setup_velocity_trend | OK | -0.1595 | -0.0326 | -0.0940 | 0.0 |  |
+| 369 | bar5s_setup_obi0_start | OK | -0.5000 | 0.5000 | -0.0892 | 9.6 |  |
+| 370 | bar5s_setup_obi0_end | OK | -0.5000 | 0.4286 | -0.1517 | 31.2 |  |
+| 371 | bar5s_setup_obi0_delta | OK | -1.0000 | 0.8571 | -0.0625 | 0.0 |  |
+| 372 | bar5s_setup_obi0_min | OK | -0.7500 | -0.5000 | -0.6719 | 0.0 |  |
+| 373 | bar5s_setup_obi0_max | OK | 0.5000 | 0.7500 | 0.6777 | 0.0 |  |
+| 374 | bar5s_setup_obi10_start | OK | -0.1053 | 0.1714 | 0.0539 | 16.5 |  |
+| 375 | bar5s_setup_obi10_end | OK | -0.0411 | 0.1828 | 0.1047 | 4.1 |  |
+| 376 | bar5s_setup_obi10_delta | OK | -0.1840 | 0.2565 | 0.0508 | 0.0 |  |
+| 377 | bar5s_setup_obi10_min | OK | -0.4386 | -0.1494 | -0.2876 | 0.0 |  |
+| 378 | bar5s_setup_obi10_max | OK | 0.3143 | 0.3714 | 0.3478 | 0.0 |  |
+| 379 | bar5s_setup_total_trade_vol | OK | 130.0000 | 432.0000 | 280.2539 | 0.0 |  |
+| 380 | bar5s_setup_total_signed_vol | OK | -71.0000 | 23.0000 | -26.9093 | 0.0 |  |
+| 381 | bar5s_setup_trade_imbal_pct | OK | -0.2328 | 0.1204 | -0.0663 | 0.0 |  |
+| 382 | bar5s_setup_flow_imbal_total | OK | -301.0000 | 478.0000 | 28.3947 | 0.0 |  |
+| 383 | bar5s_setup_bid_wall_max_z | OK | 2.5599 | 3.0000 | 2.8392 | 0.0 |  |
+| 384 | bar5s_setup_ask_wall_max_z | OK | 2.4744 | 2.8724 | 2.6873 | 0.0 |  |
+| 385 | bar5s_setup_bid_wall_bars | OK | 42.0000 | 81.0000 | 66.5177 | 0.0 |  |
+| 386 | bar5s_setup_ask_wall_bars | OK | 23.0000 | 96.0000 | 65.5661 | 0.0 |  |
+| 387 | bar5s_setup_wall_imbal | OK | -39.0000 | 15.0000 | -0.9516 | 10.8 |  |
+| 388 | bar5s_setup_size_at_level_start | OK | 0.0000 | 4.0000 | 0.3395 | 87.2 |  |
+| 389 | bar5s_setup_size_at_level_end | ALL_ZEROS; CONSTANT: 0.0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ⚠️ **Logic Error**: All zeros despite expected data. Likely missing upstream column. |
+| 390 | bar5s_setup_size_at_level_delta | OK | -4.0000 | 0.0000 | -0.3395 | 87.2 |  |
+| 391 | bar5s_setup_size_at_level_max | OK | 6.0000 | 8.0000 | 7.0771 | 0.0 |  |
+| 392 | bar5s_setup_size_at_level_recent12_sum | ALL_ZEROS; CONSTANT: 0.0 | 0.0000 | 0.0000 | 0.0000 | 100.0 | ⚠️ **Logic Error**: All zeros despite expected data. Likely missing upstream column. |
+| 393 | bar5s_setup_size_at_level_early_late_ratio | OK | 0.0000 | 36.8889 | 5.5145 | 19.4 |  |
+| 394 | bar5s_setup_flow_toward_recent12_sum | OK | 38.0000 | 353.0000 | 204.0835 | 0.0 |  |
+| 395 | bar5s_setup_flow_toward_early_late_ratio | OK | 0.8686 | 1.3758 | 1.0142 | 0.0 |  |
+| 396 | rvol_trade_vol_ratio | OK | 0.0000 | 27000000000.0000 | 768761167.3615 | 70.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 397 | rvol_trade_vol_zscore | OK | 0.0000 | 27000000000.0000 | 768761167.3615 | 70.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 398 | rvol_trade_cnt_ratio | OK | 0.0000 | 13000000000.0000 | 560750446.6945 | 70.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 399 | rvol_trade_cnt_zscore | OK | 0.0000 | 13000000000.0000 | 560750446.6945 | 70.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 400 | rvol_trade_aggbuy_ratio | OK | 0.0000 | 22000000000.0000 | 346039309.1126 | 82.7 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 401 | rvol_trade_aggsell_ratio | OK | 0.0000 | 15000000000.0000 | 422721858.2490 | 81.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 402 | rvol_trade_aggbuy_zscore | OK | 0.0000 | 22000000000.0000 | 346039309.1126 | 82.7 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 403 | rvol_trade_aggsell_zscore | OK | 0.0000 | 15000000000.0000 | 422721858.2490 | 81.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 404 | rvol_flow_add_bid_ratio | OK | 0.0000 | 396000000000.0000 | 65173466349.0173 | 0.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 405 | rvol_flow_add_ask_ratio | OK | 0.0000 | 409000000000.0000 | 67617927337.7010 | 0.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 406 | rvol_flow_add_bid_zscore | OK | 0.0000 | 396000000000.0000 | 65173466349.0173 | 0.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 407 | rvol_flow_add_ask_zscore | OK | 0.0000 | 409000000000.0000 | 67617927337.7010 | 0.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 408 | rvol_flow_net_bid_ratio | CONSTANT: 1.0 | 1.0000 | 1.0000 | 1.0000 | 0.0 |  |
+| 409 | rvol_flow_net_ask_ratio | CONSTANT: 1.0 | 1.0000 | 1.0000 | 1.0000 | 0.0 |  |
+| 410 | rvol_flow_net_bid_zscore | OK | -22000000000.0000 | 202000000000.0000 | 8458010720.6671 | 5.4 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 411 | rvol_flow_net_ask_zscore | OK | -26000000000.0000 | 151000000000.0000 | 8455181655.7475 | 5.6 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 412 | rvol_flow_add_total_ratio | OK | 0.0000 | 805000000000.0000 | 132791393686.7183 | 0.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 413 | rvol_flow_add_total_zscore | OK | 0.0000 | 805000000000.0000 | 132791393686.7183 | 0.2 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 414 | rvol_cumul_trade_vol_dev | OK | 0.0000 | 432.0000 | 134.3840 | 0.4 |  |
+| 415 | rvol_cumul_trade_vol_dev_pct | OK | 0.0000 | 432000000000.0000 | 134384008338.2966 | 0.4 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 416 | rvol_cumul_flow_imbal_dev | OK | -346.0000 | 579.0000 | 86.9135 | 0.2 |  |
+| 417 | rvol_cumul_msg_dev | OK | 23.0000 | 117227.0000 | 45007.7277 | 0.0 |  |
+| 418 | rvol_bid_ask_add_asymmetry | OK | -95000000000.0000 | 146000000000.0000 | -2444460988.6837 | 2.5 |  |
+| 419 | rvol_bid_ask_rem_asymmetry | OK | -115000000000.0000 | 105000000000.0000 | -2447290053.6033 | 3.3 |  |
+| 420 | rvol_bid_ask_net_asymmetry | OK | -70000000000.0000 | 79000000000.0000 | 2829064.9196 | 3.5 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 421 | rvol_aggbuy_aggsell_asymmetry | OK | -14000000000.0000 | 17000000000.0000 | -76682549.1364 | 71.8 |  |
+| 422 | rvol_lookback_trade_vol_mean_ratio | OK | 410256410.2564 | 1032352941.1765 | 768761167.3615 | 0.0 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 423 | rvol_lookback_trade_vol_max_ratio | OK | 13000000000.0000 | 27000000000.0000 | 14636837403.2162 | 0.0 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 424 | rvol_lookback_trade_vol_trend | OK | -539823008.8496 | 576086956.5217 | 61697263.2963 | 0.0 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 425 | rvol_lookback_elevated_bars | OK | 63.0000 | 156.0000 | 108.8240 | 0.0 |  |
+| 426 | rvol_lookback_depressed_bars | OK | 186.0000 | 330.0000 | 255.1161 | 0.0 |  |
+| 427 | rvol_lookback_asymmetry_mean | OK | -1086642599.2780 | 1175000000.0000 | 2829064.9196 | 0.0 | ⚠️ **Suspicious Magnitude**: Values > 1e6. Likely division by near-zero mean. |
+| 428 | rvol_recent_vs_lookback_vol_ratio | OK | 0.0000 | 7.5041 | 0.9846 | 7.2 |  |
+| 429 | rvol_recent_vs_lookback_asymmetry | OK | -114916431534676112.0000 | 5869003768580199.0000 | -20041619967011.1367 | 0.5 |  |
+
+## Summary of Findings
+1. **RVOL Feature Explosion**: `rvol_` features exhibit massive values (e.g., 1e9), indicating division by zero (or epsilon) when historical profile data is missing (early dates).
+2. **Missing Setup Features**: `bar5s_setup_size_at_level_*` features are all zeros. Code inspection reveals dependency on `bar5s_lvl_size_at_level_eob` which is never computed (only `bar5s_lvl_total_size_at_level_eob` exists).
+3. **Meta Clear Counts**: `bar5s_meta_clear_cnt_sum` is always 0. Requires verification against raw data.

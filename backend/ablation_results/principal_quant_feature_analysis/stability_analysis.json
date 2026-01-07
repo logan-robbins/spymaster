@@ -2,68 +2,63 @@
   "fold_results": [
     {
       "fold": 0,
-      "train_end": "2025-06-05",
-      "test_period": "2025-06-05 to 2025-06-06",
-      "n_features_selected": 3,
-      "selected_features": [
-        "bar5s_deriv_cdi01_d2_w3",
-        "bar5s_lvl_depth_band_1to2_frac_eob",
-        "bar5s_flow_add_vol_bid_p2_3_sum"
-      ],
-      "test_accuracy": 0.4
-    },
-    {
-      "fold": 1,
-      "train_end": "2025-06-06",
-      "test_period": "2025-06-06 to 2025-06-09",
+      "train_end": "2025-06-27",
+      "test_period": "2025-06-27 to 2025-07-22",
       "n_features_selected": 3,
       "selected_features": [
         "is_extended_forward",
-        "bar5s_flow_net_volnorm_bid_p0_1_sum",
-        "bar5s_shape_bid_sz_frac_l09_eob"
+        "bar5s_flow_cnt_modify_ask_p1_2_sum",
+        "bar5s_setup_size_at_level_end"
       ],
-      "test_accuracy": 0.4647887323943662
+      "test_accuracy": 0.4323770491803279
+    },
+    {
+      "fold": 1,
+      "train_end": "2025-07-22",
+      "test_period": "2025-07-22 to 2025-08-14",
+      "n_features_selected": 1,
+      "selected_features": [
+        "bar5s_approach_abs_dist_to_level_pts_eob"
+      ],
+      "test_accuracy": 0.4458041958041958
     },
     {
       "fold": 2,
-      "train_end": "2025-06-09",
-      "test_period": "2025-06-09 to 2025-06-10",
-      "n_features_selected": 3,
+      "train_end": "2025-08-14",
+      "test_period": "2025-08-14 to 2025-09-08",
+      "n_features_selected": 1,
       "selected_features": [
-        "bar5s_setup_min_dist_pts",
-        "bar5s_setup_obi0_max",
-        "bar5s_cumul_flow_net_ask_p2_3"
+        "bar5s_lvl_size_at_level_d1_w12"
       ],
-      "test_accuracy": 0.4895833333333333
+      "test_accuracy": 0.1609403254972875
     },
     {
       "fold": 3,
-      "train_end": "2025-06-10",
-      "test_period": "2025-06-10 to 2025-06-11",
-      "n_features_selected": 3,
+      "train_end": "2025-09-08",
+      "test_period": "2025-09-08 to 2025-09-30",
+      "n_features_selected": 5,
       "selected_features": [
-        "bar5s_shape_bid_sz_l05_eob",
-        "bar5s_flow_net_volnorm_bid_p0_1_sum",
-        "bar5s_ladder_bid_gap_max_pts_eob"
+        "is_extended_forward",
+        "bar5s_setup_bid_wall_max_z",
+        "rvol_trade_aggbuy_ratio",
+        "bar5s_lvl_bid_size_at_level_eob",
+        "bar5s_setup_size_at_level_end"
       ],
-      "test_accuracy": 0.4931506849315068
+      "test_accuracy": 0.42832167832167833
     }
   ],
   "stable_features": [],
   "unstable_features": [
-    "bar5s_deriv_cdi01_d2_w3",
-    "bar5s_lvl_depth_band_1to2_frac_eob",
-    "bar5s_flow_add_vol_bid_p2_3_sum",
     "is_extended_forward",
-    "bar5s_flow_net_volnorm_bid_p0_1_sum",
-    "bar5s_shape_bid_sz_frac_l09_eob",
-    "bar5s_setup_min_dist_pts",
-    "bar5s_setup_obi0_max",
-    "bar5s_cumul_flow_net_ask_p2_3",
-    "bar5s_shape_bid_sz_l05_eob",
-    "bar5s_ladder_bid_gap_max_pts_eob"
+    "bar5s_flow_cnt_modify_ask_p1_2_sum",
+    "bar5s_setup_size_at_level_end",
+    "bar5s_approach_abs_dist_to_level_pts_eob",
+    "bar5s_lvl_size_at_level_d1_w12",
+    "bar5s_setup_bid_wall_max_z",
+    "rvol_trade_aggbuy_ratio",
+    "bar5s_lvl_bid_size_at_level_eob"
   ],
   "stability_ratio": 0.0,
-  "mean_test_accuracy": 0.46188068766480156,
-  "std_test_accuracy": 0.037359488540777176
+  "mean_test_accuracy": 0.36686081220087235,
+  "std_test_accuracy": 0.11906418440409625
 }

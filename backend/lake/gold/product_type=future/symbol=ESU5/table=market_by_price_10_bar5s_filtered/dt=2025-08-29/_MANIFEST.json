@@ -8,7 +8,7 @@
     {
       "dataset": "silver.future.market_by_price_10_bar5s",
       "dt": "2025-08-29",
-      "manifest_sha256": "78846cf27de2af7e9aa301342875ac3b58b093e9f7ec1144d1a7e43925e21d7a"
+      "manifest_sha256": "d2a909dce0de6a3d0455864013e90f95dc786a9e755d3134f9530f4e7e8ab489"
     }
   ],
   "row_count": 15122,

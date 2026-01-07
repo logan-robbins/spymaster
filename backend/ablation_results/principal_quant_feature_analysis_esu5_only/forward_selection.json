@@ -1,0 +1,17 @@
+{
+  "selected_indices": [
+    377
+  ],
+  "selected_names": [
+    "bar5s_setup_min_dist_pts"
+  ],
+  "final_accuracy": 0.4521276595744681,
+  "history": [
+    {
+      "step": 1,
+      "added_feature": "bar5s_setup_min_dist_pts",
+      "accuracy": 0.4521276595744681,
+      "improvement": 0.4521276595744681
+    }
+  ]
+}

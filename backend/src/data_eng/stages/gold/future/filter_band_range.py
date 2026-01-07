@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
 
 from ...base import Stage, StageIO
 
@@ -19,7 +18,7 @@ class GoldFilterBandRange(Stage):
     are often outside the visible book depth and should be nullified.
     """
     
-    BAND_FIELDS = [
+    COLUMNS_TO_DROP = [
         "bar5s_state_cdi_p3_5_twa",
         "bar5s_state_cdi_p3_5_eob",
         "bar5s_state_cdi_p5_10_twa",
@@ -68,12 +67,27 @@ class GoldFilterBandRange(Stage):
         "bar5s_flow_net_volnorm_bid_p5_10_sum",
         "bar5s_flow_net_volnorm_ask_p3_5_sum",
         "bar5s_flow_net_volnorm_ask_p5_10_sum",
+        "bar5s_shape_bid_px_l00_eob",
+        "bar5s_shape_bid_px_l01_eob",
+        "bar5s_shape_bid_px_l02_eob",
+        "bar5s_shape_bid_px_l03_eob",
+        "bar5s_shape_bid_px_l04_eob",
+        "bar5s_shape_bid_px_l05_eob",
+        "bar5s_shape_bid_px_l06_eob",
+        "bar5s_shape_bid_px_l07_eob",
+        "bar5s_shape_bid_px_l08_eob",
+        "bar5s_shape_bid_px_l09_eob",
+        "bar5s_shape_ask_px_l00_eob",
+        "bar5s_shape_ask_px_l01_eob",
+        "bar5s_shape_ask_px_l02_eob",
+        "bar5s_shape_ask_px_l03_eob",
+        "bar5s_shape_ask_px_l04_eob",
+        "bar5s_shape_ask_px_l05_eob",
+        "bar5s_shape_ask_px_l06_eob",
+        "bar5s_shape_ask_px_l07_eob",
+        "bar5s_shape_ask_px_l08_eob",
+        "bar5s_shape_ask_px_l09_eob",
     ]
-    
-    BAND_UPPER_BOUNDS = {
-        "p3_5": 5.0,
-        "p5_10": 10.0,
-    }
 
     def __init__(self) -> None:
         super().__init__(
@@ -87,9 +101,9 @@ class GoldFilterBandRange(Stage):
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         if len(df) == 0:
             return df.copy()
-        
-        cols_to_drop = [col for col in self.BAND_FIELDS if col in df.columns]
+
+        cols_to_drop = [col for col in self.COLUMNS_TO_DROP if col in df.columns]
         df_out = df.drop(columns=cols_to_drop)
-        
+
         return df_out
 

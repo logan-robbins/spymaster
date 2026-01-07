@@ -1,33 +1,49 @@
 {
   "selected_indices": [
     17,
-    395,
-    374
+    401,
+    418,
+    359,
+    407
   ],
   "selected_names": [
     "is_extended_forward",
-    "bar5s_setup_obi10_min",
-    "bar5s_lvl_size_at_level_d1_w12"
+    "bar5s_setup_bid_wall_max_z",
+    "rvol_trade_aggbuy_ratio",
+    "bar5s_lvl_bid_size_at_level_eob",
+    "bar5s_setup_size_at_level_end"
   ],
-  "final_accuracy": 0.5882352941176471,
+  "final_accuracy": 0.4597902097902098,
   "history": [
     {
       "step": 1,
       "added_feature": "is_extended_forward",
-      "accuracy": 0.5,
-      "improvement": 0.5
+      "accuracy": 0.4230769230769231,
+      "improvement": 0.4230769230769231
     },
     {
       "step": 2,
-      "added_feature": "bar5s_setup_obi10_min",
-      "accuracy": 0.5588235294117647,
-      "improvement": 0.05882352941176472
+      "added_feature": "bar5s_setup_bid_wall_max_z",
+      "accuracy": 0.43006993006993005,
+      "improvement": 0.006993006993006978
     },
     {
       "step": 3,
-      "added_feature": "bar5s_lvl_size_at_level_d1_w12",
-      "accuracy": 0.5882352941176471,
-      "improvement": 0.02941176470588236
+      "added_feature": "rvol_trade_aggbuy_ratio",
+      "accuracy": 0.4527972027972028,
+      "improvement": 0.022727272727272763
+    },
+    {
+      "step": 4,
+      "added_feature": "bar5s_lvl_bid_size_at_level_eob",
+      "accuracy": 0.45454545454545453,
+      "improvement": 0.0017482517482517168
+    },
+    {
+      "step": 5,
+      "added_feature": "bar5s_setup_size_at_level_end",
+      "accuracy": 0.4597902097902098,
+      "improvement": 0.0052447552447552614
     }
   ]
 }
