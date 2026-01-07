@@ -208,22 +208,22 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 Pattern: `bar5s_<family>_<detail>_<suffix>`
 
 **Families (14 total):**
-| Family | Count | Description |
-|--------|-------|-------------|
-| `shape` | 100 | Order book shape metrics (imbalance, slopes, curvature) |
-| `deriv` | 88 | First/second derivatives of other features |
-| `flow` | 42 | Order flow dynamics (adds, removes, modifications) |
-| `setup` | 38 | Setup-specific features for retrieval |
-| `lvl` | 33 | Level-relative features (distance, velocity) |
-| `depth` | 28 | Book depth metrics per price level |
-| `cumul` | 19 | Cumulative sums (volume, imbalance) |
-| `state` | 12 | Market state (spread, mid, volatility) |
-| `wall` | 8 | Large resting order detection |
-| `meta` | 6 | Message counts (add, cancel, modify) |
-| `trade` | 5 | Trade execution metrics |
-| `ladder` | 4 | Price ladder structure |
-| `microprice` | 1 | Size-weighted microprice |
-| `midprice` | 1 | Mid price snapshot |
+| Family | Description |
+|--------|-------------|
+| `shape` | Order book shape metrics (imbalance, slopes, curvature) |
+| `deriv` | First/second derivatives of other features |
+| `flow` | Order flow dynamics (adds, removes, modifications) |
+| `setup` | Setup-specific features for retrieval |
+| `lvl` | Level-relative features (distance, velocity) |
+| `depth` | Book depth metrics per price level |
+| `cumul` | Cumulative sums (volume, imbalance) |
+| `state` | Market state (spread, mid, volatility) |
+| `wall` | Large resting order detection |
+| `meta` | Message counts (add, cancel, modify) |
+| `trade` | Trade execution metrics |
+| `ladder` | Price ladder structure |
+| `microprice` | Size-weighted microprice |
+| `midprice`| Mid price snapshot |
 
 **Suffixes:**
 - `_eob` — End-of-bar snapshot
@@ -237,15 +237,15 @@ Pattern: `bar5s_<family>_<detail>_<suffix>`
 Pattern: `rvol_<category>_<metric>`
 
 **Categories (7 total):**
-| Category | Count | Description |
+| Category | Description |
 |----------|-------|-------------|
-| `flow` | 10 | Flow ratios and z-scores vs profile |
-| `trade` | 8 | Trade volume ratios/z-scores |
-| `lookback` | 6 | 7-day lookback comparisons |
-| `cumul` | 4 | Cumulative volume deviations |
-| `bid` | 3 | Bid/ask flow asymmetries |
-| `recent` | 2 | Recent vs lookback ratios |
-| `aggbuy` | 1 | Aggressive buy/sell asymmetry |
+| `flow` | Flow ratios and z-scores vs profile |
+| `trade` | Trade volume ratios/z-scores |
+| `lookback`| 7-day lookback comparisons |
+| `cumul` | Cumulative volume deviations |
+| `bid` | Bid/ask flow asymmetries |
+| `recent` | Recent vs lookback ratios |
+| `aggbuy` | Aggressive buy/sell asymmetry |
 
 ### Metadata Fields (not features)
 

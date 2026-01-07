@@ -65,6 +65,12 @@
       "name": "bar5s_meta_clear_cnt_sum",
       "variance": 0.0,
       "action": "REMOVE"
+    },
+    {
+      "index": 366,
+      "name": "bar5s_lvl_wall_at_level",
+      "variance": 0.0,
+      "action": "REMOVE"
     }
   ],
   "low_variance": [],
@@ -72,2623 +78,2617 @@
     {
       "index": 0,
       "name": "bar_ts",
-      "variance": 1.000000000000002,
+      "variance": 0.9999999999999993,
       "action": "KEEP"
     },
     {
       "index": 1,
       "name": "level_price",
-      "variance": 0.9999999999869441,
+      "variance": 0.9999999999854821,
       "action": "KEEP"
     },
     {
       "index": 2,
       "name": "trigger_bar_ts",
-      "variance": 1.000000000000002,
+      "variance": 0.9999999999999993,
       "action": "KEEP"
     },
     {
       "index": 11,
       "name": "approach_direction",
-      "variance": 0.9999999979993388,
+      "variance": 0.9999999979993953,
       "action": "KEEP"
     },
     {
       "index": 12,
       "name": "is_standard_approach",
-      "variance": 0.9999999959901551,
+      "variance": 0.9999999959966537,
       "action": "KEEP"
     },
     {
       "index": 13,
       "name": "dist_to_level_pts",
-      "variance": 0.9999999971362503,
+      "variance": 0.9999999971354913,
       "action": "KEEP"
     },
     {
       "index": 14,
       "name": "signed_dist_pts",
-      "variance": 0.9999999955682874,
+      "variance": 0.9999999955600889,
       "action": "KEEP"
     },
     {
       "index": 17,
       "name": "is_extended_forward",
-      "variance": 0.9999999956942904,
+      "variance": 0.9999999956965444,
       "action": "KEEP"
     },
     {
       "index": 18,
       "name": "extension_count",
-      "variance": 0.9999999978143637,
+      "variance": 0.9999999974790625,
       "action": "KEEP"
     },
     {
       "index": 19,
       "name": "bar5s_microprice_eob",
-      "variance": 0.9999999999869497,
+      "variance": 0.9999999999854805,
       "action": "KEEP"
     },
     {
       "index": 20,
       "name": "bar5s_midprice_eob",
-      "variance": 0.9999999999869396,
+      "variance": 0.9999999999854783,
       "action": "KEEP"
     },
     {
       "index": 21,
       "name": "bar5s_meta_msg_cnt_sum",
-      "variance": 0.9724217228731137,
+      "variance": 0.9665065584322089,
       "action": "KEEP"
     },
     {
       "index": 23,
       "name": "bar5s_meta_add_cnt_sum",
-      "variance": 0.9694524852905521,
+      "variance": 0.9629567534885699,
       "action": "KEEP"
     },
     {
       "index": 24,
       "name": "bar5s_meta_cancel_cnt_sum",
-      "variance": 0.9919433589270491,
+      "variance": 0.98963323844649,
       "action": "KEEP"
     },
     {
       "index": 25,
       "name": "bar5s_meta_modify_cnt_sum",
-      "variance": 0.9797507041219616,
+      "variance": 0.9750633287371834,
       "action": "KEEP"
     },
     {
       "index": 26,
       "name": "bar5s_meta_trade_cnt_sum",
-      "variance": 0.8575781482468617,
+      "variance": 0.8611215764743557,
       "action": "KEEP"
     },
     {
       "index": 27,
       "name": "bar5s_state_spread_pts_twa",
-      "variance": 0.31304052571257285,
+      "variance": 0.18208813580706645,
       "action": "KEEP"
     },
     {
       "index": 28,
       "name": "bar5s_state_spread_pts_eob",
-      "variance": 0.46962420490222584,
+      "variance": 0.3043235410533469,
       "action": "KEEP"
     },
     {
       "index": 29,
       "name": "bar5s_state_obi0_twa",
-      "variance": 0.9999999859558253,
+      "variance": 0.9999999855815751,
       "action": "KEEP"
     },
     {
       "index": 30,
       "name": "bar5s_state_obi0_eob",
-      "variance": 0.999999994718583,
+      "variance": 0.9999999946952488,
       "action": "KEEP"
     },
     {
       "index": 31,
       "name": "bar5s_state_obi10_twa",
-      "variance": 0.9999999797211884,
+      "variance": 0.9999999804829446,
       "action": "KEEP"
     },
     {
       "index": 32,
       "name": "bar5s_state_obi10_eob",
-      "variance": 0.9999999818183737,
+      "variance": 0.9999999826007141,
       "action": "KEEP"
     },
     {
       "index": 33,
       "name": "bar5s_state_cdi_p0_1_twa",
-      "variance": 0.9999999799592838,
+      "variance": 0.9999999805504117,
       "action": "KEEP"
     },
     {
       "index": 34,
       "name": "bar5s_state_cdi_p0_1_eob",
-      "variance": 0.9999999852443385,
+      "variance": 0.9999999853014303,
       "action": "KEEP"
     },
     {
       "index": 35,
       "name": "bar5s_state_cdi_p1_2_twa",
-      "variance": 0.9999999839545906,
+      "variance": 0.9999999842598803,
       "action": "KEEP"
     },
     {
       "index": 36,
       "name": "bar5s_state_cdi_p1_2_eob",
-      "variance": 0.9999999861769828,
+      "variance": 0.9999999863842319,
       "action": "KEEP"
     },
     {
       "index": 37,
       "name": "bar5s_state_cdi_p2_3_twa",
-      "variance": 0.9999999853472819,
+      "variance": 0.9999999859646743,
       "action": "KEEP"
     },
     {
       "index": 38,
       "name": "bar5s_state_cdi_p2_3_eob",
-      "variance": 0.9999999885556067,
+      "variance": 0.999999988931572,
       "action": "KEEP"
     },
     {
       "index": 39,
       "name": "bar5s_depth_bid10_qty_twa",
-      "variance": 0.9999999999931405,
+      "variance": 0.9999999999929454,
       "action": "KEEP"
     },
     {
       "index": 40,
       "name": "bar5s_depth_bid10_qty_eob",
-      "variance": 0.99999999999319,
+      "variance": 0.9999999999930216,
       "action": "KEEP"
     },
     {
       "index": 41,
       "name": "bar5s_depth_ask10_qty_twa",
-      "variance": 0.9999999999936692,
+      "variance": 0.99999999999342,
       "action": "KEEP"
     },
     {
       "index": 42,
       "name": "bar5s_depth_ask10_qty_eob",
-      "variance": 0.9999999999936978,
+      "variance": 0.9999999999934541,
       "action": "KEEP"
     },
     {
       "index": 43,
       "name": "bar5s_depth_below_p0_1_qty_twa",
-      "variance": 0.9999999999810107,
+      "variance": 0.9999999999805621,
       "action": "KEEP"
     },
     {
       "index": 44,
       "name": "bar5s_depth_below_p0_1_qty_eob",
-      "variance": 0.9999999999817378,
+      "variance": 0.999999999981453,
       "action": "KEEP"
     },
     {
       "index": 45,
       "name": "bar5s_depth_below_p1_2_qty_twa",
-      "variance": 0.999999999984411,
+      "variance": 0.9999999999841415,
       "action": "KEEP"
     },
     {
       "index": 46,
       "name": "bar5s_depth_below_p1_2_qty_eob",
-      "variance": 0.9999999999845693,
+      "variance": 0.9999999999844226,
       "action": "KEEP"
     },
     {
       "index": 47,
       "name": "bar5s_depth_below_p2_3_qty_twa",
-      "variance": 0.9999999999696537,
+      "variance": 0.9999999999685673,
       "action": "KEEP"
     },
     {
       "index": 48,
       "name": "bar5s_depth_below_p2_3_qty_eob",
-      "variance": 0.9999999999703388,
+      "variance": 0.9999999999689934,
       "action": "KEEP"
     },
     {
       "index": 49,
       "name": "bar5s_depth_above_p0_1_qty_twa",
-      "variance": 0.9999999999822703,
+      "variance": 0.9999999999818577,
       "action": "KEEP"
     },
     {
       "index": 50,
       "name": "bar5s_depth_above_p0_1_qty_eob",
-      "variance": 0.9999999999827148,
+      "variance": 0.9999999999820315,
       "action": "KEEP"
     },
     {
       "index": 51,
       "name": "bar5s_depth_above_p1_2_qty_twa",
-      "variance": 0.9999999999860076,
+      "variance": 0.9999999999852113,
       "action": "KEEP"
     },
     {
       "index": 52,
       "name": "bar5s_depth_above_p1_2_qty_eob",
-      "variance": 0.9999999999864421,
+      "variance": 0.9999999999859238,
       "action": "KEEP"
     },
     {
       "index": 53,
       "name": "bar5s_depth_above_p2_3_qty_twa",
-      "variance": 0.9695004999770253,
+      "variance": 0.9650102490233866,
       "action": "KEEP"
     },
     {
       "index": 54,
       "name": "bar5s_depth_above_p2_3_qty_eob",
-      "variance": 0.9924280390025365,
+      "variance": 0.9971113613443221,
       "action": "KEEP"
     },
     {
       "index": 55,
       "name": "bar5s_depth_below_p0_1_frac_twa",
-      "variance": 0.9999999571905759,
+      "variance": 0.9999999554826055,
       "action": "KEEP"
     },
     {
       "index": 56,
       "name": "bar5s_depth_below_p0_1_frac_eob",
-      "variance": 0.9999999638905921,
+      "variance": 0.9999999635760433,
       "action": "KEEP"
     },
     {
       "index": 57,
       "name": "bar5s_depth_below_p1_2_frac_twa",
-      "variance": 0.9999170116260653,
+      "variance": 0.993820163099687,
       "action": "KEEP"
     },
     {
       "index": 58,
       "name": "bar5s_depth_below_p1_2_frac_eob",
-      "variance": 0.9999999593225036,
+      "variance": 0.9999999596811727,
       "action": "KEEP"
     },
     {
       "index": 59,
       "name": "bar5s_depth_below_p2_3_frac_twa",
-      "variance": 0.999999953584332,
+      "variance": 0.9999999524418332,
       "action": "KEEP"
     },
     {
       "index": 60,
       "name": "bar5s_depth_below_p2_3_frac_eob",
-      "variance": 0.9999999610661042,
+      "variance": 0.9999999611535385,
       "action": "KEEP"
     },
     {
       "index": 61,
       "name": "bar5s_depth_above_p0_1_frac_twa",
-      "variance": 0.9999999625640554,
+      "variance": 0.999999962380188,
       "action": "KEEP"
     },
     {
       "index": 62,
       "name": "bar5s_depth_above_p0_1_frac_eob",
-      "variance": 0.9999999682283125,
+      "variance": 0.9999999683260857,
       "action": "KEEP"
     },
     {
       "index": 63,
       "name": "bar5s_depth_above_p1_2_frac_twa",
-      "variance": 0.9999999597458349,
+      "variance": 0.9999999574867332,
       "action": "KEEP"
     },
     {
       "index": 64,
       "name": "bar5s_depth_above_p1_2_frac_eob",
-      "variance": 0.9999999661716551,
+      "variance": 0.9999999658404111,
       "action": "KEEP"
     },
     {
       "index": 65,
       "name": "bar5s_depth_above_p2_3_frac_twa",
-      "variance": 0.9999999605084848,
+      "variance": 0.999999960616322,
       "action": "KEEP"
     },
     {
       "index": 66,
       "name": "bar5s_depth_above_p2_3_frac_eob",
-      "variance": 0.9999999678178969,
+      "variance": 0.9999999679650431,
       "action": "KEEP"
     },
     {
       "index": 67,
       "name": "bar5s_ladder_ask_gap_max_pts_eob",
-      "variance": 0.2390682506510947,
+      "variance": 0.09120670091485177,
       "action": "KEEP"
     },
     {
       "index": 68,
       "name": "bar5s_ladder_ask_gap_mean_pts_eob",
-      "variance": 0.20419525834717575,
+      "variance": 0.07143396925681832,
       "action": "KEEP"
     },
     {
       "index": 69,
       "name": "bar5s_ladder_bid_gap_max_pts_eob",
-      "variance": 0.0881851499422225,
+      "variance": 0.41817285197457515,
       "action": "KEEP"
     },
     {
       "index": 70,
       "name": "bar5s_ladder_bid_gap_mean_pts_eob",
-      "variance": 0.06744079162545602,
+      "variance": 0.2922116311498389,
       "action": "KEEP"
     },
     {
       "index": 71,
       "name": "bar5s_shape_bid_px_l00_eob",
-      "variance": 0.9999999999869488,
+      "variance": 0.9999999999854832,
       "action": "KEEP"
     },
     {
       "index": 72,
       "name": "bar5s_shape_bid_px_l01_eob",
-      "variance": 0.9999999999869469,
+      "variance": 0.9999999999854832,
       "action": "KEEP"
     },
     {
       "index": 73,
       "name": "bar5s_shape_bid_px_l02_eob",
-      "variance": 0.9999999999869497,
+      "variance": 0.9999999999854817,
       "action": "KEEP"
     },
     {
       "index": 74,
       "name": "bar5s_shape_bid_px_l03_eob",
-      "variance": 0.9999999999869509,
+      "variance": 0.999999999985481,
       "action": "KEEP"
     },
     {
       "index": 75,
       "name": "bar5s_shape_bid_px_l04_eob",
-      "variance": 0.9999999999869463,
+      "variance": 0.9999999999854868,
       "action": "KEEP"
     },
     {
       "index": 76,
       "name": "bar5s_shape_bid_px_l05_eob",
-      "variance": 0.9999999999869543,
+      "variance": 0.9999999999854868,
       "action": "KEEP"
     },
     {
       "index": 77,
       "name": "bar5s_shape_bid_px_l06_eob",
-      "variance": 0.9999999999869505,
+      "variance": 0.9999999999854868,
       "action": "KEEP"
     },
     {
       "index": 78,
       "name": "bar5s_shape_bid_px_l07_eob",
-      "variance": 0.9999999999869443,
+      "variance": 0.9999999999854806,
       "action": "KEEP"
     },
     {
       "index": 79,
       "name": "bar5s_shape_bid_px_l08_eob",
-      "variance": 0.9999999999869496,
+      "variance": 0.9999999999854854,
       "action": "KEEP"
     },
     {
       "index": 80,
       "name": "bar5s_shape_bid_px_l09_eob",
-      "variance": 0.9999999999869466,
+      "variance": 0.9999999999854854,
       "action": "KEEP"
     },
     {
       "index": 81,
       "name": "bar5s_shape_ask_px_l00_eob",
-      "variance": 0.9999999999869496,
+      "variance": 0.9999999999854808,
       "action": "KEEP"
     },
     {
       "index": 82,
       "name": "bar5s_shape_ask_px_l01_eob",
-      "variance": 0.9999999999869557,
+      "variance": 0.9999999999854835,
       "action": "KEEP"
     },
     {
       "index": 83,
       "name": "bar5s_shape_ask_px_l02_eob",
-      "variance": 0.9999999999869456,
+      "variance": 0.9999999999854774,
       "action": "KEEP"
     },
     {
       "index": 84,
       "name": "bar5s_shape_ask_px_l03_eob",
-      "variance": 0.9999999999869454,
+      "variance": 0.9999999999854821,
       "action": "KEEP"
     },
     {
       "index": 85,
       "name": "bar5s_shape_ask_px_l04_eob",
-      "variance": 0.9999999999869382,
+      "variance": 0.9999999999854821,
       "action": "KEEP"
     },
     {
       "index": 86,
       "name": "bar5s_shape_ask_px_l05_eob",
-      "variance": 0.9999999999869497,
+      "variance": 0.9999999999854791,
       "action": "KEEP"
     },
     {
       "index": 87,
       "name": "bar5s_shape_ask_px_l06_eob",
-      "variance": 0.9999999999869454,
+      "variance": 0.9999999999854808,
       "action": "KEEP"
     },
     {
       "index": 88,
       "name": "bar5s_shape_ask_px_l07_eob",
-      "variance": 0.9999999999869466,
+      "variance": 0.9999999999854772,
       "action": "KEEP"
     },
     {
       "index": 89,
       "name": "bar5s_shape_ask_px_l08_eob",
-      "variance": 0.9999999999869484,
+      "variance": 0.9999999999854835,
       "action": "KEEP"
     },
     {
       "index": 90,
       "name": "bar5s_shape_ask_px_l09_eob",
-      "variance": 0.9999999999869429,
+      "variance": 0.9999999999854774,
       "action": "KEEP"
     },
     {
       "index": 91,
       "name": "bar5s_shape_bid_sz_l00_eob",
-      "variance": 0.998322855974965,
+      "variance": 0.9968985791604912,
       "action": "KEEP"
     },
     {
       "index": 92,
       "name": "bar5s_shape_bid_sz_l01_eob",
-      "variance": 0.9999999999324597,
+      "variance": 0.999999999931076,
       "action": "KEEP"
     },
     {
       "index": 93,
       "name": "bar5s_shape_bid_sz_l02_eob",
-      "variance": 0.9419712180169982,
+      "variance": 0.9177881784849212,
       "action": "KEEP"
     },
     {
       "index": 94,
       "name": "bar5s_shape_bid_sz_l03_eob",
-      "variance": 0.8615213344090833,
+      "variance": 0.8186854734348374,
       "action": "KEEP"
     },
     {
       "index": 95,
       "name": "bar5s_shape_bid_sz_l04_eob",
-      "variance": 0.9635671439702658,
+      "variance": 0.958568983114308,
       "action": "KEEP"
     },
     {
       "index": 96,
       "name": "bar5s_shape_bid_sz_l05_eob",
-      "variance": 0.9999999999419471,
+      "variance": 0.9999999999425887,
       "action": "KEEP"
     },
     {
       "index": 97,
       "name": "bar5s_shape_bid_sz_l06_eob",
-      "variance": 0.9520495731126998,
+      "variance": 0.9413429162602609,
       "action": "KEEP"
     },
     {
       "index": 98,
       "name": "bar5s_shape_bid_sz_l07_eob",
-      "variance": 0.9569835462335368,
+      "variance": 0.9399083327011309,
       "action": "KEEP"
     },
     {
       "index": 99,
       "name": "bar5s_shape_bid_sz_l08_eob",
-      "variance": 0.9912009199938415,
+      "variance": 0.9999999999437044,
       "action": "KEEP"
     },
     {
       "index": 100,
       "name": "bar5s_shape_bid_sz_l09_eob",
-      "variance": 0.9999999999434582,
+      "variance": 0.9999999999416358,
       "action": "KEEP"
     },
     {
       "index": 101,
       "name": "bar5s_shape_ask_sz_l00_eob",
-      "variance": 0.9999999999147051,
+      "variance": 0.9999999999126454,
       "action": "KEEP"
     },
     {
       "index": 102,
       "name": "bar5s_shape_ask_sz_l01_eob",
-      "variance": 0.93646553950538,
+      "variance": 0.9186077152667189,
       "action": "KEEP"
     },
     {
       "index": 103,
       "name": "bar5s_shape_ask_sz_l02_eob",
-      "variance": 0.9221397912556019,
+      "variance": 0.9064529057644821,
       "action": "KEEP"
     },
     {
       "index": 104,
       "name": "bar5s_shape_ask_sz_l03_eob",
-      "variance": 0.9082086133794676,
+      "variance": 0.9999999999405137,
       "action": "KEEP"
     },
     {
       "index": 105,
       "name": "bar5s_shape_ask_sz_l04_eob",
-      "variance": 0.8020602832391458,
+      "variance": 0.7618374096370292,
       "action": "KEEP"
     },
     {
       "index": 106,
       "name": "bar5s_shape_ask_sz_l05_eob",
-      "variance": 0.9122939259989477,
+      "variance": 0.9712646198225393,
       "action": "KEEP"
     },
     {
       "index": 107,
       "name": "bar5s_shape_ask_sz_l06_eob",
-      "variance": 0.9065542360935791,
+      "variance": 0.9128149253779749,
       "action": "KEEP"
     },
     {
       "index": 108,
       "name": "bar5s_shape_ask_sz_l07_eob",
-      "variance": 0.7928723930938444,
+      "variance": 0.730033433381895,
       "action": "KEEP"
     },
     {
       "index": 109,
       "name": "bar5s_shape_ask_sz_l08_eob",
-      "variance": 0.8472354072070392,
+      "variance": 0.8425244719802574,
       "action": "KEEP"
     },
     {
       "index": 110,
       "name": "bar5s_shape_ask_sz_l09_eob",
-      "variance": 0.8491414622913077,
+      "variance": 0.8048247427423754,
       "action": "KEEP"
     },
     {
       "index": 111,
       "name": "bar5s_shape_bid_ct_l00_eob",
-      "variance": 0.9999999998518333,
+      "variance": 0.9999999998511906,
       "action": "KEEP"
     },
     {
       "index": 112,
       "name": "bar5s_shape_bid_ct_l01_eob",
-      "variance": 0.9999999998756725,
+      "variance": 0.9999999998706938,
       "action": "KEEP"
     },
     {
       "index": 113,
       "name": "bar5s_shape_bid_ct_l02_eob",
-      "variance": 0.9999999998811991,
+      "variance": 0.999999999875986,
       "action": "KEEP"
     },
     {
       "index": 114,
       "name": "bar5s_shape_bid_ct_l03_eob",
-      "variance": 0.9999999998838729,
+      "variance": 0.9999999998794051,
       "action": "KEEP"
     },
     {
       "index": 115,
       "name": "bar5s_shape_bid_ct_l04_eob",
-      "variance": 0.9999999998894904,
+      "variance": 0.9999999998847573,
       "action": "KEEP"
     },
     {
       "index": 116,
       "name": "bar5s_shape_bid_ct_l05_eob",
-      "variance": 0.9999999998925785,
+      "variance": 0.9999999998886905,
       "action": "KEEP"
     },
     {
       "index": 117,
       "name": "bar5s_shape_bid_ct_l06_eob",
-      "variance": 0.9999999998959498,
+      "variance": 0.9999999998914221,
       "action": "KEEP"
     },
     {
       "index": 118,
       "name": "bar5s_shape_bid_ct_l07_eob",
-      "variance": 0.999999999898414,
+      "variance": 0.9999999998933926,
       "action": "KEEP"
     },
     {
       "index": 119,
       "name": "bar5s_shape_bid_ct_l08_eob",
-      "variance": 0.9999999998996902,
+      "variance": 0.9999999998945615,
       "action": "KEEP"
     },
     {
       "index": 120,
       "name": "bar5s_shape_bid_ct_l09_eob",
-      "variance": 0.9999999998996717,
+      "variance": 0.9999999998942671,
       "action": "KEEP"
     },
     {
       "index": 121,
       "name": "bar5s_shape_ask_ct_l00_eob",
-      "variance": 0.999999999854667,
+      "variance": 0.9999999998486927,
       "action": "KEEP"
     },
     {
       "index": 122,
       "name": "bar5s_shape_ask_ct_l01_eob",
-      "variance": 0.999999999881082,
+      "variance": 0.9999999998758812,
       "action": "KEEP"
     },
     {
       "index": 123,
       "name": "bar5s_shape_ask_ct_l02_eob",
-      "variance": 0.9999999998875928,
+      "variance": 0.9999999998816594,
       "action": "KEEP"
     },
     {
       "index": 124,
       "name": "bar5s_shape_ask_ct_l03_eob",
-      "variance": 0.9999999998928154,
+      "variance": 0.9999999998879956,
       "action": "KEEP"
     },
     {
       "index": 125,
       "name": "bar5s_shape_ask_ct_l04_eob",
-      "variance": 0.9999999998962482,
+      "variance": 0.9999999998910337,
       "action": "KEEP"
     },
     {
       "index": 126,
       "name": "bar5s_shape_ask_ct_l05_eob",
-      "variance": 0.9999999998991012,
+      "variance": 0.9999999998939055,
       "action": "KEEP"
     },
     {
       "index": 127,
       "name": "bar5s_shape_ask_ct_l06_eob",
-      "variance": 0.9999999999021847,
+      "variance": 0.9999999998975873,
       "action": "KEEP"
     },
     {
       "index": 128,
       "name": "bar5s_shape_ask_ct_l07_eob",
-      "variance": 0.9999999999034432,
+      "variance": 0.9999999998981065,
       "action": "KEEP"
     },
     {
       "index": 129,
       "name": "bar5s_shape_ask_ct_l08_eob",
-      "variance": 0.9999999999041672,
+      "variance": 0.9999999998979134,
       "action": "KEEP"
     },
     {
       "index": 130,
       "name": "bar5s_shape_ask_ct_l09_eob",
-      "variance": 0.9999999999035354,
+      "variance": 0.9999999998984516,
       "action": "KEEP"
     },
     {
       "index": 131,
       "name": "bar5s_shape_bid_sz_frac_l00_eob",
-      "variance": 0.9999999277259238,
+      "variance": 0.9999999244867813,
       "action": "KEEP"
     },
     {
       "index": 132,
       "name": "bar5s_shape_bid_sz_frac_l01_eob",
-      "variance": 0.9999999170998933,
+      "variance": 0.9999999171090695,
       "action": "KEEP"
     },
     {
       "index": 133,
       "name": "bar5s_shape_bid_sz_frac_l02_eob",
-      "variance": 0.9631038271897975,
+      "variance": 0.9492532019226162,
       "action": "KEEP"
     },
     {
       "index": 134,
       "name": "bar5s_shape_bid_sz_frac_l03_eob",
-      "variance": 0.9320522320950768,
+      "variance": 0.9009729897820561,
       "action": "KEEP"
     },
     {
       "index": 135,
       "name": "bar5s_shape_bid_sz_frac_l04_eob",
-      "variance": 0.8365788305547772,
+      "variance": 0.7902961273628251,
       "action": "KEEP"
     },
     {
       "index": 136,
       "name": "bar5s_shape_bid_sz_frac_l05_eob",
-      "variance": 0.9336985194205347,
+      "variance": 0.9196807789166741,
       "action": "KEEP"
     },
     {
       "index": 137,
       "name": "bar5s_shape_bid_sz_frac_l06_eob",
-      "variance": 0.9548146740787213,
+      "variance": 0.9527114979045679,
       "action": "KEEP"
     },
     {
       "index": 138,
       "name": "bar5s_shape_bid_sz_frac_l07_eob",
-      "variance": 0.8885498200899192,
+      "variance": 0.8425158127630061,
       "action": "KEEP"
     },
     {
       "index": 139,
       "name": "bar5s_shape_bid_sz_frac_l08_eob",
-      "variance": 0.9886101232845595,
+      "variance": 0.9999999385957047,
       "action": "KEEP"
     },
     {
       "index": 140,
       "name": "bar5s_shape_bid_sz_frac_l09_eob",
-      "variance": 0.9999999424980746,
+      "variance": 0.9999999455154164,
       "action": "KEEP"
     },
     {
       "index": 141,
       "name": "bar5s_shape_ask_sz_frac_l00_eob",
-      "variance": 0.9999999338338158,
+      "variance": 0.9999999340854037,
       "action": "KEEP"
     },
     {
       "index": 142,
       "name": "bar5s_shape_ask_sz_frac_l01_eob",
-      "variance": 0.9467273342553103,
+      "variance": 0.9464930401877899,
       "action": "KEEP"
     },
     {
       "index": 143,
       "name": "bar5s_shape_ask_sz_frac_l02_eob",
-      "variance": 0.8672577784513249,
+      "variance": 0.8547887625433891,
       "action": "KEEP"
     },
     {
       "index": 144,
       "name": "bar5s_shape_ask_sz_frac_l03_eob",
-      "variance": 0.9637367813909855,
+      "variance": 0.9748544033516853,
       "action": "KEEP"
     },
     {
       "index": 145,
       "name": "bar5s_shape_ask_sz_frac_l04_eob",
-      "variance": 0.9004080269422786,
+      "variance": 0.8964308610245862,
       "action": "KEEP"
     },
     {
       "index": 146,
       "name": "bar5s_shape_ask_sz_frac_l05_eob",
-      "variance": 0.8588584784381478,
+      "variance": 0.9981638102495605,
       "action": "KEEP"
     },
     {
       "index": 147,
       "name": "bar5s_shape_ask_sz_frac_l06_eob",
-      "variance": 0.8938068052091196,
+      "variance": 0.957108902563616,
       "action": "KEEP"
     },
     {
       "index": 148,
       "name": "bar5s_shape_ask_sz_frac_l07_eob",
-      "variance": 0.910252921238563,
+      "variance": 0.892526064113209,
       "action": "KEEP"
     },
     {
       "index": 149,
       "name": "bar5s_shape_ask_sz_frac_l08_eob",
-      "variance": 0.9729812649573121,
+      "variance": 0.9887609197413868,
       "action": "KEEP"
     },
     {
       "index": 150,
       "name": "bar5s_shape_ask_sz_frac_l09_eob",
-      "variance": 0.9652449276720944,
+      "variance": 0.9639696959734353,
       "action": "KEEP"
     },
     {
       "index": 151,
       "name": "bar5s_shape_bid_ct_frac_l00_eob",
-      "variance": 0.9999999217592808,
+      "variance": 0.9999999173401629,
       "action": "KEEP"
     },
     {
       "index": 152,
       "name": "bar5s_shape_bid_ct_frac_l01_eob",
-      "variance": 0.9999998954487779,
+      "variance": 0.9999998939420951,
       "action": "KEEP"
     },
     {
       "index": 153,
       "name": "bar5s_shape_bid_ct_frac_l02_eob",
-      "variance": 0.9999998819134867,
+      "variance": 0.999999873326233,
       "action": "KEEP"
     },
     {
       "index": 154,
       "name": "bar5s_shape_bid_ct_frac_l03_eob",
-      "variance": 0.9999998823491759,
+      "variance": 0.9999998749891327,
       "action": "KEEP"
     },
     {
       "index": 155,
       "name": "bar5s_shape_bid_ct_frac_l04_eob",
-      "variance": 0.9999998766546718,
+      "variance": 0.9999998699951184,
       "action": "KEEP"
     },
     {
       "index": 156,
       "name": "bar5s_shape_bid_ct_frac_l05_eob",
-      "variance": 0.9999998731956928,
+      "variance": 0.9999998691973389,
       "action": "KEEP"
     },
     {
       "index": 157,
       "name": "bar5s_shape_bid_ct_frac_l06_eob",
-      "variance": 0.9999998775422969,
+      "variance": 0.999999872439312,
       "action": "KEEP"
     },
     {
       "index": 158,
       "name": "bar5s_shape_bid_ct_frac_l07_eob",
-      "variance": 0.9999998808437636,
+      "variance": 0.9999998743086229,
       "action": "KEEP"
     },
     {
       "index": 159,
       "name": "bar5s_shape_bid_ct_frac_l08_eob",
-      "variance": 0.999999893887981,
+      "variance": 0.9999998891502909,
       "action": "KEEP"
     },
     {
       "index": 160,
       "name": "bar5s_shape_bid_ct_frac_l09_eob",
-      "variance": 0.9999998999200671,
+      "variance": 0.9999999004923724,
       "action": "KEEP"
     },
     {
       "index": 161,
       "name": "bar5s_shape_ask_ct_frac_l00_eob",
-      "variance": 0.999999924004111,
+      "variance": 0.9999999192534296,
       "action": "KEEP"
     },
     {
       "index": 162,
       "name": "bar5s_shape_ask_ct_frac_l01_eob",
-      "variance": 0.9999999073924439,
+      "variance": 0.9999999058259772,
       "action": "KEEP"
     },
     {
       "index": 163,
       "name": "bar5s_shape_ask_ct_frac_l02_eob",
-      "variance": 0.9999998911179467,
+      "variance": 0.9999998842815963,
       "action": "KEEP"
     },
     {
       "index": 164,
       "name": "bar5s_shape_ask_ct_frac_l03_eob",
-      "variance": 0.9751997495894009,
+      "variance": 0.9631669713367724,
       "action": "KEEP"
     },
     {
       "index": 165,
       "name": "bar5s_shape_ask_ct_frac_l04_eob",
-      "variance": 0.9999998802592999,
+      "variance": 0.9999998773239505,
       "action": "KEEP"
     },
     {
       "index": 166,
       "name": "bar5s_shape_ask_ct_frac_l05_eob",
-      "variance": 0.999999878520634,
+      "variance": 0.9999998739165915,
       "action": "KEEP"
     },
     {
       "index": 167,
       "name": "bar5s_shape_ask_ct_frac_l06_eob",
-      "variance": 0.9529953138206128,
+      "variance": 0.9999998821714532,
       "action": "KEEP"
     },
     {
       "index": 168,
       "name": "bar5s_shape_ask_ct_frac_l07_eob",
-      "variance": 0.999999893290403,
+      "variance": 0.9999998884939167,
       "action": "KEEP"
     },
     {
       "index": 169,
       "name": "bar5s_shape_ask_ct_frac_l08_eob",
-      "variance": 0.9999999038212383,
+      "variance": 0.9999999044210732,
       "action": "KEEP"
     },
     {
       "index": 170,
       "name": "bar5s_shape_ask_ct_frac_l09_eob",
-      "variance": 0.9999999107751275,
+      "variance": 0.9999999080773826,
       "action": "KEEP"
     },
     {
       "index": 171,
       "name": "bar5s_flow_add_vol_bid_p0_1_sum",
-      "variance": 0.9434868380646153,
+      "variance": 0.9260306262907415,
       "action": "KEEP"
     },
     {
       "index": 172,
       "name": "bar5s_flow_add_vol_bid_p1_2_sum",
-      "variance": 0.963130413216964,
+      "variance": 0.9722357828072433,
       "action": "KEEP"
     },
     {
       "index": 173,
       "name": "bar5s_flow_add_vol_bid_p2_3_sum",
-      "variance": 0.7783633692567381,
+      "variance": 0.7880837305654026,
       "action": "KEEP"
     },
     {
       "index": 174,
       "name": "bar5s_flow_add_vol_ask_p0_1_sum",
-      "variance": 0.9784494804646455,
+      "variance": 0.9726156562501156,
       "action": "KEEP"
     },
     {
       "index": 175,
       "name": "bar5s_flow_add_vol_ask_p1_2_sum",
-      "variance": 0.9700077138840842,
+      "variance": 0.9796649559100298,
       "action": "KEEP"
     },
     {
       "index": 176,
       "name": "bar5s_flow_add_vol_ask_p2_3_sum",
-      "variance": 0.9303803605936973,
+      "variance": 0.9699882314365308,
       "action": "KEEP"
     },
     {
       "index": 177,
       "name": "bar5s_flow_rem_vol_bid_p0_1_sum",
-      "variance": 0.9644565118754344,
+      "variance": 0.9529620462465662,
       "action": "KEEP"
     },
     {
       "index": 178,
       "name": "bar5s_flow_rem_vol_bid_p1_2_sum",
-      "variance": 0.857789164583932,
+      "variance": 0.8480290666341438,
       "action": "KEEP"
     },
     {
       "index": 179,
       "name": "bar5s_flow_rem_vol_bid_p2_3_sum",
-      "variance": 0.9051004819177969,
+      "variance": 0.9258812001777386,
       "action": "KEEP"
     },
     {
       "index": 180,
       "name": "bar5s_flow_rem_vol_ask_p0_1_sum",
-      "variance": 0.9623626006817104,
+      "variance": 0.9480429841684449,
       "action": "KEEP"
     },
     {
       "index": 181,
       "name": "bar5s_flow_rem_vol_ask_p1_2_sum",
-      "variance": 0.8486362096151832,
+      "variance": 0.912135088332768,
       "action": "KEEP"
     },
     {
       "index": 182,
       "name": "bar5s_flow_rem_vol_ask_p2_3_sum",
-      "variance": 0.9567842491148786,
+      "variance": 0.9617943441732162,
       "action": "KEEP"
     },
     {
       "index": 183,
       "name": "bar5s_flow_net_vol_bid_p0_1_sum",
-      "variance": 0.9999999999886662,
+      "variance": 0.9999999999883662,
       "action": "KEEP"
     },
     {
       "index": 184,
       "name": "bar5s_flow_net_vol_bid_p1_2_sum",
-      "variance": 0.9203661078266772,
+      "variance": 0.9327804516108561,
       "action": "KEEP"
     },
     {
       "index": 185,
       "name": "bar5s_flow_net_vol_bid_p2_3_sum",
-      "variance": 0.7870566751253575,
+      "variance": 0.7925840532915727,
       "action": "KEEP"
     },
     {
       "index": 186,
       "name": "bar5s_flow_net_vol_ask_p0_1_sum",
-      "variance": 0.9999999999889713,
+      "variance": 0.999999999988774,
       "action": "KEEP"
     },
     {
       "index": 187,
       "name": "bar5s_flow_net_vol_ask_p1_2_sum",
-      "variance": 0.8750505150876474,
+      "variance": 0.9291320239731148,
       "action": "KEEP"
     },
     {
       "index": 188,
       "name": "bar5s_flow_net_vol_ask_p2_3_sum",
-      "variance": 0.9626595604416007,
+      "variance": 0.9826050818019317,
       "action": "KEEP"
     },
     {
       "index": 189,
       "name": "bar5s_flow_cnt_add_bid_p0_1_sum",
-      "variance": 0.9691621875943622,
+      "variance": 0.9619905527537269,
       "action": "KEEP"
     },
     {
       "index": 190,
       "name": "bar5s_flow_cnt_add_bid_p1_2_sum",
-      "variance": 0.9165281780437043,
+      "variance": 0.9335774064062643,
       "action": "KEEP"
     },
     {
       "index": 191,
       "name": "bar5s_flow_cnt_add_bid_p2_3_sum",
-      "variance": 0.8051464483837227,
+      "variance": 0.8376888134554829,
       "action": "KEEP"
     },
     {
       "index": 192,
       "name": "bar5s_flow_cnt_add_ask_p0_1_sum",
-      "variance": 0.9716078483593642,
+      "variance": 0.9667912021831151,
       "action": "KEEP"
     },
     {
       "index": 193,
       "name": "bar5s_flow_cnt_add_ask_p1_2_sum",
-      "variance": 0.8955254963309606,
+      "variance": 0.9053910841621289,
       "action": "KEEP"
     },
     {
       "index": 194,
       "name": "bar5s_flow_cnt_add_ask_p2_3_sum",
-      "variance": 0.9360161914584546,
+      "variance": 0.9407806118586267,
       "action": "KEEP"
     },
     {
       "index": 195,
       "name": "bar5s_flow_cnt_cancel_bid_p0_1_sum",
-      "variance": 0.989242090457559,
+      "variance": 0.9856825251534682,
       "action": "KEEP"
     },
     {
       "index": 196,
       "name": "bar5s_flow_cnt_cancel_bid_p1_2_sum",
-      "variance": 0.9685558773602275,
+      "variance": 0.9714449766819097,
       "action": "KEEP"
     },
     {
       "index": 197,
       "name": "bar5s_flow_cnt_cancel_bid_p2_3_sum",
-      "variance": 0.9790582700726258,
+      "variance": 0.9911402962296026,
       "action": "KEEP"
     },
     {
       "index": 198,
       "name": "bar5s_flow_cnt_cancel_ask_p0_1_sum",
-      "variance": 0.9962881090524348,
+      "variance": 0.9909027634338782,
       "action": "KEEP"
     },
     {
       "index": 199,
       "name": "bar5s_flow_cnt_cancel_ask_p1_2_sum",
-      "variance": 0.7935683575683289,
+      "variance": 0.7919729770220777,
       "action": "KEEP"
     },
     {
       "index": 200,
       "name": "bar5s_flow_cnt_cancel_ask_p2_3_sum",
-      "variance": 0.9851038775749652,
+      "variance": 0.9929517668846797,
       "action": "KEEP"
     },
     {
       "index": 201,
       "name": "bar5s_flow_cnt_modify_bid_p0_1_sum",
-      "variance": 0.9001775293618063,
+      "variance": 0.8747475023689986,
       "action": "KEEP"
     },
     {
       "index": 202,
       "name": "bar5s_flow_cnt_modify_bid_p1_2_sum",
-      "variance": 0.9969062061456044,
+      "variance": 0.999999999900681,
       "action": "KEEP"
     },
     {
       "index": 203,
       "name": "bar5s_flow_cnt_modify_bid_p2_3_sum",
-      "variance": 0.9653433998347818,
+      "variance": 0.9660451782977735,
       "action": "KEEP"
     },
     {
       "index": 204,
       "name": "bar5s_flow_cnt_modify_ask_p0_1_sum",
-      "variance": 0.9761784585723396,
+      "variance": 0.9674347418600561,
       "action": "KEEP"
     },
     {
       "index": 205,
       "name": "bar5s_flow_cnt_modify_ask_p1_2_sum",
-      "variance": 0.9999999998928973,
+      "variance": 0.9999999999007971,
       "action": "KEEP"
     },
     {
       "index": 206,
       "name": "bar5s_flow_cnt_modify_ask_p2_3_sum",
-      "variance": 0.951876050647653,
+      "variance": 0.9448108442111662,
       "action": "KEEP"
     },
     {
       "index": 207,
       "name": "bar5s_flow_net_volnorm_bid_p0_1_sum",
-      "variance": 0.710256730945319,
+      "variance": 0.7580584552022939,
       "action": "KEEP"
     },
     {
       "index": 208,
       "name": "bar5s_flow_net_volnorm_bid_p1_2_sum",
-      "variance": 0.1342109905804119,
+      "variance": 0.6267678785812361,
       "action": "KEEP"
     },
     {
       "index": 209,
       "name": "bar5s_flow_net_volnorm_bid_p2_3_sum",
-      "variance": 0.12405138477971946,
+      "variance": 0.740327080430474,
       "action": "KEEP"
     },
     {
       "index": 210,
       "name": "bar5s_flow_net_volnorm_ask_p0_1_sum",
-      "variance": 0.7494360052028043,
+      "variance": 0.7438502636276039,
       "action": "KEEP"
     },
     {
       "index": 211,
       "name": "bar5s_flow_net_volnorm_ask_p1_2_sum",
-      "variance": 0.264863043354113,
+      "variance": 0.22880173894467928,
       "action": "KEEP"
     },
     {
       "index": 212,
       "name": "bar5s_flow_net_volnorm_ask_p2_3_sum",
-      "variance": 0.40441057479304154,
+      "variance": 0.3989476524273682,
       "action": "KEEP"
     },
     {
       "index": 213,
       "name": "bar5s_trade_cnt_sum",
-      "variance": 0.8575781482468617,
+      "variance": 0.8611215764743557,
       "action": "KEEP"
     },
     {
       "index": 214,
       "name": "bar5s_trade_vol_sum",
-      "variance": 0.8456197559950189,
+      "variance": 0.8465866469133496,
       "action": "KEEP"
     },
     {
       "index": 215,
       "name": "bar5s_trade_aggbuy_vol_sum",
-      "variance": 0.8013268919173798,
+      "variance": 0.7874873400750863,
       "action": "KEEP"
     },
     {
       "index": 216,
       "name": "bar5s_trade_aggsell_vol_sum",
-      "variance": 0.8973659145637218,
+      "variance": 0.8914762559652694,
       "action": "KEEP"
     },
     {
       "index": 217,
       "name": "bar5s_trade_signed_vol_sum",
-      "variance": 0.8760861944228745,
+      "variance": 0.8633941459960687,
       "action": "KEEP"
     },
     {
       "index": 218,
       "name": "bar5s_wall_bid_maxz_eob",
-      "variance": 0.9999999962289582,
+      "variance": 0.999999996236446,
       "action": "KEEP"
     },
     {
       "index": 219,
       "name": "bar5s_wall_ask_maxz_eob",
-      "variance": 0.9999999962452328,
+      "variance": 0.9999999962457029,
       "action": "KEEP"
     },
     {
       "index": 220,
       "name": "bar5s_wall_bid_maxz_levelidx_eob",
-      "variance": 0.9999999992474333,
+      "variance": 0.9999999992394527,
       "action": "KEEP"
     },
     {
       "index": 221,
       "name": "bar5s_wall_ask_maxz_levelidx_eob",
-      "variance": 0.9999999992471019,
+      "variance": 0.9999999992579013,
       "action": "KEEP"
     },
     {
       "index": 222,
       "name": "bar5s_wall_bid_nearest_strong_dist_pts_eob",
-      "variance": 0.9999999972750013,
+      "variance": 0.9999999972167384,
       "action": "KEEP"
     },
     {
       "index": 223,
       "name": "bar5s_wall_ask_nearest_strong_dist_pts_eob",
-      "variance": 0.8229705222104484,
+      "variance": 0.7571688439120393,
       "action": "KEEP"
     },
     {
       "index": 224,
       "name": "bar5s_wall_bid_nearest_strong_levelidx_eob",
-      "variance": 0.9999999993297864,
+      "variance": 0.9999999993324407,
       "action": "KEEP"
     },
     {
       "index": 225,
       "name": "bar5s_wall_ask_nearest_strong_levelidx_eob",
-      "variance": 0.9999999993364461,
+      "variance": 0.999999999332409,
       "action": "KEEP"
     },
     {
       "index": 226,
       "name": "bar5s_approach_dist_to_level_pts_eob",
-      "variance": 0.9999999971362503,
+      "variance": 0.9999999971354913,
       "action": "KEEP"
     },
     {
       "index": 227,
       "name": "bar5s_approach_dist_to_level_pts_twa",
-      "variance": 0.9999999971527,
+      "variance": 0.9999999971461644,
       "action": "KEEP"
     },
     {
       "index": 228,
       "name": "bar5s_approach_abs_dist_to_level_pts_eob",
-      "variance": 0.9999999931525084,
+      "variance": 0.9999999931237392,
       "action": "KEEP"
     },
     {
       "index": 229,
       "name": "bar5s_approach_side_of_level_eob",
-      "variance": 0.9999999979999767,
+      "variance": 0.9999999979999827,
       "action": "KEEP"
     },
     {
       "index": 230,
       "name": "bar5s_approach_is_pm_high",
-      "variance": 0.9999999956556896,
+      "variance": 0.999999995576459,
       "action": "KEEP"
     },
     {
       "index": 231,
       "name": "bar5s_approach_is_pm_low",
-      "variance": 0.9999999952879682,
+      "variance": 0.9999999953133571,
       "action": "KEEP"
     },
     {
       "index": 232,
       "name": "bar5s_approach_is_or_high",
-      "variance": 0.9999999956183023,
+      "variance": 0.999999995613601,
       "action": "KEEP"
     },
     {
       "index": 233,
       "name": "bar5s_approach_is_or_low",
-      "variance": 0.9999999945918512,
+      "variance": 0.9999999947856474,
       "action": "KEEP"
     },
     {
       "index": 234,
       "name": "bar5s_approach_level_polarity",
-      "variance": 0.9999999979580702,
+      "variance": 0.9999999979730353,
       "action": "KEEP"
     },
     {
       "index": 235,
       "name": "bar5s_approach_alignment_eob",
-      "variance": 0.9999999979979494,
+      "variance": 0.999999997999937,
       "action": "KEEP"
     },
     {
       "index": 236,
       "name": "bar5s_deriv_dist_d1_w3",
-      "variance": 0.9999999956976862,
+      "variance": 0.999999995771779,
       "action": "KEEP"
     },
     {
       "index": 237,
       "name": "bar5s_deriv_dist_d1_w12",
-      "variance": 0.9999999888769853,
+      "variance": 0.9999999888825245,
       "action": "KEEP"
     },
     {
       "index": 238,
       "name": "bar5s_deriv_dist_d1_w36",
-      "variance": 0.9999999761764004,
+      "variance": 0.9999999765416563,
       "action": "KEEP"
     },
     {
       "index": 239,
       "name": "bar5s_deriv_dist_d1_w72",
-      "variance": 0.9999999626810258,
+      "variance": 0.9999999635815976,
       "action": "KEEP"
     },
     {
       "index": 240,
       "name": "bar5s_deriv_dist_d2_w3",
-      "variance": 0.9999999884374479,
+      "variance": 0.9999999886422222,
       "action": "KEEP"
     },
     {
       "index": 241,
       "name": "bar5s_deriv_dist_d2_w12",
-      "variance": 0.9999998929763123,
+      "variance": 0.9999998918685072,
       "action": "KEEP"
     },
     {
       "index": 242,
       "name": "bar5s_deriv_dist_d2_w36",
-      "variance": 0.999999386809479,
+      "variance": 0.9999993889107357,
       "action": "KEEP"
     },
     {
       "index": 243,
       "name": "bar5s_deriv_dist_d2_w72",
-      "variance": 0.9999981994113435,
+      "variance": 0.9999982246757599,
       "action": "KEEP"
     },
     {
       "index": 244,
       "name": "bar5s_deriv_obi0_d1_w3",
-      "variance": 0.9999999883920851,
+      "variance": 0.9999999884472288,
       "action": "KEEP"
     },
     {
       "index": 245,
       "name": "bar5s_deriv_obi0_d1_w12",
-      "variance": 0.9999999547895386,
+      "variance": 0.9999999542631313,
       "action": "KEEP"
     },
     {
       "index": 246,
       "name": "bar5s_deriv_obi0_d1_w36",
-      "variance": 0.9999998646042336,
+      "variance": 0.9999998646579912,
       "action": "KEEP"
     },
     {
       "index": 247,
       "name": "bar5s_deriv_obi0_d1_w72",
-      "variance": 0.9999997215545745,
+      "variance": 0.9999997176989146,
       "action": "KEEP"
     },
     {
       "index": 248,
       "name": "bar5s_deriv_obi0_d2_w3",
-      "variance": 0.9999999801948433,
+      "variance": 0.999999980510256,
       "action": "KEEP"
     },
     {
       "index": 249,
       "name": "bar5s_deriv_obi0_d2_w12",
-      "variance": 0.9999996836107743,
+      "variance": 0.9999996825981864,
       "action": "KEEP"
     },
     {
       "index": 250,
       "name": "bar5s_deriv_obi0_d2_w36",
-      "variance": 0.9999971514253038,
+      "variance": 0.9999971612028365,
       "action": "KEEP"
     },
     {
       "index": 251,
       "name": "bar5s_deriv_obi0_d2_w72",
-      "variance": 0.9999883905882829,
+      "variance": 0.9999883264773136,
       "action": "KEEP"
     },
     {
       "index": 252,
       "name": "bar5s_deriv_obi10_d1_w3",
-      "variance": 0.9999999391867543,
+      "variance": 0.9999999423569642,
       "action": "KEEP"
     },
     {
       "index": 253,
       "name": "bar5s_deriv_obi10_d1_w12",
-      "variance": 0.9999998029023076,
+      "variance": 0.9999998072122991,
       "action": "KEEP"
     },
     {
       "index": 254,
       "name": "bar5s_deriv_obi10_d1_w36",
-      "variance": 0.9999994620355501,
+      "variance": 0.9999994740930079,
       "action": "KEEP"
     },
     {
       "index": 255,
       "name": "bar5s_deriv_obi10_d1_w72",
-      "variance": 0.9999990013976335,
+      "variance": 0.9999990190318887,
       "action": "KEEP"
     },
     {
       "index": 256,
       "name": "bar5s_deriv_obi10_d2_w3",
-      "variance": 0.9999998751370974,
+      "variance": 0.999999880306159,
       "action": "KEEP"
     },
     {
       "index": 257,
       "name": "bar5s_deriv_obi10_d2_w12",
-      "variance": 0.9999984918754566,
+      "variance": 0.9999985407987458,
       "action": "KEEP"
     },
     {
       "index": 258,
       "name": "bar5s_deriv_obi10_d2_w36",
-      "variance": 0.9999884124823901,
+      "variance": 0.9999886390858689,
       "action": "KEEP"
     },
     {
       "index": 259,
       "name": "bar5s_deriv_obi10_d2_w72",
-      "variance": 0.9999579310293492,
+      "variance": 0.999958445439098,
       "action": "KEEP"
     },
     {
       "index": 260,
       "name": "bar5s_deriv_cdi01_d1_w3",
-      "variance": 0.9999999620402134,
+      "variance": 0.9999999625776838,
       "action": "KEEP"
     },
     {
       "index": 261,
       "name": "bar5s_deriv_cdi01_d1_w12",
-      "variance": 0.999999865114505,
+      "variance": 0.999999867520869,
       "action": "KEEP"
     },
     {
       "index": 262,
       "name": "bar5s_deriv_cdi01_d1_w36",
-      "variance": 0.9999995954120862,
+      "variance": 0.9999996018353504,
       "action": "KEEP"
     },
     {
       "index": 263,
       "name": "bar5s_deriv_cdi01_d1_w72",
-      "variance": 0.9999992185778043,
+      "variance": 0.9999992113433622,
       "action": "KEEP"
     },
     {
       "index": 264,
       "name": "bar5s_deriv_cdi01_d2_w3",
-      "variance": 0.99999993178912,
+      "variance": 0.9999999316482471,
       "action": "KEEP"
     },
     {
       "index": 265,
       "name": "bar5s_deriv_cdi01_d2_w12",
-      "variance": 0.9999990257559587,
+      "variance": 0.9999990527515136,
       "action": "KEEP"
     },
     {
       "index": 266,
       "name": "bar5s_deriv_cdi01_d2_w36",
-      "variance": 0.9999914747173895,
+      "variance": 0.9999916548256234,
       "action": "KEEP"
     },
     {
       "index": 267,
       "name": "bar5s_deriv_cdi01_d2_w72",
-      "variance": 0.9999669880701972,
+      "variance": 0.9999665577623891,
       "action": "KEEP"
     },
     {
       "index": 268,
       "name": "bar5s_deriv_cdi12_d1_w3",
-      "variance": 0.9999999561548907,
+      "variance": 0.9999999565782675,
       "action": "KEEP"
     },
     {
       "index": 269,
       "name": "bar5s_deriv_cdi12_d1_w12",
-      "variance": 0.999999855751698,
+      "variance": 0.9999998547504624,
       "action": "KEEP"
     },
     {
       "index": 270,
       "name": "bar5s_deriv_cdi12_d1_w36",
-      "variance": 0.9999995836644553,
+      "variance": 0.9999995847800465,
       "action": "KEEP"
     },
     {
       "index": 271,
       "name": "bar5s_deriv_cdi12_d1_w72",
-      "variance": 0.9999992307725339,
+      "variance": 0.9999992180747974,
       "action": "KEEP"
     },
     {
       "index": 272,
       "name": "bar5s_deriv_cdi12_d2_w3",
-      "variance": 0.9999999117386772,
+      "variance": 0.999999909285761,
       "action": "KEEP"
     },
     {
       "index": 273,
       "name": "bar5s_deriv_cdi12_d2_w12",
-      "variance": 0.9999989017532908,
+      "variance": 0.9999988675756706,
       "action": "KEEP"
     },
     {
       "index": 274,
       "name": "bar5s_deriv_cdi12_d2_w36",
-      "variance": 0.9999910267969088,
+      "variance": 0.9999910442388339,
       "action": "KEEP"
     },
     {
       "index": 275,
       "name": "bar5s_deriv_cdi12_d2_w72",
-      "variance": 0.999967065828891,
+      "variance": 0.9999663936154103,
       "action": "KEEP"
     },
     {
       "index": 276,
       "name": "bar5s_deriv_dbid10_d1_w3",
-      "variance": 0.9999999999188164,
+      "variance": 0.999999999923383,
       "action": "KEEP"
     },
     {
       "index": 277,
       "name": "bar5s_deriv_dbid10_d1_w12",
-      "variance": 0.9999999997563969,
+      "variance": 0.999999999766148,
       "action": "KEEP"
     },
     {
       "index": 278,
       "name": "bar5s_deriv_dbid10_d1_w36",
-      "variance": 0.9999999993485905,
+      "variance": 0.9999999993809321,
       "action": "KEEP"
     },
     {
       "index": 279,
       "name": "bar5s_deriv_dbid10_d1_w72",
-      "variance": 0.999999998831667,
+      "variance": 0.9999999988988779,
       "action": "KEEP"
     },
     {
       "index": 280,
       "name": "bar5s_deriv_dbid10_d2_w3",
-      "variance": 0.9909239792091485,
+      "variance": 0.9957646970656708,
       "action": "KEEP"
     },
     {
       "index": 281,
       "name": "bar5s_deriv_dbid10_d2_w12",
-      "variance": 0.9964538761421469,
+      "variance": 0.9999999982806911,
       "action": "KEEP"
     },
     {
       "index": 282,
       "name": "bar5s_deriv_dbid10_d2_w36",
-      "variance": 0.9999999854050078,
+      "variance": 0.9999999860884015,
       "action": "KEEP"
     },
     {
       "index": 283,
       "name": "bar5s_deriv_dbid10_d2_w72",
-      "variance": 0.9995769751711259,
+      "variance": 0.9999999511475529,
       "action": "KEEP"
     },
     {
       "index": 284,
       "name": "bar5s_deriv_dask10_d1_w3",
-      "variance": 0.978621281426206,
+      "variance": 0.9895189405697656,
       "action": "KEEP"
     },
     {
       "index": 285,
       "name": "bar5s_deriv_dask10_d1_w12",
-      "variance": 0.9957812674218945,
+      "variance": 0.9999999998078141,
       "action": "KEEP"
     },
     {
       "index": 286,
       "name": "bar5s_deriv_dask10_d1_w36",
-      "variance": 0.9999999994757528,
+      "variance": 0.9999999994959171,
       "action": "KEEP"
     },
     {
       "index": 287,
       "name": "bar5s_deriv_dask10_d1_w72",
-      "variance": 0.9999999990809231,
+      "variance": 0.9999999991185043,
       "action": "KEEP"
     },
     {
       "index": 288,
       "name": "bar5s_deriv_dask10_d2_w3",
-      "variance": 0.9671991283009181,
+      "variance": 0.9700978304046023,
       "action": "KEEP"
     },
     {
       "index": 289,
       "name": "bar5s_deriv_dask10_d2_w12",
-      "variance": 0.9999999983814266,
+      "variance": 0.9999999984704391,
       "action": "KEEP"
     },
     {
       "index": 290,
       "name": "bar5s_deriv_dask10_d2_w36",
-      "variance": 0.999999987906257,
+      "variance": 0.9999999883749024,
       "action": "KEEP"
     },
     {
       "index": 291,
       "name": "bar5s_deriv_dask10_d2_w72",
-      "variance": 0.9999999596786261,
+      "variance": 0.9999999607559306,
       "action": "KEEP"
     },
     {
       "index": 292,
       "name": "bar5s_deriv_dbelow01_d1_w3",
-      "variance": 0.9327648030439172,
+      "variance": 0.9467798350076546,
       "action": "KEEP"
     },
     {
       "index": 293,
       "name": "bar5s_deriv_dbelow01_d1_w12",
-      "variance": 0.8717140927739631,
+      "variance": 0.8637068834822843,
       "action": "KEEP"
     },
     {
       "index": 294,
       "name": "bar5s_deriv_dbelow01_d1_w36",
-      "variance": 0.9328921943008115,
+      "variance": 0.9296571606442885,
       "action": "KEEP"
     },
     {
       "index": 295,
       "name": "bar5s_deriv_dbelow01_d1_w72",
-      "variance": 0.9801983120746026,
+      "variance": 0.9837862100311493,
       "action": "KEEP"
     },
     {
       "index": 296,
       "name": "bar5s_deriv_dbelow01_d2_w3",
-      "variance": 0.9999999997594344,
+      "variance": 0.999999999774109,
       "action": "KEEP"
     },
     {
       "index": 297,
       "name": "bar5s_deriv_dbelow01_d2_w12",
-      "variance": 0.8478656183768821,
+      "variance": 0.8281329376328886,
       "action": "KEEP"
     },
     {
       "index": 298,
       "name": "bar5s_deriv_dbelow01_d2_w36",
-      "variance": 0.9222558340624528,
+      "variance": 0.9091452724750255,
       "action": "KEEP"
     },
     {
       "index": 299,
       "name": "bar5s_deriv_dbelow01_d2_w72",
-      "variance": 0.9974861640493607,
+      "variance": 0.9999999055365322,
       "action": "KEEP"
     },
     {
       "index": 300,
       "name": "bar5s_deriv_dabove01_d1_w3",
-      "variance": 0.9651778366521513,
+      "variance": 0.9807179360833285,
       "action": "KEEP"
     },
     {
       "index": 301,
       "name": "bar5s_deriv_dabove01_d1_w12",
-      "variance": 0.9899685743531894,
+      "variance": 0.9913521036921705,
       "action": "KEEP"
     },
     {
       "index": 302,
       "name": "bar5s_deriv_dabove01_d1_w36",
-      "variance": 0.9999999988756255,
+      "variance": 0.9999999989125297,
       "action": "KEEP"
     },
     {
       "index": 303,
       "name": "bar5s_deriv_dabove01_d1_w72",
-      "variance": 0.9999999980093011,
+      "variance": 0.9999999980591182,
       "action": "KEEP"
     },
     {
       "index": 304,
       "name": "bar5s_deriv_dabove01_d2_w3",
-      "variance": 0.9191705592800371,
+      "variance": 0.9525152224573661,
       "action": "KEEP"
     },
     {
       "index": 305,
       "name": "bar5s_deriv_dabove01_d2_w12",
-      "variance": 0.9406137158835753,
+      "variance": 0.934332186042841,
       "action": "KEEP"
     },
     {
       "index": 306,
       "name": "bar5s_deriv_dabove01_d2_w36",
-      "variance": 0.9999999753630189,
+      "variance": 0.9999999766862884,
       "action": "KEEP"
     },
     {
       "index": 307,
       "name": "bar5s_deriv_dabove01_d2_w72",
-      "variance": 0.9999999188993504,
+      "variance": 0.9999999211397189,
       "action": "KEEP"
     },
     {
       "index": 308,
       "name": "bar5s_deriv_wbidz_d1_w3",
-      "variance": 0.9999999901117641,
+      "variance": 0.9999999901946919,
       "action": "KEEP"
     },
     {
       "index": 309,
       "name": "bar5s_deriv_wbidz_d1_w12",
-      "variance": 0.9999999644854886,
+      "variance": 0.9999999640088094,
       "action": "KEEP"
     },
     {
       "index": 310,
       "name": "bar5s_deriv_wbidz_d1_w36",
-      "variance": 0.9999998990143564,
+      "variance": 0.9999998987630463,
       "action": "KEEP"
     },
     {
       "index": 311,
       "name": "bar5s_deriv_wbidz_d1_w72",
-      "variance": 0.9999997982584206,
+      "variance": 0.9999997986405905,
       "action": "KEEP"
     },
     {
       "index": 312,
       "name": "bar5s_deriv_wbidz_d2_w3",
-      "variance": 0.9999999824682297,
+      "variance": 0.9999999828991908,
       "action": "KEEP"
     },
     {
       "index": 313,
       "name": "bar5s_deriv_wbidz_d2_w12",
-      "variance": 0.999999745785216,
+      "variance": 0.999999745633981,
       "action": "KEEP"
     },
     {
       "index": 314,
       "name": "bar5s_deriv_wbidz_d2_w36",
-      "variance": 0.9999978505691222,
+      "variance": 0.999997850296783,
       "action": "KEEP"
     },
     {
       "index": 315,
       "name": "bar5s_deriv_wbidz_d2_w72",
-      "variance": 0.9999915695654595,
+      "variance": 0.9999917185650122,
       "action": "KEEP"
     },
     {
       "index": 316,
       "name": "bar5s_deriv_waskz_d1_w3",
-      "variance": 0.9999999900451114,
+      "variance": 0.9999999901322275,
       "action": "KEEP"
     },
     {
       "index": 317,
       "name": "bar5s_deriv_waskz_d1_w12",
-      "variance": 0.999999962382102,
+      "variance": 0.9999999623654323,
       "action": "KEEP"
     },
     {
       "index": 318,
       "name": "bar5s_deriv_waskz_d1_w36",
-      "variance": 0.9999998956710998,
+      "variance": 0.9999998959862064,
       "action": "KEEP"
     },
     {
       "index": 319,
       "name": "bar5s_deriv_waskz_d1_w72",
-      "variance": 0.9999997929148294,
+      "variance": 0.9999997901479771,
       "action": "KEEP"
     },
     {
       "index": 320,
       "name": "bar5s_deriv_waskz_d2_w3",
-      "variance": 0.9999999820546677,
+      "variance": 0.9999999821775871,
       "action": "KEEP"
     },
     {
       "index": 321,
       "name": "bar5s_deriv_waskz_d2_w12",
-      "variance": 0.9999997370458023,
+      "variance": 0.9999997401053712,
       "action": "KEEP"
     },
     {
       "index": 322,
       "name": "bar5s_deriv_waskz_d2_w36",
-      "variance": 0.9999978016931967,
+      "variance": 0.9999978476918229,
       "action": "KEEP"
     },
     {
       "index": 323,
       "name": "bar5s_deriv_waskz_d2_w72",
-      "variance": 0.9999912855773799,
+      "variance": 0.9999911744144704,
       "action": "KEEP"
     },
     {
       "index": 324,
       "name": "bar5s_cumul_trade_vol",
-      "variance": 0.9999999999999074,
+      "variance": 0.999999999999907,
       "action": "KEEP"
     },
     {
       "index": 325,
       "name": "bar5s_cumul_signed_trade_vol",
-      "variance": 0.999999999998661,
+      "variance": 0.9999999999986596,
       "action": "KEEP"
     },
     {
       "index": 326,
       "name": "bar5s_cumul_aggbuy_vol",
-      "variance": 0.9999999999998146,
+      "variance": 0.999999999999814,
       "action": "KEEP"
     },
     {
       "index": 327,
       "name": "bar5s_cumul_aggsell_vol",
-      "variance": 0.9999999999998171,
+      "variance": 0.9999999999998126,
       "action": "KEEP"
     },
     {
       "index": 328,
       "name": "bar5s_cumul_signed_trade_vol_rate",
-      "variance": 0.9999999997572755,
+      "variance": 0.9999999997569431,
       "action": "KEEP"
     },
     {
       "index": 329,
       "name": "bar5s_cumul_flow_net_bid",
-      "variance": 0.9999999999996777,
+      "variance": 0.9999999999996773,
       "action": "KEEP"
     },
     {
       "index": 330,
       "name": "bar5s_cumul_flow_net_ask",
-      "variance": 0.999999999999656,
+      "variance": 0.9999999999996539,
       "action": "KEEP"
     },
     {
       "index": 331,
       "name": "bar5s_cumul_flow_imbal",
-      "variance": 0.9999999999995567,
+      "variance": 0.9999999999995188,
       "action": "KEEP"
     },
     {
       "index": 332,
       "name": "bar5s_cumul_flow_imbal_rate",
-      "variance": 0.9999999999195437,
+      "variance": 0.9999999999125502,
       "action": "KEEP"
     },
     {
       "index": 333,
       "name": "bar5s_cumul_flow_net_bid_p0_1",
-      "variance": 0.9999999999994512,
+      "variance": 0.9912400195808231,
       "action": "KEEP"
     },
     {
       "index": 334,
       "name": "bar5s_cumul_flow_net_bid_p1_2",
-      "variance": 0.9999999999991112,
+      "variance": 0.9999999999991166,
       "action": "KEEP"
     },
     {
       "index": 335,
       "name": "bar5s_cumul_flow_net_bid_p2_3",
-      "variance": 0.9999999999991546,
+      "variance": 0.9999999999992637,
       "action": "KEEP"
     },
     {
       "index": 336,
       "name": "bar5s_cumul_flow_net_ask_p0_1",
-      "variance": 0.9740468761880481,
+      "variance": 0.960244051709981,
       "action": "KEEP"
     },
     {
       "index": 337,
       "name": "bar5s_cumul_flow_net_ask_p1_2",
-      "variance": 0.9999999999990907,
+      "variance": 0.9999999999991226,
       "action": "KEEP"
     },
     {
       "index": 338,
       "name": "bar5s_cumul_flow_net_ask_p2_3",
-      "variance": 0.9992915230816464,
+      "variance": 0.9999999999992655,
       "action": "KEEP"
     },
     {
       "index": 339,
       "name": "bar5s_cumul_msg_cnt",
-      "variance": 0.9999999999999837,
+      "variance": 0.999999999999981,
       "action": "KEEP"
     },
     {
       "index": 340,
       "name": "bar5s_cumul_trade_cnt",
-      "variance": 0.9999999999997287,
+      "variance": 0.9999999999997177,
       "action": "KEEP"
     },
     {
       "index": 341,
       "name": "bar5s_cumul_add_cnt",
-      "variance": 0.9999999999999681,
+      "variance": 0.9999999999999605,
       "action": "KEEP"
     },
     {
       "index": 342,
       "name": "bar5s_cumul_cancel_cnt",
-      "variance": 0.999999999999961,
+      "variance": 0.9999999999999545,
       "action": "KEEP"
     },
     {
       "index": 343,
       "name": "bar5s_lvl_depth_above_qty_eob",
-      "variance": 0.9999999999943999,
+      "variance": 0.9999999999943285,
       "action": "KEEP"
     },
     {
       "index": 344,
       "name": "bar5s_lvl_depth_below_qty_eob",
-      "variance": 0.9999999999941258,
+      "variance": 0.9999999999940806,
       "action": "KEEP"
     },
     {
       "index": 345,
       "name": "bar5s_lvl_depth_at_qty_eob",
-      "variance": 0.9999999999433152,
+      "variance": 0.999999999942562,
       "action": "KEEP"
     },
     {
       "index": 346,
       "name": "bar5s_lvl_depth_imbal_eob",
-      "variance": 0.9999999979073443,
+      "variance": 0.9999999979158973,
       "action": "KEEP"
     },
     {
       "index": 347,
       "name": "bar5s_lvl_depth_above_p0_1_qty_eob",
-      "variance": 0.9999999999827148,
+      "variance": 0.9999999999820315,
       "action": "KEEP"
     },
     {
       "index": 348,
       "name": "bar5s_lvl_depth_below_p0_1_qty_eob",
-      "variance": 0.9999999999817378,
+      "variance": 0.999999999981453,
       "action": "KEEP"
     },
     {
       "index": 349,
       "name": "bar5s_lvl_cdi_p0_1_eob",
-      "variance": 0.9999999852443385,
+      "variance": 0.9999999853014303,
       "action": "KEEP"
     },
     {
       "index": 350,
       "name": "bar5s_lvl_depth_above_p1_2_qty_eob",
-      "variance": 0.9999999999864421,
+      "variance": 0.9999999999859238,
       "action": "KEEP"
     },
     {
       "index": 351,
       "name": "bar5s_lvl_depth_below_p1_2_qty_eob",
-      "variance": 0.9999999999845693,
+      "variance": 0.9999999999844226,
       "action": "KEEP"
     },
     {
       "index": 352,
       "name": "bar5s_lvl_cdi_p1_2_eob",
-      "variance": 0.9999999861769828,
+      "variance": 0.9999999863842319,
       "action": "KEEP"
     },
     {
       "index": 353,
       "name": "bar5s_lvl_depth_above_p2_3_qty_eob",
-      "variance": 0.9924280390025365,
+      "variance": 0.9971113613443221,
       "action": "KEEP"
     },
     {
       "index": 354,
       "name": "bar5s_lvl_depth_below_p2_3_qty_eob",
-      "variance": 0.9999999999703388,
+      "variance": 0.9999999999689934,
       "action": "KEEP"
     },
     {
       "index": 355,
       "name": "bar5s_lvl_cdi_p2_3_eob",
-      "variance": 0.9999999885556067,
+      "variance": 0.999999988931572,
       "action": "KEEP"
     },
     {
       "index": 356,
       "name": "bar5s_lvl_flow_toward_net_sum",
-      "variance": 0.9871111763133803,
+      "variance": 0.985170766923616,
       "action": "KEEP"
     },
     {
       "index": 357,
       "name": "bar5s_lvl_flow_away_net_sum",
-      "variance": 0.9999999999896056,
+      "variance": 0.9999999999894009,
       "action": "KEEP"
     },
     {
       "index": 358,
       "name": "bar5s_lvl_flow_toward_away_imbal_sum",
-      "variance": 0.9999999999939055,
+      "variance": 0.999999999993677,
       "action": "KEEP"
     },
     {
       "index": 359,
       "name": "bar5s_lvl_bid_size_at_level_eob",
-      "variance": 0.8830744134633414,
+      "variance": 0.3616556740566366,
       "action": "KEEP"
     },
     {
       "index": 360,
       "name": "bar5s_lvl_ask_size_at_level_eob",
-      "variance": 0.9851075388906005,
+      "variance": 0.9898135622999491,
       "action": "KEEP"
     },
     {
       "index": 361,
       "name": "bar5s_lvl_total_size_at_level_eob",
-      "variance": 0.99999999751216,
+      "variance": 0.9952532456127685,
       "action": "KEEP"
     },
     {
       "index": 362,
       "name": "bar5s_lvl_level_is_visible",
-      "variance": 0.999999990921901,
+      "variance": 0.9999999875015279,
       "action": "KEEP"
     },
     {
       "index": 363,
       "name": "bar5s_lvl_level_book_index_bid",
-      "variance": 0.9999999951337603,
+      "variance": 0.37451862654705426,
       "action": "KEEP"
     },
     {
       "index": 364,
       "name": "bar5s_lvl_level_book_index_ask",
-      "variance": 0.9999999961010873,
+      "variance": 0.9999999958467335,
       "action": "KEEP"
     },
     {
       "index": 365,
       "name": "bar5s_lvl_size_at_level_imbal_eob",
-      "variance": 0.9999999911501836,
-      "action": "KEEP"
-    },
-    {
-      "index": 366,
-      "name": "bar5s_lvl_wall_at_level",
-      "variance": 0.10083629960444958,
+      "variance": 0.9999999875903465,
       "action": "KEEP"
     },
     {
       "index": 367,
       "name": "bar5s_lvl_depth_band_0to1_qty_eob",
-      "variance": 0.9999999999916386,
+      "variance": 0.9999999999914764,
       "action": "KEEP"
     },
     {
       "index": 368,
       "name": "bar5s_lvl_depth_band_1to2_qty_eob",
-      "variance": 0.9999999999912694,
+      "variance": 0.9999999999909714,
       "action": "KEEP"
     },
     {
       "index": 369,
       "name": "bar5s_lvl_depth_band_beyond2_qty_eob",
-      "variance": 0.9999999999883665,
+      "variance": 0.9999999999879955,
       "action": "KEEP"
     },
     {
       "index": 370,
       "name": "bar5s_lvl_depth_band_0to1_frac_eob",
-      "variance": 0.9999999644241984,
+      "variance": 0.9999999641462864,
       "action": "KEEP"
     },
     {
       "index": 371,
       "name": "bar5s_lvl_depth_band_1to2_frac_eob",
-      "variance": 0.9999999711731147,
+      "variance": 0.9999999707140199,
       "action": "KEEP"
     },
     {
       "index": 372,
       "name": "bar5s_lvl_depth_band_beyond2_frac_eob",
-      "variance": 0.9957617512977975,
+      "variance": 0.9851113724617209,
       "action": "KEEP"
     },
     {
       "index": 373,
       "name": "bar5s_lvl_size_at_level_d1_w3",
-      "variance": 0.8829440640035282,
+      "variance": 0.5732077691706956,
       "action": "KEEP"
     },
     {
       "index": 374,
       "name": "bar5s_lvl_size_at_level_d1_w12",
-      "variance": 0.9476277775502576,
+      "variance": 0.7850950092420411,
       "action": "KEEP"
     },
     {
       "index": 375,
       "name": "bar5s_lvl_size_at_level_d2_w12",
-      "variance": 0.9428353810746309,
+      "variance": 0.7735920063481432,
       "action": "KEEP"
     },
     {
       "index": 376,
       "name": "bar5s_setup_start_dist_pts",
-      "variance": 0.9999999996654371,
+      "variance": 0.9999999996725604,
       "action": "KEEP"
     },
     {
       "index": 377,
       "name": "bar5s_setup_min_dist_pts",
-      "variance": 0.9999999822320467,
+      "variance": 0.9999999820357025,
       "action": "KEEP"
     },
     {
       "index": 378,
       "name": "bar5s_setup_max_dist_pts",
-      "variance": 0.9999999995364944,
+      "variance": 0.9999999995227671,
       "action": "KEEP"
     },
     {
       "index": 379,
       "name": "bar5s_setup_dist_range_pts",
-      "variance": 0.9999999995358411,
+      "variance": 0.9999999995224788,
       "action": "KEEP"
     },
     {
       "index": 380,
       "name": "bar5s_setup_approach_bars",
-      "variance": 0.9999999999591662,
+      "variance": 0.9999999999541954,
       "action": "KEEP"
     },
     {
       "index": 381,
       "name": "bar5s_setup_retreat_bars",
-      "variance": 0.9999999999589707,
+      "variance": 0.9999999999531395,
       "action": "KEEP"
     },
     {
       "index": 382,
       "name": "bar5s_setup_approach_ratio",
-      "variance": 0.9999999127135267,
+      "variance": 0.9999999063282111,
       "action": "KEEP"
     },
     {
       "index": 383,
       "name": "bar5s_setup_early_velocity",
-      "variance": 0.9999999525342371,
+      "variance": 0.9999999540507999,
       "action": "KEEP"
     },
     {
       "index": 384,
       "name": "bar5s_setup_mid_velocity",
-      "variance": 0.9999999469232993,
+      "variance": 0.9999999478234726,
       "action": "KEEP"
     },
     {
       "index": 385,
       "name": "bar5s_setup_late_velocity",
-      "variance": 0.9999999621328262,
+      "variance": 0.9999999606637658,
       "action": "KEEP"
     },
     {
       "index": 386,
       "name": "bar5s_setup_velocity_trend",
-      "variance": 0.9999999694619404,
+      "variance": 0.9999999693969864,
       "action": "KEEP"
     },
     {
       "index": 387,
       "name": "bar5s_setup_obi0_start",
-      "variance": 0.9999999947412355,
+      "variance": 0.9999999947500317,
       "action": "KEEP"
     },
     {
       "index": 388,
       "name": "bar5s_setup_obi0_end",
-      "variance": 0.9999999946337584,
+      "variance": 0.999999994667479,
       "action": "KEEP"
     },
     {
       "index": 389,
       "name": "bar5s_setup_obi0_delta",
-      "variance": 0.9999999963014127,
+      "variance": 0.9999999963178533,
       "action": "KEEP"
     },
     {
       "index": 390,
       "name": "bar5s_setup_obi0_min",
-      "variance": 0.9999999783068456,
+      "variance": 0.9999999758746081,
       "action": "KEEP"
     },
     {
       "index": 391,
       "name": "bar5s_setup_obi0_max",
-      "variance": 0.999999978702615,
+      "variance": 0.9999999766215795,
       "action": "KEEP"
     },
     {
       "index": 392,
       "name": "bar5s_setup_obi10_start",
-      "variance": 0.9999999820584023,
+      "variance": 0.9999999824744481,
       "action": "KEEP"
     },
     {
       "index": 393,
       "name": "bar5s_setup_obi10_end",
-      "variance": 0.999999981515472,
+      "variance": 0.9999999817636455,
       "action": "KEEP"
     },
     {
       "index": 394,
       "name": "bar5s_setup_obi10_delta",
-      "variance": 0.9999999869228244,
+      "variance": 0.9999999873395096,
       "action": "KEEP"
     },
     {
       "index": 395,
       "name": "bar5s_setup_obi10_min",
-      "variance": 0.9999999812382706,
+      "variance": 0.999999980981651,
       "action": "KEEP"
     },
     {
       "index": 396,
       "name": "bar5s_setup_obi10_max",
-      "variance": 0.9999999825939431,
+      "variance": 0.9999999823915005,
       "action": "KEEP"
     },
     {
       "index": 397,
       "name": "bar5s_setup_total_trade_vol",
-      "variance": 0.9999999999999534,
+      "variance": 0.9999999999999495,
       "action": "KEEP"
     },
     {
       "index": 398,
       "name": "bar5s_setup_total_signed_vol",
-      "variance": 0.9999999999990683,
+      "variance": 0.9999999999990304,
       "action": "KEEP"
     },
     {
       "index": 399,
       "name": "bar5s_setup_trade_imbal_pct",
-      "variance": 0.9999999794556305,
+      "variance": 0.9999999615985056,
       "action": "KEEP"
     },
     {
       "index": 400,
       "name": "bar5s_setup_flow_imbal_total",
-      "variance": 0.9999999999996992,
+      "variance": 0.9999999999996746,
       "action": "KEEP"
     },
     {
       "index": 401,
       "name": "bar5s_setup_bid_wall_max_z",
-      "variance": 0.9999999872844384,
+      "variance": 0.999999985937042,
       "action": "KEEP"
     },
     {
       "index": 402,
       "name": "bar5s_setup_ask_wall_max_z",
-      "variance": 0.9999999880873321,
+      "variance": 0.9999999878268472,
       "action": "KEEP"
     },
     {
       "index": 403,
       "name": "bar5s_setup_bid_wall_bars",
-      "variance": 0.9999999999485569,
+      "variance": 0.9999999999508321,
       "action": "KEEP"
     },
     {
       "index": 404,
       "name": "bar5s_setup_ask_wall_bars",
-      "variance": 0.9999999999623469,
+      "variance": 0.9999999999643743,
       "action": "KEEP"
     },
     {
       "index": 405,
       "name": "bar5s_setup_wall_imbal",
-      "variance": 0.9999999999611353,
+      "variance": 0.9999999999616139,
       "action": "KEEP"
     },
     {
       "index": 406,
       "name": "bar5s_setup_size_at_level_start",
-      "variance": 0.8320234848233278,
+      "variance": 0.40234683199152665,
       "action": "KEEP"
     },
     {
       "index": 407,
       "name": "bar5s_setup_size_at_level_end",
-      "variance": 0.6267596212449119,
+      "variance": 0.48878952873094766,
       "action": "KEEP"
     },
     {
       "index": 408,
       "name": "bar5s_setup_size_at_level_delta",
-      "variance": 0.8073093584170118,
+      "variance": 0.6098554963836977,
       "action": "KEEP"
     },
     {
       "index": 409,
       "name": "bar5s_setup_size_at_level_max",
-      "variance": 0.9999999988050654,
+      "variance": 0.9999999985684731,
       "action": "KEEP"
     },
     {
       "index": 410,
       "name": "bar5s_setup_size_at_level_recent12_sum",
-      "variance": 0.54772946435071,
+      "variance": 0.3101776273584305,
       "action": "KEEP"
     },
     {
       "index": 411,
       "name": "bar5s_setup_size_at_level_early_late_ratio",
-      "variance": 0.21617929021287988,
+      "variance": 0.3464904000210591,
       "action": "KEEP"
     },
     {
       "index": 412,
       "name": "bar5s_setup_flow_toward_recent12_sum",
-      "variance": 0.9999999999963487,
+      "variance": 0.9999999999957753,
       "action": "KEEP"
     },
     {
       "index": 413,
       "name": "bar5s_setup_flow_toward_early_late_ratio",
-      "variance": 0.18859187217299217,
+      "variance": 0.22417204118514844,
       "action": "KEEP"
     },
     {
       "index": 414,
       "name": "rvol_trade_vol_ratio",
-      "variance": 0.7209259317518925,
+      "variance": 0.7964857991921837,
       "action": "KEEP"
     },
     {
       "index": 415,
       "name": "rvol_trade_vol_zscore",
-      "variance": 0.7209259317805421,
+      "variance": 0.7964857992590878,
       "action": "KEEP"
     },
     {
       "index": 416,
       "name": "rvol_trade_cnt_ratio",
-      "variance": 0.8035993769383116,
+      "variance": 0.7340835226366139,
       "action": "KEEP"
     },
     {
       "index": 417,
       "name": "rvol_trade_cnt_zscore",
-      "variance": 0.8035993770437497,
+      "variance": 0.7340835228179597,
       "action": "KEEP"
     },
     {
       "index": 418,
       "name": "rvol_trade_aggbuy_ratio",
-      "variance": 0.5824193654882015,
+      "variance": 0.7042750989466805,
       "action": "KEEP"
     },
     {
       "index": 419,
       "name": "rvol_trade_aggsell_ratio",
-      "variance": 0.7580416287795796,
+      "variance": 0.8456558759954441,
       "action": "KEEP"
     },
     {
       "index": 420,
       "name": "rvol_trade_aggbuy_zscore",
-      "variance": 0.5824193655336681,
+      "variance": 0.704275099026032,
       "action": "KEEP"
     },
     {
       "index": 421,
       "name": "rvol_trade_aggsell_zscore",
-      "variance": 0.7580416288305762,
+      "variance": 0.845655876108809,
       "action": "KEEP"
     },
     {
       "index": 422,
       "name": "rvol_flow_add_bid_ratio",
-      "variance": 0.9921145258384629,
+      "variance": 0.9841009924822322,
       "action": "KEEP"
     },
     {
       "index": 423,
       "name": "rvol_flow_add_ask_ratio",
-      "variance": 0.9441991844929963,
+      "variance": 0.9819152913632763,
       "action": "KEEP"
     },
     {
       "index": 424,
       "name": "rvol_flow_add_bid_zscore",
-      "variance": 0.9921145258393615,
+      "variance": 0.9841009924834693,
       "action": "KEEP"
     },
     {
       "index": 425,
       "name": "rvol_flow_add_ask_zscore",
-      "variance": 0.9441991844960134,
+      "variance": 0.9819152913645649,
       "action": "KEEP"
     },
     {
       "index": 426,
       "name": "rvol_flow_net_bid_ratio",
-      "variance": 0.941130764612955,
+      "variance": 0.9542535546507059,
       "action": "KEEP"
     },
     {
       "index": 427,
       "name": "rvol_flow_net_ask_ratio",
-      "variance": 0.9927547147162464,
+      "variance": 0.9999999996804034,
       "action": "KEEP"
     },
     {
       "index": 428,
       "name": "rvol_flow_net_bid_zscore",
-      "variance": 0.8988152668382937,
+      "variance": 0.9558115823646219,
       "action": "KEEP"
     },
     {
       "index": 429,
       "name": "rvol_flow_net_ask_zscore",
-      "variance": 0.6666529146493178,
+      "variance": 0.9546740651990258,
       "action": "KEEP"
     },
     {
       "index": 430,
       "name": "rvol_flow_add_total_ratio",
-      "variance": 0.9894914360345138,
+      "variance": 0.9818699742449798,
       "action": "KEEP"
     },
     {
       "index": 431,
       "name": "rvol_flow_add_total_zscore",
-      "variance": 0.9894914360353149,
+      "variance": 0.9818699742455995,
       "action": "KEEP"
     },
     {
       "index": 432,
       "name": "rvol_cumul_trade_vol_dev",
-      "variance": 0.9999999999999744,
+      "variance": 0.9999999999999694,
       "action": "KEEP"
     },
     {
       "index": 433,
       "name": "rvol_cumul_trade_vol_dev_pct",
-      "variance": 0.9999999999999976,
+      "variance": 0.9970714713553464,
       "action": "KEEP"
     },
     {
       "index": 434,
       "name": "rvol_cumul_flow_imbal_dev",
-      "variance": 0.999999999999635,
+      "variance": 0.9999999999996044,
       "action": "KEEP"
     },
     {
       "index": 435,
       "name": "rvol_cumul_msg_dev",
-      "variance": 0.9999999999999932,
+      "variance": 0.9999999999999951,
       "action": "KEEP"
     },
     {
       "index": 436,
       "name": "rvol_bid_ask_add_asymmetry",
-      "variance": 0.6241752413610633,
+      "variance": 0.9995311274722788,
       "action": "KEEP"
     },
     {
       "index": 437,
       "name": "rvol_bid_ask_rem_asymmetry",
-      "variance": 0.983380499901287,
+      "variance": 0.9999999999999812,
       "action": "KEEP"
     },
     {
       "index": 438,
       "name": "rvol_bid_ask_net_asymmetry",
-      "variance": 0.8247300591251875,
+      "variance": 0.9999999999999989,
       "action": "KEEP"
     },
     {
       "index": 439,
       "name": "rvol_aggbuy_aggsell_asymmetry",
-      "variance": 0.6131347361649242,
+      "variance": 0.7888252025850871,
       "action": "KEEP"
     },
     {
       "index": 440,
       "name": "rvol_lookback_trade_vol_mean_ratio",
-      "variance": 1.000000000000002,
+      "variance": 0.9999999999999978,
       "action": "KEEP"
     },
     {
       "index": 441,
       "name": "rvol_lookback_trade_vol_max_ratio",
-      "variance": 0.7858216584384694,
+      "variance": 0.6191601722234432,
       "action": "KEEP"
     },
     {
       "index": 442,
       "name": "rvol_lookback_trade_vol_trend",
-      "variance": 0.963997727400393,
+      "variance": 0.9493833085739515,
       "action": "KEEP"
     },
     {
       "index": 443,
       "name": "rvol_lookback_elevated_bars",
-      "variance": 0.9999999999791699,
+      "variance": 0.9999999999802034,
       "action": "KEEP"
     },
     {
       "index": 444,
       "name": "rvol_lookback_depressed_bars",
-      "variance": 0.999999999977717,
+      "variance": 0.9999999999736223,
       "action": "KEEP"
     },
     {
       "index": 445,
       "name": "rvol_lookback_asymmetry_mean",
-      "variance": 0.9954218072738243,
+      "variance": 1.000000000000002,
       "action": "KEEP"
     },
     {
       "index": 446,
       "name": "rvol_recent_vs_lookback_vol_ratio",
-      "variance": 0.9999999981897104,
+      "variance": 0.9999999980753678,
       "action": "KEEP"
     },
     {
       "index": 447,
       "name": "rvol_recent_vs_lookback_asymmetry",
-      "variance": 0.5085257650206378,
+      "variance": 0.5170233524015573,
       "action": "KEEP"
     }
   ]

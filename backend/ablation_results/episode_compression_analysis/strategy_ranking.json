@@ -1,0 +1,128 @@
+[
+  {
+    "rank": 1,
+    "name": "trigger_only",
+    "dim": 30,
+    "accuracy": 0.40979955456570155,
+    "top2_accuracy": 0.5946547884187082,
+    "score_correlation": 0.0008908818699322263,
+    "n_test": 449
+  },
+  {
+    "rank": 2,
+    "name": "family_focused",
+    "dim": 68,
+    "accuracy": 0.4053452115812918,
+    "top2_accuracy": 0.6302895322939867,
+    "score_correlation": -0.007235994614752864,
+    "n_test": 449
+  },
+  {
+    "rank": 3,
+    "name": "last_36_bars",
+    "dim": 61,
+    "accuracy": 0.39643652561247217,
+    "top2_accuracy": 0.6525612472160356,
+    "score_correlation": 0.017661324610108085,
+    "n_test": 449
+  },
+  {
+    "rank": 4,
+    "name": "thirds",
+    "dim": 90,
+    "accuracy": 0.38752783964365256,
+    "top2_accuracy": 0.6035634743875279,
+    "score_correlation": -0.1277530154593516,
+    "n_test": 449
+  },
+  {
+    "rank": 5,
+    "name": "multi_window",
+    "dim": 150,
+    "accuracy": 0.38084632516703787,
+    "top2_accuracy": 0.6302895322939867,
+    "score_correlation": -0.0663626381951323,
+    "n_test": 449
+  },
+  {
+    "rank": 6,
+    "name": "trigger_plus_delta",
+    "dim": 60,
+    "accuracy": 0.37861915367483295,
+    "top2_accuracy": 0.5968819599109132,
+    "score_correlation": -0.020381055561551713,
+    "n_test": 449
+  },
+  {
+    "rank": 7,
+    "name": "thirds_with_trigger",
+    "dim": 120,
+    "accuracy": 0.37639198218262804,
+    "top2_accuracy": 0.6302895322939867,
+    "score_correlation": -0.11006808977498744,
+    "n_test": 449
+  },
+  {
+    "rank": 8,
+    "name": "last_72_bars",
+    "dim": 61,
+    "accuracy": 0.37639198218262804,
+    "top2_accuracy": 0.6191536748329621,
+    "score_correlation": -0.03300675754426016,
+    "n_test": 449
+  },
+  {
+    "rank": 9,
+    "name": "last_12_bars",
+    "dim": 61,
+    "accuracy": 0.36971046770601335,
+    "top2_accuracy": 0.5902004454342984,
+    "score_correlation": -0.09008468794613124,
+    "n_test": 449
+  },
+  {
+    "rank": 10,
+    "name": "minimal_core",
+    "dim": 15,
+    "accuracy": 0.36525612472160357,
+    "top2_accuracy": 0.5991091314031181,
+    "score_correlation": -0.012679718430621885,
+    "n_test": 449
+  },
+  {
+    "rank": 11,
+    "name": "trigger_plus_mean_delta",
+    "dim": 90,
+    "accuracy": 0.3585746102449889,
+    "top2_accuracy": 0.6057906458797327,
+    "score_correlation": -0.025622762697086132,
+    "n_test": 449
+  },
+  {
+    "rank": 12,
+    "name": "mean_std",
+    "dim": 60,
+    "accuracy": 0.34743875278396436,
+    "top2_accuracy": 0.5657015590200446,
+    "score_correlation": -0.0913532923598035,
+    "n_test": 449
+  },
+  {
+    "rank": 13,
+    "name": "mean_std_delta",
+    "dim": 90,
+    "accuracy": 0.3429844097995546,
+    "top2_accuracy": 0.6280623608017817,
+    "score_correlation": 0.002002943477546791,
+    "n_test": 449
+  },
+  {
+    "rank": 14,
+    "name": "mean_only",
+    "dim": 30,
+    "accuracy": 0.3363028953229399,
+    "top2_accuracy": 0.5701559020044543,
+    "score_correlation": -0.03363312342126447,
+    "n_test": 449
+  }
+]

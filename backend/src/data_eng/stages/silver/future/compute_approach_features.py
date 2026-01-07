@@ -438,140 +438,235 @@ class SilverComputeApproachFeatures(Stage):
         out["bar5s_lvl_flow_toward_away_imbal_sum"] = toward_flow - away_flow
 
     def _compute_setup_signature_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
+        """Compute setup signature features using ONLY pre-trigger bars."""
         n = len(df)
-        g = df.groupby("touch_id", sort=False)
         dist_col = "bar5s_approach_dist_to_level_pts_eob"
 
-        dist_vals = out.get(dist_col, df[dist_col].values if dist_col in df.columns else np.zeros(n))
-        abs_dist = np.abs(dist_vals)
+        # Filter to pre-trigger bars only for setup calculations
+        pre_mask = df["is_pre_trigger"].values if "is_pre_trigger" in df.columns else np.ones(n, dtype=bool)
+        df_pre = df[pre_mask].copy()
 
-        out["bar5s_setup_start_dist_pts"] = g[dist_col].transform("first").values
+        if len(df_pre) == 0:
+            # No pre-trigger bars - fill with zeros
+            self._fill_setup_zeros(out, n)
+            return
 
-        df_temp = df[["touch_id"]].copy()
-        df_temp["_abs_dist"] = abs_dist
-        g_temp = df_temp.groupby("touch_id", sort=False)
+        # Add distance values to pre-trigger frame
+        dist_vals_full = out.get(dist_col, df[dist_col].values if dist_col in df.columns else np.zeros(n))
+        df_pre["_dist"] = dist_vals_full[pre_mask]
+        df_pre["_abs_dist"] = np.abs(df_pre["_dist"].values)
 
-        out["bar5s_setup_min_dist_pts"] = g_temp["_abs_dist"].transform("min").values
-        out["bar5s_setup_max_dist_pts"] = g_temp["_abs_dist"].transform("max").values
-        out["bar5s_setup_dist_range_pts"] = out["bar5s_setup_max_dist_pts"] - out["bar5s_setup_min_dist_pts"]
+        g_pre = df_pre.groupby("touch_id", sort=False)
 
-        delta_dist = g_temp["_abs_dist"].diff().fillna(0.0).values
-        df_temp["_delta_dist"] = delta_dist
-        g_temp = df_temp.groupby("touch_id", sort=False)
+        # Compute stats on pre-trigger bars, then broadcast back to all rows
+        setup_stats = g_pre.agg(
+            start_dist=("_dist", "first"),
+            min_dist=("_abs_dist", "min"),
+            max_dist=("_abs_dist", "max"),
+        ).reset_index()
 
-        out["bar5s_setup_approach_bars"] = g_temp["_delta_dist"].transform(lambda x: (x < 0).sum()).values.astype(np.float64)
-        out["bar5s_setup_retreat_bars"] = g_temp["_delta_dist"].transform(lambda x: (x > 0).sum()).values.astype(np.float64)
-        n_bars = g_temp["_delta_dist"].transform("count").values.astype(np.float64)
-        out["bar5s_setup_approach_ratio"] = out["bar5s_setup_approach_bars"] / (n_bars + EPSILON)
+        setup_stats["dist_range"] = setup_stats["max_dist"] - setup_stats["min_dist"]
 
+        # Approach/retreat bars
+        delta_dist = g_pre["_abs_dist"].diff().fillna(0.0)
+        approach_retreat = df_pre[["touch_id"]].copy()
+        approach_retreat["_delta"] = delta_dist.values
+        ar_stats = approach_retreat.groupby("touch_id", sort=False).agg(
+            approach_bars=("_delta", lambda x: (x < 0).sum()),
+            retreat_bars=("_delta", lambda x: (x > 0).sum()),
+            n_bars=("_delta", "count"),
+        ).reset_index()
+        ar_stats["approach_ratio"] = ar_stats["approach_bars"] / (ar_stats["n_bars"] + EPSILON)
+        setup_stats = setup_stats.merge(ar_stats, on="touch_id", how="left")
+
+        # Velocity stats from pre-trigger bars
         d1_col = "bar5s_deriv_dist_d1_w3"
         if d1_col in out:
-            d1_vals = out[d1_col]
-            df_vel = df[["touch_id"]].copy()
-            df_vel["_d1"] = d1_vals
-
-            vel_stats = df_vel.groupby("touch_id", sort=False).apply(
+            df_pre["_d1"] = out[d1_col][pre_mask]
+            vel_stats = df_pre.groupby("touch_id", sort=False).apply(
                 self._compute_velocity_stats, include_groups=False
             )
-
             if isinstance(vel_stats, pd.DataFrame):
                 vel_stats = vel_stats.reset_index()
             else:
                 vel_stats = vel_stats.reset_index(name="stats")
                 vel_stats = pd.concat([vel_stats["touch_id"], vel_stats["stats"].apply(pd.Series)], axis=1)
-
-            df_vel = df_vel.merge(vel_stats, on="touch_id", how="left")
-            out["bar5s_setup_early_velocity"] = df_vel["early"].values.astype(np.float64)
-            out["bar5s_setup_mid_velocity"] = df_vel["mid"].values.astype(np.float64)
-            out["bar5s_setup_late_velocity"] = df_vel["late"].values.astype(np.float64)
-            out["bar5s_setup_velocity_trend"] = df_vel["trend"].values.astype(np.float64)
+            setup_stats = setup_stats.merge(vel_stats, on="touch_id", how="left")
         else:
-            out["bar5s_setup_early_velocity"] = np.zeros(n, dtype=np.float64)
-            out["bar5s_setup_mid_velocity"] = np.zeros(n, dtype=np.float64)
-            out["bar5s_setup_late_velocity"] = np.zeros(n, dtype=np.float64)
-            out["bar5s_setup_velocity_trend"] = np.zeros(n, dtype=np.float64)
+            setup_stats["early"] = 0.0
+            setup_stats["mid"] = 0.0
+            setup_stats["late"] = 0.0
+            setup_stats["trend"] = 0.0
 
+        # OBI stats from pre-trigger bars
         for metric, col in [("obi0", "bar5s_state_obi0_eob"), ("obi10", "bar5s_state_obi10_eob")]:
             if col in df.columns:
-                out[f"bar5s_setup_{metric}_start"] = g[col].transform("first").values
-                out[f"bar5s_setup_{metric}_end"] = g[col].transform("last").values
-                out[f"bar5s_setup_{metric}_delta"] = out[f"bar5s_setup_{metric}_end"] - out[f"bar5s_setup_{metric}_start"]
-                out[f"bar5s_setup_{metric}_min"] = g[col].transform("min").values
-                out[f"bar5s_setup_{metric}_max"] = g[col].transform("max").values
+                df_pre[f"_{metric}"] = df[col].values[pre_mask]
+                obi_stats = df_pre.groupby("touch_id", sort=False).agg(
+                    **{
+                        f"{metric}_start": (f"_{metric}", "first"),
+                        f"{metric}_end": (f"_{metric}", "last"),
+                        f"{metric}_min": (f"_{metric}", "min"),
+                        f"{metric}_max": (f"_{metric}", "max"),
+                    }
+                ).reset_index()
+                obi_stats[f"{metric}_delta"] = obi_stats[f"{metric}_end"] - obi_stats[f"{metric}_start"]
+                setup_stats = setup_stats.merge(obi_stats, on="touch_id", how="left")
 
-        out["bar5s_setup_total_trade_vol"] = g["bar5s_trade_vol_sum"].transform("sum").values
-        out["bar5s_setup_total_signed_vol"] = g["bar5s_trade_signed_vol_sum"].transform("sum").values
-        out["bar5s_setup_trade_imbal_pct"] = out["bar5s_setup_total_signed_vol"] / (out["bar5s_setup_total_trade_vol"] + EPSILON)
+        # Trade volume stats from pre-trigger bars
+        df_pre["_trade_vol"] = df["bar5s_trade_vol_sum"].values[pre_mask]
+        df_pre["_signed_vol"] = df["bar5s_trade_signed_vol_sum"].values[pre_mask]
+        trade_stats = df_pre.groupby("touch_id", sort=False).agg(
+            total_trade_vol=("_trade_vol", "sum"),
+            total_signed_vol=("_signed_vol", "sum"),
+        ).reset_index()
+        trade_stats["trade_imbal_pct"] = trade_stats["total_signed_vol"] / (trade_stats["total_trade_vol"] + EPSILON)
+        setup_stats = setup_stats.merge(trade_stats, on="touch_id", how="left")
 
+        # Flow imbal from last pre-trigger bar
         cumul_imbal = out.get("bar5s_cumul_flow_imbal", np.zeros(n))
-        df_fi = df[["touch_id"]].copy()
-        df_fi["_imbal"] = cumul_imbal
-        out["bar5s_setup_flow_imbal_total"] = df_fi.groupby("touch_id", sort=False)["_imbal"].transform("last").values
+        df_pre["_flow_imbal"] = cumul_imbal[pre_mask]
+        flow_stats = df_pre.groupby("touch_id", sort=False)["_flow_imbal"].last().reset_index(name="flow_imbal_total")
+        setup_stats = setup_stats.merge(flow_stats, on="touch_id", how="left")
 
-        out["bar5s_setup_bid_wall_max_z"] = g["bar5s_wall_bid_maxz_eob"].transform("max").values
-        out["bar5s_setup_ask_wall_max_z"] = g["bar5s_wall_ask_maxz_eob"].transform("max").values
+        # Wall stats from pre-trigger bars
+        df_pre["_wall_bid"] = df["bar5s_wall_bid_maxz_eob"].values[pre_mask]
+        df_pre["_wall_ask"] = df["bar5s_wall_ask_maxz_eob"].values[pre_mask]
+        df_pre["_bid_strong"] = (df_pre["_wall_bid"] > 2.0).astype(np.int32)
+        df_pre["_ask_strong"] = (df_pre["_wall_ask"] > 2.0).astype(np.int32)
+        wall_stats = df_pre.groupby("touch_id", sort=False).agg(
+            bid_wall_max_z=("_wall_bid", "max"),
+            ask_wall_max_z=("_wall_ask", "max"),
+            bid_wall_bars=("_bid_strong", "sum"),
+            ask_wall_bars=("_ask_strong", "sum"),
+        ).reset_index()
+        wall_stats["wall_imbal"] = wall_stats["ask_wall_bars"] - wall_stats["bid_wall_bars"]
+        setup_stats = setup_stats.merge(wall_stats, on="touch_id", how="left")
 
-        bid_wall_strong = (df["bar5s_wall_bid_maxz_eob"].values > 2.0).astype(np.int32)
-        ask_wall_strong = (df["bar5s_wall_ask_maxz_eob"].values > 2.0).astype(np.int32)
-
-        df_wall = df[["touch_id"]].copy()
-        df_wall["_bid"] = bid_wall_strong
-        df_wall["_ask"] = ask_wall_strong
-        g_wall = df_wall.groupby("touch_id", sort=False)
-        out["bar5s_setup_bid_wall_bars"] = g_wall["_bid"].transform("sum").values.astype(np.float64)
-        out["bar5s_setup_ask_wall_bars"] = g_wall["_ask"].transform("sum").values.astype(np.float64)
-        out["bar5s_setup_wall_imbal"] = out["bar5s_setup_ask_wall_bars"] - out["bar5s_setup_bid_wall_bars"]
-        
+        # Size at level stats from pre-trigger bars
         if "bar5s_lvl_total_size_at_level_eob" in out:
-            df_lvl = df[["touch_id"]].copy()
-            df_lvl["_size"] = out["bar5s_lvl_total_size_at_level_eob"]
-            g_lvl = df_lvl.groupby("touch_id", sort=False)
-            
-            out["bar5s_setup_size_at_level_start"] = g_lvl["_size"].transform("first").values
-            out["bar5s_setup_size_at_level_end"] = g_lvl["_size"].transform("last").values
-            out["bar5s_setup_size_at_level_delta"] = out["bar5s_setup_size_at_level_end"] - out["bar5s_setup_size_at_level_start"]
-            out["bar5s_setup_size_at_level_max"] = g_lvl["_size"].transform("max").values
-            
-            recent_12 = df_lvl.groupby("touch_id", sort=False).apply(
+            df_pre["_size"] = out["bar5s_lvl_total_size_at_level_eob"][pre_mask]
+            size_stats = df_pre.groupby("touch_id", sort=False).agg(
+                size_at_level_start=("_size", "first"),
+                size_at_level_end=("_size", "last"),
+                size_at_level_max=("_size", "max"),
+            ).reset_index()
+            size_stats["size_at_level_delta"] = size_stats["size_at_level_end"] - size_stats["size_at_level_start"]
+
+            # Recent 12 sum from pre-trigger bars
+            recent_12 = df_pre.groupby("touch_id", sort=False).apply(
                 lambda x: x["_size"].iloc[-12:].sum() if len(x) >= 12 else x["_size"].sum(),
                 include_groups=False
-            )
-            df_lvl = df_lvl.merge(recent_12.reset_index(name="_recent12"), on="touch_id", how="left")
-            out["bar5s_setup_size_at_level_recent12_sum"] = df_lvl["_recent12"].values.astype(np.float64)
-            
-            early_late_ratio = df_lvl.groupby("touch_id", sort=False).apply(
+            ).reset_index(name="size_at_level_recent12_sum")
+            size_stats = size_stats.merge(recent_12, on="touch_id", how="left")
+
+            # Early/late ratio from pre-trigger bars
+            early_late_ratio = df_pre.groupby("touch_id", sort=False).apply(
                 self._compute_early_late_ratio, include_groups=False
             )
             if isinstance(early_late_ratio, pd.DataFrame):
                 early_late_ratio = early_late_ratio.reset_index()
             else:
                 early_late_ratio = early_late_ratio.reset_index(name="ratio")
-            df_lvl = df_lvl.merge(early_late_ratio[["touch_id", "ratio"]], on="touch_id", how="left")
-            out["bar5s_setup_size_at_level_early_late_ratio"] = df_lvl["ratio"].values.astype(np.float64)
-        
+            early_late_ratio = early_late_ratio.rename(columns={"ratio": "size_at_level_early_late_ratio"})
+            size_stats = size_stats.merge(early_late_ratio[["touch_id", "size_at_level_early_late_ratio"]], on="touch_id", how="left")
+
+            setup_stats = setup_stats.merge(size_stats, on="touch_id", how="left")
+
+        # Flow toward stats from pre-trigger bars
         toward_col = "bar5s_lvl_flow_toward_net_sum"
         if toward_col in out:
-            df_toward = df[["touch_id"]].copy()
-            df_toward[toward_col] = out[toward_col]
-            g_toward = df_toward.groupby("touch_id", sort=False)
-            
-            recent_12_toward = g_toward.apply(
-                lambda x: x[toward_col].iloc[-12:].sum() if len(x) >= 12 else x[toward_col].sum(),
+            df_pre["_toward"] = out[toward_col][pre_mask]
+            recent_12_toward = df_pre.groupby("touch_id", sort=False).apply(
+                lambda x: x["_toward"].iloc[-12:].sum() if len(x) >= 12 else x["_toward"].sum(),
                 include_groups=False
+            ).reset_index(name="flow_toward_recent12_sum")
+            setup_stats = setup_stats.merge(recent_12_toward, on="touch_id", how="left")
+
+            early_late_flow = df_pre.groupby("touch_id", sort=False).apply(
+                self._compute_early_late_ratio_from_col, "_toward", include_groups=False
             )
-            df_toward = df_toward.merge(recent_12_toward.reset_index(name="_recent12"), on="touch_id", how="left")
-            out["bar5s_setup_flow_toward_recent12_sum"] = df_toward["_recent12"].values.astype(np.float64)
-            
-            early_late_flow = g_toward.apply(self._compute_early_late_ratio_from_col, toward_col, include_groups=False)
             if isinstance(early_late_flow, pd.DataFrame):
                 early_late_flow = early_late_flow.reset_index()
             else:
                 early_late_flow = early_late_flow.reset_index(name="ratio")
-            df_toward = df_toward.merge(early_late_flow[["touch_id", "ratio"]], on="touch_id", how="left")
-            out["bar5s_setup_flow_toward_early_late_ratio"] = df_toward["ratio"].values.astype(np.float64)
+            early_late_flow = early_late_flow.rename(columns={"ratio": "flow_toward_early_late_ratio"})
+            setup_stats = setup_stats.merge(early_late_flow[["touch_id", "flow_toward_early_late_ratio"]], on="touch_id", how="left")
+
+        # Broadcast setup stats back to all rows via touch_id
+        df_with_stats = df[["touch_id"]].merge(setup_stats, on="touch_id", how="left")
+
+        # Map to output arrays
+        out["bar5s_setup_start_dist_pts"] = df_with_stats["start_dist"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_min_dist_pts"] = df_with_stats["min_dist"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_max_dist_pts"] = df_with_stats["max_dist"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_dist_range_pts"] = df_with_stats["dist_range"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_approach_bars"] = df_with_stats["approach_bars"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_retreat_bars"] = df_with_stats["retreat_bars"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_approach_ratio"] = df_with_stats["approach_ratio"].fillna(0).values.astype(np.float64)
+
+        out["bar5s_setup_early_velocity"] = df_with_stats["early"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_mid_velocity"] = df_with_stats["mid"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_late_velocity"] = df_with_stats["late"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_velocity_trend"] = df_with_stats["trend"].fillna(0).values.astype(np.float64)
+
+        for metric in ["obi0", "obi10"]:
+            if f"{metric}_start" in df_with_stats.columns:
+                out[f"bar5s_setup_{metric}_start"] = df_with_stats[f"{metric}_start"].fillna(0).values.astype(np.float64)
+                out[f"bar5s_setup_{metric}_end"] = df_with_stats[f"{metric}_end"].fillna(0).values.astype(np.float64)
+                out[f"bar5s_setup_{metric}_delta"] = df_with_stats[f"{metric}_delta"].fillna(0).values.astype(np.float64)
+                out[f"bar5s_setup_{metric}_min"] = df_with_stats[f"{metric}_min"].fillna(0).values.astype(np.float64)
+                out[f"bar5s_setup_{metric}_max"] = df_with_stats[f"{metric}_max"].fillna(0).values.astype(np.float64)
+
+        out["bar5s_setup_total_trade_vol"] = df_with_stats["total_trade_vol"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_total_signed_vol"] = df_with_stats["total_signed_vol"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_trade_imbal_pct"] = df_with_stats["trade_imbal_pct"].fillna(0).values.astype(np.float64)
+
+        out["bar5s_setup_flow_imbal_total"] = df_with_stats["flow_imbal_total"].fillna(0).values.astype(np.float64)
+
+        out["bar5s_setup_bid_wall_max_z"] = df_with_stats["bid_wall_max_z"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_ask_wall_max_z"] = df_with_stats["ask_wall_max_z"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_bid_wall_bars"] = df_with_stats["bid_wall_bars"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_ask_wall_bars"] = df_with_stats["ask_wall_bars"].fillna(0).values.astype(np.float64)
+        out["bar5s_setup_wall_imbal"] = df_with_stats["wall_imbal"].fillna(0).values.astype(np.float64)
+
+        if "size_at_level_start" in df_with_stats.columns:
+            out["bar5s_setup_size_at_level_start"] = df_with_stats["size_at_level_start"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_size_at_level_end"] = df_with_stats["size_at_level_end"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_size_at_level_delta"] = df_with_stats["size_at_level_delta"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_size_at_level_max"] = df_with_stats["size_at_level_max"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_size_at_level_recent12_sum"] = df_with_stats["size_at_level_recent12_sum"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_size_at_level_early_late_ratio"] = df_with_stats["size_at_level_early_late_ratio"].fillna(0).values.astype(np.float64)
+
+        if "flow_toward_recent12_sum" in df_with_stats.columns:
+            out["bar5s_setup_flow_toward_recent12_sum"] = df_with_stats["flow_toward_recent12_sum"].fillna(0).values.astype(np.float64)
+            out["bar5s_setup_flow_toward_early_late_ratio"] = df_with_stats["flow_toward_early_late_ratio"].fillna(0).values.astype(np.float64)
         else:
             out["bar5s_setup_flow_toward_recent12_sum"] = np.zeros(n, dtype=np.float64)
             out["bar5s_setup_flow_toward_early_late_ratio"] = np.zeros(n, dtype=np.float64)
+
+    def _fill_setup_zeros(self, out: Dict[str, np.ndarray], n: int) -> None:
+        """Fill all setup features with zeros when no pre-trigger bars exist."""
+        setup_features = [
+            "bar5s_setup_start_dist_pts", "bar5s_setup_min_dist_pts", "bar5s_setup_max_dist_pts",
+            "bar5s_setup_dist_range_pts", "bar5s_setup_approach_bars", "bar5s_setup_retreat_bars",
+            "bar5s_setup_approach_ratio", "bar5s_setup_early_velocity", "bar5s_setup_mid_velocity",
+            "bar5s_setup_late_velocity", "bar5s_setup_velocity_trend",
+            "bar5s_setup_obi0_start", "bar5s_setup_obi0_end", "bar5s_setup_obi0_delta",
+            "bar5s_setup_obi0_min", "bar5s_setup_obi0_max",
+            "bar5s_setup_obi10_start", "bar5s_setup_obi10_end", "bar5s_setup_obi10_delta",
+            "bar5s_setup_obi10_min", "bar5s_setup_obi10_max",
+            "bar5s_setup_total_trade_vol", "bar5s_setup_total_signed_vol", "bar5s_setup_trade_imbal_pct",
+            "bar5s_setup_flow_imbal_total",
+            "bar5s_setup_bid_wall_max_z", "bar5s_setup_ask_wall_max_z",
+            "bar5s_setup_bid_wall_bars", "bar5s_setup_ask_wall_bars", "bar5s_setup_wall_imbal",
+            "bar5s_setup_size_at_level_start", "bar5s_setup_size_at_level_end",
+            "bar5s_setup_size_at_level_delta", "bar5s_setup_size_at_level_max",
+            "bar5s_setup_size_at_level_recent12_sum", "bar5s_setup_size_at_level_early_late_ratio",
+            "bar5s_setup_flow_toward_recent12_sum", "bar5s_setup_flow_toward_early_late_ratio",
+        ]
+        for feat in setup_features:
+            out[feat] = np.zeros(n, dtype=np.float64)
 
     def _compute_early_late_ratio(self, grp: pd.DataFrame) -> pd.Series:
         vals = grp["_size"].values

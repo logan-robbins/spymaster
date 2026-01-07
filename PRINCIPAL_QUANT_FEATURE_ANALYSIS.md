@@ -1,50 +1,14 @@
 # Principal Quant Feature Analysis Methodology
 
-## Execution Plan (live)
+## Execution Plan
 
-1. [x] Load silver approach data for futures (2025-06-04 to 2025-06-13) and build the raw feature matrix.
+1. [x] Load silver approach data for futures (2025-06-04 to 2025-09-30) and build the raw feature matrix.
 2. [x] Fit normalization on train dates and save params.
 3. [x] Run Level 1–3 analysis (variance, univariate, redundancy) on normalized features.
 4. [x] Run Level 4–7 analysis (forward selection, backward elimination, interaction, stability).
 5. [x] Run category analysis and compute final tiers.
 6. [x] Record outputs for each step in machine-readable files and summarize here.
 
-## Latest Run Summary
-
-- Symbol: ESU5
-- Dates: 2025-06-04 to 2025-06-13 (skipped 2025-06-07, 2025-06-08)
-- Rows after trigger + RTH filter: 238
-- Numeric feature matrix: 448 features (string + label columns excluded)
-- Cluster representatives: 253
-- Train dates: 2025-06-04, 2025-06-05, 2025-06-06, 2025-06-09, 2025-06-10, 2025-06-11
-- Test dates: 2025-06-12, 2025-06-13
-- Outputs: `backend/ablation_results/principal_quant_feature_analysis/` with
-  - `feature_names.json`
-  - `normalization_params.json`
-  - `variance_analysis.json`
-  - `univariate_analysis.csv`
-  - `redundancy_analysis.json`
-  - `cluster_representatives.json`
-  - `cluster_representatives_used.json`
-  - `forward_selection.json`
-  - `backward_elimination.json`
-  - `interaction_analysis.csv`
-  - `stability_analysis.json`
-  - `category_analysis.csv`
-  - `final_recommendations.json`
-  - `run_summary.json`
-
-### Step Outputs (counts)
-
-- Variance (train-normalized): 12 zero-variance, 0 low-variance, 436 normal (`variance_analysis.json`)
-- Univariate: 448 rows (`univariate_analysis.csv`)
-- Redundancy: 253 clusters, 253 representatives (`redundancy_analysis.json`, `cluster_representatives.json`)
-- Forward selection: 3 features selected (`forward_selection.json`)
-- Backward elimination: 3 features retained (`backward_elimination.json`)
-- Interaction: `interaction_analysis.csv`
-- Stability: 4 folds, 0 stable features at >=60% frequency (`stability_analysis.json`)
-- Category: `category_analysis.csv`
-- Final tiers: GOLD 0, SILVER 0, BRONZE 253, DISCARD 195 (`final_recommendations.json`)
 
 **Cardinal rule:** Never discard features without empirical evidence. Let the data decide.
 
@@ -313,7 +277,7 @@ Before discarding entire categories (like "ALL rvol features"), run category-lev
 ### Output Format EXAMPLE
 
 ```
-CATEGORY-LEVEL ANALYSIS:
+CATEGORY-LEVEL ANALYSIS EXAMPLE:
 
 | Category        | N Feats | Alone  | Without | Contribution | Verdict       |
 |-----------------|---------|--------|---------|--------------|---------------|
@@ -360,11 +324,11 @@ For each feature, compute:
 ### 10.3 Final Output EXAMPLE
 
 ```
-PRINCIPAL QUANT FEATURE ANALYSIS — FINAL RECOMMENDATIONS
+PRINCIPAL QUANT FEATURE ANALYSIS — FINAL RECOMMENDATIONS EXAMPLE
 
 DATA: 454 features, 2,248 episodes, June-September 2024
 
-PROCESS:
+PROCESS EXAMPLE:
   1. Variance filter: 454 → 448 (removed 6 zero-variance)
   2. Redundancy clustering: 448 → 94 clusters
   3. Forward selection: 94 → 26 features
@@ -373,97 +337,41 @@ PROCESS:
 
 FINAL FEATURE SET (18 features):
 
-GOLD TIER (always include):
+GOLD TIER (always include) EXAMPLE:
   1. setup_velocity_trend         (profile_traj)
   2. deriv_dist_d1_w12            (deriv)
   3. setup_approach_ratio         (profile_traj)
-  4. rvol_bid_ask_net_asymmetry   (rvol)         ← RVOL MADE THE CUT
+  4. rvol_bid_ask_net_asymmetry   (rvol)         
   5. cumul_flow_imbal             (flow)
   6. setup_start_dist_pts         (profile_traj)
   7. state_obi0_eob               (book_state)
   8. approach_dist_to_level_pts   (position)
   9. setup_dist_range_pts         (profile_traj)
-  10. rvol_cumul_trade_vol_dev_pct (rvol)        ← ANOTHER RVOL
+  10. rvol_cumul_trade_vol_dev_pct (rvol)        
   11. setup_early_velocity        (profile_traj)
   12. approach_side_of_level      (position)
 
-SILVER TIER (include if budget allows):
+SILVER TIER (include if budget allows) EXAMPLE:
   13. lvl_depth_imbal_eob         (level)
   14. rvol_lookback_trade_vol_trend (rvol)
   15. setup_flow_toward_away_ratio (flow)
   16. deriv_cdi01_d1_w12          (deriv)
 
-BRONZE TIER (A/B test):
-  17. bar5s_shape_bid_sz_l00_eob  (shape)        ← SOME SHAPE HELPS
+BRONZE TIER (A/B test) EXAMPLE:
+  17. bar5s_shape_bid_sz_l00_eob  (shape)       
   18. wall_ask_nearest_strong_dist (walls)
 
-DISCARDED (with evidence):
+DISCARDED (with evidence) EXAMPLE:
   - 100 shape features: category contribution = -0.1%
   - 6 wall features: category contribution = -1.7%
   - 20 rvol features: redundant with 14 kept
   - 40 deriv features: redundant with 8 kept
   ...
 
-PERFORMANCE:
+PERFORMANCE EXAMPLE:
   - Final accuracy: 49.2% (vs 43.2% baseline with all features)
   - Final score correlation: 0.38 (vs 0.15 baseline)
   - Cross-validation stability: ±1.8%
 ```
 
 ---
-
-## Section 11 — What You Should Do Now
-
-### Immediate Actions
-
-1. **DO NOT discard rvol features** — run the category analysis first
-2. **Run variance analysis** — confirm which features are actually zero-variance
-3. **Run redundancy clustering** — see true cluster structure
-4. **Run forward selection** — let the data pick features
-
-### Code to Start
-
-```python
-# Step 1: Load your 454 features
-vectors = np.load('all_454_features.npy')
-feature_names = load_feature_names()  # All 454 names
-
-# Step 2: Variance filter
-variance_results = variance_analysis(vectors, feature_names)
-print(f"Zero variance: {len(variance_results['zero_variance'])}")
-print(f"Keeping: {len(variance_results['normal_variance'])}")
-
-# Step 3: Univariate analysis
-univariate_df = univariate_analysis(vectors, outcomes, outcome_class, feature_names)
-print(univariate_df.head(30))  # Top 30 predictive features
-
-# Step 4: Redundancy clustering
-redundancy = redundancy_analysis(vectors, feature_names, threshold=0.85)
-print(f"Clusters: {redundancy['n_clusters']}")
-print(f"Redundant pairs (r>0.95): {len(redundancy['redundant_pairs'])}")
-
-# Step 5: Category analysis (before discarding any category!)
-categories = {
-    'shape': shape_indices,
-    'rvol': rvol_indices,
-    'deriv': deriv_indices,
-    ...
-}
-category_df = category_analysis(vectors, metadata, categories)
-print(category_df)
-
-# Step 6: Forward selection on cluster representatives
-representatives = select_cluster_representatives(redundancy['clusters'], univariate_df)
-rep_indices = [r['representative_idx'] for r in representatives]
-
-forward_results = forward_selection(vectors, metadata, feature_names, rep_indices)
-print(f"Selected: {len(forward_results['selected_names'])} features")
-print(f"Accuracy: {forward_results['final_accuracy']:.1%}")
-```
-
----
-
-**Bottom line:** You spent effort building 454 features. Don't throw them away based on intuition. Run this analysis, let the data tell you what works, and you'll end up with a rigorous, defensible feature set.
-
-
-

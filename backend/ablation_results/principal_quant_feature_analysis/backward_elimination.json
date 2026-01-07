@@ -1,14 +1,25 @@
 {
   "final_set": [
     17,
-    395,
-    374
+    401,
+    418
   ],
   "final_names": [
     "is_extended_forward",
-    "bar5s_setup_obi10_min",
-    "bar5s_lvl_size_at_level_d1_w12"
+    "bar5s_setup_bid_wall_max_z",
+    "rvol_trade_aggbuy_ratio"
   ],
-  "eliminated": [],
-  "final_accuracy": 0.5
+  "eliminated": [
+    {
+      "feature": "bar5s_lvl_bid_size_at_level_eob",
+      "drop": 0.0,
+      "action": "REMOVE (marginal)"
+    },
+    {
+      "feature": "bar5s_setup_size_at_level_end",
+      "drop": 0.0017482517482517723,
+      "action": "REMOVE (marginal)"
+    }
+  ],
+  "final_accuracy": 0.42657342657342656
 }
