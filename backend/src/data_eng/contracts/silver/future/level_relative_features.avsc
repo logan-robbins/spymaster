@@ -1,0 +1,2066 @@
+{
+  "namespace": "com.marketdata.silver",
+  "type": "record",
+  "name": "LevelRelativeFeatures",
+  "doc": "Level-relative features for similarity search. 245 features computed relative to a specific price level (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW), capturing market microstructure around that level during approach episodes.",
+  "fields": [
+    {
+      "name": "approach_direction",
+      "type": "long",
+      "doc": "+1 = from below, -1 = from above."
+    },
+    {
+      "name": "bar5s_approach_abs_dist_to_level_pts_eob",
+      "type": "double",
+      "doc": "Absolute distance to level in points."
+    },
+    {
+      "name": "bar5s_approach_alignment_eob",
+      "type": "long",
+      "doc": "+1 if position aligns with approach direction."
+    },
+    {
+      "name": "bar5s_approach_dist_to_level_pts_eob",
+      "type": "double",
+      "doc": "End-of-bar distance to level in points (signed)."
+    },
+    {
+      "name": "bar5s_approach_dist_to_level_pts_twa",
+      "type": "double",
+      "doc": "Time-weighted average distance to level."
+    },
+    {
+      "name": "bar5s_approach_is_or_high",
+      "type": "long",
+      "doc": "1 if level is OR_HIGH."
+    },
+    {
+      "name": "bar5s_approach_is_or_low",
+      "type": "long",
+      "doc": "1 if level is OR_LOW."
+    },
+    {
+      "name": "bar5s_approach_is_pm_high",
+      "type": "long",
+      "doc": "1 if level is PM_HIGH."
+    },
+    {
+      "name": "bar5s_approach_is_pm_low",
+      "type": "long",
+      "doc": "1 if level is PM_LOW."
+    },
+    {
+      "name": "bar5s_approach_level_polarity",
+      "type": "long",
+      "doc": "+1 for HIGH levels, -1 for LOW levels."
+    },
+    {
+      "name": "bar5s_approach_side_of_level_eob",
+      "type": "long",
+      "doc": "+1 if above level, -1 if below."
+    },
+    {
+      "name": "bar5s_cumul_add_cnt",
+      "type": "double",
+      "doc": "Cumulative add order count since episode start."
+    },
+    {
+      "name": "bar5s_cumul_aggbuy_vol",
+      "type": "double",
+      "doc": "Cumulative aggressive buy volume since episode start."
+    },
+    {
+      "name": "bar5s_cumul_aggsell_vol",
+      "type": "double",
+      "doc": "Cumulative aggressive sell volume since episode start."
+    },
+    {
+      "name": "bar5s_cumul_cancel_cnt",
+      "type": "double",
+      "doc": "Cumulative cancel order count since episode start."
+    },
+    {
+      "name": "bar5s_cumul_flow_imbal",
+      "type": "double",
+      "doc": "Cumulative bid-ask flow imbalance since episode start."
+    },
+    {
+      "name": "bar5s_cumul_flow_imbal_rate",
+      "type": "double",
+      "doc": "Flow imbalance rate (imbalance per bar)."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask",
+      "type": "double",
+      "doc": "Cumulative net ask flow since episode start."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p0_1",
+      "type": "double",
+      "doc": "Cumul Flow Net Ask P0 1."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p1_2",
+      "type": "double",
+      "doc": "Cumul Flow Net Ask P1 2."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_ask_p2_3",
+      "type": "double",
+      "doc": "Cumul Flow Net Ask P2 3."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid",
+      "type": "double",
+      "doc": "Cumulative net bid flow since episode start."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p0_1",
+      "type": "double",
+      "doc": "Cumul Flow Net Bid P0 1."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p1_2",
+      "type": "double",
+      "doc": "Cumul Flow Net Bid P1 2."
+    },
+    {
+      "name": "bar5s_cumul_flow_net_bid_p2_3",
+      "type": "double",
+      "doc": "Cumul Flow Net Bid P2 3."
+    },
+    {
+      "name": "bar5s_cumul_msg_cnt",
+      "type": "double",
+      "doc": "Cumulative message count since episode start."
+    },
+    {
+      "name": "bar5s_cumul_signed_trade_vol",
+      "type": "double",
+      "doc": "Cumulative signed trade volume since episode start."
+    },
+    {
+      "name": "bar5s_cumul_signed_trade_vol_rate",
+      "type": "double",
+      "doc": "Signed trade volume rate (per bar)."
+    },
+    {
+      "name": "bar5s_cumul_trade_cnt",
+      "type": "double",
+      "doc": "Cumulative trade count since episode start."
+    },
+    {
+      "name": "bar5s_cumul_trade_vol",
+      "type": "double",
+      "doc": "Cumulative unsigned trade volume since episode start."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_cdi01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi01 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_cdi12_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Cdi12 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_dabove01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dabove01 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_dask10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dask10 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_dbelow01_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbelow01 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_dbid10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dbid10 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_dist_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_dist_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Dist D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_obi0_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi0 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_obi10_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Obi10 D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_waskz_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Waskz D2 W72."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D1 W12."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D1 W3."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D1 W36."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d1_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D1 W72."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D2 W12."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D2 W3."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w36",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D2 W36."
+    },
+    {
+      "name": "bar5s_deriv_wbidz_d2_w72",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Deriv Wbidz D2 W72."
+    },
+    {
+      "name": "bar5s_lvl_ask_size_at_level_eob",
+      "type": "double",
+      "doc": "Ask size resting at exact level price."
+    },
+    {
+      "name": "bar5s_lvl_bid_size_at_level_eob",
+      "type": "double",
+      "doc": "Bid size resting at exact level price."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p0_1_eob",
+      "type": "double",
+      "doc": "Lvl Cdi P0 1 Eob."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p1_2_eob",
+      "type": "double",
+      "doc": "Lvl Cdi P1 2 Eob."
+    },
+    {
+      "name": "bar5s_lvl_cdi_p2_3_eob",
+      "type": "double",
+      "doc": "Lvl Cdi P2 3 Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Above P0 1 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Above P1 2 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Above P2 3 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_above_qty_eob",
+      "type": "double",
+      "doc": "Total depth above the level price."
+    },
+    {
+      "name": "bar5s_lvl_depth_at_qty_eob",
+      "type": "double",
+      "doc": "Depth exactly at the level price."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_0to1_frac_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band 0to1 Frac Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_0to1_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band 0to1 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_1to2_frac_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band 1to2 Frac Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_1to2_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band 1to2 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_beyond2_frac_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band Beyond2 Frac Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_band_beyond2_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Band Beyond2 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Below P0 1 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Below P1 2 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Lvl Depth Below P2 3 Qty Eob."
+    },
+    {
+      "name": "bar5s_lvl_depth_below_qty_eob",
+      "type": "double",
+      "doc": "Total depth below the level price."
+    },
+    {
+      "name": "bar5s_lvl_depth_imbal_eob",
+      "type": "double",
+      "doc": "Depth imbalance around level: (above - below) / (above + below)."
+    },
+    {
+      "name": "bar5s_lvl_flow_away_net_sum",
+      "type": "double",
+      "doc": "Net flow away from the level price."
+    },
+    {
+      "name": "bar5s_lvl_flow_toward_away_imbal_sum",
+      "type": "double",
+      "doc": "Flow imbalance: toward - away."
+    },
+    {
+      "name": "bar5s_lvl_flow_toward_net_sum",
+      "type": "double",
+      "doc": "Net flow toward the level price."
+    },
+    {
+      "name": "bar5s_lvl_level_book_index_ask",
+      "type": "double",
+      "doc": "Book index of level on ask side (-1 if not visible)."
+    },
+    {
+      "name": "bar5s_lvl_level_book_index_bid",
+      "type": "double",
+      "doc": "Book index of level on bid side (-1 if not visible)."
+    },
+    {
+      "name": "bar5s_lvl_level_is_visible",
+      "type": "long",
+      "doc": "1 if level price is within L10 book."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d1_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Lvl Size AT Level D1 W12."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d1_w3",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Lvl Size AT Level D1 W3."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_d2_w12",
+      "type": [
+        "null",
+        "double"
+      ],
+      "doc": "Lvl Size AT Level D2 W12."
+    },
+    {
+      "name": "bar5s_lvl_size_at_level_imbal_eob",
+      "type": "double",
+      "doc": "Size imbalance at level price."
+    },
+    {
+      "name": "bar5s_lvl_total_size_at_level_eob",
+      "type": "double",
+      "doc": "Total size at level (bid + ask)."
+    },
+    {
+      "name": "bar5s_lvl_wall_at_level",
+      "type": "long",
+      "doc": "1 if wall detected at level price."
+    },
+    {
+      "name": "bar5s_setup_approach_bars",
+      "type": "double",
+      "doc": "Bars spent approaching the level during episode."
+    },
+    {
+      "name": "bar5s_setup_approach_ratio",
+      "type": "double",
+      "doc": "Ratio of approach bars to total episode bars."
+    },
+    {
+      "name": "bar5s_setup_ask_wall_bars",
+      "type": "double",
+      "doc": "Bars with ask wall detected during episode."
+    },
+    {
+      "name": "bar5s_setup_ask_wall_max_z",
+      "type": "double",
+      "doc": "Maximum ask wall z-score during episode."
+    },
+    {
+      "name": "bar5s_setup_bid_wall_bars",
+      "type": "double",
+      "doc": "Bars with bid wall detected during episode."
+    },
+    {
+      "name": "bar5s_setup_bid_wall_max_z",
+      "type": "double",
+      "doc": "Maximum bid wall z-score during episode."
+    },
+    {
+      "name": "bar5s_setup_dist_range_pts",
+      "type": "double",
+      "doc": "Distance range during episode (max - min)."
+    },
+    {
+      "name": "bar5s_setup_early_velocity",
+      "type": "double",
+      "doc": "Velocity in first third of episode."
+    },
+    {
+      "name": "bar5s_setup_flow_imbal_total",
+      "type": "double",
+      "doc": "Total flow imbalance during episode."
+    },
+    {
+      "name": "bar5s_setup_flow_toward_early_late_ratio",
+      "type": "double",
+      "doc": "Early vs late flow toward level ratio."
+    },
+    {
+      "name": "bar5s_setup_flow_toward_recent12_sum",
+      "type": "double",
+      "doc": "Flow toward level in last 12 bars."
+    },
+    {
+      "name": "bar5s_setup_late_velocity",
+      "type": "double",
+      "doc": "Velocity in final third of episode."
+    },
+    {
+      "name": "bar5s_setup_max_dist_pts",
+      "type": "double",
+      "doc": "Maximum distance during episode."
+    },
+    {
+      "name": "bar5s_setup_mid_velocity",
+      "type": "double",
+      "doc": "Velocity in middle third of episode."
+    },
+    {
+      "name": "bar5s_setup_min_dist_pts",
+      "type": "double",
+      "doc": "Minimum distance during episode."
+    },
+    {
+      "name": "bar5s_setup_obi0_delta",
+      "type": "double",
+      "doc": "Setup Obi0 Delta."
+    },
+    {
+      "name": "bar5s_setup_obi0_end",
+      "type": "double",
+      "doc": "Setup Obi0 End."
+    },
+    {
+      "name": "bar5s_setup_obi0_max",
+      "type": "double",
+      "doc": "Setup Obi0 Max."
+    },
+    {
+      "name": "bar5s_setup_obi0_min",
+      "type": "double",
+      "doc": "Setup Obi0 Min."
+    },
+    {
+      "name": "bar5s_setup_obi0_start",
+      "type": "double",
+      "doc": "Setup Obi0 Start."
+    },
+    {
+      "name": "bar5s_setup_obi10_delta",
+      "type": "double",
+      "doc": "Setup Obi10 Delta."
+    },
+    {
+      "name": "bar5s_setup_obi10_end",
+      "type": "double",
+      "doc": "Setup Obi10 End."
+    },
+    {
+      "name": "bar5s_setup_obi10_max",
+      "type": "double",
+      "doc": "Setup Obi10 Max."
+    },
+    {
+      "name": "bar5s_setup_obi10_min",
+      "type": "double",
+      "doc": "Setup Obi10 Min."
+    },
+    {
+      "name": "bar5s_setup_obi10_start",
+      "type": "double",
+      "doc": "Setup Obi10 Start."
+    },
+    {
+      "name": "bar5s_setup_retreat_bars",
+      "type": "double",
+      "doc": "Bars spent retreating from level during episode."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_delta",
+      "type": "double",
+      "doc": "Change in size at level during episode."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_early_late_ratio",
+      "type": "double",
+      "doc": "Early vs late size at level ratio."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_end",
+      "type": "double",
+      "doc": "Size at level at trigger bar."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_max",
+      "type": "double",
+      "doc": "Maximum size at level during episode."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_recent12_sum",
+      "type": "double",
+      "doc": "Size at level sum over last 12 bars."
+    },
+    {
+      "name": "bar5s_setup_size_at_level_start",
+      "type": "double",
+      "doc": "Size at level at episode start."
+    },
+    {
+      "name": "bar5s_setup_start_dist_pts",
+      "type": "double",
+      "doc": "Distance at episode start."
+    },
+    {
+      "name": "bar5s_setup_total_signed_vol",
+      "type": "double",
+      "doc": "Total signed trade volume during episode."
+    },
+    {
+      "name": "bar5s_setup_total_trade_vol",
+      "type": "double",
+      "doc": "Total trade volume during episode."
+    },
+    {
+      "name": "bar5s_setup_trade_imbal_pct",
+      "type": "double",
+      "doc": "Trade imbalance percentage during episode."
+    },
+    {
+      "name": "bar5s_setup_velocity_trend",
+      "type": "double",
+      "doc": "Velocity trend: late - early velocity."
+    },
+    {
+      "name": "bar5s_setup_wall_imbal",
+      "type": "double",
+      "doc": "Wall imbalance: bid_wall_bars - ask_wall_bars."
+    },
+    {
+      "name": "bar_index_in_episode",
+      "type": "long",
+      "doc": "0-indexed bar position within episode."
+    },
+    {
+      "name": "bar_index_in_touch",
+      "type": "long",
+      "doc": "Alias for bar_index_in_episode."
+    },
+    {
+      "name": "bars_to_trigger",
+      "type": "long",
+      "doc": "Bars until trigger: negative = before, 0 = trigger, positive = after."
+    },
+    {
+      "name": "dist_to_level_pts",
+      "type": "double",
+      "doc": "Signed distance: microprice - level_price."
+    },
+    {
+      "name": "episode_id",
+      "type": "string",
+      "doc": "Unique episode identifier: {date}_{symbol}_{level_type}_{trigger_bar_ts}."
+    },
+    {
+      "name": "extension_count",
+      "type": "long",
+      "doc": "Number of times episode was extended."
+    },
+    {
+      "name": "is_extended_forward",
+      "type": "boolean",
+      "doc": "True if episode extended beyond initial 24 forward bars."
+    },
+    {
+      "name": "is_post_touch",
+      "type": "boolean",
+      "doc": "Alias for is_post_trigger."
+    },
+    {
+      "name": "is_post_trigger",
+      "type": "boolean",
+      "doc": "True if bar is after trigger."
+    },
+    {
+      "name": "is_pre_touch",
+      "type": "boolean",
+      "doc": "Alias for is_pre_trigger."
+    },
+    {
+      "name": "is_pre_trigger",
+      "type": "boolean",
+      "doc": "True if bar is in lookback period."
+    },
+    {
+      "name": "is_standard_approach",
+      "type": "boolean",
+      "doc": "True if HIGH from below or LOW from above."
+    },
+    {
+      "name": "is_trigger_bar",
+      "type": "boolean",
+      "doc": "True if this is the trigger bar."
+    },
+    {
+      "name": "is_truncated_forward",
+      "type": "boolean",
+      "doc": "True if episode has fewer than 24 forward bars."
+    },
+    {
+      "name": "is_truncated_lookback",
+      "type": "boolean",
+      "doc": "True if episode has fewer than 36 lookback bars."
+    },
+    {
+      "name": "level_price",
+      "type": "double",
+      "doc": "Actual price of the level in points."
+    },
+    {
+      "name": "level_type",
+      "type": "string",
+      "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."
+    },
+    {
+      "name": "outcome",
+      "type": "string",
+      "doc": "Episode outcome label."
+    },
+    {
+      "name": "outcome_score",
+      "type": "double",
+      "doc": "Numeric outcome score for regression."
+    },
+    {
+      "name": "rvol_aggbuy_aggsell_asymmetry",
+      "type": "double",
+      "doc": "Relative volume: aggbuy Aggsell Asymmetry."
+    },
+    {
+      "name": "rvol_bid_ask_add_asymmetry",
+      "type": "double",
+      "doc": "Relative volume: bid Ask Add Asymmetry."
+    },
+    {
+      "name": "rvol_bid_ask_net_asymmetry",
+      "type": "double",
+      "doc": "Relative volume: bid Ask Net Asymmetry."
+    },
+    {
+      "name": "rvol_bid_ask_rem_asymmetry",
+      "type": "double",
+      "doc": "Relative volume: bid Ask Rem Asymmetry."
+    },
+    {
+      "name": "rvol_cumul_flow_imbal_dev",
+      "type": "double",
+      "doc": "Relative volume: cumul Flow Imbal Dev."
+    },
+    {
+      "name": "rvol_cumul_msg_dev",
+      "type": "double",
+      "doc": "Relative volume: cumul Msg Dev."
+    },
+    {
+      "name": "rvol_cumul_trade_vol_dev",
+      "type": "double",
+      "doc": "Relative volume: cumul Trade Vol Dev."
+    },
+    {
+      "name": "rvol_cumul_trade_vol_dev_pct",
+      "type": "double",
+      "doc": "Relative volume: cumul Trade Vol Dev Pct."
+    },
+    {
+      "name": "rvol_flow_add_ask_ratio",
+      "type": "double",
+      "doc": "Relative volume: flow Add Ask Ratio."
+    },
+    {
+      "name": "rvol_flow_add_ask_zscore",
+      "type": "double",
+      "doc": "Relative volume: flow Add Ask Zscore."
+    },
+    {
+      "name": "rvol_flow_add_bid_ratio",
+      "type": "double",
+      "doc": "Relative volume: flow Add Bid Ratio."
+    },
+    {
+      "name": "rvol_flow_add_bid_zscore",
+      "type": "double",
+      "doc": "Relative volume: flow Add Bid Zscore."
+    },
+    {
+      "name": "rvol_flow_add_total_ratio",
+      "type": "double",
+      "doc": "Relative volume: flow Add Total Ratio."
+    },
+    {
+      "name": "rvol_flow_add_total_zscore",
+      "type": "double",
+      "doc": "Relative volume: flow Add Total Zscore."
+    },
+    {
+      "name": "rvol_flow_net_ask_ratio",
+      "type": "double",
+      "doc": "Relative volume: flow Net Ask Ratio."
+    },
+    {
+      "name": "rvol_flow_net_ask_zscore",
+      "type": "double",
+      "doc": "Relative volume: flow Net Ask Zscore."
+    },
+    {
+      "name": "rvol_flow_net_bid_ratio",
+      "type": "double",
+      "doc": "Relative volume: flow Net Bid Ratio."
+    },
+    {
+      "name": "rvol_flow_net_bid_zscore",
+      "type": "double",
+      "doc": "Relative volume: flow Net Bid Zscore."
+    },
+    {
+      "name": "rvol_lookback_asymmetry_mean",
+      "type": "double",
+      "doc": "Relative volume: lookback Asymmetry Mean."
+    },
+    {
+      "name": "rvol_lookback_depressed_bars",
+      "type": "double",
+      "doc": "Relative volume: lookback Depressed Bars."
+    },
+    {
+      "name": "rvol_lookback_elevated_bars",
+      "type": "double",
+      "doc": "Relative volume: lookback Elevated Bars."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_max_ratio",
+      "type": "double",
+      "doc": "Relative volume: lookback Trade Vol Max Ratio."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_mean_ratio",
+      "type": "double",
+      "doc": "Relative volume: lookback Trade Vol Mean Ratio."
+    },
+    {
+      "name": "rvol_lookback_trade_vol_trend",
+      "type": "double",
+      "doc": "Relative volume: lookback Trade Vol Trend."
+    },
+    {
+      "name": "rvol_recent_vs_lookback_asymmetry",
+      "type": "double",
+      "doc": "Relative volume: recent VS Lookback Asymmetry."
+    },
+    {
+      "name": "rvol_recent_vs_lookback_vol_ratio",
+      "type": "double",
+      "doc": "Relative volume: recent VS Lookback Vol Ratio."
+    },
+    {
+      "name": "rvol_trade_aggbuy_ratio",
+      "type": "double",
+      "doc": "Relative volume: trade Aggbuy Ratio."
+    },
+    {
+      "name": "rvol_trade_aggbuy_zscore",
+      "type": "double",
+      "doc": "Relative volume: trade Aggbuy Zscore."
+    },
+    {
+      "name": "rvol_trade_aggsell_ratio",
+      "type": "double",
+      "doc": "Relative volume: trade Aggsell Ratio."
+    },
+    {
+      "name": "rvol_trade_aggsell_zscore",
+      "type": "double",
+      "doc": "Relative volume: trade Aggsell Zscore."
+    },
+    {
+      "name": "rvol_trade_cnt_ratio",
+      "type": "double",
+      "doc": "Relative volume: trade Cnt Ratio."
+    },
+    {
+      "name": "rvol_trade_cnt_zscore",
+      "type": "double",
+      "doc": "Relative volume: trade Cnt Zscore."
+    },
+    {
+      "name": "rvol_trade_vol_ratio",
+      "type": "double",
+      "doc": "Relative volume: trade Vol Ratio."
+    },
+    {
+      "name": "rvol_trade_vol_zscore",
+      "type": "double",
+      "doc": "Relative volume: trade Vol Zscore."
+    },
+    {
+      "name": "signed_dist_pts",
+      "type": "double",
+      "doc": "Normalized distance: dist_to_level * approach_direction."
+    },
+    {
+      "name": "touch_id",
+      "type": "string",
+      "doc": "Alias for episode_id."
+    },
+    {
+      "name": "trigger_bar_ts",
+      "type": "long",
+      "doc": "Timestamp of the trigger bar in nanoseconds."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvlwall_bid_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Level-relative: Distance from level to nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_lvlwall_ask_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Level-relative: Distance from level to nearest strong ask wall."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 5-10 pts from level."
+    }
+  ]
+}
