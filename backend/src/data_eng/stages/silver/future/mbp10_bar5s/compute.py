@@ -72,21 +72,14 @@ class TickArrays:
         self.size: NDArray[np.float64] = np.maximum(df["size"].values.astype(np.float64), 0.0)
         self.sequence: NDArray[np.int64] = df["sequence"].values.astype(np.int64) if "sequence" in df.columns else np.arange(n, dtype=np.int64)
 
-        self.bid_px = np.zeros((n, 10), dtype=np.float64)
-        self.ask_px = np.zeros((n, 10), dtype=np.float64)
-        self.bid_sz = np.zeros((n, 10), dtype=np.float64)
-        self.ask_sz = np.zeros((n, 10), dtype=np.float64)
-        self.bid_ct = np.zeros((n, 10), dtype=np.float64)
-        self.ask_ct = np.zeros((n, 10), dtype=np.float64)
-
-        for i in range(10):
-            idx = f"{i:02d}"
-            self.bid_px[:, i] = df[f"bid_px_{idx}"].values.astype(np.float64)
-            self.ask_px[:, i] = df[f"ask_px_{idx}"].values.astype(np.float64)
-            self.bid_sz[:, i] = np.maximum(df[f"bid_sz_{idx}"].values.astype(np.float64), 0.0)
-            self.ask_sz[:, i] = np.maximum(df[f"ask_sz_{idx}"].values.astype(np.float64), 0.0)
-            self.bid_ct[:, i] = np.maximum(df[f"bid_ct_{idx}"].values.astype(np.float64), 0.0)
-            self.ask_ct[:, i] = np.maximum(df[f"ask_ct_{idx}"].values.astype(np.float64), 0.0)
+        # Vectorized initialization of 10-level book data
+        level_indices = [f"{i:02d}" for i in range(10)]
+        self.bid_px = np.column_stack([df[f"bid_px_{idx}"].values.astype(np.float64) for idx in level_indices])
+        self.ask_px = np.column_stack([df[f"ask_px_{idx}"].values.astype(np.float64) for idx in level_indices])
+        self.bid_sz = np.maximum(np.column_stack([df[f"bid_sz_{idx}"].values.astype(np.float64) for idx in level_indices]), 0.0)
+        self.ask_sz = np.maximum(np.column_stack([df[f"ask_sz_{idx}"].values.astype(np.float64) for idx in level_indices]), 0.0)
+        self.bid_ct = np.maximum(np.column_stack([df[f"bid_ct_{idx}"].values.astype(np.float64) for idx in level_indices]), 0.0)
+        self.ask_ct = np.maximum(np.column_stack([df[f"ask_ct_{idx}"].values.astype(np.float64) for idx in level_indices]), 0.0)
 
 
 def fill_empty_bar(bar_ts: int, symbol: str, prev_bar: dict) -> dict:

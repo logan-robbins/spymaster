@@ -181,36 +181,28 @@ def compute_flow_band_idx(event_price: float, event_side: int, p_ref: float) -> 
 def compute_ladder_features(
     bid_px: NDArray[np.float64], ask_px: NDArray[np.float64]
 ) -> tuple:
-    ask_gap_max = np.nan
-    ask_gap_mean = np.nan
-    bid_gap_max = np.nan
-    bid_gap_mean = np.nan
+    # Vectorized gap calculations
+    ask_valid = (ask_px[:-1] > EPSILON) & (ask_px[1:] > EPSILON)
+    bid_valid = (bid_px[:-1] > EPSILON) & (bid_px[1:] > EPSILON)
 
-    ask_gaps_sum = 0.0
-    ask_gaps_cnt = 0
-    for i in range(N_LEVELS - 1):
-        if ask_px[i] > EPSILON and ask_px[i + 1] > EPSILON:
-            gap = (ask_px[i + 1] - ask_px[i]) / POINT
-            ask_gaps_sum += gap
-            ask_gaps_cnt += 1
-            if np.isnan(ask_gap_max) or gap > ask_gap_max:
-                ask_gap_max = gap
+    ask_gaps = (ask_px[1:] - ask_px[:-1]) / POINT
+    bid_gaps = (bid_px[:-1] - bid_px[1:]) / POINT
 
-    if ask_gaps_cnt > 0:
-        ask_gap_mean = ask_gaps_sum / ask_gaps_cnt
+    if np.any(ask_valid):
+        ask_valid_gaps = ask_gaps[ask_valid]
+        ask_gap_max = np.max(ask_valid_gaps)
+        ask_gap_mean = np.mean(ask_valid_gaps)
+    else:
+        ask_gap_max = np.nan
+        ask_gap_mean = np.nan
 
-    bid_gaps_sum = 0.0
-    bid_gaps_cnt = 0
-    for i in range(N_LEVELS - 1):
-        if bid_px[i] > EPSILON and bid_px[i + 1] > EPSILON:
-            gap = (bid_px[i] - bid_px[i + 1]) / POINT
-            bid_gaps_sum += gap
-            bid_gaps_cnt += 1
-            if np.isnan(bid_gap_max) or gap > bid_gap_max:
-                bid_gap_max = gap
-
-    if bid_gaps_cnt > 0:
-        bid_gap_mean = bid_gaps_sum / bid_gaps_cnt
+    if np.any(bid_valid):
+        bid_valid_gaps = bid_gaps[bid_valid]
+        bid_gap_max = np.max(bid_valid_gaps)
+        bid_gap_mean = np.mean(bid_valid_gaps)
+    else:
+        bid_gap_max = np.nan
+        bid_gap_mean = np.nan
 
     return ask_gap_max, ask_gap_mean, bid_gap_max, bid_gap_mean
 
@@ -225,33 +217,28 @@ def compute_shape_fractions(sizes: NDArray[np.float64]) -> NDArray[np.float64]:
 def compute_wall_features(
     sizes: NDArray[np.float64], prices: NDArray[np.float64], p_ref: float, is_bid: bool
 ) -> tuple:
-    q = np.zeros(N_LEVELS, dtype=np.float64)
-    for i in range(N_LEVELS):
-        q[i] = np.log1p(sizes[i])
-
+    # Vectorized log transformation and z-score calculation
+    q = np.log1p(sizes)
     mu = q.mean()
     sigma = q.std()
-
     z_scores = (q - mu) / max(sigma, EPSILON)
 
-    max_z = z_scores[0]
-    max_z_idx = 0
-    for i in range(1, N_LEVELS):
-        if z_scores[i] > max_z:
-            max_z = z_scores[i]
-            max_z_idx = i
+    # Vectorized max finding
+    max_z_idx = np.argmax(z_scores)
+    max_z = z_scores[max_z_idx]
 
-    nearest_strong_idx = -1
-    nearest_strong_dist_pts = np.nan
-    for i in range(N_LEVELS):
-        if z_scores[i] >= WALL_Z_THRESHOLD:
-            nearest_strong_idx = i
-            px = prices[i]
-            if is_bid:
-                nearest_strong_dist_pts = (p_ref - px) / POINT
-            else:
-                nearest_strong_dist_pts = (px - p_ref) / POINT
-            break
+    # Find nearest strong wall (first occurrence above threshold)
+    strong_mask = z_scores >= WALL_Z_THRESHOLD
+    if np.any(strong_mask):
+        nearest_strong_idx = np.argmax(strong_mask)  # First True index
+        px = prices[nearest_strong_idx]
+        if is_bid:
+            nearest_strong_dist_pts = (p_ref - px) / POINT
+        else:
+            nearest_strong_dist_pts = (px - p_ref) / POINT
+    else:
+        nearest_strong_idx = -1
+        nearest_strong_dist_pts = np.nan
 
     return max_z, float(max_z_idx), nearest_strong_dist_pts, float(nearest_strong_idx)
 
