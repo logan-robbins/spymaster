@@ -282,49 +282,24 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 ## Feature Naming Convention
 
+**Features are dynamically defined by Avro contracts in `contracts/` directory.**
+
 ### bar5s Features (5-second bar aggregates)
 
 Pattern: `bar5s_<family>_<detail>_<suffix>`
 
-**Families (14 total):**
-| Family | Description |
-|--------|-------------|
-| `shape` | Order book shape metrics (imbalance, slopes, curvature) |
-| `deriv` | First/second derivatives of other features |
-| `flow` | Order flow dynamics (adds, removes, modifications) |
-| `setup` | Setup-specific features for retrieval |
-| `lvl` | Level-relative features (distance, velocity) |
-| `depth` | Book depth metrics per price level |
-| `cumul` | Cumulative sums (volume, imbalance) |
-| `state` | Market state (spread, mid, volatility) |
-| `wall` | Large resting order detection |
-| `meta` | Message counts (add, cancel, modify) |
-| `trade` | Trade execution metrics |
-| `ladder` | Price ladder structure |
-| `microprice` | Size-weighted microprice |
-| `midprice`| Mid price snapshot |
-
-**Suffixes:**
-- `_eob` — End-of-bar snapshot
-- `_twa` — Time-weighted average
-- `_sum` — Aggregated sum over bar
-- `_d1_wN` — First derivative over N bars
-- `_d2_wN` — Second derivative over N bars
+Features are defined in `contracts/silver/future/market_by_price_10_bar5s.avsc`
+- Load contract at runtime to see available families, details, and suffixes
+- Families include state, depth, ladder, shape, flow, trade, wall, etc.
+- Suffixes include `_eob` (end-of-bar), `_twa` (time-weighted), `_sum` (aggregated)
 
 ### rvol Features (Relative Volume)
 
 Pattern: `rvol_<category>_<metric>`
 
-**Categories (7 total):**
-| Category | Description |
-|----------|-------|-------------|
-| `flow` | Flow ratios and z-scores vs profile |
-| `trade` | Trade volume ratios/z-scores |
-| `lookback`| 7-day lookback comparisons |
-| `cumul` | Cumulative volume deviations |
-| `bid` | Bid/ask flow asymmetries |
-| `recent` | Recent vs lookback ratios |
-| `aggbuy` | Aggressive buy/sell asymmetry |
+Features are defined in `contracts/silver/future/volume_profiles.avsc`
+- Load contract at runtime to see available categories and metrics
+- Categories include flow ratios, trade volumes, lookback comparisons, etc.
 
 ### Metadata Fields (not features)
 
@@ -396,44 +371,7 @@ we are ONLY working on the futures (not futures_options)
 We are using dates from 2025-06-04 to 2025-12-30 
  
 
-```
-Bash(uv run python src/data_eng/analysis/v2/test_retrieval_evaluation.py 2>&1) timeout: 10m 0s
-  ⎿  ============================================================
-     LEVEL: PM_HIGH
-     ============================================================
-     … +176 lines (ctrl+o to expand)
-
-⏺ The pipelines are fully restored and working. The evaluation results match the previous run.
-
-  Summary:
-  - Silver pipeline completed: ESU5 (64 dates), ESZ5 (70 dates), ESH6 (16 dates)
-  - Gold pipeline completed: ESU5 (64 dates), ESZ5 (70 dates), ESH6 (16 dates)
-  - Retrieval evaluation test passes with same results:
-  ┌─────────┬──────────┬────────────────┬──────────┬───────┐
-  │  Level  │ Episodes │ Direction P@10 │ Baseline │ Lift  │
-  ├─────────┼──────────┼────────────────┼──────────┼───────┤
-  │ PM_HIGH │ 1335     │ 37.2%          │ 35.6%    │ 1.05x │
-  ├─────────┼──────────┼────────────────┼──────────┼───────┤
-  │ PM_LOW  │ 1052     │ 36.6%          │ 34.7%    │ 1.06x │
-  ├─────────┼──────────┼────────────────┼──────────┼───────┤
-  │ OR_HIGH │ 1385     │ 38.8%          │ 36.3%    │ 1.07x │
-  ├─────────┼──────────┼────────────────┼──────────┼───────┤
-  │ OR_LOW  │ 1002     │ 38.3%          │ 34.6%    │ 1.11x │
-  └─────────┴──────────┴────────────────┴──────────┴───────┘
-  What is next:
-  - Continue from where we left off - building on the unsupervised embeddings that show real signal (especially OR_LOW with 1.60x lift for WEAK_BREAK)
-  - The foundation is ready for supervised learning improvements
-
-✻ Cogitated for 56m 57s
-
-⏺ Background command "Run silver pipeline for ESU5" completed (exit code 0).
-
-⏺ Both background tasks completed successfully. The pipelines are fully restored and the retrieval evaluation confirms we're back to the working state with the same results as before.
-
-```
-
-So we need to continue from there. 
-
 **IMPORTANT** 
 - YOU ONLY work in the spymaster/ workspace. 
 - EVERY time you compress your context history you re-read DEV.md DO NOT FORGET THIS. 
+
