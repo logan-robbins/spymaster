@@ -15,7 +15,6 @@ except ImportError:
     faiss = None
 
 EPSILON = 1e-9
-TARGET_DIM = 256
 LEVEL_TYPES = ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW"]
 
 
@@ -106,20 +105,21 @@ class SetupRetriever:
         vector: np.ndarray,
         level_type: str,
     ) -> np.ndarray:
-        normalized = vector.copy()
         params = self.norm_params.get(level_type, {})
+        mean = np.array(params.get("mean", []), dtype=np.float64)
+        std = np.array(params.get("std", []), dtype=np.float64)
 
-        for i in range(len(vector)):
-            col = f"v_{i}"
-            if col in params:
-                mean = params[col]["mean"]
-                std = params[col]["std"]
-                normalized[i] = (normalized[i] - mean) / (std + EPSILON)
+        if mean.size == 0 or std.size == 0:
+            normalized = vector.astype(np.float32)
+        else:
+            if mean.size != vector.shape[0] or std.size != vector.shape[0]:
+                raise ValueError("Normalization params do not match query vector dimensions")
+            normalized = (vector - mean) / (std + EPSILON)
+            normalized = np.clip(normalized, -10, 10)
+            normalized = np.nan_to_num(normalized, nan=0.0, posinf=10.0, neginf=-10.0)
+            normalized = normalized.astype(np.float32)
 
-        normalized = np.clip(normalized, -10, 10)
-        normalized = np.nan_to_num(normalized, nan=0.0, posinf=10.0, neginf=-10.0)
-
-        return normalized.astype(np.float32)
+        return normalized
 
     def _get_metadata(
         self,
@@ -191,6 +191,8 @@ class SetupRetriever:
         else:
             normalized = self._normalize_vector(query_vector, level_type)
             query = normalized.reshape(1, -1)
+        if query.shape[1] != index.d:
+            raise ValueError("Query vector dimensions do not match index")
 
         k_fetch = min(k * 2, index.ntotal)
         if k_fetch == 0:
@@ -337,8 +339,13 @@ def main():
     indices_dir = repo_root / args.indices_dir
 
     retriever = SetupRetriever(indices_dir)
-
-    dummy_vector = np.random.randn(TARGET_DIM).astype(np.float64)
+    index = retriever.indices.get(args.level_type)
+    if index is None:
+        if retriever.indices:
+            index = next(iter(retriever.indices.values()))
+        else:
+            raise ValueError("No indices found to infer vector dimensions")
+    dummy_vector = np.random.randn(index.d).astype(np.float64)
 
     response = retriever.query(
         query_vector=dummy_vector,

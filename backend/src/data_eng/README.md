@@ -8,19 +8,12 @@ Market data pipeline for retrieving historically similar setups when price appro
 
 Two pipeline families:
 1. **LEVEL pipeline** — Features relative to specific price levels (PM_HIGH, PM_LOW, OR_HIGH, OR_LOW). Answers: "Will price bounce or break through this level?"
-2. **MARKET pipeline** — General market context from MBP-10 (futures) and Trades+NBBO+Statistics (options).
 
 Level features MUST be prefixed with level name to prevent duplication when vectors are combined.
 
 ## Last Schema P
 
 - ALWAYS refer to the pipeline definition to find the final Stage output Schema per layer. 
-
-
-**Final Output**: `gold.future.setup_vectors` — Contains labeled setup vectors ready for similarity search.
-
-**Volume Profile Table**:
-- Stage 4.5 outputs: `volume_profiles` — 48 rows per date (one per 5-minute bucket from 09:30-13:30)
 
 ## Module Structure
 
@@ -140,7 +133,7 @@ Key functions:
 Layers: `bronze`, `silver`, `gold`, `all`
 Product types: `future`, `future_option`
 
-Stages execute sequentially. Each stage's output becomes available for subsequent stages.
+Stages execute sequentially. Each stage's output becomes available for subsequent stages but the PIPLINE RUNS IN PARALLEL.
 
 ## CLI Usage
 
@@ -150,7 +143,7 @@ uv run python -m src.data_eng.runner \
   --product-type future \
   --layer silver \
   --symbol ESU5 \
-  --dates 2025-06-11:2025-08-30 \
+  --dates 2025-06-4:2025-09-30 \
   --workers 8
 
 uv run python -m src.data_eng.runner \
@@ -182,20 +175,10 @@ uv run python -m src.data_eng.runner \
   --dates 2025-09-01:2025-09-30 \
   --workers 8
 
-# Explicit start/end
-uv run python -m src.data_eng.runner \
-  --product-type future \
-  --layer gold \
-  --symbol ESU5 \
-  --start-date 2025-06-05 \
-  --end-date 2025-06-10 \
-  --workers 4
 ```
 
 Date options:
-- `--dt YYYY-MM-DD` — Single date
 - `--dates 2025-06-05:2025-06-10` — Range (colon-separated, inclusive)
-- `--dates 2025-06-05,2025-06-06` — Comma-separated list
 - `--start-date` + `--end-date` — Explicit range
 - `--workers N` — Parallel execution across dates
 
@@ -203,21 +186,15 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 ## Feature Naming Convention
 
-### bar5s Features (5-second bar aggregates)
+**Features are dynamically defined by Avro contracts in `contracts/` directory.**
+
 
 Pattern: `bar5s_<family>_<detail>_<suffix>`
 
-Features are dynamically defined in Avro contracts:
-- `contracts/silver/future/market_by_price_10_bar5s.avsc` - Core bar features
-- `contracts/silver/future/market_by_price_10_level_approach.avsc` - Level-relative features
-- Load contracts at runtime to discover available families, details, and suffixes
-
-### rvol Features (Relative Volume)
-
-Pattern: `rvol_<category>_<metric>`
-
-Features are dynamically defined in `contracts/silver/future/volume_profiles.avsc`
-- Load contract at runtime to discover available categories and metrics
+Features are defined in `contracts/silver/future/market_by_price_10_bar5s.avsc`
+- Load contract at runtime to see available families, details, and suffixes
+- Families include state, depth, ladder, shape, flow, trade, wall, etc.
+- Suffixes include `_eob` (end-of-bar), `_twa` (time-weighted), `_sum` (aggregated)
 
 ### Metadata Fields (not features)
 
@@ -272,17 +249,9 @@ Common constants are defined in stage files or dedicated constants modules:
 - `EPSILON = 1e-9` — Prevent division by zero
 - `POINT = 1`
 - `BAR_DURATION_NS = 5_000_000_000` — 5-second bar duration
-- `LOOKBACK_DAYS = 7` — Days of history for volume profiles
+- `LOOKBACK_DAYS = 3` — Days of history for volume profiles
 - `MIN_DAYS = 3` — Minimum days required for valid profile
-- `N_BUCKETS = 48` — 5-minute buckets per session (09:30-13:30)
-- `BARS_PER_BUCKET = 60` — 5-second bars per 5-minute bucket
 
 ## Performance Notes
 
 When adding many columns iteratively, use `df = df.copy()` at the start and consider batch assignment to avoid DataFrame fragmentation warnings. For large-scale column additions, pre-allocate columns or use `pd.concat(axis=1)`.
-
-# Analysis and Ablation
-
-  uv run python -m src.data_eng.analysis.principal_quant_feature_analysis \
-      --root-symbol ES \
-      --dates 2025-06-04:2025-09-30
