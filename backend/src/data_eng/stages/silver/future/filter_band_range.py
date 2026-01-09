@@ -5,19 +5,18 @@ import pandas as pd
 from ...base import Stage, StageIO
 
 
-class GoldFilterBandRange(Stage):
-    """Gold stage: nullify band features that reference prices outside MBP-10 range.
-    
-    - Input:  silver.future.market_by_price_10_bar5s
-    - Output: gold.future.market_by_price_10_bar5s_filtered
-    
-    For each 5-second bar, computes the visible MBP-10 range from deepest bid to deepest ask.
-    Sets all p3_5 and p5_10 band features to NaN if those bands extend beyond the visible range.
-    
-    MBP-10 typically covers ~2.5 points on each side for ES, so p3_5 (3-5 pts) and p5_10 (5-10 pts)
-    are often outside the visible book depth and should be nullified.
+class SilverFilterBandRange(Stage):
+    """Silver stage: nullify deep band features outside MBP-10 visible range.
+
+    - Input:  silver.future.market_by_price_10_bar5s (first 3 hours only)
+    - Output: silver.future.market_by_price_10_bar5s_filtered
+
+    Nullifies p3_5 and p5_10 band features since MBP-10 only shows 10 levels total
+    (~2.5 points range), making deeper band patterns unreliable.
+
+    After feature reduction, mainly affects normalized flow features in deep bands.
     """
-    
+
     COLUMNS_TO_DROP = [
         "bar5s_state_cdi_p3_5_twa",
         "bar5s_state_cdi_p3_5_eob",
@@ -91,10 +90,10 @@ class GoldFilterBandRange(Stage):
 
     def __init__(self) -> None:
         super().__init__(
-            name="gold_filter_band_range",
+            name="silver_filter_band_range",
             io=StageIO(
                 inputs=["silver.future.market_by_price_10_bar5s"],
-                output="gold.future.market_by_price_10_bar5s_filtered",
+                output="silver.future.market_by_price_10_bar5s_filtered",
             ),
         )
 
@@ -106,4 +105,3 @@ class GoldFilterBandRange(Stage):
         df_out = df.drop(columns=cols_to_drop)
 
         return df_out
-

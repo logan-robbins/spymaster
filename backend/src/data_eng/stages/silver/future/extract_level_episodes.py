@@ -107,7 +107,7 @@ class SilverExtractLevelEpisodes(Stage):
         super().__init__(
             name="silver_extract_level_episodes",
             io=StageIO(
-                inputs=["silver.future.market_by_price_10_bar5s"],
+                inputs=["silver.future.market_by_price_10_bar5s_filtered"],
                 output="silver.future.market_by_price_10_pm_high_episodes",
             ),
         )

@@ -23,26 +23,26 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future.build_volume_profiles import SilverBuildVolumeProfiles
         from .stages.silver.future.extract_level_episodes import SilverExtractLevelEpisodes
         from .stages.silver.future.compute_approach_features import SilverComputeApproachFeatures
-        from .stages.gold.future.filter_first3h import GoldFilterFirst3Hours
-        from .stages.gold.future.filter_band_range import GoldFilterBandRange
+        from .stages.silver.future.filter_first3h import SilverFilterFirst3Hours
+        from .stages.silver.future.filter_band_range import SilverFilterBandRange
         from .stages.gold.future.extract_setup_vectors import GoldExtractSetupVectors
 
         if layer == "bronze":
             return [BronzeProcessDBN()]
         elif layer == "silver":
-            return [SilverAddSessionLevels(), SilverComputeBar5sFeatures(), SilverBuildVolumeProfiles(), SilverExtractLevelEpisodes(), SilverComputeApproachFeatures()]
+            return [SilverAddSessionLevels(), SilverFilterFirst3Hours(), SilverComputeBar5sFeatures(), SilverFilterBandRange(), SilverBuildVolumeProfiles(), SilverExtractLevelEpisodes(), SilverComputeApproachFeatures()]
         elif layer == "gold":
-            return [GoldFilterFirst3Hours(), GoldFilterBandRange(), GoldExtractSetupVectors()]
+            return [GoldExtractSetupVectors()]
         elif layer == "all":
             return [
                 BronzeProcessDBN(),
-                SilverAddSessionLevels(),
+                SilverAddSessionLevels(),       # Needs pre-market data for PM_HIGH/PM_LOW
+                SilverFilterFirst3Hours(),      # Filter to first 3 hours RTH (after session levels computed)
                 SilverComputeBar5sFeatures(),
-                SilverBuildVolumeProfiles(),
+                SilverFilterBandRange(),        # Data quality filter
+                SilverBuildVolumeProfiles(),    # Volume context
                 SilverExtractLevelEpisodes(),
                 SilverComputeApproachFeatures(),
-                GoldFilterFirst3Hours(),
-                GoldFilterBandRange(),
                 GoldExtractSetupVectors(),
             ]
     

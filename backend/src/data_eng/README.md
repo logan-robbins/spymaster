@@ -207,45 +207,17 @@ Bronze uses root symbol (ES), Silver/Gold use specific contract (ESU5).
 
 Pattern: `bar5s_<family>_<detail>_<suffix>`
 
-**Families (14 total):**
-| Family | Description |
-|--------|-------------|
-| `shape` | Order book shape metrics (imbalance, slopes, curvature) |
-| `deriv` | First/second derivatives of other features |
-| `flow` | Order flow dynamics (adds, removes, modifications) |
-| `setup` | Setup-specific features for retrieval |
-| `lvl` | Level-relative features (distance, velocity) |
-| `depth` | Book depth metrics per price level |
-| `cumul` | Cumulative sums (volume, imbalance) |
-| `state` | Market state (spread, mid, volatility) |
-| `wall` | Large resting order detection |
-| `meta` | Message counts (add, cancel, modify) |
-| `trade` | Trade execution metrics |
-| `ladder` | Price ladder structure |
-| `microprice` | Size-weighted microprice |
-| `midprice`| Mid price snapshot |
-
-**Suffixes:**
-- `_eob` — End-of-bar snapshot
-- `_twa` — Time-weighted average
-- `_sum` — Aggregated sum over bar
-- `_d1_wN` — First derivative over N bars
-- `_d2_wN` — Second derivative over N bars
+Features are dynamically defined in Avro contracts:
+- `contracts/silver/future/market_by_price_10_bar5s.avsc` - Core bar features
+- `contracts/silver/future/market_by_price_10_level_approach.avsc` - Level-relative features
+- Load contracts at runtime to discover available families, details, and suffixes
 
 ### rvol Features (Relative Volume)
 
 Pattern: `rvol_<category>_<metric>`
 
-**Categories (7 total):**
-| Category | Description |
-|----------|-------|-------------|
-| `flow` | Flow ratios and z-scores vs profile |
-| `trade` | Trade volume ratios/z-scores |
-| `lookback`| 7-day lookback comparisons |
-| `cumul` | Cumulative volume deviations |
-| `bid` | Bid/ask flow asymmetries |
-| `recent` | Recent vs lookback ratios |
-| `aggbuy` | Aggressive buy/sell asymmetry |
+Features are dynamically defined in `contracts/silver/future/volume_profiles.avsc`
+- Load contract at runtime to discover available categories and metrics
 
 ### Metadata Fields (not features)
 

@@ -60,7 +60,7 @@ class SilverBuildVolumeProfiles(Stage):
         super().__init__(
             name="silver_build_volume_profiles",
             io=StageIO(
-                inputs=["silver.future.market_by_price_10_bar5s"],
+                inputs=["silver.future.market_by_price_10_bar5s_filtered"],
                 output="silver.future.volume_profiles",
             ),
         )

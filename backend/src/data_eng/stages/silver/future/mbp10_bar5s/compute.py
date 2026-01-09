@@ -196,17 +196,13 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         wall_bid = compute_wall_features(eob_bid_sz, eob_bid_px, p_ref_eob, True)
         wall_ask = compute_wall_features(eob_ask_sz, eob_ask_px, p_ref_eob, False)
 
+        # Keep ONLY level-relative activity patterns - eliminate all raw quantities
         bar_dict = {
             "bar_ts": bar_ts,
             "symbol": symbol,
             "bar5s_microprice_eob": p_ref_eob,
             "bar5s_midprice_eob": (eob_bid_px[0] + eob_ask_px[0]) / 2.0,
-            "bar5s_meta_msg_cnt_sum": bar_meta_msg_cnt[bar_idx],
-            "bar5s_meta_clear_cnt_sum": bar_meta_clear_cnt[bar_idx],
-            "bar5s_meta_add_cnt_sum": bar_meta_add_cnt[bar_idx],
-            "bar5s_meta_cancel_cnt_sum": bar_meta_cancel_cnt[bar_idx],
-            "bar5s_meta_modify_cnt_sum": bar_meta_modify_cnt[bar_idx],
-            "bar5s_meta_trade_cnt_sum": bar_meta_trade_cnt[bar_idx],
+            # Keep: Relative state patterns (imbalances, spreads)
             "bar5s_state_spread_pts_twa": bar_twa_spread_pts[bar_idx],
             "bar5s_state_spread_pts_eob": eob_spread_pts,
             "bar5s_state_obi0_twa": bar_twa_obi0[bar_idx],
@@ -215,50 +211,35 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
             "bar5s_state_obi10_eob": eob_obi10,
         }
 
+        # Keep: Cross-depth imbalances (relative patterns)
         for band_idx, band in enumerate(BANDS):
             bar_dict[f"bar5s_state_cdi_{band}_twa"] = bar_twa_cdi[bar_idx, band_idx]
             bar_dict[f"bar5s_state_cdi_{band}_eob"] = eob_cdi[band_idx]
 
-        bar_dict["bar5s_depth_bid10_qty_twa"] = bar_twa_bid10_qty[bar_idx]
-        bar_dict["bar5s_depth_bid10_qty_eob"] = eob_bid10_qty
-        bar_dict["bar5s_depth_ask10_qty_twa"] = bar_twa_ask10_qty[bar_idx]
-        bar_dict["bar5s_depth_ask10_qty_eob"] = eob_ask10_qty
-
-        for band_idx, band in enumerate(BANDS):
-            bar_dict[f"bar5s_depth_below_{band}_qty_twa"] = bar_twa_below_qty[bar_idx, band_idx]
-            bar_dict[f"bar5s_depth_below_{band}_qty_eob"] = eob_below_qty[band_idx]
-            bar_dict[f"bar5s_depth_above_{band}_qty_twa"] = bar_twa_above_qty[bar_idx, band_idx]
-            bar_dict[f"bar5s_depth_above_{band}_qty_eob"] = eob_above_qty[band_idx]
-
+        # Keep: Fractional depth patterns (relative)
         for band_idx, band in enumerate(BANDS):
             bar_dict[f"bar5s_depth_below_{band}_frac_twa"] = bar_twa_below_frac[bar_idx, band_idx]
             bar_dict[f"bar5s_depth_below_{band}_frac_eob"] = eob_below_frac[band_idx]
             bar_dict[f"bar5s_depth_above_{band}_frac_twa"] = bar_twa_above_frac[bar_idx, band_idx]
             bar_dict[f"bar5s_depth_above_{band}_frac_eob"] = eob_above_frac[band_idx]
 
+        # Keep: Raw depth quantities needed for derivative calculations (velocity/acceleration patterns)
+        bar_dict["bar5s_depth_bid10_qty_eob"] = eob_bid10_qty  # Used for derivatives in approach features
+        bar_dict["bar5s_depth_ask10_qty_eob"] = eob_ask10_qty  # Used for derivatives in approach features
+        bar_dict["bar5s_depth_below_p0_1_qty_eob"] = eob_below_qty[BANDS.index("p0_1")]  # Used for derivatives
+        bar_dict["bar5s_depth_above_p0_1_qty_eob"] = eob_above_qty[BANDS.index("p0_1")]  # Used for derivatives
+
+        # Keep: Ladder gaps (relative price patterns)
         bar_dict["bar5s_ladder_ask_gap_max_pts_eob"] = ask_gap_max
         bar_dict["bar5s_ladder_ask_gap_mean_pts_eob"] = ask_gap_mean
         bar_dict["bar5s_ladder_bid_gap_max_pts_eob"] = bid_gap_max
         bar_dict["bar5s_ladder_bid_gap_mean_pts_eob"] = bid_gap_mean
 
-        for i in range(10):
-            bar_dict[f"bar5s_shape_bid_px_l{i:02d}_eob"] = float(eob_bid_px[i])
-        
-        for i in range(10):
-            bar_dict[f"bar5s_shape_ask_px_l{i:02d}_eob"] = float(eob_ask_px[i])
-        
-        for i in range(10):
-            bar_dict[f"bar5s_shape_bid_sz_l{i:02d}_eob"] = float(eob_bid_sz[i])
-        
-        for i in range(10):
-            bar_dict[f"bar5s_shape_ask_sz_l{i:02d}_eob"] = float(eob_ask_sz[i])
+        # Keep: Level 0 raw sizes (needed for microprice TWAP calculations in approach features)
+        bar_dict["bar5s_shape_bid_sz_l00_eob"] = float(eob_bid_sz[0])  # Required for microprice calc
+        bar_dict["bar5s_shape_ask_sz_l00_eob"] = float(eob_ask_sz[0])  # Required for microprice calc
 
-        for i in range(10):
-            bar_dict[f"bar5s_shape_bid_ct_l{i:02d}_eob"] = float(eob_bid_ct[i])
-        
-        for i in range(10):
-            bar_dict[f"bar5s_shape_ask_ct_l{i:02d}_eob"] = float(eob_ask_ct[i])
-
+        # Keep: Fractional activity patterns for order book shape analysis
         for i in range(10):
             bar_dict[f"bar5s_shape_bid_sz_frac_l{i:02d}_eob"] = float(bid_sz_frac[i])
             bar_dict[f"bar5s_shape_ask_sz_frac_l{i:02d}_eob"] = float(ask_sz_frac[i])
@@ -267,20 +248,10 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
             bar_dict[f"bar5s_shape_bid_ct_frac_l{i:02d}_eob"] = float(bid_ct_frac[i])
             bar_dict[f"bar5s_shape_ask_ct_frac_l{i:02d}_eob"] = float(ask_ct_frac[i])
 
+        # Eliminate: Raw flow volumes and counts - keep only normalized activity patterns
         for side_idx, side_str in enumerate(["bid", "ask"]):
             for band_idx, band in enumerate(BANDS):
-                bar_dict[f"bar5s_flow_add_vol_{side_str}_{band}_sum"] = bar_flow_add_vol[bar_idx, side_idx, band_idx]
-                bar_dict[f"bar5s_flow_rem_vol_{side_str}_{band}_sum"] = bar_flow_rem_vol[bar_idx, side_idx, band_idx]
-                bar_dict[f"bar5s_flow_net_vol_{side_str}_{band}_sum"] = bar_flow_net_vol[bar_idx, side_idx, band_idx]
-
-        for side_idx, side_str in enumerate(["bid", "ask"]):
-            for band_idx, band in enumerate(BANDS):
-                bar_dict[f"bar5s_flow_cnt_add_{side_str}_{band}_sum"] = bar_flow_cnt_add[bar_idx, side_idx, band_idx]
-                bar_dict[f"bar5s_flow_cnt_cancel_{side_str}_{band}_sum"] = bar_flow_cnt_cancel[bar_idx, side_idx, band_idx]
-                bar_dict[f"bar5s_flow_cnt_modify_{side_str}_{band}_sum"] = bar_flow_cnt_modify[bar_idx, side_idx, band_idx]
-
-        for side_idx, side_str in enumerate(["bid", "ask"]):
-            for band_idx, band in enumerate(BANDS):
+                # Keep only normalized net volume (activity pattern, not raw quantity)
                 net_vol = bar_flow_net_vol[bar_idx, side_idx, band_idx]
                 if side_str == "bid":
                     twa_qty = bar_twa_below_qty[bar_idx, band_idx]
@@ -289,10 +260,10 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
                 norm = net_vol / max(twa_qty, 1.0)
                 bar_dict[f"bar5s_flow_net_volnorm_{side_str}_{band}_sum"] = norm
 
-        bar_dict["bar5s_trade_cnt_sum"] = bar_trade_cnt[bar_idx]
-        bar_dict["bar5s_trade_vol_sum"] = bar_trade_vol[bar_idx]
-        bar_dict["bar5s_trade_aggbuy_vol_sum"] = bar_trade_aggbuy_vol[bar_idx]
-        bar_dict["bar5s_trade_aggsell_vol_sum"] = bar_trade_aggsell_vol[bar_idx]
+        # Eliminate: Raw trade volumes/counts - keep only signed volume pattern (activity direction)
+        # Keep: Essential features for episode detection and outcome calculation
+        bar_dict["bar5s_trade_cnt_sum"] = bar_trade_cnt[bar_idx]  # Required for episode trigger logic
+        bar_dict["bar5s_trade_vol_sum"] = bar_trade_vol[bar_idx]  # Required for VWAP outcome calculation
         bar_dict["bar5s_trade_signed_vol_sum"] = bar_trade_aggbuy_vol[bar_idx] - bar_trade_aggsell_vol[bar_idx]
 
         bar_dict["bar5s_wall_bid_maxz_eob"] = wall_bid[0]
