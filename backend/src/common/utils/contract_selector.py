@@ -13,11 +13,13 @@ Contract selection logic:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import glob
 from typing import Dict, Optional
 
 import duckdb
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -164,6 +166,70 @@ class ContractSelector:
             runner_up_symbol=runner_up_symbol,
             runner_up_ratio=runner_up_ratio
         )
+
+    def select_front_month_mbp10(
+        self,
+        date: str,
+        metric: str = "trade_count",
+        rth_hours: int = 3
+    ) -> ContractSelection:
+        base_dir = self.bronze_root / "source=databento" / "product_type=future"
+        pattern = str(base_dir / "symbol=*" / "table=market_by_price_10" / f"dt={date}" / "*.parquet")
+
+        parquet_files = glob.glob(pattern)
+        if not parquet_files:
+            raise FileNotFoundError(f"No MBP-10 data for {date}: {pattern}")
+
+        tz = ZoneInfo("America/New_York")
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        start_local = datetime(date_obj.year, date_obj.month, date_obj.day, 9, 30, tzinfo=tz)
+        end_local = start_local + timedelta(hours=rth_hours)
+        start_ns = int(start_local.astimezone(timezone.utc).timestamp() * 1e9)
+        end_ns = int(end_local.astimezone(timezone.utc).timestamp() * 1e9)
+
+        if metric == "volume":
+            metric_col = "SUM(size)"
+        else:
+            metric_col = "COUNT(*)"
+
+        query = f"""
+            SELECT
+                symbol,
+                {metric_col} AS metric_value
+            FROM read_parquet('{pattern}', hive_partitioning=true)
+            WHERE action = 'T'
+              AND ts_event >= {start_ns}
+              AND ts_event < {end_ns}
+            GROUP BY symbol
+            ORDER BY metric_value DESC
+        """
+
+        df = self.duckdb.execute(query).fetchdf()
+        if df.empty:
+            raise ValueError(f"No MBP-10 trade activity for {date}")
+
+        total_metric = df["metric_value"].sum()
+        front_month = df.iloc[0]["symbol"]
+        front_month_metric = df.iloc[0]["metric_value"]
+        dominance = front_month_metric / total_metric if total_metric > 0 else 0.0
+
+        runner_up_symbol = None
+        runner_up_ratio = None
+        if len(df) > 1:
+            runner_up_symbol = df.iloc[1]["symbol"]
+            runner_up_ratio = df.iloc[1]["metric_value"] / total_metric
+
+        roll_contaminated = dominance < self.dominance_threshold
+
+        return ContractSelection(
+            date=date,
+            front_month_symbol=front_month,
+            dominance_ratio=dominance,
+            roll_contaminated=roll_contaminated,
+            total_contracts=len(df),
+            runner_up_symbol=runner_up_symbol,
+            runner_up_ratio=runner_up_ratio
+        )
     
     def select_batch(
         self,
@@ -188,4 +254,3 @@ class ContractSelector:
                 # Log but continue batch
                 print(f"WARNING: {date}: {e}")
         return results
-
