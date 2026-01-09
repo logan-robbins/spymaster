@@ -9,7 +9,7 @@ from .mbp10_bar5s import compute_bar5s_features
 class SilverComputeBar5sFeatures(Stage):
     """Silver stage: compute 5-second bar aggregated features from MBP-10 tick data.
     
-    - Input:  silver.future.market_by_price_10
+    - Input:  silver.future.market_by_price_10_session_levels
     - Output: silver.future.market_by_price_10_bar5s
     
     Aggregates tick-level MBP-10 events into 5-second bars with 233 features covering:
@@ -27,7 +27,7 @@ class SilverComputeBar5sFeatures(Stage):
         super().__init__(
             name="silver_compute_bar5s_features",
             io=StageIO(
-                inputs=["silver.future.market_by_price_10"],
+                inputs=["silver.future.market_by_price_10_session_levels"],
                 output="silver.future.market_by_price_10_bar5s",
             ),
         )
