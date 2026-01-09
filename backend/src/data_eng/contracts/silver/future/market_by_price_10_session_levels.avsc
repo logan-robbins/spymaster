@@ -1,7 +1,7 @@
 {
   "namespace": "com.marketdata.silver",
   "type": "record",
-  "name": "MarketByPrice10WithLevels",
+  "name": "MarketByPrice10SessionLevels",
   "doc": "Silver MBP-10 with ts_event_est and session levels (Pre-market, Opening Range).",
   "fields": [
     {

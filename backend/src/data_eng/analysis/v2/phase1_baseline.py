@@ -164,7 +164,7 @@ def find_touches_for_level(
 
 
 def process_date(lake_root: Path, symbol: str, dt: str, params: OutcomeParams) -> List[Touch]:
-    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels/dt={dt}"
+    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_session_levels/dt={dt}"
 
     if not data_path.exists():
         print(f"  Skipping {dt}: no data")

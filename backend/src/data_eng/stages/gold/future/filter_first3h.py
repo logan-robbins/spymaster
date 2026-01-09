@@ -8,7 +8,7 @@ from ...base import Stage, StageIO
 class GoldFilterFirst3Hours(Stage):
     """Gold stage: keep only the first 3 hours of RTH (09:30–12:30 NY).
 
-    - Input:  silver.future.market_by_price_10_with_levels
+    - Input:  silver.future.market_by_price_10_session_levels
     - Output: gold.future.market_by_price_10_first3h
 
     Filtering is based on `ts_event_est` (America/New_York).
@@ -18,7 +18,7 @@ class GoldFilterFirst3Hours(Stage):
         super().__init__(
             name="gold_filter_first3hours",
             io=StageIO(
-                inputs=["silver.future.market_by_price_10_with_levels"],
+                inputs=["silver.future.market_by_price_10_session_levels"],
                 output="gold.future.market_by_price_10_first3h",
             ),
         )

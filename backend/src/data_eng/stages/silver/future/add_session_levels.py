@@ -9,7 +9,7 @@ class SilverAddSessionLevels(Stage):
     """Silver stage: add Pre-market and Opening Range high/low levels.
 
     - Input:  silver.future.market_by_price_10
-    - Output: silver.future.market_by_price_10_with_levels
+    - Output: silver.future.market_by_price_10_session_levels
 
     Adds 4 columns (scalar values broadcast to all rows):
     - pm_high: Pre-market high (05:00-09:30 EST)
@@ -23,7 +23,7 @@ class SilverAddSessionLevels(Stage):
             name="silver_add_session_levels",
             io=StageIO(
                 inputs=["silver.future.market_by_price_10"],
-                output="silver.future.market_by_price_10_with_levels",
+                output="silver.future.market_by_price_10_session_levels",
             ),
         )
 

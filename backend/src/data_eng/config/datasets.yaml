@@ -34,11 +34,11 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future/market_by_price_10.avsc
 
-  silver.future.market_by_price_10_with_levels:
-    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels
+  silver.future.market_by_price_10_session_levels:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_session_levels
     format: parquet
     partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future/market_by_price_10_with_levels.avsc
+    contract: src/data_eng/contracts/silver/future/market_by_price_10_session_levels.avsc
 
   silver.future.market_by_price_10_bar5s:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_bar5s

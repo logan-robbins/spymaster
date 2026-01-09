@@ -205,7 +205,7 @@ def process_date(
     symbol: str,
     dt: str,
 ) -> List[Touch]:
-    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels/dt={dt}"
+    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_session_levels/dt={dt}"
 
     if not data_path.exists():
         return []
@@ -472,7 +472,7 @@ def main():
                 all_touches.extend(touches)
 
                 if not candle_samples:
-                    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels/dt={dt}"
+                    data_path = lake_root / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_session_levels/dt={dt}"
                     df_raw = pd.read_parquet(data_path)
                     trades_df = df_raw[df_raw["action"] == "T"].copy()
                     date_pd = pd.Timestamp(dt, tz="America/New_York").normalize()

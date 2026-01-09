@@ -17,7 +17,7 @@ from data_eng.stages.silver.future.mbp10_bar5s.level_relative import (
 def load_bar5s_with_levels(symbol: str, dt: str) -> pd.DataFrame:
     lake_path = Path(__file__).parents[4] / "lake"
     bar5s_path = lake_path / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_bar5s/dt={dt}"
-    levels_path = lake_path / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels/dt={dt}"
+    levels_path = lake_path / f"silver/product_type=future/symbol={symbol}/table=market_by_price_10_session_levels/dt={dt}"
 
     bar5s_files = list(bar5s_path.glob("*.parquet"))
     levels_files = list(levels_path.glob("*.parquet"))
