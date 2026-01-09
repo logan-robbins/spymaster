@@ -273,6 +273,8 @@ def process_all_ticks(
     bar_trade_vol = np.zeros(n_bars, dtype=np.float64)
     bar_trade_aggbuy_vol = np.zeros(n_bars, dtype=np.float64)
     bar_trade_aggsell_vol = np.zeros(n_bars, dtype=np.float64)
+    bar_trade_last_px = np.full(n_bars, np.nan, dtype=np.float64)
+    bar_trade_last_ts = np.full(n_bars, -1, dtype=np.int64)
 
     bar_flow_add_vol = np.zeros((n_bars, 2, N_BANDS), dtype=np.float64)
     bar_flow_rem_vol = np.zeros((n_bars, 2, N_BANDS), dtype=np.float64)
@@ -414,6 +416,8 @@ def process_all_ticks(
             bar_meta_trade_cnt[bar_idx] += 1
             bar_trade_cnt[bar_idx] += 1
             bar_trade_vol[bar_idx] += sz
+            bar_trade_last_px[bar_idx] = px
+            bar_trade_last_ts[bar_idx] = ts
             if sd == SIDE_ASK:
                 bar_trade_aggsell_vol[bar_idx] += sz
             elif sd == SIDE_BID:
@@ -441,6 +445,7 @@ def process_all_ticks(
         bar_meta_msg_cnt, bar_meta_clear_cnt, bar_meta_add_cnt, bar_meta_cancel_cnt,
         bar_meta_modify_cnt, bar_meta_trade_cnt,
         bar_trade_cnt, bar_trade_vol, bar_trade_aggbuy_vol, bar_trade_aggsell_vol,
+        bar_trade_last_px, bar_trade_last_ts,
         bar_flow_add_vol, bar_flow_rem_vol, bar_flow_net_vol,
         bar_flow_cnt_add, bar_flow_cnt_cancel, bar_flow_cnt_modify,
         bar_twa_spread_pts, bar_twa_obi0, bar_twa_obi10, bar_twa_cdi,

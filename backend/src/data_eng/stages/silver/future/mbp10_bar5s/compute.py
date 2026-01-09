@@ -99,6 +99,8 @@ def fill_empty_bar(bar_ts: int, symbol: str, prev_bar: dict) -> dict:
         elif key.endswith("_twa"):
             eob_key = key.replace("_twa", "_eob")
             empty_bar[key] = prev_bar.get(eob_key, 0.0)
+        elif key in ("bar5s_trade_last_px", "bar5s_trade_last_ts"):
+            empty_bar[key] = np.nan if key.endswith("_px") else -1
         else:
             empty_bar[key] = value
 
@@ -135,6 +137,7 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         bar_meta_msg_cnt, bar_meta_clear_cnt, bar_meta_add_cnt, bar_meta_cancel_cnt,
         bar_meta_modify_cnt, bar_meta_trade_cnt,
         bar_trade_cnt, bar_trade_vol, bar_trade_aggbuy_vol, bar_trade_aggsell_vol,
+        bar_trade_last_px, bar_trade_last_ts,
         bar_flow_add_vol, bar_flow_rem_vol, bar_flow_net_vol,
         bar_flow_cnt_add, bar_flow_cnt_cancel, bar_flow_cnt_modify,
         bar_twa_spread_pts, bar_twa_obi0, bar_twa_obi10, bar_twa_cdi,
@@ -265,6 +268,8 @@ def compute_bar5s_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         bar_dict["bar5s_trade_cnt_sum"] = bar_trade_cnt[bar_idx]  # Required for episode trigger logic
         bar_dict["bar5s_trade_vol_sum"] = bar_trade_vol[bar_idx]  # Required for VWAP outcome calculation
         bar_dict["bar5s_trade_signed_vol_sum"] = bar_trade_aggbuy_vol[bar_idx] - bar_trade_aggsell_vol[bar_idx]
+        bar_dict["bar5s_trade_last_px"] = bar_trade_last_px[bar_idx]
+        bar_dict["bar5s_trade_last_ts"] = int(bar_trade_last_ts[bar_idx])
 
         bar_dict["bar5s_wall_bid_maxz_eob"] = wall_bid[0]
         bar_dict["bar5s_wall_ask_maxz_eob"] = wall_ask[0]

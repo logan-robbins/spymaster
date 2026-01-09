@@ -2,7 +2,7 @@
   "namespace": "com.marketdata.gold",
   "type": "record",
   "name": "SetupVectors",
-  "doc": "Setup vectors extracted at episode trigger bars. Each row is one episode with a 256-dim vector.",
+  "doc": "Setup vectors extracted at trigger candles. Each row is one episode with a 256-dim vector.",
   "fields": [
     {
       "name": "vector_id",
@@ -35,9 +35,9 @@
       "doc": "Price of the level."
     },
     {
-      "name": "trigger_bar_ts",
+      "name": "trigger_candle_ts",
       "type": "long",
-      "doc": "Trigger bar timestamp (ns)."
+      "doc": "Trigger candle timestamp (ns)."
     },
     {
       "name": "approach_direction",
@@ -47,7 +47,7 @@
     {
       "name": "outcome",
       "type": "string",
-      "doc": "STRONG_BREAK, WEAK_BREAK, CHOP, WEAK_BOUNCE, STRONG_BOUNCE."
+      "doc": "BREAK, REJECT, CHOP."
     },
     {
       "name": "outcome_score",
@@ -68,6 +68,36 @@
       "name": "wall_imbal_at_trigger",
       "type": "double",
       "doc": "Wall imbalance at trigger."
+    },
+    {
+      "name": "front_month_symbol",
+      "type": "string",
+      "doc": "Front-month symbol for the date."
+    },
+    {
+      "name": "dominance_ratio",
+      "type": "double",
+      "doc": "Front-month dominance ratio."
+    },
+    {
+      "name": "roll_contaminated",
+      "type": "boolean",
+      "doc": "True if dominance below threshold."
+    },
+    {
+      "name": "runner_up_symbol",
+      "type": "string",
+      "doc": "Runner-up symbol for the date."
+    },
+    {
+      "name": "runner_up_ratio",
+      "type": "double",
+      "doc": "Runner-up ratio."
+    },
+    {
+      "name": "is_front_month",
+      "type": "boolean",
+      "doc": "True if vector symbol equals front-month."
     },
     {
       "name": "v_0",

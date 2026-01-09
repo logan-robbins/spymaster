@@ -1,0 +1,348 @@
+{
+  "namespace": "com.marketdata.silver",
+  "type": "record",
+  "name": "MarketByPrice10LevelApproach2m",
+  "doc": "2-minute candle approach features with microstructure signatures.",
+  "fields": [
+    {
+      "name": "bar_ts",
+      "type": "long",
+      "doc": "2-minute candle start timestamp in nanoseconds (UTC)."
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Instrument symbol."
+    },
+    {
+      "name": "episode_id",
+      "type": "string",
+      "doc": "Unique episode identifier."
+    },
+    {
+      "name": "touch_id",
+      "type": "string",
+      "doc": "Alias for episode_id."
+    },
+    {
+      "name": "level_type",
+      "type": "string",
+      "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."
+    },
+    {
+      "name": "level_price",
+      "type": "double",
+      "doc": "Level price in points."
+    },
+    {
+      "name": "trigger_candle_ts",
+      "type": "long",
+      "doc": "Trigger candle timestamp in nanoseconds."
+    },
+    {
+      "name": "bar_index_in_episode",
+      "type": "long",
+      "doc": "0-indexed candle position within episode."
+    },
+    {
+      "name": "bar_index_in_touch",
+      "type": "long",
+      "doc": "Alias for bar_index_in_episode."
+    },
+    {
+      "name": "bars_to_trigger",
+      "type": "long",
+      "doc": "Negative = before trigger, 0 = trigger, positive = after."
+    },
+    {
+      "name": "is_pre_trigger",
+      "type": "boolean",
+      "doc": "True if candle is before trigger."
+    },
+    {
+      "name": "is_trigger_candle",
+      "type": "boolean",
+      "doc": "True if candle is trigger."
+    },
+    {
+      "name": "is_post_trigger",
+      "type": "boolean",
+      "doc": "True if candle is after trigger."
+    },
+    {
+      "name": "approach_direction",
+      "type": "long",
+      "doc": "+1 = from below, -1 = from above."
+    },
+    {
+      "name": "is_standard_approach",
+      "type": "boolean",
+      "doc": "True if testing HIGH from below or LOW from above."
+    },
+    {
+      "name": "outcome",
+      "type": "string",
+      "doc": "BREAK, REJECT, CHOP."
+    },
+    {
+      "name": "outcome_score",
+      "type": "double",
+      "doc": "Signed outcome magnitude in ticks."
+    },
+    {
+      "name": "is_premarket_context_truncated",
+      "type": "boolean",
+      "doc": "True if pre-window starts before RTH open."
+    },
+    {
+      "name": "bar2m_touched_in_zone",
+      "type": "boolean",
+      "doc": "Any trade close in zone during candle."
+    },
+    {
+      "name": "bar2m_close_in_zone",
+      "type": "boolean",
+      "doc": "Last trade close in candle is inside zone."
+    },
+    {
+      "name": "bar2m_first_touch_offset",
+      "type": "long",
+      "doc": "Index of first in-zone trade in candle, -1 if none."
+    },
+    {
+      "name": "bar2m_time_in_zone_frac",
+      "type": "double",
+      "doc": "Fraction of micro bars in zone."
+    },
+    {
+      "name": "bar2m_time_far_side_frac",
+      "type": "double",
+      "doc": "Fraction of micro bars on far side (u > 0)."
+    },
+    {
+      "name": "bar2m_late_time_far_side_frac",
+      "type": "double",
+      "doc": "Late-segment fraction on far side."
+    },
+    {
+      "name": "bar2m_close_side",
+      "type": "long",
+      "doc": "Sign of oriented close distance at candle close."
+    },
+    {
+      "name": "bar2m_sig_u_start",
+      "type": "double",
+      "doc": "Start value of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_end",
+      "type": "double",
+      "doc": "End value of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_min",
+      "type": "double",
+      "doc": "Min value of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_max",
+      "type": "double",
+      "doc": "Max value of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_mean",
+      "type": "double",
+      "doc": "Mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_std",
+      "type": "double",
+      "doc": "Std of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_slope",
+      "type": "double",
+      "doc": "Slope of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_energy",
+      "type": "double",
+      "doc": "Energy of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_sign_flip_cnt",
+      "type": "double",
+      "doc": "Sign flip count of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_burst_frac",
+      "type": "double",
+      "doc": "Burst fraction of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_mean_early",
+      "type": "double",
+      "doc": "Early mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_mean_mid",
+      "type": "double",
+      "doc": "Mid mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_mean_late",
+      "type": "double",
+      "doc": "Late mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_energy_early",
+      "type": "double",
+      "doc": "Early energy of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_energy_late",
+      "type": "double",
+      "doc": "Late energy of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_late_minus_early",
+      "type": "double",
+      "doc": "Late minus early mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_u_late_over_early",
+      "type": "double",
+      "doc": "Late over early mean of oriented distance signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_start",
+      "type": "double",
+      "doc": "Start value of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_end",
+      "type": "double",
+      "doc": "End value of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_min",
+      "type": "double",
+      "doc": "Min value of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_max",
+      "type": "double",
+      "doc": "Max value of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_mean",
+      "type": "double",
+      "doc": "Mean of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_std",
+      "type": "double",
+      "doc": "Std of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_slope",
+      "type": "double",
+      "doc": "Slope of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_energy",
+      "type": "double",
+      "doc": "Energy of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_sign_flip_cnt",
+      "type": "double",
+      "doc": "Sign flip count of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_burst_frac",
+      "type": "double",
+      "doc": "Burst fraction of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_mean_early",
+      "type": "double",
+      "doc": "Early mean of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_mean_mid",
+      "type": "double",
+      "doc": "Mid mean of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_mean_late",
+      "type": "double",
+      "doc": "Late mean of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_energy_early",
+      "type": "double",
+      "doc": "Early energy of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_energy_late",
+      "type": "double",
+      "doc": "Late energy of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_late_minus_early",
+      "type": "double",
+      "doc": "Late minus early mean of pressure signal."
+    },
+    {
+      "name": "bar2m_sig_pressure_late_over_early",
+      "type": "double",
+      "doc": "Late over early mean of pressure signal."
+    },
+    {
+      "name": "bar2m_comp_obi0_lin_mean",
+      "type": "double",
+      "doc": "Mean linearized OBI0."
+    },
+    {
+      "name": "bar2m_comp_obi10_lin_mean",
+      "type": "double",
+      "doc": "Mean linearized OBI10."
+    },
+    {
+      "name": "bar2m_comp_cdi_lin_mean",
+      "type": "double",
+      "doc": "Mean linearized CDI p0_1."
+    },
+    {
+      "name": "bar2m_comp_flow_norm_mean",
+      "type": "double",
+      "doc": "Mean normalized flow imbalance."
+    },
+    {
+      "name": "bar2m_comp_trade_imbal_mean",
+      "type": "double",
+      "doc": "Mean trade imbalance."
+    },
+    {
+      "name": "bar2m_comp_wall_support_mean",
+      "type": "double",
+      "doc": "Mean wall support."
+    },
+    {
+      "name": "bar2m_comp_wall_dist_support_mean",
+      "type": "double",
+      "doc": "Mean wall distance support."
+    },
+    {
+      "name": "bar2m_comp_gap_spread_mean",
+      "type": "double",
+      "doc": "Mean gap and spread support."
+    },
+    {
+      "name": "bar2m_comp_trade_activity_mean",
+      "type": "double",
+      "doc": "Mean trade activity z-score transform."
+    }
+  ]
+}

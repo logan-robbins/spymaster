@@ -106,6 +106,30 @@ datasets:
     partition_keys: [symbol, dt]
     contract: contracts/silver/future/market_by_price_10_level_approach.avsc
 
+  silver.future.market_by_price_10_pm_high_approach2m:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_pm_high_approach2m
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future/market_by_price_10_level_approach2m.avsc
+
+  silver.future.market_by_price_10_pm_low_approach2m:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_pm_low_approach2m
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future/market_by_price_10_level_approach2m.avsc
+
+  silver.future.market_by_price_10_or_high_approach2m:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_or_high_approach2m
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future/market_by_price_10_level_approach2m.avsc
+
+  silver.future.market_by_price_10_or_low_approach2m:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_or_low_approach2m
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: contracts/silver/future/market_by_price_10_level_approach2m.avsc
+
   silver.future.volume_profiles:
     path: silver/product_type=future/symbol={symbol}/table=volume_profiles
     format: parquet
@@ -156,4 +180,3 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: contracts/gold/future_option/statistics_first3h.avsc
-

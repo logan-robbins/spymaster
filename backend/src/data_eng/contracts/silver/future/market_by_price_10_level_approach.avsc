@@ -10,6 +10,11 @@
       "doc": "Bar start timestamp in nanoseconds since Unix epoch (UTC)."
     },
     {
+      "name": "bar2m_ts",
+      "type": "long",
+      "doc": "2-minute candle start timestamp in nanoseconds since Unix epoch (UTC)."
+    },
+    {
       "name": "symbol",
       "type": "string",
       "doc": "Instrument symbol (e.g., ESH5)."
@@ -1123,6 +1128,16 @@
       "name": "bar5s_trade_signed_vol_sum",
       "type": "double",
       "doc": "Signed trade volume."
+    },
+    {
+      "name": "bar5s_trade_last_px",
+      "type": "double",
+      "doc": "Last trade price in the bar (NaN if no trades)."
+    },
+    {
+      "name": "bar5s_trade_last_ts",
+      "type": "long",
+      "doc": "Timestamp (ns) of the last trade in the bar (-1 if no trades)."
     },
     {
       "name": "bar5s_wall_bid_maxz_eob",

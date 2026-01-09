@@ -23,6 +23,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future.build_volume_profiles import SilverBuildVolumeProfiles
         from .stages.silver.future.extract_level_episodes import SilverExtractLevelEpisodes
         from .stages.silver.future.compute_approach_features import SilverComputeApproachFeatures
+        from .stages.silver.future.compute_approach2m import SilverComputeApproach2m
         from .stages.silver.future.filter_first3h import SilverFilterFirst3Hours
         from .stages.silver.future.filter_band_range import SilverFilterBandRange
         from .stages.gold.future.extract_setup_vectors import GoldExtractSetupVectors
@@ -30,7 +31,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         if layer == "bronze":
             return [BronzeProcessDBN()]
         elif layer == "silver":
-            return [SilverAddSessionLevels(), SilverFilterFirst3Hours(), SilverComputeBar5sFeatures(), SilverFilterBandRange(), SilverBuildVolumeProfiles(), SilverExtractLevelEpisodes(), SilverComputeApproachFeatures()]
+            return [SilverAddSessionLevels(), SilverFilterFirst3Hours(), SilverComputeBar5sFeatures(), SilverFilterBandRange(), SilverBuildVolumeProfiles(), SilverExtractLevelEpisodes(), SilverComputeApproachFeatures(), SilverComputeApproach2m()]
         elif layer == "gold":
             return [GoldExtractSetupVectors()]
         elif layer == "all":
@@ -43,6 +44,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 SilverBuildVolumeProfiles(),    # Volume context
                 SilverExtractLevelEpisodes(),
                 SilverComputeApproachFeatures(),
+                SilverComputeApproach2m(),
                 GoldExtractSetupVectors(),
             ]
     

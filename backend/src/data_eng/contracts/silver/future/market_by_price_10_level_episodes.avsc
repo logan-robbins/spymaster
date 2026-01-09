@@ -1125,6 +1125,16 @@
       "doc": "Signed trade volume (aggbuy - aggsell)."
     },
     {
+      "name": "bar5s_trade_last_px",
+      "type": "double",
+      "doc": "Last trade price in the bar (NaN if no trades)."
+    },
+    {
+      "name": "bar5s_trade_last_ts",
+      "type": "long",
+      "doc": "Timestamp (ns) of the last trade in the bar (-1 if no trades)."
+    },
+    {
       "name": "bar5s_wall_bid_maxz_eob",
       "type": "double",
       "doc": "End-of-bar maximum z-score for bid side wall detection."

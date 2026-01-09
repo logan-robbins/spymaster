@@ -143,13 +143,19 @@ def create_metadata_db(
             symbol          TEXT NOT NULL,
             level_type      TEXT NOT NULL,
             level_price     REAL NOT NULL,
-            trigger_bar_ts  INTEGER NOT NULL,
+            trigger_candle_ts  INTEGER NOT NULL,
             approach_direction INTEGER NOT NULL,
             outcome         TEXT NOT NULL,
             outcome_score   REAL NOT NULL,
             velocity_at_trigger     REAL,
             obi0_at_trigger         REAL,
-            wall_imbal_at_trigger   REAL
+            wall_imbal_at_trigger   REAL,
+            front_month_symbol      TEXT,
+            dominance_ratio         REAL,
+            roll_contaminated       INTEGER,
+            runner_up_symbol        TEXT,
+            runner_up_ratio         REAL,
+            is_front_month          INTEGER
         )
     """)
 
@@ -162,10 +168,12 @@ def create_metadata_db(
         cursor.execute("""
             INSERT INTO setup_metadata (
                 vector_id, episode_id, dt, symbol, level_type,
-                level_price, trigger_bar_ts, approach_direction,
+                level_price, trigger_candle_ts, approach_direction,
                 outcome, outcome_score, velocity_at_trigger,
-                obi0_at_trigger, wall_imbal_at_trigger
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                obi0_at_trigger, wall_imbal_at_trigger,
+                front_month_symbol, dominance_ratio, roll_contaminated,
+                runner_up_symbol, runner_up_ratio, is_front_month
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             int(row["vector_id"]),
             str(row["episode_id"]),
@@ -173,13 +181,19 @@ def create_metadata_db(
             str(row["symbol"]),
             str(row["level_type"]),
             float(row["level_price"]),
-            int(row["trigger_bar_ts"]),
+            int(row["trigger_candle_ts"]),
             int(row["approach_direction"]),
             str(row["outcome"]),
             float(row["outcome_score"]),
             float(row.get("velocity_at_trigger", 0.0) or 0.0),
             float(row.get("obi0_at_trigger", 0.0) or 0.0),
             float(row.get("wall_imbal_at_trigger", 0.0) or 0.0),
+            str(row.get("front_month_symbol", "")),
+            float(row.get("dominance_ratio", 0.0) or 0.0),
+            int(bool(row.get("roll_contaminated", False))),
+            str(row.get("runner_up_symbol", "")),
+            float(row.get("runner_up_ratio", 0.0) or 0.0),
+            int(bool(row.get("is_front_month", False))),
         ))
 
     conn.commit()
@@ -200,6 +214,15 @@ def build_all_indices(
 
     if len(df) == 0:
         print("No setup vectors found for the specified dates.")
+        return {}
+
+    if "roll_contaminated" in df.columns:
+        df = df[df["roll_contaminated"] == False].copy()
+    if "is_front_month" in df.columns:
+        df = df[df["is_front_month"] == True].copy()
+
+    if len(df) == 0:
+        print("No eligible setup vectors after front-month gate.")
         return {}
 
     print(f"Loaded {len(df)} setup vectors across {len(dates)} dates.")

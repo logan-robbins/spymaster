@@ -59,6 +59,12 @@ def _vectorized_bucket_id(ts_ns: np.ndarray) -> np.ndarray:
     return np.clip(bucket_ids.values, 0, N_BUCKETS - 1).astype(np.int32)
 
 
+def _vectorized_bar2m_ts(ts_ns: np.ndarray) -> np.ndarray:
+    ts_series = pd.to_datetime(ts_ns, unit="ns", utc=True).tz_convert("America/New_York")
+    floored = ts_series.dt.floor("2min")
+    return floored.dt.tz_convert("UTC").view("int64")
+
+
 class SilverComputeApproachFeatures(Stage):
     def __init__(self) -> None:
         super().__init__(
@@ -168,6 +174,7 @@ class SilverComputeApproachFeatures(Stage):
         n = len(df)
         level_price = df["level_price"].values
         microprice = df["bar5s_microprice_eob"].values
+        out["bar2m_ts"] = _vectorized_bar2m_ts(df["bar_ts"].values)
 
         out["bar5s_approach_dist_to_level_pts_eob"] = (microprice - level_price) / POINT
 
