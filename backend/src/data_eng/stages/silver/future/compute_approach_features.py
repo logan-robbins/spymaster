@@ -16,6 +16,12 @@ from ....io import (
     read_partition,
     write_partition,
 )
+from .mbp10_bar5s.level_relative import (
+    compute_level_relative_depth_features,
+    compute_level_relative_wall_features,
+    BANDS as LVL_BANDS,
+    LEVEL_RELATIVE_FLOW_FEATURES,
+)
 
 EPSILON = 1e-9
 POINT = 1.0
@@ -378,44 +384,84 @@ class SilverComputeApproachFeatures(Stage):
     def _compute_level_relative_book_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
         n = len(df)
         level_price = df["level_price"].values
-        microprice = df["bar5s_microprice_eob"].values
-        spread = df["bar5s_state_spread_pts_eob"].values * POINT
 
-        bid_px_00 = microprice - spread / 2
-        ask_px_00 = microprice + spread / 2
+        bid_px_cols = [f"bar5s_shape_bid_px_l{i:02d}_eob" for i in range(10)]
+        ask_px_cols = [f"bar5s_shape_ask_px_l{i:02d}_eob" for i in range(10)]
+        bid_sz_cols = [f"bar5s_shape_bid_sz_l{i:02d}_eob" for i in range(10)]
+        ask_sz_cols = [f"bar5s_shape_ask_sz_l{i:02d}_eob" for i in range(10)]
 
-        out["bar5s_lvl_depth_above_qty_eob"] = np.where(
-            ask_px_00 > level_price,
-            df["bar5s_depth_ask10_qty_eob"].values,
-            0,
-        )
-        out["bar5s_lvl_depth_below_qty_eob"] = np.where(
-            bid_px_00 < level_price,
-            df["bar5s_depth_bid10_qty_eob"].values,
-            0,
-        )
+        bid_px = df[bid_px_cols].values.astype(np.float64)
+        ask_px = df[ask_px_cols].values.astype(np.float64)
+        bid_sz = df[bid_sz_cols].values.astype(np.float64)
+        ask_sz = df[ask_sz_cols].values.astype(np.float64)
 
-        dist_from_level = np.abs(microprice - level_price)
-        out["bar5s_lvl_depth_at_qty_eob"] = np.where(
-            dist_from_level <= 0.5 * POINT,
-            df["bar5s_shape_bid_sz_l00_eob"].values + df["bar5s_shape_ask_sz_l00_eob"].values,
-            0,
-        )
+        depth_feature_names = [
+            f"bar5s_lvldepth_below_{band}_qty_eob" for band in LVL_BANDS
+        ] + [
+            f"bar5s_lvldepth_above_{band}_qty_eob" for band in LVL_BANDS
+        ] + [
+            f"bar5s_lvldepth_below_{band}_frac_eob" for band in LVL_BANDS
+        ] + [
+            f"bar5s_lvldepth_above_{band}_frac_eob" for band in LVL_BANDS
+        ] + [
+            f"bar5s_lvldepth_cdi_{band}_eob" for band in LVL_BANDS
+        ] + [
+            "bar5s_lvldepth_below_total_qty_eob",
+            "bar5s_lvldepth_above_total_qty_eob",
+            "bar5s_lvldepth_imbal_eob",
+        ]
 
-        above = out["bar5s_lvl_depth_above_qty_eob"]
-        below = out["bar5s_lvl_depth_below_qty_eob"]
-        out["bar5s_lvl_depth_imbal_eob"] = (below - above) / (below + above + EPSILON)
+        wall_feature_names = [
+            "bar5s_lvlwall_bid_maxz_eob",
+            "bar5s_lvlwall_ask_maxz_eob",
+            "bar5s_lvlwall_bid_maxz_levelidx_eob",
+            "bar5s_lvlwall_ask_maxz_levelidx_eob",
+            "bar5s_lvlwall_bid_nearest_strong_dist_pts_eob",
+            "bar5s_lvlwall_ask_nearest_strong_dist_pts_eob",
+            "bar5s_lvlwall_bid_nearest_strong_levelidx_eob",
+            "bar5s_lvlwall_ask_nearest_strong_levelidx_eob",
+        ]
 
-        for band in ["p0_1", "p1_2", "p2_3"]:
-            below_col = f"bar5s_depth_below_{band}_qty_eob"
-            above_col = f"bar5s_depth_above_{band}_qty_eob"
+        for name in depth_feature_names + wall_feature_names:
+            out[name] = np.zeros(n, dtype=np.float64)
 
-            if below_col in df.columns and above_col in df.columns:
-                b = df[below_col].values
-                a = df[above_col].values
-                out[f"bar5s_lvl_depth_above_{band}_qty_eob"] = a
-                out[f"bar5s_lvl_depth_below_{band}_qty_eob"] = b
-                out[f"bar5s_lvl_cdi_{band}_eob"] = (b - a) / (b + a + EPSILON)
+        for i in range(n):
+            depth_feats = compute_level_relative_depth_features(
+                bid_px[i], ask_px[i], bid_sz[i], ask_sz[i], level_price[i]
+            )
+            for name, val in depth_feats.items():
+                out[name][i] = val
+
+            wall_feats = compute_level_relative_wall_features(
+                bid_px[i], ask_px[i], bid_sz[i], ask_sz[i], level_price[i]
+            )
+            for name, val in wall_feats.items():
+                out[name][i] = val
+
+        # Level-relative flow and TWA depth features are computed in extract_level_episodes
+        # from bronze tick data. Copy them from the input DataFrame if they exist.
+        for flow_feature in LEVEL_RELATIVE_FLOW_FEATURES:
+            if flow_feature in df.columns:
+                out[flow_feature] = df[flow_feature].values.astype(np.float64)
+            else:
+                out[flow_feature] = np.zeros(n, dtype=np.float64)
+
+        for band in LVL_BANDS:
+            for suffix in ["qty_twa"]:
+                for direction in ["below", "above"]:
+                    col = f"bar5s_lvldepth_{direction}_{band}_{suffix}"
+                    if col in df.columns:
+                        out[col] = df[col].values.astype(np.float64)
+                    else:
+                        out[col] = np.zeros(n, dtype=np.float64)
+
+        # Compute TWA frac features from TWA qty features
+        for band in LVL_BANDS:
+            below_qty = out.get(f"bar5s_lvldepth_below_{band}_qty_twa", np.zeros(n))
+            above_qty = out.get(f"bar5s_lvldepth_above_{band}_qty_twa", np.zeros(n))
+            total = below_qty + above_qty + EPSILON
+            out[f"bar5s_lvldepth_below_{band}_frac_twa"] = below_qty / total
+            out[f"bar5s_lvldepth_above_{band}_frac_twa"] = above_qty / total
 
         side_of_level = out["bar5s_approach_side_of_level_eob"]
 
@@ -436,6 +482,16 @@ class SilverComputeApproachFeatures(Stage):
         out["bar5s_lvl_flow_toward_net_sum"] = toward_flow
         out["bar5s_lvl_flow_away_net_sum"] = away_flow
         out["bar5s_lvl_flow_toward_away_imbal_sum"] = toward_flow - away_flow
+
+        out["bar5s_lvl_depth_below_qty_eob"] = out["bar5s_lvldepth_below_total_qty_eob"]
+        out["bar5s_lvl_depth_above_qty_eob"] = out["bar5s_lvldepth_above_total_qty_eob"]
+        out["bar5s_lvl_depth_imbal_eob"] = out["bar5s_lvldepth_imbal_eob"]
+        out["bar5s_lvl_depth_at_qty_eob"] = np.zeros(n, dtype=np.float64)
+
+        for band_idx, (old_band, new_band) in enumerate([("p0_1", "p0_1"), ("p1_2", "p1_2"), ("p2_3", "p2_3")]):
+            out[f"bar5s_lvl_depth_below_{new_band}_qty_eob"] = out[f"bar5s_lvldepth_below_{old_band}_qty_eob"]
+            out[f"bar5s_lvl_depth_above_{new_band}_qty_eob"] = out[f"bar5s_lvldepth_above_{old_band}_qty_eob"]
+            out[f"bar5s_lvl_cdi_{new_band}_eob"] = out[f"bar5s_lvldepth_cdi_{old_band}_eob"]
 
     def _compute_setup_signature_features(self, df: pd.DataFrame, out: Dict[str, np.ndarray]) -> None:
         """Compute setup signature features using ONLY pre-trigger bars."""

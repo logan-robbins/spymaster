@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
-LOOKBACK_BARS = 180
-FEATURE_PREFIX = "bar5s_"
+LOOKBACK_BARS = 120
 
-EXCLUDE_COLS = {
+METADATA_COLS = {
     "bar_ts",
     "symbol",
     "episode_id",
@@ -40,11 +40,44 @@ EXCLUDE_COLS = {
 }
 
 
-def get_feature_columns(df: pd.DataFrame) -> List[str]:
+# TRUE level-relative features: computed using level_price in the calculation
+# These are the ONLY features valid for similarity search across different levels/contracts
+TRUE_LEVEL_RELATIVE_PREFIXES = (
+    "bar5s_lvldepth_",   # depth above/below level price
+    "bar5s_lvlflow_",    # flow above/below level price
+    "bar5s_lvlwall_",    # wall detection at level price
+    "bar5s_lvl_",        # distance to level, crosses, etc.
+    "bar5s_approach_",   # approach direction relative to level
+)
+
+
+def is_level_relative_feature(col: str) -> bool:
+    """Return True only for features computed relative to level_price."""
+    if col in METADATA_COLS:
+        return False
+
+    for prefix in TRUE_LEVEL_RELATIVE_PREFIXES:
+        if col.startswith(prefix):
+            return True
+
+    return False
+
+
+def load_feature_columns_from_contract(contract_path: Path) -> List[str]:
+    with open(contract_path, "r") as f:
+        schema = json.load(f)
     return [
-        c for c in df.columns
-        if c.startswith(FEATURE_PREFIX) and c not in EXCLUDE_COLS
+        field["name"]
+        for field in schema["fields"]
+        if is_level_relative_feature(field["name"])
     ]
+
+
+def get_feature_columns(df: pd.DataFrame, contract_path: Path = None) -> List[str]:
+    if contract_path is not None and contract_path.exists():
+        contract_features = load_feature_columns_from_contract(contract_path)
+        return [c for c in contract_features if c in df.columns]
+    return [c for c in df.columns if is_level_relative_feature(c)]
 
 
 def extract_episode_tensor(
@@ -88,8 +121,9 @@ def extract_episode_tensor(
 def extract_all_episode_tensors(
     df: pd.DataFrame,
     lookback_bars: int = LOOKBACK_BARS,
+    contract_path: Path = None,
 ) -> Tuple[np.ndarray, List[dict], List[str]]:
-    feature_cols = get_feature_columns(df)
+    feature_cols = get_feature_columns(df, contract_path)
     episode_ids = df["episode_id"].unique()
 
     tensors = []
@@ -366,7 +400,7 @@ def load_episodes_from_lake(
     dates: List[str],
 ) -> pd.DataFrame:
     all_dfs = []
-    table_name = f"market_by_price_10_{level_type.lower()}_episodes"
+    table_name = f"market_by_price_10_{level_type.lower()}_approach"
 
     for dt in dates:
         path = lake_path / f"silver/product_type=future/symbol={symbol}/table={table_name}/dt={dt}"

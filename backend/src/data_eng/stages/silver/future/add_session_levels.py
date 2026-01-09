@@ -8,7 +8,7 @@ from ...base import Stage, StageIO
 class SilverAddSessionLevels(Stage):
     """Silver stage: add Pre-market and Opening Range high/low levels.
 
-    - Input:  silver.future.market_by_price_10_clean
+    - Input:  silver.future.market_by_price_10
     - Output: silver.future.market_by_price_10_with_levels
 
     Adds 4 columns (scalar values broadcast to all rows):
@@ -22,7 +22,7 @@ class SilverAddSessionLevels(Stage):
         super().__init__(
             name="silver_add_session_levels",
             io=StageIO(
-                inputs=["silver.future.market_by_price_10_clean"],
+                inputs=["silver.future.market_by_price_10"],
                 output="silver.future.market_by_price_10_with_levels",
             ),
         )

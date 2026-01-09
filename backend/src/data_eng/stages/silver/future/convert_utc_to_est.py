@@ -9,7 +9,7 @@ class SilverConvertUtcToEst(Stage):
     """Silver stage: add `ts_event_est` derived from `ts_event`.
 
     - Input:  bronze.futures.market_by_price_10
-    - Output: silver.futures.market_by_price_10_clean
+    - Output: silver.futures.market_by_price_10
 
     `ts_event` is nanoseconds since epoch (UTC). We convert it to an ISO-8601
     string in America/New_York, including the timezone offset.
@@ -20,7 +20,7 @@ class SilverConvertUtcToEst(Stage):
             name="silver_convert_utc_to_est",
             io=StageIO(
                         inputs=["bronze.future.market_by_price_10"],
-                output="silver.future.market_by_price_10_clean",
+                output="silver.future.market_by_price_10",
             ),
         )
 

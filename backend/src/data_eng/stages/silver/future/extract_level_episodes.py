@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,18 @@ from ....io import (
     read_partition,
     write_partition,
 )
+from .mbp10_bar5s.level_relative import (
+    process_lvl_flow_ticks,
+    extract_level_relative_flow_features,
+    compute_level_relative_depth_features,
+    compute_level_relative_wall_features,
+    BANDS as LVL_BANDS,
+    N_LEVELS,
+    ACTION_ADD,
+    ACTION_CANCEL,
+    ACTION_MODIFY,
+    ACTION_TRADE,
+)
 
 BAR_DURATION_NS = 5_000_000_000
 LOOKBACK_BARS = 180
@@ -29,6 +41,14 @@ OUTCOME_W2_END = 72
 EPSILON = 1e-9
 
 LEVEL_TYPES = ["PM_HIGH", "PM_LOW", "OR_HIGH", "OR_LOW"]
+
+ACTION_MAP = {"A": ACTION_ADD, "C": ACTION_CANCEL, "M": ACTION_MODIFY, "T": ACTION_TRADE}
+SIDE_MAP = {"B": 0, "A": 1}
+
+BOOK_COLS = [f"bid_px_{i:02d}" for i in range(N_LEVELS)] + \
+            [f"ask_px_{i:02d}" for i in range(N_LEVELS)] + \
+            [f"bid_sz_{i:02d}" for i in range(N_LEVELS)] + \
+            [f"ask_sz_{i:02d}" for i in range(N_LEVELS)]
 
 BAND_COLS_TO_DROP = [
     "bar5s_state_cdi_p3_5_twa",
@@ -119,6 +139,12 @@ class SilverExtractLevelEpisodes(Stage):
         if len(df_in) == 0:
             return
 
+        df_ticks = self._load_bronze_ticks(cfg, symbol, dt)
+        if df_ticks is None:
+            raise FileNotFoundError(
+                f"Bronze tick data not ready for dt={dt}"
+            )
+
         levels = self._compute_levels(df_in, dt)
 
         for level_type in LEVEL_TYPES:
@@ -132,7 +158,7 @@ class SilverExtractLevelEpisodes(Stage):
                 df_episodes = pd.DataFrame()
             else:
                 df_episodes = self._extract_episodes_for_level(
-                    df_in, dt, symbol, level_type, level_price
+                    df_in, df_ticks, dt, symbol, level_type, level_price
                 )
 
             out_contract_path = repo_root / cfg.dataset(output_key).contract
@@ -166,6 +192,123 @@ class SilverExtractLevelEpisodes(Stage):
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         raise NotImplementedError("Use run() directly")
 
+    def _load_bronze_ticks(
+        self, cfg: AppConfig, symbol: str, dt: str
+    ) -> Optional[pd.DataFrame]:
+        bronze_key = "bronze.future.market_by_price_10"
+        bronze_ref = partition_ref(cfg, bronze_key, symbol, dt)
+
+        if not is_partition_complete(bronze_ref):
+            return None
+
+        df_ticks = read_partition(bronze_ref)
+
+        if len(df_ticks) == 0:
+            return None
+
+        df_ticks = df_ticks.sort_values("ts_event").reset_index(drop=True)
+
+        if pd.api.types.is_datetime64_any_dtype(df_ticks["ts_event"]):
+            df_ticks["ts_event"] = df_ticks["ts_event"].astype(np.int64)
+
+        df_ticks["action_int"] = df_ticks["action"].map(ACTION_MAP)
+        df_ticks["side_int"] = df_ticks["side"].map(SIDE_MAP)
+
+        valid_mask = df_ticks["action_int"].notna() & df_ticks["side_int"].notna()
+        df_ticks = df_ticks[valid_mask].copy()
+        df_ticks["action_int"] = df_ticks["action_int"].astype(np.int32)
+        df_ticks["side_int"] = df_ticks["side_int"].astype(np.int32)
+
+        return df_ticks
+
+    def _compute_level_flow_for_episode(
+        self,
+        df_ticks: pd.DataFrame,
+        episode_bar_ts: np.ndarray,
+        level_price: float,
+    ) -> Dict[str, np.ndarray]:
+        episode_start = episode_bar_ts.min()
+        episode_end = episode_bar_ts.max() + BAR_DURATION_NS
+
+        mask = (df_ticks["ts_event"].values >= episode_start) & \
+               (df_ticks["ts_event"].values < episode_end)
+        df_ep_ticks = df_ticks.loc[mask]
+
+        if len(df_ep_ticks) == 0:
+            n_bars = len(episode_bar_ts)
+            empty_result = {}
+            for band in LVL_BANDS:
+                for side in ["bid", "ask"]:
+                    for metric in ["add_vol", "rem_vol", "net_vol", "cnt_add", "cnt_cancel", "cnt_modify", "net_volnorm"]:
+                        empty_result[f"bar5s_lvlflow_{metric}_{side}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+            for band in LVL_BANDS:
+                empty_result[f"bar5s_lvldepth_below_{band}_qty_twa"] = np.zeros(n_bars, dtype=np.float64)
+                empty_result[f"bar5s_lvldepth_above_{band}_qty_twa"] = np.zeros(n_bars, dtype=np.float64)
+            return empty_result
+
+        ts_event = df_ep_ticks["ts_event"].values.astype(np.int64)
+        action = df_ep_ticks["action_int"].values.astype(np.int32)
+        side = df_ep_ticks["side_int"].values.astype(np.int32)
+        price = df_ep_ticks["price"].values.astype(np.float64)
+        size = df_ep_ticks["size"].values.astype(np.float64)
+
+        bid_px = np.column_stack([df_ep_ticks[f"bid_px_{i:02d}"].values for i in range(N_LEVELS)]).astype(np.float64)
+        ask_px = np.column_stack([df_ep_ticks[f"ask_px_{i:02d}"].values for i in range(N_LEVELS)]).astype(np.float64)
+        bid_sz = np.column_stack([df_ep_ticks[f"bid_sz_{i:02d}"].values for i in range(N_LEVELS)]).astype(np.float64)
+        ask_sz = np.column_stack([df_ep_ticks[f"ask_sz_{i:02d}"].values for i in range(N_LEVELS)]).astype(np.float64)
+
+        bar_starts = (ts_event // BAR_DURATION_NS) * BAR_DURATION_NS
+        unique_bar_starts = np.unique(bar_starts)
+
+        (bar_flow_add_vol, bar_flow_rem_vol, bar_flow_net_vol,
+         bar_flow_cnt_add, bar_flow_cnt_cancel, bar_flow_cnt_modify,
+         bar_twa_below_qty, bar_twa_above_qty) = process_lvl_flow_ticks(
+            ts_event, action, side, price, size,
+            bid_px, ask_px, bid_sz, ask_sz,
+            bar_starts, unique_bar_starts, level_price
+        )
+
+        bar_ts_to_idx = {ts: i for i, ts in enumerate(unique_bar_starts)}
+
+        n_bars = len(episode_bar_ts)
+        result = {}
+
+        for band_idx, band in enumerate(LVL_BANDS):
+            for side_idx, side_str in enumerate(["bid", "ask"]):
+                result[f"bar5s_lvlflow_add_vol_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_rem_vol_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_net_vol_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_cnt_add_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_cnt_cancel_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_cnt_modify_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+                result[f"bar5s_lvlflow_net_volnorm_{side_str}_{band}_sum"] = np.zeros(n_bars, dtype=np.float64)
+            result[f"bar5s_lvldepth_below_{band}_qty_twa"] = np.zeros(n_bars, dtype=np.float64)
+            result[f"bar5s_lvldepth_above_{band}_qty_twa"] = np.zeros(n_bars, dtype=np.float64)
+
+        for ep_bar_idx, bar_ts in enumerate(episode_bar_ts):
+            if bar_ts in bar_ts_to_idx:
+                flow_bar_idx = bar_ts_to_idx[bar_ts]
+                for band_idx, band in enumerate(LVL_BANDS):
+                    for side_idx, side_str in enumerate(["bid", "ask"]):
+                        result[f"bar5s_lvlflow_add_vol_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_add_vol[flow_bar_idx, side_idx, band_idx]
+                        result[f"bar5s_lvlflow_rem_vol_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_rem_vol[flow_bar_idx, side_idx, band_idx]
+                        result[f"bar5s_lvlflow_net_vol_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_net_vol[flow_bar_idx, side_idx, band_idx]
+                        result[f"bar5s_lvlflow_cnt_add_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_cnt_add[flow_bar_idx, side_idx, band_idx]
+                        result[f"bar5s_lvlflow_cnt_cancel_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_cnt_cancel[flow_bar_idx, side_idx, band_idx]
+                        result[f"bar5s_lvlflow_cnt_modify_{side_str}_{band}_sum"][ep_bar_idx] = bar_flow_cnt_modify[flow_bar_idx, side_idx, band_idx]
+
+                        net_vol = bar_flow_net_vol[flow_bar_idx, side_idx, band_idx]
+                        if side_str == "bid":
+                            twa_qty = bar_twa_below_qty[flow_bar_idx, band_idx]
+                        else:
+                            twa_qty = bar_twa_above_qty[flow_bar_idx, band_idx]
+                        result[f"bar5s_lvlflow_net_volnorm_{side_str}_{band}_sum"][ep_bar_idx] = net_vol / max(twa_qty, 1.0)
+
+                    result[f"bar5s_lvldepth_below_{band}_qty_twa"][ep_bar_idx] = bar_twa_below_qty[flow_bar_idx, band_idx]
+                    result[f"bar5s_lvldepth_above_{band}_qty_twa"][ep_bar_idx] = bar_twa_above_qty[flow_bar_idx, band_idx]
+
+        return result
+
     def _compute_levels(self, df: pd.DataFrame, dt: str) -> Dict[str, float]:
         bar_ts = df["bar_ts"].values
         microprice = df["bar5s_microprice_eob"].values
@@ -193,6 +336,7 @@ class SilverExtractLevelEpisodes(Stage):
     def _extract_episodes_for_level(
         self,
         df: pd.DataFrame,
+        df_ticks: pd.DataFrame,
         dt: str,
         symbol: str,
         level_type: str,
@@ -289,6 +433,12 @@ class SilverExtractLevelEpisodes(Stage):
             episode_df["is_truncated_forward"] = is_truncated_forward
             episode_df["is_extended_forward"] = is_extended_forward
             episode_df["extension_count"] = extension_count
+
+            flow_features = self._compute_level_flow_for_episode(
+                df_ticks, episode_df["bar_ts"].values, level_price
+            )
+            for feat_name, feat_values in flow_features.items():
+                episode_df[feat_name] = feat_values
 
             episodes.append(episode_df)
             last_trigger_idx = t

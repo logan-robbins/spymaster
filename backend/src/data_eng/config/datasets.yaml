@@ -28,11 +28,11 @@ datasets:
     contract: src/data_eng/contracts/bronze/future_option/statistics.avsc
 
   # Silver - Futures
-  silver.future.market_by_price_10_clean:
-    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_clean
+  silver.future.market_by_price_10:
+    path: silver/product_type=future/symbol={symbol}/table=market_by_price_10
     format: parquet
     partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future/market_by_price_10_clean.avsc
+    contract: src/data_eng/contracts/silver/future/market_by_price_10.avsc
 
   silver.future.market_by_price_10_with_levels:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_with_levels

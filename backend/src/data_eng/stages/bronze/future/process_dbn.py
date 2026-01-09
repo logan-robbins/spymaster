@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -25,39 +24,14 @@ def extract_flags_vectorized(flags: np.ndarray) -> pd.DataFrame:
     })
 
 
-def get_front_month_contract(contracts: List[str], dt: str) -> str:
+def add_est_timestamp(df: pd.DataFrame) -> pd.Series:
     """
-    Determine front month contract for given date.
-    
-    ES contract months: H (Mar), M (Jun), U (Sep), Z (Dec)
-    Front month is the nearest unexpired quarterly contract.
+    Convert ts_event (ns, UTC) to ISO-8601 America/New_York string with offset.
     """
-    month_codes = {'H': 3, 'M': 6, 'U': 9, 'Z': 12}
-    date = datetime.strptime(dt, '%Y-%m-%d')
-    
-    contract_dates = []
-    for contract in contracts:
-        if len(contract) < 4:
-            continue
-        month_code = contract[2]
-        year_digit = contract[3]
-        
-        if month_code not in month_codes:
-            continue
-        
-        month = month_codes[month_code]
-        year = 2020 + int(year_digit)
-        
-        expiry = datetime(year, month, 1)
-        
-        if expiry >= date:
-            contract_dates.append((contract, expiry))
-    
-    if not contract_dates:
-        raise ValueError(f"No valid front month contract found for {dt} in {contracts}")
-    
-    contract_dates.sort(key=lambda x: x[1])
-    return contract_dates[0][0]
+    ts = pd.to_datetime(df["ts_event"], unit="ns", utc=True)
+    ts_ny = ts.dt.tz_convert("America/New_York")
+    est_str = ts_ny.dt.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+    return est_str.str.replace(r"([+-]\d{2})(\d{2})$", r"\1:\2", regex=True)
 
 
 class BronzeProcessDBN(Stage):
@@ -70,8 +44,8 @@ class BronzeProcessDBN(Stage):
     - Drop ts_in_delta column
     - Extract flag bits into boolean columns
     
-    Input: Raw DBN files in lake/raw/source=databento/product_type=future/symbol={symbol}/table=market_by_price_10/
-    Output: bronze.future.market_by_price_10
+    Input: Raw DBN files in lake/raw/source=databento/product_type=future/symbol={symbol}/table=market_by_price_10_dbn/
+    Output: silver.future.market_by_price_10 (one partition per contract)
     """
     
     def __init__(self) -> None:
@@ -79,7 +53,7 @@ class BronzeProcessDBN(Stage):
             name="bronze_process_dbn",
             io=StageIO(
                 inputs=[],
-                output="bronze.future.market_by_price_10",
+                output="silver.future.market_by_price_10",
             ),
         )
     
@@ -92,7 +66,7 @@ class BronzeProcessDBN(Stage):
         date_compact = dt.replace("-", "")
         dbn_pattern = f"*{date_compact}*.dbn"
         
-        raw_path = dbn_root / "source=databento" / "product_type=future" / f"symbol={symbol}" / "table=market_by_price_10"
+        raw_path = dbn_root / "source=databento" / "product_type=future" / f"symbol={symbol}" / "table=market_by_price_10_dbn"
         dbn_files = list(raw_path.glob(dbn_pattern))
         
         if not dbn_files:
@@ -150,37 +124,37 @@ class BronzeProcessDBN(Stage):
         
         all_contracts = [str(c) for c in df_all['symbol'].unique() if pd.notna(c)]
         print(f"    Found {len(all_contracts)} contracts: {sorted(all_contracts)}")
-        
-        front_month = get_front_month_contract(all_contracts, dt)
-        print(f"    Front month: {front_month}")
-        
-        out_ref = partition_ref(cfg, self.io.output, front_month, dt)
-        
-        if is_partition_complete(out_ref):
-            print(f"    Skipping (already complete)")
-            return
-        
-        symbol_mask = df_all['symbol'].to_numpy() == front_month
-        df_contract = df_all[symbol_mask].copy()
-        
+
         contract_path = repo_root / cfg.dataset(self.io.output).contract
         contract = load_avro_contract(contract_path)
-        df_contract = enforce_contract(df_contract, contract)
-        
-        print(f"    Writing {front_month}: {len(df_contract):,} records")
-        
-        write_partition(
-            cfg=cfg,
-            dataset_key=self.io.output,
-            symbol=front_month,
-            dt=dt,
-            df=df_contract,
-            contract_path=contract_path,
-            inputs=[],
-            stage=self.name,
-        )
-        
-        print(f"  ✓ Bronze complete: {front_month}")
+
+        for contract_symbol in all_contracts:
+            out_ref = partition_ref(cfg, self.io.output, contract_symbol, dt)
+            if is_partition_complete(out_ref):
+                print(f"    Skipping {contract_symbol} (already complete)")
+                continue
+
+            symbol_mask = df_all['symbol'].to_numpy() == contract_symbol
+            df_contract = df_all[symbol_mask].copy()
+            if df_contract.empty:
+                continue
+
+            df_contract["ts_event_est"] = add_est_timestamp(df_contract)
+            df_contract = enforce_contract(df_contract, contract)
+
+            print(f"    Writing {contract_symbol}: {len(df_contract):,} records")
+            write_partition(
+                cfg=cfg,
+                dataset_key=self.io.output,
+                symbol=contract_symbol,
+                dt=dt,
+                df=df_contract,
+                contract_path=contract_path,
+                inputs=[],
+                stage=self.name,
+            )
+
+        print(f"  ✓ Bronze complete for {len(all_contracts)} contract(s)")
     
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         """Not used for Bronze stage (overrides run() instead)."""

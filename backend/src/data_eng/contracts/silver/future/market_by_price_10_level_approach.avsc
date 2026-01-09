@@ -2,7 +2,7 @@
   "namespace": "com.marketdata.silver",
   "type": "record",
   "name": "MarketByPrice10LevelApproach",
-  "doc": "Level episode data with approach features: position, derivatives, cumulatives, level-relative book, and setup signature features.",
+  "doc": "Combined approach features including level-relative features.",
   "fields": [
     {
       "name": "bar_ts",
@@ -2672,6 +2672,636 @@
         "double"
       ],
       "doc": "Recent 1min vs lookback asymmetry."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_qty_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_qty_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p0_1_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p0_1_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 0-1 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p1_2_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p1_2_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 1-2 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p2_3_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p2_3_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 2-3 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p3_5_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p3_5_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 3-5 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_below_p5_10_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction below level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_frac_twa",
+      "type": "double",
+      "doc": "Level-relative: TWA depth fraction above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvldepth_above_p5_10_frac_eob",
+      "type": "double",
+      "doc": "Level-relative: EOB depth fraction above level by 5-10 points."
+    },
+    {
+      "name": "bar5s_lvlwall_bid_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Level-relative: Distance from level to nearest strong bid wall."
+    },
+    {
+      "name": "bar5s_lvlwall_ask_nearest_strong_dist_pts_eob",
+      "type": "double",
+      "doc": "Level-relative: Distance from level to nearest strong ask wall."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_add_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid remove volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_rem_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask remove volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_vol_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid add count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_add_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask add count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid cancel count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_cancel_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask cancel count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid modify count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_cnt_modify_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask modify count 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_bid_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Bid normalized net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p0_1_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 0-1 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p1_2_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 1-2 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p2_3_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 2-3 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p3_5_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 3-5 pts from level."
+    },
+    {
+      "name": "bar5s_lvlflow_net_volnorm_ask_p5_10_sum",
+      "type": "double",
+      "doc": "Level-relative: Ask normalized net volume 5-10 pts from level."
+    },
+    {
+      "name": "bar5s_lvldepth_cdi_p0_1_eob",
+      "type": "double",
+      "doc": "Level-relative CDI for 0-1 point band EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_cdi_p1_2_eob",
+      "type": "double",
+      "doc": "Level-relative CDI for 1-2 point band EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_cdi_p2_3_eob",
+      "type": "double",
+      "doc": "Level-relative CDI for 2-3 point band EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_cdi_p3_5_eob",
+      "type": "double",
+      "doc": "Level-relative CDI for 3-5 point band EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_cdi_p5_10_eob",
+      "type": "double",
+      "doc": "Level-relative CDI for 5-10 point band EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_below_total_qty_eob",
+      "type": "double",
+      "doc": "Level-relative total depth below level EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_above_total_qty_eob",
+      "type": "double",
+      "doc": "Level-relative total depth above level EOB."
+    },
+    {
+      "name": "bar5s_lvldepth_imbal_eob",
+      "type": "double",
+      "doc": "Level-relative depth imbalance EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_bid_maxz_eob",
+      "type": "double",
+      "doc": "Level-relative bid wall max z-score EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_ask_maxz_eob",
+      "type": "double",
+      "doc": "Level-relative ask wall max z-score EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_bid_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "Level-relative bid wall max z level index EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_ask_maxz_levelidx_eob",
+      "type": "double",
+      "doc": "Level-relative ask wall max z level index EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_bid_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "Level-relative bid nearest strong wall level index EOB."
+    },
+    {
+      "name": "bar5s_lvlwall_ask_nearest_strong_levelidx_eob",
+      "type": "double",
+      "doc": "Level-relative ask nearest strong wall level index EOB."
     }
   ]
 }
