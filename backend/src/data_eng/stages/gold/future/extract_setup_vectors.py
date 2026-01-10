@@ -3,15 +3,17 @@
 Reads from all 4 approach2m datasets and produces a single setup_vectors dataset
 containing concatenated candle signatures ready for FAISS similarity search.
 
-Compliant with COMPLIANCE_GPT.md:
+Compliant with COMPLIANCE_GPT.md and CHECK.md:
 - Uses 6-bar lookback ending at confirmation candle
 - Passes through all audit fields (candle IDs, window boundaries, flags, config)
+- Dynamically detects all bar2m_ features for inclusion in vectors
+- Derivatives already computed in silver stage (d1, d2 features)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import numpy as np
 import pandas as pd
 
@@ -22,65 +24,21 @@ from ....io import partition_ref, is_partition_complete, read_partition, write_p
 LOOKBACK_BARS = 6
 CANDLE_POSITIONS = list(range(-(LOOKBACK_BARS - 1), 1))
 
-SIGNATURE_COLS = [
-    "bar2m_time_in_zone_frac",
-    "bar2m_time_far_side_frac",
-    "bar2m_late_time_far_side_frac",
-    "bar2m_close_side",
-    "bar2m_sig_u_start",
-    "bar2m_sig_u_end",
-    "bar2m_sig_u_min",
-    "bar2m_sig_u_max",
-    "bar2m_sig_u_mean",
-    "bar2m_sig_u_std",
-    "bar2m_sig_u_slope",
-    "bar2m_sig_u_energy",
-    "bar2m_sig_u_sign_flip_cnt",
-    "bar2m_sig_u_burst_frac",
-    "bar2m_sig_u_mean_early",
-    "bar2m_sig_u_mean_mid",
-    "bar2m_sig_u_mean_late",
-    "bar2m_sig_u_energy_early",
-    "bar2m_sig_u_energy_late",
-    "bar2m_sig_u_late_minus_early",
-    "bar2m_sig_u_late_over_early",
-    "bar2m_sig_pressure_start",
-    "bar2m_sig_pressure_end",
-    "bar2m_sig_pressure_min",
-    "bar2m_sig_pressure_max",
-    "bar2m_sig_pressure_mean",
-    "bar2m_sig_pressure_std",
-    "bar2m_sig_pressure_slope",
-    "bar2m_sig_pressure_energy",
-    "bar2m_sig_pressure_sign_flip_cnt",
-    "bar2m_sig_pressure_burst_frac",
-    "bar2m_sig_pressure_mean_early",
-    "bar2m_sig_pressure_mean_mid",
-    "bar2m_sig_pressure_mean_late",
-    "bar2m_sig_pressure_energy_early",
-    "bar2m_sig_pressure_energy_late",
-    "bar2m_sig_pressure_late_minus_early",
-    "bar2m_sig_pressure_late_over_early",
-    "bar2m_comp_obi0_lin_mean",
-    "bar2m_comp_obi10_lin_mean",
-    "bar2m_comp_cdi_lin_mean",
-    "bar2m_comp_flow_norm_mean",
-    "bar2m_comp_trade_imbal_mean",
-    "bar2m_comp_wall_support_mean",
-    "bar2m_comp_wall_dist_support_mean",
-    "bar2m_comp_gap_spread_mean",
-    "bar2m_comp_trade_activity_mean",
-]
-
-DERIVATIVE_SIGNALS = [
-    "bar2m_sig_u_mean",
-    "bar2m_sig_pressure_mean",
-    "bar2m_comp_obi0_lin_mean",
-    "bar2m_comp_flow_norm_mean",
-    "bar2m_comp_trade_imbal_mean",
-    "bar2m_comp_wall_support_mean",
-    "bar2m_comp_gap_spread_mean",
-]
+METADATA_COLS = {
+    "bar_ts", "symbol", "episode_id", "touch_id", "level_type", "level_price",
+    "candle_id", "trigger_candle_id", "confirm_candle_id", "infer_candle_id",
+    "trigger_candle_ts", "confirm_candle_ts", "infer_ts",
+    "lookback_start_id", "lookback_end_id", "lookfwd_start_id", "lookfwd_end_id",
+    "bar_index_in_episode", "bar_index_in_touch", "bars_to_trigger", "bars_to_confirm",
+    "is_pre_trigger", "is_trigger_candle", "is_confirm_candle", "is_post_confirm",
+    "is_in_lookback", "is_in_lookfwd",
+    "approach_direction", "is_standard_approach",
+    "outcome", "outcome_score", "max_signed_dist", "min_signed_dist",
+    "chop_flag", "failed_break_flag", "both_sides_hit_flag",
+    "first_hit_side", "first_hit_offset_bars", "mae_pts", "mfe_pts",
+    "bar2m_open", "bar2m_high", "bar2m_low", "bar2m_close",
+    "bar2m_touched_in_zone", "bar2m_close_in_zone", "bar2m_first_touch_offset",
+}
 
 CONFIG_FIELDS = [
     "cfg_bar_interval_sec",
@@ -108,7 +66,16 @@ CONFIG_FIELDS = [
 LEVEL_TYPES = ["pm_high", "pm_low", "or_high", "or_low"]
 
 
-def _build_vector_for_episode(df_episode: pd.DataFrame) -> Optional[Dict]:
+def _detect_signature_cols(df: pd.DataFrame) -> List[str]:
+    """Dynamically detect all bar2m_ feature columns."""
+    sig_cols = []
+    for col in sorted(df.columns):
+        if col.startswith("bar2m_") and col not in METADATA_COLS:
+            sig_cols.append(col)
+    return sig_cols
+
+
+def _build_vector_for_episode(df_episode: pd.DataFrame, signature_cols: List[str]) -> Optional[Dict]:
     """Build a setup vector from an episode's candle rows."""
     confirm_rows = df_episode[df_episode["is_confirm_candle"] == True]
     if len(confirm_rows) == 0:
@@ -133,30 +100,12 @@ def _build_vector_for_episode(df_episode: pd.DataFrame) -> Optional[Dict]:
     for pos in CANDLE_POSITIONS:
         if pos in candle_map:
             row = candle_map[pos]
-            for col in SIGNATURE_COLS:
+            for col in signature_cols:
                 val = float(row.get(col, 0.0))
                 val = 0.0 if np.isnan(val) or np.isinf(val) else val
                 vector_parts.append(val)
         else:
-            vector_parts.extend([0.0] * len(SIGNATURE_COLS))
-
-    for signal in DERIVATIVE_SIGNALS:
-        values_by_pos = []
-        for pos in CANDLE_POSITIONS:
-            if pos in candle_map:
-                val = float(candle_map[pos].get(signal, 0.0))
-                val = 0.0 if np.isnan(val) or np.isinf(val) else val
-                values_by_pos.append(val)
-            else:
-                values_by_pos.append(0.0)
-
-        for i in range(1, len(values_by_pos)):
-            d1 = values_by_pos[i] - values_by_pos[i - 1]
-            vector_parts.append(d1)
-
-        for i in range(2, len(values_by_pos)):
-            d2 = (values_by_pos[i] - values_by_pos[i - 1]) - (values_by_pos[i - 1] - values_by_pos[i - 2])
-            vector_parts.append(d2)
+            vector_parts.extend([0.0] * len(signature_cols))
 
     result = {
         "episode_id": confirm["episode_id"],
@@ -243,6 +192,7 @@ class GoldExtractSetupVectors(Stage):
 
         all_vectors: List[Dict] = []
         vector_counter = 0
+        signature_cols: Optional[List[str]] = None
 
         for level_type in LEVEL_TYPES:
             dataset_key = f"silver.future.market_by_price_10_{level_type}_approach2m"
@@ -259,10 +209,13 @@ class GoldExtractSetupVectors(Stage):
             if df is None or len(df) == 0:
                 continue
 
+            if signature_cols is None:
+                signature_cols = _detect_signature_cols(df)
+
             episode_ids = df["episode_id"].unique()
             for episode_id in episode_ids:
                 df_episode = df[df["episode_id"] == episode_id].copy()
-                result = _build_vector_for_episode(df_episode)
+                result = _build_vector_for_episode(df_episode, signature_cols)
 
                 if result is None:
                     continue
@@ -274,6 +227,7 @@ class GoldExtractSetupVectors(Stage):
                 result["dominance_ratio"] = dominance_ratio
                 result["roll_contaminated"] = roll_contaminated
                 result["is_front_month"] = is_front_month
+                result["signature_cols_count"] = len(signature_cols)
 
                 all_vectors.append(result)
                 vector_counter += 1
@@ -288,6 +242,7 @@ class GoldExtractSetupVectors(Stage):
             "chop_flag", "failed_break_flag", "both_sides_hit_flag",
             "first_hit_side", "first_hit_offset_bars", "mae_pts", "mfe_pts",
             "front_month_symbol", "dominance_ratio", "roll_contaminated", "is_front_month",
+            "signature_cols_count",
         ] + CONFIG_FIELDS + ["vector", "vector_dim"]
 
         if len(all_vectors) == 0:

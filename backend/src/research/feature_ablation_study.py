@@ -20,7 +20,6 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INDICES_DIR = REPO_ROOT / "databases" / "indices"
-TARGET_DIM = 256
 RAW_FEATURE_COUNT = 148
 
 FEATURE_NAMES = [
@@ -174,34 +173,40 @@ FEATURE_NAMES = [
     'recent_ask_depth_delta',
 ]
 
-assert len(FEATURE_NAMES) == 148
+assert len(FEATURE_NAMES) == RAW_FEATURE_COUNT
 
-FEATURE_GROUPS = {
-    'position': list(range(0, 5)),
-    'book_state': list(range(5, 18)),
-    'walls': list(range(18, 26)),
-    'flow_snapshot': list(range(26, 36)),
-    'deriv_dist': list(range(36, 44)),
-    'deriv_imbal': list(range(44, 60)),
-    'deriv_depth': list(range(60, 68)),
-    'deriv_wall': list(range(68, 76)),
-    'profile_traj': list(range(76, 87)),
-    'profile_book': list(range(87, 106)),
-    'profile_flow': list(range(106, 124)),
-    'profile_wall': list(range(124, 136)),
-    'recent': list(range(136, 148)),
-    'padding': list(range(148, 256)),
-}
 
-SEMANTIC_GROUPS = {
-    'WHERE': FEATURE_GROUPS['position'],
-    'TRAJECTORY': FEATURE_GROUPS['deriv_dist'] + FEATURE_GROUPS['profile_traj'] + [136, 137, 138, 139],
-    'BOOK_PHYSICS': (FEATURE_GROUPS['book_state'] + FEATURE_GROUPS['deriv_imbal'] +
-                     FEATURE_GROUPS['deriv_depth'] + FEATURE_GROUPS['profile_book']),
-    'FLOW_PHYSICS': (FEATURE_GROUPS['flow_snapshot'] + FEATURE_GROUPS['profile_flow'] +
-                     [140, 141, 142, 143, 144, 145]),
-    'WALLS': FEATURE_GROUPS['walls'] + FEATURE_GROUPS['deriv_wall'] + FEATURE_GROUPS['profile_wall'],
-}
+def build_feature_groups(target_dim: int) -> Dict[str, List[int]]:
+    groups = {
+        'position': list(range(0, 5)),
+        'book_state': list(range(5, 18)),
+        'walls': list(range(18, 26)),
+        'flow_snapshot': list(range(26, 36)),
+        'deriv_dist': list(range(36, 44)),
+        'deriv_imbal': list(range(44, 60)),
+        'deriv_depth': list(range(60, 68)),
+        'deriv_wall': list(range(68, 76)),
+        'profile_traj': list(range(76, 87)),
+        'profile_book': list(range(87, 106)),
+        'profile_flow': list(range(106, 124)),
+        'profile_wall': list(range(124, 136)),
+        'recent': list(range(136, 148)),
+    }
+    padding_start = min(RAW_FEATURE_COUNT, target_dim)
+    groups['padding'] = list(range(padding_start, target_dim))
+    return groups
+
+
+def build_semantic_groups(groups: Dict[str, List[int]]) -> Dict[str, List[int]]:
+    return {
+        'WHERE': groups['position'],
+        'TRAJECTORY': groups['deriv_dist'] + groups['profile_traj'] + [136, 137, 138, 139],
+        'BOOK_PHYSICS': (groups['book_state'] + groups['deriv_imbal'] +
+                         groups['deriv_depth'] + groups['profile_book']),
+        'FLOW_PHYSICS': (groups['flow_snapshot'] + groups['profile_flow'] +
+                         [140, 141, 142, 143, 144, 145]),
+        'WALLS': groups['walls'] + groups['deriv_wall'] + groups['profile_wall'],
+    }
 
 OUTCOME_MAP = {
     'STRONG_BOUNCE': 0, 'WEAK_BOUNCE': 1, 'CHOP': 2, 'WEAK_BREAK': 3, 'STRONG_BREAK': 4
@@ -370,10 +375,16 @@ class FeatureAblationStudy:
         self.train_mask = None
         self.test_mask = None
         self.baseline_metrics = None
+        self.target_dim = 0
+        self.feature_groups: Dict[str, List[int]] = {}
+        self.semantic_groups: Dict[str, List[int]] = {}
 
     def load_data(self):
         self.vectors, self.metadata = load_all_level_vectors(self.indices_dir)
         self.train_mask, self.test_mask = temporal_train_test_split(self.metadata)
+        self.target_dim = int(self.vectors.shape[1])
+        self.feature_groups = build_feature_groups(self.target_dim)
+        self.semantic_groups = build_semantic_groups(self.feature_groups)
         print(f"Loaded {len(self.vectors)} vectors ({self.train_mask.sum()} train, {self.test_mask.sum()} test)")
 
     def compute_baseline(self) -> Dict[str, float]:
@@ -470,7 +481,7 @@ class FeatureAblationStudy:
     def run_leave_one_group_out(self) -> pd.DataFrame:
         results = []
 
-        for group_name, indices in FEATURE_GROUPS.items():
+        for group_name, indices in self.feature_groups.items():
             if group_name == "padding":
                 continue
 
@@ -500,7 +511,7 @@ class FeatureAblationStudy:
     def run_leave_one_group_in(self) -> pd.DataFrame:
         results = []
 
-        for group_name, indices in FEATURE_GROUPS.items():
+        for group_name, indices in self.feature_groups.items():
             if group_name == "padding":
                 continue
 
@@ -528,18 +539,18 @@ class FeatureAblationStudy:
     def run_semantic_group_ablation(self) -> pd.DataFrame:
         configs = [
             ("Full baseline", list(range(RAW_FEATURE_COUNT))),
-            ("WHERE only", SEMANTIC_GROUPS["WHERE"]),
-            ("TRAJECTORY only", SEMANTIC_GROUPS["TRAJECTORY"]),
-            ("BOOK_PHYSICS only", SEMANTIC_GROUPS["BOOK_PHYSICS"]),
-            ("FLOW_PHYSICS only", SEMANTIC_GROUPS["FLOW_PHYSICS"]),
-            ("WALLS only", SEMANTIC_GROUPS["WALLS"]),
-            ("WHERE + TRAJECTORY", SEMANTIC_GROUPS["WHERE"] + SEMANTIC_GROUPS["TRAJECTORY"]),
+            ("WHERE only", self.semantic_groups["WHERE"]),
+            ("TRAJECTORY only", self.semantic_groups["TRAJECTORY"]),
+            ("BOOK_PHYSICS only", self.semantic_groups["BOOK_PHYSICS"]),
+            ("FLOW_PHYSICS only", self.semantic_groups["FLOW_PHYSICS"]),
+            ("WALLS only", self.semantic_groups["WALLS"]),
+            ("WHERE + TRAJECTORY", self.semantic_groups["WHERE"] + self.semantic_groups["TRAJECTORY"]),
             ("WHERE + TRAJECTORY + BOOK",
-             SEMANTIC_GROUPS["WHERE"] + SEMANTIC_GROUPS["TRAJECTORY"] + SEMANTIC_GROUPS["BOOK_PHYSICS"]),
+             self.semantic_groups["WHERE"] + self.semantic_groups["TRAJECTORY"] + self.semantic_groups["BOOK_PHYSICS"]),
             ("WHERE + TRAJECTORY + FLOW",
-             SEMANTIC_GROUPS["WHERE"] + SEMANTIC_GROUPS["TRAJECTORY"] + SEMANTIC_GROUPS["FLOW_PHYSICS"]),
-            ("All except WALLS", [i for i in range(RAW_FEATURE_COUNT) if i not in SEMANTIC_GROUPS["WALLS"]]),
-            ("All except BOOK", [i for i in range(RAW_FEATURE_COUNT) if i not in SEMANTIC_GROUPS["BOOK_PHYSICS"]]),
+             self.semantic_groups["WHERE"] + self.semantic_groups["TRAJECTORY"] + self.semantic_groups["FLOW_PHYSICS"]),
+            ("All except WALLS", [i for i in range(RAW_FEATURE_COUNT) if i not in self.semantic_groups["WALLS"]]),
+            ("All except BOOK", [i for i in range(RAW_FEATURE_COUNT) if i not in self.semantic_groups["BOOK_PHYSICS"]]),
         ]
 
         results = []
@@ -621,7 +632,7 @@ class FeatureAblationStudy:
             pca = PCA(n_components=n_comp)
             X_reduced = pca.fit_transform(X)
 
-            X_padded = np.zeros((len(X_reduced), TARGET_DIM))
+            X_padded = np.zeros((len(X_reduced), self.target_dim))
             X_padded[:, :n_comp] = X_reduced
 
             train_v = X_padded[self.train_mask]
@@ -656,7 +667,7 @@ class FeatureAblationStudy:
         }
 
     def run_progressive_feature_addition(self) -> pd.DataFrame:
-        groups_to_add = [g for g in FEATURE_GROUPS.keys() if g != "padding"]
+        groups_to_add = [g for g in self.feature_groups.keys() if g != "padding"]
 
         results = []
         current_indices = []
@@ -668,7 +679,7 @@ class FeatureAblationStudy:
             best_metrics = None
 
             for group in remaining_groups:
-                test_indices = current_indices + FEATURE_GROUPS[group]
+                test_indices = current_indices + self.feature_groups[group]
 
                 isolated = np.zeros_like(self.vectors)
                 isolated[:, test_indices] = self.vectors[:, test_indices]
@@ -686,7 +697,7 @@ class FeatureAblationStudy:
                     best_metrics = metrics
 
             if best_group:
-                current_indices.extend(FEATURE_GROUPS[best_group])
+                current_indices.extend(self.feature_groups[best_group])
                 remaining_groups.remove(best_group)
 
                 prev_accuracy = results[-1]["accuracy"] if results else 0.0

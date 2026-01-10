@@ -30,6 +30,8 @@ PRESSURE_BURST_THRESHOLD = 0.5
 MAX_WALL_DIST_TICKS = 10.0
 GAP_SPREAD_SCALE = 4.0
 
+LEVEL_OFFSETS = [-2, -1, 0, 1, 2]
+
 
 def _linearize_bounded(x: np.ndarray) -> np.ndarray:
     clipped = np.clip(x, -1.0 + 1e-6, 1.0 - 1e-6)
@@ -96,6 +98,155 @@ def _signal_ops(values: np.ndarray, threshold: float, prefix: str) -> Dict[str, 
         f"{prefix}_mean_late": mean_late, f"{prefix}_energy_early": energy_early,
         f"{prefix}_energy_late": energy_late, f"{prefix}_late_minus_early": late_minus_early,
         f"{prefix}_late_over_early": late_over_early,
+    }
+
+
+def _compute_derivatives(values: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    vals = np.nan_to_num(values.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    if len(vals) < 2:
+        return np.array([0.0]), np.array([0.0])
+    d1 = np.diff(vals)
+    if len(d1) < 2:
+        return d1, np.array([0.0])
+    d2 = np.diff(d1)
+    return d1, d2
+
+
+def _compute_impact_absorption(
+    df: pd.DataFrame,
+    approach_direction: int,
+) -> Dict[str, np.ndarray]:
+    microprice = df["bar5s_microprice_eob"].values
+    returns = np.diff(microprice) if len(microprice) > 1 else np.array([0.0])
+    signed_returns = returns * approach_direction
+
+    signed_vol = df["bar5s_trade_signed_vol_sum"].values
+    aggressive_flow = signed_vol[1:] if len(signed_vol) > 1 else np.array([0.0])
+
+    impact = np.abs(signed_returns) / (np.abs(aggressive_flow) + EPSILON)
+    absorb = np.abs(aggressive_flow) / (np.abs(signed_returns) + EPSILON)
+
+    impact = np.clip(np.log1p(impact), 0.0, 10.0)
+    absorb = np.clip(np.log1p(absorb), 0.0, 10.0)
+
+    return {
+        "impact": np.nan_to_num(impact, nan=0.0, posinf=0.0, neginf=0.0),
+        "absorb": np.nan_to_num(absorb, nan=0.0, posinf=0.0, neginf=0.0),
+    }
+
+
+def _compute_spatial_pressure(
+    df: pd.DataFrame,
+    level_price: float,
+    approach_direction: int,
+) -> Dict[str, np.ndarray]:
+    microprice = df["bar5s_microprice_eob"].values
+    level_offset_pts = (microprice - level_price)
+
+    depth_below_p0_1 = df["bar5s_depth_below_p0_1_frac_eob"].values
+    depth_above_p0_1 = df["bar5s_depth_above_p0_1_frac_eob"].values
+    depth_below_p1_2 = df["bar5s_depth_below_p1_2_frac_eob"].values
+    depth_above_p1_2 = df["bar5s_depth_above_p1_2_frac_eob"].values
+    depth_below_p2_3 = df["bar5s_depth_below_p2_3_frac_eob"].values
+    depth_above_p2_3 = df["bar5s_depth_above_p2_3_frac_eob"].values
+
+    cdi_p0_1 = df["bar5s_state_cdi_p0_1_eob"].values
+    cdi_p1_2 = df["bar5s_state_cdi_p1_2_eob"].values
+    cdi_p2_3 = df["bar5s_state_cdi_p2_3_eob"].values
+
+    cdi_p0_1_oriented = cdi_p0_1 * approach_direction
+    cdi_p1_2_oriented = cdi_p1_2 * approach_direction
+    cdi_p2_3_oriented = cdi_p2_3 * approach_direction
+
+    cdi_p0_1_lin = np.clip(_linearize_bounded(cdi_p0_1_oriented), -1.0, 1.0)
+    cdi_p1_2_lin = np.clip(_linearize_bounded(cdi_p1_2_oriented), -1.0, 1.0)
+    cdi_p2_3_lin = np.clip(_linearize_bounded(cdi_p2_3_oriented), -1.0, 1.0)
+
+    if approach_direction == 1:
+        depth_behind = depth_below_p0_1 + depth_below_p1_2
+        depth_ahead = depth_above_p0_1 + depth_above_p1_2 + depth_above_p2_3
+    else:
+        depth_behind = depth_above_p0_1 + depth_above_p1_2
+        depth_ahead = depth_below_p0_1 + depth_below_p1_2 + depth_below_p2_3
+
+    support_stack = np.clip(depth_behind, 0.0, 1.0)
+    resist_stack = np.clip(depth_ahead, 0.0, 1.0)
+    clear_ratio = support_stack / (resist_stack + EPSILON)
+    clear_ratio = np.clip(np.tanh(clear_ratio - 1.0), -1.0, 1.0)
+
+    spatial_slope = (cdi_p2_3_lin - cdi_p0_1_lin) / 2.0
+
+    barrier_strength = np.minimum(cdi_p1_2_lin, cdi_p2_3_lin)
+
+    return {
+        "level_offset_pts": np.nan_to_num(level_offset_pts, nan=0.0),
+        "cdi_p0_1_lin": np.nan_to_num(cdi_p0_1_lin, nan=0.0),
+        "cdi_p1_2_lin": np.nan_to_num(cdi_p1_2_lin, nan=0.0),
+        "cdi_p2_3_lin": np.nan_to_num(cdi_p2_3_lin, nan=0.0),
+        "support_stack": np.nan_to_num(support_stack, nan=0.0),
+        "resist_stack": np.nan_to_num(resist_stack, nan=0.0),
+        "clear_ratio": np.nan_to_num(clear_ratio, nan=0.0),
+        "spatial_slope": np.nan_to_num(spatial_slope, nan=0.0),
+        "barrier_strength": np.nan_to_num(barrier_strength, nan=0.0),
+    }
+
+
+def _compute_shape_features(df: pd.DataFrame, approach_direction: int) -> Dict[str, np.ndarray]:
+    bid_fracs = np.stack([
+        df[f"bar5s_shape_bid_sz_frac_l0{i}_eob"].values for i in range(10)
+    ], axis=1)
+    ask_fracs = np.stack([
+        df[f"bar5s_shape_ask_sz_frac_l0{i}_eob"].values for i in range(10)
+    ], axis=1)
+
+    bid_fracs = np.nan_to_num(bid_fracs, nan=0.1)
+    ask_fracs = np.nan_to_num(ask_fracs, nan=0.1)
+
+    bid_fracs = np.clip(bid_fracs, EPSILON, 1.0)
+    ask_fracs = np.clip(ask_fracs, EPSILON, 1.0)
+
+    bid_fracs = bid_fracs / (bid_fracs.sum(axis=1, keepdims=True) + EPSILON)
+    ask_fracs = ask_fracs / (ask_fracs.sum(axis=1, keepdims=True) + EPSILON)
+
+    bid_entropy = -np.sum(bid_fracs * np.log(bid_fracs + EPSILON), axis=1)
+    ask_entropy = -np.sum(ask_fracs * np.log(ask_fracs + EPSILON), axis=1)
+
+    bid_top3 = np.sort(bid_fracs, axis=1)[:, -3:].sum(axis=1)
+    ask_top3 = np.sort(ask_fracs, axis=1)[:, -3:].sum(axis=1)
+
+    levels = np.arange(10).reshape(1, -1)
+    bid_com = np.sum(bid_fracs * levels, axis=1)
+    ask_com = np.sum(ask_fracs * levels, axis=1)
+
+    if approach_direction == 1:
+        behind_entropy = bid_entropy
+        ahead_entropy = ask_entropy
+        behind_conc = bid_top3
+        ahead_conc = ask_top3
+        behind_com = bid_com
+        ahead_com = ask_com
+    else:
+        behind_entropy = ask_entropy
+        ahead_entropy = bid_entropy
+        behind_conc = ask_top3
+        ahead_conc = bid_top3
+        behind_com = ask_com
+        ahead_com = bid_com
+
+    entropy_diff = ahead_entropy - behind_entropy
+    conc_diff = ahead_conc - behind_conc
+    com_diff = ahead_com - behind_com
+
+    return {
+        "behind_entropy": np.nan_to_num(behind_entropy, nan=0.0),
+        "ahead_entropy": np.nan_to_num(ahead_entropy, nan=0.0),
+        "entropy_diff": np.nan_to_num(entropy_diff, nan=0.0),
+        "behind_conc": np.nan_to_num(behind_conc, nan=0.0),
+        "ahead_conc": np.nan_to_num(ahead_conc, nan=0.0),
+        "conc_diff": np.nan_to_num(conc_diff, nan=0.0),
+        "behind_com": np.nan_to_num(behind_com, nan=0.0),
+        "ahead_com": np.nan_to_num(ahead_com, nan=0.0),
+        "com_diff": np.nan_to_num(com_diff, nan=0.0),
     }
 
 
@@ -577,17 +728,78 @@ def _build_candle_row(
     }
 
     row.update(_signal_ops(u, 0.0, "bar2m_sig_u"))
-    row.update(_signal_ops(comps["pressure"], PRESSURE_BURST_THRESHOLD, "bar2m_sig_pressure"))
+    u_d1, u_d2 = _compute_derivatives(u)
+    row.update(_signal_ops(u_d1, 0.0, "bar2m_d1_u"))
+    row.update(_signal_ops(u_d2, 0.0, "bar2m_d2_u"))
 
-    row["bar2m_comp_obi0_lin_mean"] = float(np.mean(comps["obi0_lin"]))
-    row["bar2m_comp_obi10_lin_mean"] = float(np.mean(comps["obi10_lin"]))
-    row["bar2m_comp_cdi_lin_mean"] = float(np.mean(comps["cdi_lin"]))
-    row["bar2m_comp_flow_norm_mean"] = float(np.mean(comps["flow_norm"]))
-    row["bar2m_comp_trade_imbal_mean"] = float(np.mean(comps["trade_imbal"]))
-    row["bar2m_comp_wall_support_mean"] = float(np.mean(comps["wall_support"]))
-    row["bar2m_comp_wall_dist_support_mean"] = float(np.mean(comps["wall_dist_support"]))
-    row["bar2m_comp_gap_spread_mean"] = float(np.mean(comps["gap_spread"]))
-    row["bar2m_comp_trade_activity_mean"] = float(np.mean(comps["trade_activity"]))
+    row.update(_signal_ops(comps["pressure"], PRESSURE_BURST_THRESHOLD, "bar2m_sig_pressure"))
+    p_d1, p_d2 = _compute_derivatives(comps["pressure"])
+    row.update(_signal_ops(p_d1, 0.0, "bar2m_d1_pressure"))
+    row.update(_signal_ops(p_d2, 0.0, "bar2m_d2_pressure"))
+
+    comp_signals = [
+        ("obi0_lin", comps["obi0_lin"]),
+        ("obi10_lin", comps["obi10_lin"]),
+        ("cdi_lin", comps["cdi_lin"]),
+        ("flow_norm", comps["flow_norm"]),
+        ("trade_imbal", comps["trade_imbal"]),
+        ("wall_support", comps["wall_support"]),
+        ("wall_dist_support", comps["wall_dist_support"]),
+        ("gap_spread", comps["gap_spread"]),
+        ("trade_activity", comps["trade_activity"]),
+    ]
+
+    for name, sig in comp_signals:
+        row.update(_signal_ops(sig, 0.0, f"bar2m_sig_{name}"))
+        sig_d1, sig_d2 = _compute_derivatives(sig)
+        row.update(_signal_ops(sig_d1, 0.0, f"bar2m_d1_{name}"))
+        row.update(_signal_ops(sig_d2, 0.0, f"bar2m_d2_{name}"))
+
+    impact_absorb = _compute_impact_absorption(df_candle, approach_direction)
+    row.update(_signal_ops(impact_absorb["impact"], 0.0, "bar2m_sig_impact"))
+    row.update(_signal_ops(impact_absorb["absorb"], 0.0, "bar2m_sig_absorb"))
+    imp_d1, imp_d2 = _compute_derivatives(impact_absorb["impact"])
+    abs_d1, abs_d2 = _compute_derivatives(impact_absorb["absorb"])
+    row.update(_signal_ops(imp_d1, 0.0, "bar2m_d1_impact"))
+    row.update(_signal_ops(imp_d2, 0.0, "bar2m_d2_impact"))
+    row.update(_signal_ops(abs_d1, 0.0, "bar2m_d1_absorb"))
+    row.update(_signal_ops(abs_d2, 0.0, "bar2m_d2_absorb"))
+
+    spatial = _compute_spatial_pressure(df_candle, level_price, approach_direction)
+    spatial_signals = [
+        ("level_offset_pts", spatial["level_offset_pts"]),
+        ("cdi_p0_1_lin", spatial["cdi_p0_1_lin"]),
+        ("cdi_p1_2_lin", spatial["cdi_p1_2_lin"]),
+        ("cdi_p2_3_lin", spatial["cdi_p2_3_lin"]),
+        ("support_stack", spatial["support_stack"]),
+        ("resist_stack", spatial["resist_stack"]),
+        ("clear_ratio", spatial["clear_ratio"]),
+        ("spatial_slope", spatial["spatial_slope"]),
+        ("barrier_strength", spatial["barrier_strength"]),
+    ]
+    for name, sig in spatial_signals:
+        row.update(_signal_ops(sig, 0.0, f"bar2m_spatial_{name}"))
+        sp_d1, sp_d2 = _compute_derivatives(sig)
+        row.update(_signal_ops(sp_d1, 0.0, f"bar2m_d1_spatial_{name}"))
+        row.update(_signal_ops(sp_d2, 0.0, f"bar2m_d2_spatial_{name}"))
+
+    shape = _compute_shape_features(df_candle, approach_direction)
+    shape_signals = [
+        ("behind_entropy", shape["behind_entropy"]),
+        ("ahead_entropy", shape["ahead_entropy"]),
+        ("entropy_diff", shape["entropy_diff"]),
+        ("behind_conc", shape["behind_conc"]),
+        ("ahead_conc", shape["ahead_conc"]),
+        ("conc_diff", shape["conc_diff"]),
+        ("behind_com", shape["behind_com"]),
+        ("ahead_com", shape["ahead_com"]),
+        ("com_diff", shape["com_diff"]),
+    ]
+    for name, sig in shape_signals:
+        row.update(_signal_ops(sig, 0.0, f"bar2m_shape_{name}"))
+        sh_d1, sh_d2 = _compute_derivatives(sig)
+        row.update(_signal_ops(sh_d1, 0.0, f"bar2m_d1_shape_{name}"))
+        row.update(_signal_ops(sh_d2, 0.0, f"bar2m_d2_shape_{name}"))
 
     cfg_dict = metadata["cfg"].to_dict()
     for k, v in cfg_dict.items():
