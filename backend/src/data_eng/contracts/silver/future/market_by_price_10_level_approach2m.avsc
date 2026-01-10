@@ -2,347 +2,134 @@
   "namespace": "com.marketdata.silver",
   "type": "record",
   "name": "MarketByPrice10LevelApproach2m",
-  "doc": "2-minute candle approach features with microstructure signatures.",
+  "doc": "Compliant 2-minute candle approach features per COMPLIANCE_GPT.md spec.",
   "fields": [
-    {
-      "name": "bar_ts",
-      "type": "long",
-      "doc": "2-minute candle start timestamp in nanoseconds (UTC)."
-    },
-    {
-      "name": "symbol",
-      "type": "string",
-      "doc": "Instrument symbol."
-    },
-    {
-      "name": "episode_id",
-      "type": "string",
-      "doc": "Unique episode identifier."
-    },
-    {
-      "name": "touch_id",
-      "type": "string",
-      "doc": "Alias for episode_id."
-    },
-    {
-      "name": "level_type",
-      "type": "string",
-      "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."
-    },
-    {
-      "name": "level_price",
-      "type": "double",
-      "doc": "Level price in points."
-    },
-    {
-      "name": "trigger_candle_ts",
-      "type": "long",
-      "doc": "Trigger candle timestamp in nanoseconds."
-    },
-    {
-      "name": "bar_index_in_episode",
-      "type": "long",
-      "doc": "0-indexed candle position within episode."
-    },
-    {
-      "name": "bar_index_in_touch",
-      "type": "long",
-      "doc": "Alias for bar_index_in_episode."
-    },
-    {
-      "name": "bars_to_trigger",
-      "type": "long",
-      "doc": "Negative = before trigger, 0 = trigger, positive = after."
-    },
-    {
-      "name": "is_pre_trigger",
-      "type": "boolean",
-      "doc": "True if candle is before trigger."
-    },
-    {
-      "name": "is_trigger_candle",
-      "type": "boolean",
-      "doc": "True if candle is trigger."
-    },
-    {
-      "name": "is_post_trigger",
-      "type": "boolean",
-      "doc": "True if candle is after trigger."
-    },
-    {
-      "name": "approach_direction",
-      "type": "long",
-      "doc": "+1 = from below, -1 = from above."
-    },
-    {
-      "name": "is_standard_approach",
-      "type": "boolean",
-      "doc": "True if testing HIGH from below or LOW from above."
-    },
-    {
-      "name": "outcome",
-      "type": "string",
-      "doc": "BREAK, REJECT, CHOP."
-    },
-    {
-      "name": "outcome_score",
-      "type": "double",
-      "doc": "Signed outcome magnitude in ticks."
-    },
-    {
-      "name": "is_premarket_context_truncated",
-      "type": "boolean",
-      "doc": "True if pre-window starts before RTH open."
-    },
-    {
-      "name": "bar2m_touched_in_zone",
-      "type": "boolean",
-      "doc": "Any trade close in zone during candle."
-    },
-    {
-      "name": "bar2m_close_in_zone",
-      "type": "boolean",
-      "doc": "Last trade close in candle is inside zone."
-    },
-    {
-      "name": "bar2m_first_touch_offset",
-      "type": "long",
-      "doc": "Index of first in-zone trade in candle, -1 if none."
-    },
-    {
-      "name": "bar2m_time_in_zone_frac",
-      "type": "double",
-      "doc": "Fraction of micro bars in zone."
-    },
-    {
-      "name": "bar2m_time_far_side_frac",
-      "type": "double",
-      "doc": "Fraction of micro bars on far side (u > 0)."
-    },
-    {
-      "name": "bar2m_late_time_far_side_frac",
-      "type": "double",
-      "doc": "Late-segment fraction on far side."
-    },
-    {
-      "name": "bar2m_close_side",
-      "type": "long",
-      "doc": "Sign of oriented close distance at candle close."
-    },
-    {
-      "name": "bar2m_sig_u_start",
-      "type": "double",
-      "doc": "Start value of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_end",
-      "type": "double",
-      "doc": "End value of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_min",
-      "type": "double",
-      "doc": "Min value of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_max",
-      "type": "double",
-      "doc": "Max value of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_mean",
-      "type": "double",
-      "doc": "Mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_std",
-      "type": "double",
-      "doc": "Std of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_slope",
-      "type": "double",
-      "doc": "Slope of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_energy",
-      "type": "double",
-      "doc": "Energy of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_sign_flip_cnt",
-      "type": "double",
-      "doc": "Sign flip count of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_burst_frac",
-      "type": "double",
-      "doc": "Burst fraction of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_mean_early",
-      "type": "double",
-      "doc": "Early mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_mean_mid",
-      "type": "double",
-      "doc": "Mid mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_mean_late",
-      "type": "double",
-      "doc": "Late mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_energy_early",
-      "type": "double",
-      "doc": "Early energy of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_energy_late",
-      "type": "double",
-      "doc": "Late energy of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_late_minus_early",
-      "type": "double",
-      "doc": "Late minus early mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_u_late_over_early",
-      "type": "double",
-      "doc": "Late over early mean of oriented distance signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_start",
-      "type": "double",
-      "doc": "Start value of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_end",
-      "type": "double",
-      "doc": "End value of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_min",
-      "type": "double",
-      "doc": "Min value of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_max",
-      "type": "double",
-      "doc": "Max value of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_mean",
-      "type": "double",
-      "doc": "Mean of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_std",
-      "type": "double",
-      "doc": "Std of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_slope",
-      "type": "double",
-      "doc": "Slope of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_energy",
-      "type": "double",
-      "doc": "Energy of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_sign_flip_cnt",
-      "type": "double",
-      "doc": "Sign flip count of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_burst_frac",
-      "type": "double",
-      "doc": "Burst fraction of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_mean_early",
-      "type": "double",
-      "doc": "Early mean of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_mean_mid",
-      "type": "double",
-      "doc": "Mid mean of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_mean_late",
-      "type": "double",
-      "doc": "Late mean of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_energy_early",
-      "type": "double",
-      "doc": "Early energy of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_energy_late",
-      "type": "double",
-      "doc": "Late energy of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_late_minus_early",
-      "type": "double",
-      "doc": "Late minus early mean of pressure signal."
-    },
-    {
-      "name": "bar2m_sig_pressure_late_over_early",
-      "type": "double",
-      "doc": "Late over early mean of pressure signal."
-    },
-    {
-      "name": "bar2m_comp_obi0_lin_mean",
-      "type": "double",
-      "doc": "Mean linearized OBI0."
-    },
-    {
-      "name": "bar2m_comp_obi10_lin_mean",
-      "type": "double",
-      "doc": "Mean linearized OBI10."
-    },
-    {
-      "name": "bar2m_comp_cdi_lin_mean",
-      "type": "double",
-      "doc": "Mean linearized CDI p0_1."
-    },
-    {
-      "name": "bar2m_comp_flow_norm_mean",
-      "type": "double",
-      "doc": "Mean normalized flow imbalance."
-    },
-    {
-      "name": "bar2m_comp_trade_imbal_mean",
-      "type": "double",
-      "doc": "Mean trade imbalance."
-    },
-    {
-      "name": "bar2m_comp_wall_support_mean",
-      "type": "double",
-      "doc": "Mean wall support."
-    },
-    {
-      "name": "bar2m_comp_wall_dist_support_mean",
-      "type": "double",
-      "doc": "Mean wall distance support."
-    },
-    {
-      "name": "bar2m_comp_gap_spread_mean",
-      "type": "double",
-      "doc": "Mean gap and spread support."
-    },
-    {
-      "name": "bar2m_comp_trade_activity_mean",
-      "type": "double",
-      "doc": "Mean trade activity z-score transform."
-    }
+    {"name": "bar_ts", "type": "long", "doc": "2-minute candle start timestamp (ns UTC)."},
+    {"name": "symbol", "type": "string", "doc": "Instrument symbol."},
+    {"name": "episode_id", "type": "string", "doc": "Unique episode identifier."},
+    {"name": "touch_id", "type": "string", "doc": "Alias for episode_id."},
+    {"name": "level_type", "type": "string", "doc": "Level type: pm_high, pm_low, or_high, or_low."},
+    {"name": "level_price", "type": "double", "doc": "Level price in points."},
+
+    {"name": "candle_id", "type": "long", "doc": "0-indexed candle position in session."},
+    {"name": "trigger_candle_id", "type": "long", "doc": "Index of trigger candle."},
+    {"name": "confirm_candle_id", "type": "long", "doc": "Index of confirmation candle (trigger + CONFIRM_BARS)."},
+    {"name": "infer_candle_id", "type": "long", "doc": "Index of inference candle (equals confirm_candle_id)."},
+    {"name": "trigger_candle_ts", "type": "long", "doc": "Trigger candle timestamp (ns)."},
+    {"name": "confirm_candle_ts", "type": "long", "doc": "Confirmation candle timestamp (ns)."},
+    {"name": "infer_ts", "type": "long", "doc": "Inference timestamp (after confirm close)."},
+
+    {"name": "lookback_start_id", "type": "long", "doc": "First candle in lookback window."},
+    {"name": "lookback_end_id", "type": "long", "doc": "Last candle in lookback window (confirm candle)."},
+    {"name": "lookfwd_start_id", "type": "long", "doc": "First candle in look-forward window."},
+    {"name": "lookfwd_end_id", "type": "long", "doc": "Last candle in look-forward window."},
+
+    {"name": "bar_index_in_episode", "type": "long", "doc": "0-indexed position within episode."},
+    {"name": "bar_index_in_touch", "type": "long", "doc": "Alias for bar_index_in_episode."},
+    {"name": "bars_to_trigger", "type": "long", "doc": "Bars relative to trigger (negative=before, 0=trigger, positive=after)."},
+    {"name": "bars_to_confirm", "type": "long", "doc": "Bars relative to confirm candle."},
+
+    {"name": "is_pre_trigger", "type": "boolean", "doc": "True if candle is before trigger."},
+    {"name": "is_trigger_candle", "type": "boolean", "doc": "True if candle is trigger."},
+    {"name": "is_confirm_candle", "type": "boolean", "doc": "True if candle is confirmation."},
+    {"name": "is_post_confirm", "type": "boolean", "doc": "True if candle is after confirmation."},
+    {"name": "is_in_lookback", "type": "boolean", "doc": "True if candle is in lookback window."},
+    {"name": "is_in_lookfwd", "type": "boolean", "doc": "True if candle is in look-forward window."},
+
+    {"name": "approach_direction", "type": "long", "doc": "+1 = from below, -1 = from above."},
+    {"name": "is_standard_approach", "type": "boolean", "doc": "True if testing HIGH from below or LOW from above."},
+
+    {"name": "outcome", "type": "string", "doc": "BREAK, REJECT, CHOP."},
+    {"name": "outcome_score", "type": "double", "doc": "Signed outcome magnitude in points."},
+    {"name": "max_signed_dist", "type": "double", "doc": "Max signed distance in horizon (positive=break direction)."},
+    {"name": "min_signed_dist", "type": "double", "doc": "Min signed distance in horizon (negative=reject direction)."},
+
+    {"name": "chop_flag", "type": "boolean", "doc": "True if structural chop detected (retrace to trigger open)."},
+    {"name": "failed_break_flag", "type": "boolean", "doc": "True if confirm close below level (failed break)."},
+    {"name": "both_sides_hit_flag", "type": "boolean", "doc": "True if both break and reject thresholds hit in horizon."},
+    {"name": "first_hit_side", "type": "string", "doc": "Which side hit first: break, reject, tie, none."},
+    {"name": "first_hit_offset_bars", "type": "long", "doc": "Bar offset when first threshold hit (-1 if none)."},
+    {"name": "mae_pts", "type": "double", "doc": "Max adverse excursion in points."},
+    {"name": "mfe_pts", "type": "double", "doc": "Max favorable excursion in points."},
+
+    {"name": "bar2m_open", "type": "double", "doc": "Candle open price."},
+    {"name": "bar2m_high", "type": "double", "doc": "Candle high price."},
+    {"name": "bar2m_low", "type": "double", "doc": "Candle low price."},
+    {"name": "bar2m_close", "type": "double", "doc": "Candle close price."},
+
+    {"name": "bar2m_touched_in_zone", "type": "boolean", "doc": "Any trade close in zone during candle."},
+    {"name": "bar2m_close_in_zone", "type": "boolean", "doc": "Last trade close in candle is inside zone."},
+    {"name": "bar2m_first_touch_offset", "type": "long", "doc": "Index of first in-zone trade in candle, -1 if none."},
+    {"name": "bar2m_time_in_zone_frac", "type": "double", "doc": "Fraction of micro bars in zone."},
+    {"name": "bar2m_time_far_side_frac", "type": "double", "doc": "Fraction of micro bars on far side (u > 0)."},
+    {"name": "bar2m_late_time_far_side_frac", "type": "double", "doc": "Late-segment fraction on far side."},
+    {"name": "bar2m_close_side", "type": "long", "doc": "Sign of oriented close distance at candle close."},
+
+    {"name": "bar2m_sig_u_start", "type": "double", "doc": "Start value of oriented distance signal."},
+    {"name": "bar2m_sig_u_end", "type": "double", "doc": "End value of oriented distance signal."},
+    {"name": "bar2m_sig_u_min", "type": "double", "doc": "Min value of oriented distance signal."},
+    {"name": "bar2m_sig_u_max", "type": "double", "doc": "Max value of oriented distance signal."},
+    {"name": "bar2m_sig_u_mean", "type": "double", "doc": "Mean of oriented distance signal."},
+    {"name": "bar2m_sig_u_std", "type": "double", "doc": "Std of oriented distance signal."},
+    {"name": "bar2m_sig_u_slope", "type": "double", "doc": "Slope of oriented distance signal."},
+    {"name": "bar2m_sig_u_energy", "type": "double", "doc": "Energy of oriented distance signal."},
+    {"name": "bar2m_sig_u_sign_flip_cnt", "type": "double", "doc": "Sign flip count of oriented distance signal."},
+    {"name": "bar2m_sig_u_burst_frac", "type": "double", "doc": "Burst fraction of oriented distance signal."},
+    {"name": "bar2m_sig_u_mean_early", "type": "double", "doc": "Early mean of oriented distance signal."},
+    {"name": "bar2m_sig_u_mean_mid", "type": "double", "doc": "Mid mean of oriented distance signal."},
+    {"name": "bar2m_sig_u_mean_late", "type": "double", "doc": "Late mean of oriented distance signal."},
+    {"name": "bar2m_sig_u_energy_early", "type": "double", "doc": "Early energy of oriented distance signal."},
+    {"name": "bar2m_sig_u_energy_late", "type": "double", "doc": "Late energy of oriented distance signal."},
+    {"name": "bar2m_sig_u_late_minus_early", "type": "double", "doc": "Late minus early mean of oriented distance signal."},
+    {"name": "bar2m_sig_u_late_over_early", "type": "double", "doc": "Late over early mean of oriented distance signal."},
+
+    {"name": "bar2m_sig_pressure_start", "type": "double", "doc": "Start value of pressure signal."},
+    {"name": "bar2m_sig_pressure_end", "type": "double", "doc": "End value of pressure signal."},
+    {"name": "bar2m_sig_pressure_min", "type": "double", "doc": "Min value of pressure signal."},
+    {"name": "bar2m_sig_pressure_max", "type": "double", "doc": "Max value of pressure signal."},
+    {"name": "bar2m_sig_pressure_mean", "type": "double", "doc": "Mean of pressure signal."},
+    {"name": "bar2m_sig_pressure_std", "type": "double", "doc": "Std of pressure signal."},
+    {"name": "bar2m_sig_pressure_slope", "type": "double", "doc": "Slope of pressure signal."},
+    {"name": "bar2m_sig_pressure_energy", "type": "double", "doc": "Energy of pressure signal."},
+    {"name": "bar2m_sig_pressure_sign_flip_cnt", "type": "double", "doc": "Sign flip count of pressure signal."},
+    {"name": "bar2m_sig_pressure_burst_frac", "type": "double", "doc": "Burst fraction of pressure signal."},
+    {"name": "bar2m_sig_pressure_mean_early", "type": "double", "doc": "Early mean of pressure signal."},
+    {"name": "bar2m_sig_pressure_mean_mid", "type": "double", "doc": "Mid mean of pressure signal."},
+    {"name": "bar2m_sig_pressure_mean_late", "type": "double", "doc": "Late mean of pressure signal."},
+    {"name": "bar2m_sig_pressure_energy_early", "type": "double", "doc": "Early energy of pressure signal."},
+    {"name": "bar2m_sig_pressure_energy_late", "type": "double", "doc": "Late energy of pressure signal."},
+    {"name": "bar2m_sig_pressure_late_minus_early", "type": "double", "doc": "Late minus early mean of pressure signal."},
+    {"name": "bar2m_sig_pressure_late_over_early", "type": "double", "doc": "Late over early mean of pressure signal."},
+
+    {"name": "bar2m_comp_obi0_lin_mean", "type": "double", "doc": "Mean linearized OBI0."},
+    {"name": "bar2m_comp_obi10_lin_mean", "type": "double", "doc": "Mean linearized OBI10."},
+    {"name": "bar2m_comp_cdi_lin_mean", "type": "double", "doc": "Mean linearized CDI p0_1."},
+    {"name": "bar2m_comp_flow_norm_mean", "type": "double", "doc": "Mean normalized flow imbalance."},
+    {"name": "bar2m_comp_trade_imbal_mean", "type": "double", "doc": "Mean trade imbalance."},
+    {"name": "bar2m_comp_wall_support_mean", "type": "double", "doc": "Mean wall support."},
+    {"name": "bar2m_comp_wall_dist_support_mean", "type": "double", "doc": "Mean wall distance support."},
+    {"name": "bar2m_comp_gap_spread_mean", "type": "double", "doc": "Mean gap and spread support."},
+    {"name": "bar2m_comp_trade_activity_mean", "type": "double", "doc": "Mean trade activity z-score transform."},
+
+    {"name": "cfg_bar_interval_sec", "type": "long", "doc": "Config: bar interval in seconds."},
+    {"name": "cfg_lookback_bars_infer", "type": "long", "doc": "Config: lookback bars for inference."},
+    {"name": "cfg_confirm_bars", "type": "long", "doc": "Config: confirmation bars after trigger."},
+    {"name": "cfg_lookfwd_bars_label", "type": "long", "doc": "Config: look-forward bars for labeling."},
+    {"name": "cfg_cross_epsilon_pts", "type": "double", "doc": "Config: epsilon for level crossing."},
+    {"name": "cfg_approach_side_min_bars", "type": "long", "doc": "Config: min bars on approach side."},
+    {"name": "cfg_reset_min_bars", "type": "long", "doc": "Config: min bars for reset."},
+    {"name": "cfg_reset_distance_pts", "type": "double", "doc": "Config: reset distance in points."},
+    {"name": "cfg_break_threshold_pts", "type": "double", "doc": "Config: break threshold in points."},
+    {"name": "cfg_reject_threshold_pts", "type": "double", "doc": "Config: reject threshold in points."},
+    {"name": "cfg_outcome_price_basis", "type": "string", "doc": "Config: price basis (close or hl)."},
+    {"name": "cfg_confirm_close_rule", "type": "string", "doc": "Config: confirmation close rule."},
+    {"name": "cfg_confirm_close_buffer_pts", "type": "double", "doc": "Config: confirmation close buffer."},
+    {"name": "cfg_chop_retrace_to_trigger_open_pts", "type": "double", "doc": "Config: chop retrace threshold."},
+    {"name": "cfg_chop_override_next_close_delta_pts", "type": "double", "doc": "Config: chop override threshold."},
+    {"name": "cfg_failed_break_confirm_close_below_level_pts", "type": "double", "doc": "Config: failed break buffer."},
+    {"name": "cfg_stop_buffer_pts", "type": "double", "doc": "Config: stop buffer in points."},
+    {"name": "cfg_max_adverse_excursion_horizon_bars", "type": "long", "doc": "Config: MAE horizon bars."},
+    {"name": "cfg_min_bars_between_touches", "type": "long", "doc": "Config: min bars between touches."},
+    {"name": "cfg_max_touches_per_level_per_session", "type": "long", "doc": "Config: max touches per level per session."}
   ]
 }

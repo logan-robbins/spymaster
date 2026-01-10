@@ -2,6 +2,10 @@
 
 Reads from all 4 approach2m datasets and produces a single setup_vectors dataset
 containing concatenated candle signatures ready for FAISS similarity search.
+
+Compliant with COMPLIANCE_GPT.md:
+- Uses 6-bar lookback ending at confirmation candle
+- Passes through all audit fields (candle IDs, window boundaries, flags, config)
 """
 
 from __future__ import annotations
@@ -15,8 +19,8 @@ from ...base import Stage, StageIO
 from ....io import partition_ref, is_partition_complete, read_partition, write_partition, read_manifest_hash
 
 
-PRE_WINDOW_CANDLES = 5
-CANDLE_POSITIONS = list(range(-(PRE_WINDOW_CANDLES - 1), 1))
+LOOKBACK_BARS = 6
+CANDLE_POSITIONS = list(range(-(LOOKBACK_BARS - 1), 1))
 
 SIGNATURE_COLS = [
     "bar2m_time_in_zone_frac",
@@ -78,27 +82,51 @@ DERIVATIVE_SIGNALS = [
     "bar2m_comp_gap_spread_mean",
 ]
 
+CONFIG_FIELDS = [
+    "cfg_bar_interval_sec",
+    "cfg_lookback_bars_infer",
+    "cfg_confirm_bars",
+    "cfg_lookfwd_bars_label",
+    "cfg_cross_epsilon_pts",
+    "cfg_approach_side_min_bars",
+    "cfg_reset_min_bars",
+    "cfg_reset_distance_pts",
+    "cfg_break_threshold_pts",
+    "cfg_reject_threshold_pts",
+    "cfg_outcome_price_basis",
+    "cfg_confirm_close_rule",
+    "cfg_confirm_close_buffer_pts",
+    "cfg_chop_retrace_to_trigger_open_pts",
+    "cfg_chop_override_next_close_delta_pts",
+    "cfg_failed_break_confirm_close_below_level_pts",
+    "cfg_stop_buffer_pts",
+    "cfg_max_adverse_excursion_horizon_bars",
+    "cfg_min_bars_between_touches",
+    "cfg_max_touches_per_level_per_session",
+]
+
 LEVEL_TYPES = ["pm_high", "pm_low", "or_high", "or_low"]
 
 
 def _build_vector_for_episode(df_episode: pd.DataFrame) -> Optional[Dict]:
     """Build a setup vector from an episode's candle rows."""
-    trigger_rows = df_episode[df_episode["is_trigger_candle"] == True]
-    if len(trigger_rows) == 0:
-        return None
-    trigger = trigger_rows.iloc[0]
+    confirm_rows = df_episode[df_episode["is_confirm_candle"] == True]
+    if len(confirm_rows) == 0:
+        trigger_rows = df_episode[df_episode["is_trigger_candle"] == True]
+        if len(trigger_rows) == 0:
+            return None
+        confirm = trigger_rows.iloc[0]
+    else:
+        confirm = confirm_rows.iloc[0]
 
-    pre_window_df = df_episode[
-        (df_episode["bars_to_trigger"] >= -(PRE_WINDOW_CANDLES - 1)) &
-        (df_episode["bars_to_trigger"] <= 0)
-    ].sort_values("bars_to_trigger")
+    lookback_df = df_episode[df_episode["is_in_lookback"] == True].sort_values("bars_to_confirm")
 
-    if len(pre_window_df) == 0:
+    if len(lookback_df) == 0:
         return None
 
     candle_map = {}
-    for _, row in pre_window_df.iterrows():
-        pos = int(row["bars_to_trigger"])
+    for _, row in lookback_df.iterrows():
+        pos = int(row["bars_to_confirm"])
         candle_map[pos] = row
 
     vector_parts = []
@@ -130,18 +158,48 @@ def _build_vector_for_episode(df_episode: pd.DataFrame) -> Optional[Dict]:
             d2 = (values_by_pos[i] - values_by_pos[i - 1]) - (values_by_pos[i - 1] - values_by_pos[i - 2])
             vector_parts.append(d2)
 
-    return {
-        "episode_id": trigger["episode_id"],
-        "level_type": trigger["level_type"],
-        "level_price": float(trigger["level_price"]),
-        "trigger_candle_ts": int(trigger["trigger_candle_ts"]),
-        "approach_direction": int(trigger["approach_direction"]),
-        "outcome": trigger["outcome"],
-        "outcome_score": float(trigger["outcome_score"]),
-        "is_premarket_context_truncated": bool(trigger["is_premarket_context_truncated"]),
+    result = {
+        "episode_id": confirm["episode_id"],
+        "level_type": confirm["level_type"],
+        "level_price": float(confirm["level_price"]),
+        "trigger_candle_id": int(confirm["trigger_candle_id"]),
+        "confirm_candle_id": int(confirm["confirm_candle_id"]),
+        "infer_candle_id": int(confirm["infer_candle_id"]),
+        "trigger_candle_ts": int(confirm["trigger_candle_ts"]),
+        "confirm_candle_ts": int(confirm["confirm_candle_ts"]),
+        "infer_ts": int(confirm["infer_ts"]),
+        "lookback_start_id": int(confirm["lookback_start_id"]),
+        "lookback_end_id": int(confirm["lookback_end_id"]),
+        "lookfwd_start_id": int(confirm["lookfwd_start_id"]),
+        "lookfwd_end_id": int(confirm["lookfwd_end_id"]),
+        "approach_direction": int(confirm["approach_direction"]),
+        "is_standard_approach": bool(confirm["is_standard_approach"]),
+        "outcome": confirm["outcome"],
+        "outcome_score": float(confirm["outcome_score"]),
+        "max_signed_dist": float(confirm["max_signed_dist"]),
+        "min_signed_dist": float(confirm["min_signed_dist"]),
+        "chop_flag": bool(confirm["chop_flag"]),
+        "failed_break_flag": bool(confirm["failed_break_flag"]),
+        "both_sides_hit_flag": bool(confirm["both_sides_hit_flag"]),
+        "first_hit_side": str(confirm["first_hit_side"]),
+        "first_hit_offset_bars": int(confirm["first_hit_offset_bars"]),
+        "mae_pts": float(confirm["mae_pts"]),
+        "mfe_pts": float(confirm["mfe_pts"]),
         "vector": vector_parts,
         "vector_dim": len(vector_parts),
     }
+
+    for cfg_field in CONFIG_FIELDS:
+        if cfg_field in confirm.index:
+            val = confirm[cfg_field]
+            if isinstance(val, (np.integer, int)):
+                result[cfg_field] = int(val)
+            elif isinstance(val, (np.floating, float)):
+                result[cfg_field] = float(val)
+            else:
+                result[cfg_field] = str(val)
+
+    return result
 
 
 class GoldExtractSetupVectors(Stage):
@@ -220,21 +278,25 @@ class GoldExtractSetupVectors(Stage):
                 all_vectors.append(result)
                 vector_counter += 1
 
+        col_order = [
+            "vector_id", "episode_id", "dt", "symbol", "level_type", "level_price",
+            "trigger_candle_id", "confirm_candle_id", "infer_candle_id",
+            "trigger_candle_ts", "confirm_candle_ts", "infer_ts",
+            "lookback_start_id", "lookback_end_id", "lookfwd_start_id", "lookfwd_end_id",
+            "approach_direction", "is_standard_approach",
+            "outcome", "outcome_score", "max_signed_dist", "min_signed_dist",
+            "chop_flag", "failed_break_flag", "both_sides_hit_flag",
+            "first_hit_side", "first_hit_offset_bars", "mae_pts", "mfe_pts",
+            "front_month_symbol", "dominance_ratio", "roll_contaminated", "is_front_month",
+        ] + CONFIG_FIELDS + ["vector", "vector_dim"]
+
         if len(all_vectors) == 0:
-            df_out = pd.DataFrame(columns=[
-                "vector_id", "episode_id", "dt", "symbol", "level_type", "level_price",
-                "trigger_candle_ts", "approach_direction", "outcome", "outcome_score",
-                "is_premarket_context_truncated", "front_month_symbol", "dominance_ratio",
-                "roll_contaminated", "is_front_month", "vector", "vector_dim"
-            ])
+            df_out = pd.DataFrame(columns=col_order)
         else:
             df_out = pd.DataFrame(all_vectors)
-            col_order = [
-                "vector_id", "episode_id", "dt", "symbol", "level_type", "level_price",
-                "trigger_candle_ts", "approach_direction", "outcome", "outcome_score",
-                "is_premarket_context_truncated", "front_month_symbol", "dominance_ratio",
-                "roll_contaminated", "is_front_month", "vector", "vector_dim"
-            ]
+            for col in col_order:
+                if col not in df_out.columns:
+                    df_out[col] = None
             df_out = df_out[col_order]
 
         contract_path = repo_root / "src" / "data_eng" / "contracts" / "gold" / "future" / "setup_vectors.avsc"

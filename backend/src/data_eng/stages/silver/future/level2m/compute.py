@@ -1,27 +1,24 @@
-"""2-minute candle level approach computation.
+"""Compliant level-approach setup extraction.
 
-Takes bar5s data and level price, produces approach2m rows matching the contract.
+Implements the exact semantics from COMPLIANCE_GPT.md:
+- Trigger: first candle that crosses level (prev fully on approach side)
+- Confirmation: trigger + CONFIRM_BARS
+- Inference: after confirmation close
+- Lookback: LOOKBACK_BARS_INFER ending at confirmation (inclusive)
+- Look-forward: LOOKFWD_BARS_LABEL starting after confirmation
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from zoneinfo import ZoneInfo
 
+from .setup_config import SetupConfig, DEFAULT_CONFIG
+
 EPSILON = 1e-9
 TICK_SIZE = 0.25
-
-TOUCH_ZONE_TICKS = 4
-CLOSE_ZONE_TICKS = 4
-TOUCH_ZONE_PTS = TOUCH_ZONE_TICKS * TICK_SIZE
-CLOSE_ZONE_PTS = CLOSE_ZONE_TICKS * TICK_SIZE
-
-MOVE_THRESHOLD_TICKS = 8
-OUTCOME_HORIZON_CANDLES = 6
-PRE_WINDOW_CANDLES = 5
-COOLDOWN_CANDLES = 3
 
 BAR2M_DURATION_NS = 120_000_000_000
 
@@ -35,34 +32,24 @@ GAP_SPREAD_SCALE = 4.0
 
 
 def _linearize_bounded(x: np.ndarray) -> np.ndarray:
-    """Linearize bounded [-1, 1] signals using arctanh."""
     clipped = np.clip(x, -1.0 + 1e-6, 1.0 - 1e-6)
     return np.arctanh(clipped) / 2.0
 
 
 def _signal_ops(values: np.ndarray, threshold: float, prefix: str) -> Dict[str, float]:
-    """Compute standard operators on a micro signal array."""
     vals = np.nan_to_num(values.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     n = len(vals)
 
     if n == 0:
         return {
-            f"{prefix}_start": 0.0,
-            f"{prefix}_end": 0.0,
-            f"{prefix}_min": 0.0,
-            f"{prefix}_max": 0.0,
-            f"{prefix}_mean": 0.0,
-            f"{prefix}_std": 0.0,
-            f"{prefix}_slope": 0.0,
-            f"{prefix}_energy": 0.0,
-            f"{prefix}_sign_flip_cnt": 0.0,
-            f"{prefix}_burst_frac": 0.0,
-            f"{prefix}_mean_early": 0.0,
-            f"{prefix}_mean_mid": 0.0,
-            f"{prefix}_mean_late": 0.0,
-            f"{prefix}_energy_early": 0.0,
-            f"{prefix}_energy_late": 0.0,
-            f"{prefix}_late_minus_early": 0.0,
+            f"{prefix}_start": 0.0, f"{prefix}_end": 0.0,
+            f"{prefix}_min": 0.0, f"{prefix}_max": 0.0,
+            f"{prefix}_mean": 0.0, f"{prefix}_std": 0.0,
+            f"{prefix}_slope": 0.0, f"{prefix}_energy": 0.0,
+            f"{prefix}_sign_flip_cnt": 0.0, f"{prefix}_burst_frac": 0.0,
+            f"{prefix}_mean_early": 0.0, f"{prefix}_mean_mid": 0.0,
+            f"{prefix}_mean_late": 0.0, f"{prefix}_energy_early": 0.0,
+            f"{prefix}_energy_late": 0.0, f"{prefix}_late_minus_early": 0.0,
             f"{prefix}_late_over_early": 0.0,
         }
 
@@ -100,28 +87,19 @@ def _signal_ops(values: np.ndarray, threshold: float, prefix: str) -> Dict[str, 
     late_over_early = mean_late / (abs(mean_early) + EPSILON)
 
     return {
-        f"{prefix}_start": start,
-        f"{prefix}_end": end,
-        f"{prefix}_min": vmin,
-        f"{prefix}_max": vmax,
-        f"{prefix}_mean": mean,
-        f"{prefix}_std": std,
-        f"{prefix}_slope": slope,
-        f"{prefix}_energy": energy,
-        f"{prefix}_sign_flip_cnt": sign_flip_cnt,
-        f"{prefix}_burst_frac": burst_frac,
-        f"{prefix}_mean_early": mean_early,
-        f"{prefix}_mean_mid": mean_mid,
-        f"{prefix}_mean_late": mean_late,
-        f"{prefix}_energy_early": energy_early,
-        f"{prefix}_energy_late": energy_late,
-        f"{prefix}_late_minus_early": late_minus_early,
+        f"{prefix}_start": start, f"{prefix}_end": end,
+        f"{prefix}_min": vmin, f"{prefix}_max": vmax,
+        f"{prefix}_mean": mean, f"{prefix}_std": std,
+        f"{prefix}_slope": slope, f"{prefix}_energy": energy,
+        f"{prefix}_sign_flip_cnt": sign_flip_cnt, f"{prefix}_burst_frac": burst_frac,
+        f"{prefix}_mean_early": mean_early, f"{prefix}_mean_mid": mean_mid,
+        f"{prefix}_mean_late": mean_late, f"{prefix}_energy_early": energy_early,
+        f"{prefix}_energy_late": energy_late, f"{prefix}_late_minus_early": late_minus_early,
         f"{prefix}_late_over_early": late_over_early,
     }
 
 
 def _compute_pressure_components(df: pd.DataFrame, approach_direction: int) -> Dict[str, np.ndarray]:
-    """Compute pressure components from bar5s micro data."""
     obi0 = df["bar5s_state_obi0_eob"].values * approach_direction
     obi10 = df["bar5s_state_obi10_eob"].values * approach_direction
     cdi = df["bar5s_state_cdi_p0_1_eob"].values * approach_direction
@@ -155,9 +133,7 @@ def _compute_pressure_components(df: pd.DataFrame, approach_direction: int) -> D
     else:
         wall_opp_dist = wall_bid_dist
     wall_opp_dist_ticks = np.where(
-        np.isnan(wall_opp_dist),
-        MAX_WALL_DIST_TICKS,
-        wall_opp_dist / TICK_SIZE,
+        np.isnan(wall_opp_dist), MAX_WALL_DIST_TICKS, wall_opp_dist / TICK_SIZE
     )
     wall_dist_support = np.clip(wall_opp_dist_ticks / MAX_WALL_DIST_TICKS, 0.0, 1.0)
     wall_dist_support = (2.0 * wall_dist_support) - 1.0
@@ -183,32 +159,22 @@ def _compute_pressure_components(df: pd.DataFrame, approach_direction: int) -> D
     pressure = np.mean(
         np.stack([
             (obi0_lin + obi10_lin + cdi_lin) / 3.0,
-            flow_norm,
-            trade_imbal,
-            wall_support,
-            wall_dist_support,
-            gap_spread,
-            trade_activity,
+            flow_norm, trade_imbal, wall_support,
+            wall_dist_support, gap_spread, trade_activity,
         ], axis=0),
         axis=0,
     )
 
     return {
         "pressure": pressure,
-        "obi0_lin": obi0_lin,
-        "obi10_lin": obi10_lin,
-        "cdi_lin": cdi_lin,
-        "flow_norm": flow_norm,
-        "trade_imbal": trade_imbal,
-        "wall_support": wall_support,
-        "wall_dist_support": wall_dist_support,
-        "gap_spread": gap_spread,
-        "trade_activity": trade_activity,
+        "obi0_lin": obi0_lin, "obi10_lin": obi10_lin, "cdi_lin": cdi_lin,
+        "flow_norm": flow_norm, "trade_imbal": trade_imbal,
+        "wall_support": wall_support, "wall_dist_support": wall_dist_support,
+        "gap_spread": gap_spread, "trade_activity": trade_activity,
     }
 
 
 def _rth_bounds_ns(dt: str) -> Tuple[int, int]:
-    """Get RTH start/end timestamps in nanoseconds."""
     tz = ZoneInfo("America/New_York")
     date_obj = pd.Timestamp(dt, tz=tz)
     start = date_obj.replace(hour=RTH_START_HOUR, minute=RTH_START_MINUTE, second=0, microsecond=0)
@@ -219,64 +185,306 @@ def _rth_bounds_ns(dt: str) -> Tuple[int, int]:
 
 
 def _compute_bar2m_ts(bar_ts: np.ndarray) -> np.ndarray:
-    """Compute 2-minute candle timestamps aligned to NY trading day."""
     return (bar_ts // BAR2M_DURATION_NS) * BAR2M_DURATION_NS
 
 
-def _compute_approach_direction(df: pd.DataFrame, level_price: float) -> int:
-    """Compute approach direction: +1 from below, -1 from above."""
-    microprice = df["bar5s_microprice_eob"].values
-    first_price = microprice[0] if len(microprice) > 0 else level_price
-    return 1 if first_price < level_price else -1
+def _get_candle_ohlc(df_candle: pd.DataFrame, level_price: float) -> Dict[str, float]:
+    """Extract OHLC from 5s micro bars within a 2m candle."""
+    trade_cnt = df_candle["bar5s_trade_cnt_sum"].values
+    trade_last_px = df_candle["bar5s_trade_last_px"].values
+    trade_last_ts = df_candle["bar5s_trade_last_ts"].values
+    microprice = df_candle["bar5s_microprice_eob"].values
+
+    trade_mask = trade_cnt > 0
+    if not np.any(trade_mask):
+        mp = microprice[0] if len(microprice) > 0 else level_price
+        return {"open": mp, "high": mp, "low": mp, "close": mp}
+
+    traded_prices = trade_last_px[trade_mask]
+    traded_ts = trade_last_ts[trade_mask]
+
+    first_idx = np.argmin(traded_ts)
+    last_idx = np.argmax(traded_ts)
+
+    return {
+        "open": float(traded_prices[first_idx]),
+        "high": float(np.max(traded_prices)),
+        "low": float(np.min(traded_prices)),
+        "close": float(traded_prices[last_idx]),
+    }
 
 
-def _compute_outcome(
+def _detect_triggers(
     df: pd.DataFrame,
-    trigger_candle_ts: int,
+    candle_ts_list: List[int],
     level_price: float,
     approach_direction: int,
-) -> Tuple[str, float]:
-    """Compute outcome label and score."""
-    df_post = df[df["bar2m_ts"] > trigger_candle_ts].copy()
-    candle_ts_unique = df_post["bar2m_ts"].unique()
-    horizon_candles = sorted(candle_ts_unique)[:OUTCOME_HORIZON_CANDLES]
+    cfg: SetupConfig,
+    rth_start_ns: int,
+    rth_end_ns: int,
+) -> List[Tuple[int, int, int]]:
+    """Detect trigger candles per COMPLIANCE spec.
 
-    if len(horizon_candles) == 0:
-        return "CHOP", 0.0
+    Trigger: candle t where:
+      - Previous candle fully on approach side (high[t-1] < L for from_below)
+      - Current candle crosses level (high[t] >= L for from_below)
+      - At least approach_side_min_bars bars were on approach side before this
 
-    df_horizon = df_post[df_post["bar2m_ts"].isin(horizon_candles)]
+    Returns: List of (trigger_idx, trigger_ts, confirm_ts)
+    """
+    triggers = []
+    last_trigger_idx = -cfg.min_bars_between_touches - 1
+    reset_active = True
+    bars_on_approach_side = 0
+
+    for idx, bar2m_ts in enumerate(candle_ts_list):
+        if bar2m_ts < rth_start_ns or bar2m_ts >= rth_end_ns:
+            continue
+
+        df_candle = df[df["bar2m_ts"] == bar2m_ts]
+        if len(df_candle) == 0:
+            continue
+
+        ohlc = _get_candle_ohlc(df_candle, level_price)
+
+        if approach_direction == 1:
+            fully_on_approach = ohlc["high"] < level_price - cfg.cross_epsilon_pts
+            crossed = ohlc["high"] >= level_price + cfg.cross_epsilon_pts
+            reset_dist = level_price - ohlc["close"]
+        else:
+            fully_on_approach = ohlc["low"] > level_price + cfg.cross_epsilon_pts
+            crossed = ohlc["low"] <= level_price - cfg.cross_epsilon_pts
+            reset_dist = ohlc["close"] - level_price
+
+        bars_before_this_candle = bars_on_approach_side
+
+        if reset_active:
+            if fully_on_approach:
+                bars_on_approach_side += 1
+            else:
+                if reset_dist >= cfg.reset_distance_pts:
+                    bars_on_approach_side = 1
+                else:
+                    bars_on_approach_side = 0
+        else:
+            if reset_dist >= cfg.reset_distance_pts:
+                reset_active = True
+                if fully_on_approach:
+                    bars_on_approach_side = 1
+                else:
+                    bars_on_approach_side = 0
+            else:
+                bars_on_approach_side = 0
+
+        if idx <= last_trigger_idx + cfg.min_bars_between_touches:
+            continue
+
+        if len(triggers) >= cfg.max_touches_per_level_per_session:
+            break
+
+        if idx == 0:
+            continue
+
+        prev_ts = candle_ts_list[idx - 1]
+        df_prev = df[df["bar2m_ts"] == prev_ts]
+        if len(df_prev) == 0:
+            continue
+
+        prev_ohlc = _get_candle_ohlc(df_prev, level_price)
+
+        if approach_direction == 1:
+            prev_fully_approach = prev_ohlc["high"] < level_price - cfg.cross_epsilon_pts
+        else:
+            prev_fully_approach = prev_ohlc["low"] > level_price + cfg.cross_epsilon_pts
+
+        if not prev_fully_approach:
+            continue
+
+        if bars_before_this_candle < cfg.approach_side_min_bars:
+            continue
+
+        if crossed:
+            confirm_idx = min(idx + cfg.confirm_bars, len(candle_ts_list) - 1)
+            confirm_ts = candle_ts_list[confirm_idx]
+            triggers.append((idx, int(bar2m_ts), int(confirm_ts)))
+            last_trigger_idx = idx
+            reset_active = False
+            bars_on_approach_side = 0
+
+    return triggers
+
+
+def _compute_outcome_and_flags(
+    df: pd.DataFrame,
+    candle_ts_list: List[int],
+    confirm_candle_idx: int,
+    level_price: float,
+    approach_direction: int,
+    trigger_ohlc: Dict[str, float],
+    confirm_ohlc: Dict[str, float],
+    cfg: SetupConfig,
+) -> Dict:
+    """Compute outcome label, score, and all flags per COMPLIANCE spec."""
+    if confirm_candle_idx >= len(candle_ts_list) - 1:
+        return {
+            "outcome": "CHOP",
+            "outcome_score": 0.0,
+            "max_signed_dist": 0.0,
+            "min_signed_dist": 0.0,
+            "chop_flag": True,
+            "failed_break_flag": True,
+            "both_sides_hit_flag": False,
+            "first_hit_side": "none",
+            "first_hit_offset_bars": -1,
+            "mae_pts": 0.0,
+            "mfe_pts": 0.0,
+        }
+
+    lookfwd_start_idx = confirm_candle_idx + 1
+    lookfwd_end_idx = min(confirm_candle_idx + cfg.lookfwd_bars_label, len(candle_ts_list) - 1)
+
+    lookfwd_candles = candle_ts_list[lookfwd_start_idx:lookfwd_end_idx + 1]
+    df_horizon = df[df["bar2m_ts"].isin(lookfwd_candles)]
+
     if len(df_horizon) == 0:
-        return "CHOP", 0.0
+        return {
+            "outcome": "CHOP",
+            "outcome_score": 0.0,
+            "max_signed_dist": 0.0,
+            "min_signed_dist": 0.0,
+            "chop_flag": True,
+            "failed_break_flag": True,
+            "both_sides_hit_flag": False,
+            "first_hit_side": "none",
+            "first_hit_offset_bars": -1,
+            "mae_pts": 0.0,
+            "mfe_pts": 0.0,
+        }
 
-    trade_cnt = df_horizon["bar5s_trade_cnt_sum"].values
-    trade_last_px = df_horizon["bar5s_trade_last_px"].values
-    microprice = df_horizon["bar5s_microprice_eob"].values
-    trade_close_px = np.where(trade_cnt > 0, trade_last_px, microprice)
-    u = approach_direction * ((trade_close_px - level_price) / TICK_SIZE)
+    signed_dists = []
+    high_dists = []
+    low_dists = []
 
-    u_max = float(np.max(u)) if len(u) > 0 else 0.0
-    u_min = float(np.min(u)) if len(u) > 0 else 0.0
+    for candle_ts in lookfwd_candles:
+        df_c = df_horizon[df_horizon["bar2m_ts"] == candle_ts]
+        if len(df_c) == 0:
+            continue
+        ohlc = _get_candle_ohlc(df_c, level_price)
 
-    break_idx = next((i for i, val in enumerate(u) if val >= MOVE_THRESHOLD_TICKS), None)
-    reject_idx = next((i for i, val in enumerate(u) if val <= -MOVE_THRESHOLD_TICKS), None)
+        close_dist = (ohlc["close"] - level_price) * approach_direction
+        high_dist = (ohlc["high"] - level_price) * approach_direction
+        low_dist = (ohlc["low"] - level_price) * approach_direction
+
+        signed_dists.append(close_dist)
+        high_dists.append(high_dist)
+        low_dists.append(low_dist)
+
+    if len(signed_dists) == 0:
+        return {
+            "outcome": "CHOP",
+            "outcome_score": 0.0,
+            "max_signed_dist": 0.0,
+            "min_signed_dist": 0.0,
+            "chop_flag": True,
+            "failed_break_flag": True,
+            "both_sides_hit_flag": False,
+            "first_hit_side": "none",
+            "first_hit_offset_bars": -1,
+            "mae_pts": 0.0,
+            "mfe_pts": 0.0,
+        }
+
+    if cfg.outcome_price_basis == "close":
+        upside_arr = np.array(signed_dists)
+        downside_arr = np.array(signed_dists)
+    else:
+        upside_arr = np.array(high_dists)
+        downside_arr = np.array(low_dists)
+
+    max_signed_dist = float(np.max(upside_arr))
+    min_signed_dist = float(np.min(downside_arr))
+
+    break_idx = next((i for i, v in enumerate(upside_arr) if v >= cfg.break_threshold_pts), None)
+    reject_idx = next((i for i, v in enumerate(downside_arr) if v <= -cfg.reject_threshold_pts), None)
 
     if break_idx is not None and reject_idx is not None:
-        outcome = "BREAK" if break_idx < reject_idx else "REJECT"
+        if break_idx < reject_idx:
+            outcome = "BREAK"
+            first_hit_side = "break"
+            first_hit_offset_bars = break_idx + 1
+        elif reject_idx < break_idx:
+            outcome = "REJECT"
+            first_hit_side = "reject"
+            first_hit_offset_bars = reject_idx + 1
+        else:
+            outcome = "CHOP"
+            first_hit_side = "tie"
+            first_hit_offset_bars = break_idx + 1
+        both_sides_hit_flag = True
     elif break_idx is not None:
         outcome = "BREAK"
+        both_sides_hit_flag = False
+        first_hit_side = "break"
+        first_hit_offset_bars = break_idx + 1
     elif reject_idx is not None:
         outcome = "REJECT"
+        both_sides_hit_flag = False
+        first_hit_side = "reject"
+        first_hit_offset_bars = reject_idx + 1
     else:
         outcome = "CHOP"
+        both_sides_hit_flag = False
+        first_hit_side = "none"
+        first_hit_offset_bars = -1
 
     if outcome == "BREAK":
-        score = u_max
+        outcome_score = max_signed_dist
     elif outcome == "REJECT":
-        score = u_min
+        outcome_score = min_signed_dist
     else:
-        score = 0.0
+        outcome_score = 0.0
 
-    return outcome, score
+    if approach_direction == 1:
+        chop_retrace = confirm_ohlc["low"] <= trigger_ohlc["open"] - cfg.chop_retrace_to_trigger_open_pts
+    else:
+        chop_retrace = confirm_ohlc["high"] >= trigger_ohlc["open"] + cfg.chop_retrace_to_trigger_open_pts
+
+    chop_flag = chop_retrace
+
+    if chop_retrace and len(lookfwd_candles) > 1:
+        second_candle_ts = lookfwd_candles[0]
+        df_second = df_horizon[df_horizon["bar2m_ts"] == second_candle_ts]
+        if len(df_second) > 0:
+            second_ohlc = _get_candle_ohlc(df_second, level_price)
+            if approach_direction == 1:
+                override = second_ohlc["close"] >= confirm_ohlc["close"] + cfg.chop_override_next_close_delta_pts
+            else:
+                override = second_ohlc["close"] <= confirm_ohlc["close"] - cfg.chop_override_next_close_delta_pts
+            if override:
+                chop_flag = False
+
+    if approach_direction == 1:
+        failed_break_flag = confirm_ohlc["close"] <= level_price - cfg.failed_break_confirm_close_below_level_pts
+    else:
+        failed_break_flag = confirm_ohlc["close"] >= level_price + cfg.failed_break_confirm_close_below_level_pts
+
+    entry_ref = level_price
+    mae_pts = float(np.min(low_dists)) if len(low_dists) > 0 else 0.0
+    mfe_pts = float(np.max(high_dists)) if len(high_dists) > 0 else 0.0
+
+    return {
+        "outcome": outcome,
+        "outcome_score": outcome_score,
+        "max_signed_dist": max_signed_dist,
+        "min_signed_dist": min_signed_dist,
+        "chop_flag": chop_flag,
+        "failed_break_flag": failed_break_flag,
+        "both_sides_hit_flag": both_sides_hit_flag,
+        "first_hit_side": first_hit_side,
+        "first_hit_offset_bars": first_hit_offset_bars,
+        "mae_pts": mae_pts,
+        "mfe_pts": mfe_pts,
+    }
 
 
 def _build_candle_row(
@@ -284,31 +492,25 @@ def _build_candle_row(
     level_price: float,
     approach_direction: int,
     bar2m_ts: int,
-    bar_index: int,
+    candle_id: int,
     metadata: Dict,
 ) -> Dict:
     """Build a single candle row with all signature features."""
     trade_cnt = df_candle["bar5s_trade_cnt_sum"].values
     trade_last_px = df_candle["bar5s_trade_last_px"].values
-    trade_last_ts = df_candle["bar5s_trade_last_ts"].values
     microprice = df_candle["bar5s_microprice_eob"].values
 
     trade_close_px = np.where(trade_cnt > 0, trade_last_px, microprice)
     u = approach_direction * ((trade_close_px - level_price) / TICK_SIZE)
 
-    in_zone = ((trade_cnt > 0) & (np.abs(trade_last_px - level_price) <= TOUCH_ZONE_PTS)).astype(np.float64)
+    touch_zone_pts = 4 * TICK_SIZE
+    in_zone = ((trade_cnt > 0) & (np.abs(trade_last_px - level_price) <= touch_zone_pts)).astype(np.float64)
     touched_in_zone = bool(in_zone.sum() > 0)
     first_touch_offset = int(np.argmax(in_zone)) if touched_in_zone else -1
 
-    has_trade = trade_last_ts >= 0
-    if np.any(has_trade):
-        last_idx = int(np.argmax(trade_last_ts))
-        close_px = float(trade_last_px[last_idx])
-        close_in_zone = abs(close_px - level_price) <= CLOSE_ZONE_PTS
-        close_side = int(np.sign((close_px - level_price) * approach_direction))
-    else:
-        close_in_zone = False
-        close_side = 0
+    ohlc = _get_candle_ohlc(df_candle, level_price)
+    close_in_zone = abs(ohlc["close"] - level_price) <= touch_zone_pts
+    close_side = int(np.sign((ohlc["close"] - level_price) * approach_direction))
 
     n = len(u)
     third = max(1, n // 3)
@@ -327,10 +529,44 @@ def _build_candle_row(
         "touch_id": metadata["episode_id"],
         "level_type": metadata["level_type"],
         "level_price": level_price,
-        "bar_index_in_episode": bar_index,
-        "bar_index_in_touch": bar_index,
+        "candle_id": candle_id,
+        "trigger_candle_id": metadata["trigger_candle_id"],
+        "confirm_candle_id": metadata["confirm_candle_id"],
+        "infer_candle_id": metadata["infer_candle_id"],
+        "trigger_candle_ts": metadata["trigger_candle_ts"],
+        "confirm_candle_ts": metadata["confirm_candle_ts"],
+        "infer_ts": metadata["infer_ts"],
+        "lookback_start_id": metadata["lookback_start_id"],
+        "lookback_end_id": metadata["lookback_end_id"],
+        "lookfwd_start_id": metadata["lookfwd_start_id"],
+        "lookfwd_end_id": metadata["lookfwd_end_id"],
+        "bar_index_in_episode": metadata["bar_index_offset"] + (candle_id - metadata["lookback_start_id"]),
+        "bar_index_in_touch": metadata["bar_index_offset"] + (candle_id - metadata["lookback_start_id"]),
+        "bars_to_trigger": candle_id - metadata["trigger_candle_id"],
+        "bars_to_confirm": candle_id - metadata["confirm_candle_id"],
+        "is_pre_trigger": candle_id < metadata["trigger_candle_id"],
+        "is_trigger_candle": candle_id == metadata["trigger_candle_id"],
+        "is_confirm_candle": candle_id == metadata["confirm_candle_id"],
+        "is_post_confirm": candle_id > metadata["confirm_candle_id"],
+        "is_in_lookback": metadata["lookback_start_id"] <= candle_id <= metadata["lookback_end_id"],
+        "is_in_lookfwd": metadata["lookfwd_start_id"] <= candle_id <= metadata["lookfwd_end_id"],
         "approach_direction": approach_direction,
         "is_standard_approach": metadata["is_standard_approach"],
+        "outcome": metadata["outcome"],
+        "outcome_score": metadata["outcome_score"],
+        "max_signed_dist": metadata["max_signed_dist"],
+        "min_signed_dist": metadata["min_signed_dist"],
+        "chop_flag": metadata["chop_flag"],
+        "failed_break_flag": metadata["failed_break_flag"],
+        "both_sides_hit_flag": metadata["both_sides_hit_flag"],
+        "first_hit_side": metadata["first_hit_side"],
+        "first_hit_offset_bars": metadata["first_hit_offset_bars"],
+        "mae_pts": metadata["mae_pts"],
+        "mfe_pts": metadata["mfe_pts"],
+        "bar2m_open": ohlc["open"],
+        "bar2m_high": ohlc["high"],
+        "bar2m_low": ohlc["low"],
+        "bar2m_close": ohlc["close"],
         "bar2m_touched_in_zone": touched_in_zone,
         "bar2m_close_in_zone": close_in_zone,
         "bar2m_first_touch_offset": first_touch_offset,
@@ -353,6 +589,10 @@ def _build_candle_row(
     row["bar2m_comp_gap_spread_mean"] = float(np.mean(comps["gap_spread"]))
     row["bar2m_comp_trade_activity_mean"] = float(np.mean(comps["trade_activity"]))
 
+    cfg_dict = metadata["cfg"].to_dict()
+    for k, v in cfg_dict.items():
+        row[f"cfg_{k}"] = v
+
     return row
 
 
@@ -362,19 +602,9 @@ def compute_level_approach2m(
     level_type: str,
     dt: str,
     symbol: str,
+    cfg: SetupConfig = DEFAULT_CONFIG,
 ) -> pd.DataFrame:
-    """Compute 2-minute candle level approach dataset.
-
-    Args:
-        df_bar5s: DataFrame of 5s bars
-        level_price: The level price
-        level_type: pm_high, pm_low, or_high, or_low
-        dt: Date string
-        symbol: Symbol
-
-    Returns:
-        DataFrame matching market_by_price_10_level_approach2m contract
-    """
+    """Compute 2-minute candle level approach dataset per COMPLIANCE spec."""
     if len(df_bar5s) == 0 or np.isnan(level_price):
         return pd.DataFrame()
 
@@ -382,87 +612,79 @@ def compute_level_approach2m(
     df["bar2m_ts"] = _compute_bar2m_ts(df["bar_ts"].values)
 
     rth_start_ns, rth_end_ns = _rth_bounds_ns(dt)
-    approach_direction = _compute_approach_direction(df, level_price)
+
+    microprice = df["bar5s_microprice_eob"].values
+    first_price = microprice[0] if len(microprice) > 0 else level_price
+    approach_direction = 1 if first_price < level_price else -1
+
     is_standard = (
         (level_type.endswith("high") and approach_direction == 1) or
         (level_type.endswith("low") and approach_direction == -1)
     )
 
     candle_ts_list = sorted(df["bar2m_ts"].unique())
-    candle_triggers: List[Tuple[int, int]] = []
-    last_trigger_idx = -COOLDOWN_CANDLES - 1
 
-    for idx, bar2m_ts in enumerate(candle_ts_list):
-        if idx <= last_trigger_idx + COOLDOWN_CANDLES:
-            continue
-        if bar2m_ts < rth_start_ns or bar2m_ts >= rth_end_ns:
-            continue
+    triggers = _detect_triggers(
+        df, candle_ts_list, level_price, approach_direction, cfg, rth_start_ns, rth_end_ns
+    )
 
-        df_candle = df[df["bar2m_ts"] == bar2m_ts]
-        trade_cnt = df_candle["bar5s_trade_cnt_sum"].values
-        trade_last_px = df_candle["bar5s_trade_last_px"].values
-        trade_last_ts = df_candle["bar5s_trade_last_ts"].values
-
-        in_zone = ((trade_cnt > 0) & (np.abs(trade_last_px - level_price) <= TOUCH_ZONE_PTS))
-        touched_in_zone = bool(in_zone.sum() > 0)
-
-        has_trade = trade_last_ts >= 0
-        if np.any(has_trade):
-            last_idx = int(np.argmax(trade_last_ts))
-            close_px = float(trade_last_px[last_idx])
-            close_in_zone = abs(close_px - level_price) <= CLOSE_ZONE_PTS
-        else:
-            close_in_zone = False
-
-        if touched_in_zone and close_in_zone:
-            candle_triggers.append((idx, int(bar2m_ts)))
-            last_trigger_idx = idx
-
-    if not candle_triggers:
+    if not triggers:
         return pd.DataFrame()
 
     all_rows: List[Dict] = []
 
-    for trigger_idx, trigger_candle_ts in candle_triggers:
-        episode_id = f"{dt}_{symbol}_{level_type}_{trigger_candle_ts}"
+    for trigger_idx, trigger_ts, confirm_ts in triggers:
+        confirm_idx = candle_ts_list.index(confirm_ts) if confirm_ts in candle_ts_list else trigger_idx + cfg.confirm_bars
+        infer_idx = confirm_idx
+        infer_ts = confirm_ts
 
-        outcome, outcome_score = _compute_outcome(
-            df, trigger_candle_ts, level_price, approach_direction
+        lookback_end_id = confirm_idx
+        lookback_start_id = max(0, confirm_idx - cfg.lookback_bars_infer + 1)
+
+        lookfwd_start_id = confirm_idx + 1
+        lookfwd_end_id = min(confirm_idx + cfg.lookfwd_bars_label, len(candle_ts_list) - 1)
+
+        df_trigger = df[df["bar2m_ts"] == trigger_ts]
+        trigger_ohlc = _get_candle_ohlc(df_trigger, level_price) if len(df_trigger) > 0 else {"open": level_price, "high": level_price, "low": level_price, "close": level_price}
+
+        df_confirm = df[df["bar2m_ts"] == confirm_ts]
+        confirm_ohlc = _get_candle_ohlc(df_confirm, level_price) if len(df_confirm) > 0 else {"open": level_price, "high": level_price, "low": level_price, "close": level_price}
+
+        outcome_data = _compute_outcome_and_flags(
+            df, candle_ts_list, confirm_idx, level_price, approach_direction, trigger_ohlc, confirm_ohlc, cfg
         )
 
-        pre_start_idx = max(0, trigger_idx - PRE_WINDOW_CANDLES + 1)
-        post_end_idx = min(trigger_idx + OUTCOME_HORIZON_CANDLES + 1, len(candle_ts_list))
-        is_truncated = (trigger_idx - pre_start_idx) < (PRE_WINDOW_CANDLES - 1)
+        episode_id = f"{dt}_{symbol}_{level_type}_{trigger_ts}"
 
         metadata = {
             "symbol": symbol,
             "episode_id": episode_id,
             "level_type": level_type,
             "is_standard_approach": is_standard,
+            "trigger_candle_id": trigger_idx,
+            "confirm_candle_id": confirm_idx,
+            "infer_candle_id": infer_idx,
+            "trigger_candle_ts": trigger_ts,
+            "confirm_candle_ts": confirm_ts,
+            "infer_ts": infer_ts,
+            "lookback_start_id": lookback_start_id,
+            "lookback_end_id": lookback_end_id,
+            "lookfwd_start_id": lookfwd_start_id,
+            "lookfwd_end_id": lookfwd_end_id,
+            "bar_index_offset": 0,
+            "cfg": cfg,
+            **outcome_data,
         }
 
-        for window_idx in range(pre_start_idx, post_end_idx):
-            bar2m_ts = candle_ts_list[window_idx]
-            bars_to_trigger = window_idx - trigger_idx
-
+        for candle_idx in range(lookback_start_id, min(lookfwd_end_id + 1, len(candle_ts_list))):
+            bar2m_ts = candle_ts_list[candle_idx]
             df_candle = df[df["bar2m_ts"] == bar2m_ts]
             if len(df_candle) == 0:
                 continue
 
             row = _build_candle_row(
-                df_candle, level_price, approach_direction,
-                bar2m_ts, window_idx, metadata
+                df_candle, level_price, approach_direction, bar2m_ts, candle_idx, metadata
             )
-
-            row["trigger_candle_ts"] = trigger_candle_ts
-            row["bars_to_trigger"] = bars_to_trigger
-            row["is_pre_trigger"] = bars_to_trigger < 0
-            row["is_trigger_candle"] = bars_to_trigger == 0
-            row["is_post_trigger"] = bars_to_trigger > 0
-            row["outcome"] = outcome
-            row["outcome_score"] = outcome_score
-            row["is_premarket_context_truncated"] = is_truncated
-
             all_rows.append(row)
 
     if not all_rows:
