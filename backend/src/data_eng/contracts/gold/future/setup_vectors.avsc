@@ -2,110 +2,24 @@
   "namespace": "com.marketdata.gold",
   "type": "record",
   "name": "SetupVectors",
-  "doc": "Setup vectors extracted at trigger candles.",
+  "doc": "Setup vectors from 2-minute candle signatures for similarity retrieval.",
   "fields": [
-    {
-      "name": "vector_id",
-      "type": "long",
-      "doc": "Position in FAISS index."
-    },
-    {
-      "name": "episode_id",
-      "type": "string",
-      "doc": "Unique episode identifier."
-    },
-    {
-      "name": "dt",
-      "type": "string",
-      "doc": "Date partition key (YYYY-MM-DD)."
-    },
-    {
-      "name": "symbol",
-      "type": "string",
-      "doc": "Instrument symbol."
-    },
-    {
-      "name": "level_type",
-      "type": "string",
-      "doc": "Level type: PM_HIGH, PM_LOW, OR_HIGH, OR_LOW."
-    },
-    {
-      "name": "level_price",
-      "type": "double",
-      "doc": "Price of the level."
-    },
-    {
-      "name": "trigger_candle_ts",
-      "type": "long",
-      "doc": "Trigger candle timestamp (ns)."
-    },
-    {
-      "name": "approach_direction",
-      "type": "long",
-      "doc": "+1 = from below, -1 = from above."
-    },
-    {
-      "name": "outcome",
-      "type": "string",
-      "doc": "BREAK, REJECT, CHOP."
-    },
-    {
-      "name": "outcome_score",
-      "type": "double",
-      "doc": "Continuous outcome measure."
-    },
-    {
-      "name": "velocity_at_trigger",
-      "type": "double",
-      "doc": "Distance velocity at trigger."
-    },
-    {
-      "name": "obi0_at_trigger",
-      "type": "double",
-      "doc": "OBI0 at trigger bar."
-    },
-    {
-      "name": "wall_imbal_at_trigger",
-      "type": "double",
-      "doc": "Wall imbalance at trigger."
-    },
-    {
-      "name": "front_month_symbol",
-      "type": "string",
-      "doc": "Front-month symbol for the date."
-    },
-    {
-      "name": "dominance_ratio",
-      "type": "double",
-      "doc": "Front-month dominance ratio."
-    },
-    {
-      "name": "roll_contaminated",
-      "type": "boolean",
-      "doc": "True if dominance below threshold."
-    },
-    {
-      "name": "runner_up_symbol",
-      "type": "string",
-      "doc": "Runner-up symbol for the date."
-    },
-    {
-      "name": "runner_up_ratio",
-      "type": "double",
-      "doc": "Runner-up ratio."
-    },
-    {
-      "name": "is_front_month",
-      "type": "boolean",
-      "doc": "True if vector symbol equals front-month."
-    },
-    {
-      "name": "vector",
-      "type": {
-        "type": "array",
-        "items": "double"
-      },
-      "doc": "Setup vector values."
-    }
+    {"name": "vector_id", "type": "string", "doc": "Unique vector identifier."},
+    {"name": "episode_id", "type": "string", "doc": "Source episode identifier."},
+    {"name": "dt", "type": "string", "doc": "Date partition key (YYYY-MM-DD)."},
+    {"name": "symbol", "type": "string", "doc": "Contract symbol."},
+    {"name": "level_type", "type": "string", "doc": "Level type: pm_high, pm_low, or_high, or_low."},
+    {"name": "level_price", "type": "double", "doc": "Level price."},
+    {"name": "trigger_candle_ts", "type": "long", "doc": "Trigger candle timestamp (ns)."},
+    {"name": "approach_direction", "type": "long", "doc": "+1 from below, -1 from above."},
+    {"name": "outcome", "type": "string", "doc": "BREAK, REJECT, CHOP."},
+    {"name": "outcome_score", "type": "double", "doc": "Oriented distance at outcome."},
+    {"name": "is_premarket_context_truncated", "type": "boolean", "doc": "True if pre-window was truncated."},
+    {"name": "front_month_symbol", "type": "string", "doc": "Front-month symbol for date."},
+    {"name": "dominance_ratio", "type": "double", "doc": "Front-month dominance ratio."},
+    {"name": "roll_contaminated", "type": "boolean", "doc": "True if below dominance threshold."},
+    {"name": "is_front_month", "type": "boolean", "doc": "True if this vector is from front-month contract."},
+    {"name": "vector", "type": {"type": "array", "items": "double"}, "doc": "Concatenated candle signatures + derivatives."},
+    {"name": "vector_dim", "type": "long", "doc": "Dimension of the vector."}
   ]
 }

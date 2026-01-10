@@ -22,6 +22,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future.filter_first4h import SilverFilterFirst4Hours
         from .stages.silver.future.compute_bar5s_features import SilverComputeBar5sFeatures
         from .stages.silver.future.extract_level_approach2m import SilverExtractLevelApproach2m
+        from .stages.gold.future.extract_setup_vectors import GoldExtractSetupVectors
 
         if layer == "bronze":
             return [BronzeProcessDBN()]
@@ -33,7 +34,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 SilverExtractLevelApproach2m(),
             ]
         elif layer == "gold":
-            raise NotImplementedError("Gold layer stages not yet implemented per REFACTOR.md")
+            return [GoldExtractSetupVectors()]
         elif layer == "all":
             return [
                 BronzeProcessDBN(),
@@ -41,6 +42,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 SilverFilterFirst4Hours(),
                 SilverComputeBar5sFeatures(),
                 SilverExtractLevelApproach2m(),
+                GoldExtractSetupVectors(),
             ]
 
     elif product_type == "future_option":
