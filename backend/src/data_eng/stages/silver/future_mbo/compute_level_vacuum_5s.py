@@ -1,0 +1,510 @@
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+
+import pandas as pd
+
+from ...base import Stage, StageIO
+
+PRICE_SCALE = 1e-9
+TICK_SIZE = 0.25
+TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
+PULL_ACTIONS = {"C", "M"}
+DELTA_TICKS = 20
+NEAR_TICKS = 5
+FAR_TICKS_LOW = 15
+FAR_TICKS_HIGH = 20
+WINDOW_NS = 5_000_000_000
+REST_NS = 500_000_000
+EPS_QTY = 1.0
+EPS_DIST_TICKS = 1.0
+
+BUCKET_OUT = "OUT"
+ASK_ABOVE_NEAR = "ASK_ABOVE_NEAR"
+ASK_ABOVE_MID = "ASK_ABOVE_MID"
+ASK_ABOVE_FAR = "ASK_ABOVE_FAR"
+BID_BELOW_NEAR = "BID_BELOW_NEAR"
+BID_BELOW_MID = "BID_BELOW_MID"
+BID_BELOW_FAR = "BID_BELOW_FAR"
+
+ASK_INFLUENCE = {ASK_ABOVE_NEAR, ASK_ABOVE_MID, ASK_ABOVE_FAR}
+BID_INFLUENCE = {BID_BELOW_NEAR, BID_BELOW_MID, BID_BELOW_FAR}
+
+BASE_FEATURES = [
+    "f1_ask_com_disp_log",
+    "f1_ask_slope_convex_log",
+    "f1_ask_near_share_delta",
+    "f1_ask_reprice_away_share_rest",
+    "f2_ask_pull_add_log_rest",
+    "f2_ask_pull_intensity_rest",
+    "f2_ask_near_pull_share_rest",
+    "f3_bid_com_disp_log",
+    "f3_bid_slope_convex_log",
+    "f3_bid_near_share_delta",
+    "f3_bid_reprice_away_share_rest",
+    "f4_bid_pull_add_log_rest",
+    "f4_bid_pull_intensity_rest",
+    "f4_bid_near_pull_share_rest",
+    "f5_vacuum_expansion_log",
+    "f6_vacuum_decay_log",
+    "f7_vacuum_total_log",
+]
+
+DERIV_FEATURES = [
+    f"d1_{name}" for name in BASE_FEATURES
+] + [
+    f"d2_{name}" for name in BASE_FEATURES
+] + [
+    f"d3_{name}" for name in BASE_FEATURES
+]
+
+OUTPUT_COLUMNS = [
+    "window_start_ts_ns",
+    "window_end_ts_ns",
+    "P_ref",
+    "P_REF_INT",
+] + BASE_FEATURES + DERIV_FEATURES
+
+
+@dataclass
+class OrderState:
+    side: str
+    price_int: int
+    qty: int
+    bucket: str
+    bucket_enter_ts: int
+
+
+class SilverComputeMboLevelVacuum5s(Stage):
+    def __init__(self) -> None:
+        super().__init__(
+            name="silver_compute_mbo_level_vacuum_5s",
+            io=StageIO(
+                inputs=["bronze.future_mbo.mbo"],
+                output="silver.future_mbo.mbo_level_vacuum_5s",
+            ),
+        )
+
+    def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
+        if len(df) == 0:
+            return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+        p_ref = _load_p_ref()
+        symbol_target = df["symbol"].iloc[0]
+        return compute_mbo_level_vacuum_5s(df, p_ref, symbol_target)
+
+
+def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: str) -> pd.DataFrame:
+    required_cols = {"ts_event", "action", "side", "price", "size", "order_id", "sequence", "symbol"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    df = df.loc[df["symbol"] == symbol_target].copy()
+    if len(df) == 0:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    df = df.loc[df["action"] != "N"].copy()
+    if len(df) == 0:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    df = df.sort_values(["ts_event", "sequence"], ascending=[True, True])
+    df["ts_event"] = df["ts_event"].astype("int64")
+    df["sequence"] = df["sequence"].astype("int64")
+    df["size"] = df["size"].astype("int64")
+    df["order_id"] = df["order_id"].astype("int64")
+    df["price"] = df["price"].astype("int64")
+
+    p_ref_int = int(round(p_ref / PRICE_SCALE))
+
+    orders: dict[int, OrderState] = {}
+    accum = _new_accumulators()
+    rows = []
+    current_window_id = None
+    window_invalid = False
+    window_start_snapshot = None
+    window_start_ts_ns = None
+    window_end_ts_ns = None
+
+    for row in df.itertuples(index=False):
+        ts_event = int(row.ts_event)
+        window_id = ts_event // WINDOW_NS
+
+        if current_window_id is None:
+            current_window_id = window_id
+            window_invalid = False
+            window_start_snapshot = _snapshot(orders, p_ref_int)
+            window_start_ts_ns = current_window_id * WINDOW_NS
+            window_end_ts_ns = window_start_ts_ns + WINDOW_NS
+        elif window_id != current_window_id:
+            if not window_invalid:
+                end_snapshot = _snapshot(orders, p_ref_int)
+                base_features = _compute_base_features(window_start_snapshot, end_snapshot, accum)
+                rows.append(
+                    {
+                        "window_start_ts_ns": int(window_start_ts_ns),
+                        "window_end_ts_ns": int(window_end_ts_ns),
+                        "P_ref": float(p_ref),
+                        "P_REF_INT": int(p_ref_int),
+                        **base_features,
+                    }
+                )
+            current_window_id = window_id
+            window_invalid = False
+            window_start_snapshot = _snapshot(orders, p_ref_int)
+            accum = _new_accumulators()
+            window_start_ts_ns = current_window_id * WINDOW_NS
+            window_end_ts_ns = window_start_ts_ns + WINDOW_NS
+
+        action = row.action
+        if action == "R":
+            orders.clear()
+            accum = _new_accumulators()
+            window_invalid = True
+            window_start_snapshot = _snapshot(orders, p_ref_int)
+            continue
+
+        order_id = int(row.order_id)
+        old = orders.get(order_id)
+        if old is None and action in {"C", "M", "F", "T"}:
+            continue
+
+        if old is not None:
+            old_side = old.side
+            old_price_int = old.price_int
+            old_qty = old.qty
+            old_bucket = old.bucket
+            old_bucket_enter_ts = old.bucket_enter_ts
+        else:
+            old_side = ""
+            old_price_int = 0
+            old_qty = 0
+            old_bucket = BUCKET_OUT
+            old_bucket_enter_ts = 0
+
+        old_in_ask = old_side == "A" and old_bucket in ASK_INFLUENCE
+        old_in_bid = old_side == "B" and old_bucket in BID_INFLUENCE
+
+        new_order = None
+        new_side = old_side
+        new_price_int = old_price_int
+        new_qty = old_qty
+        new_bucket = old_bucket
+        new_bucket_enter_ts = old_bucket_enter_ts
+
+        if action == "A":
+            new_side = row.side
+            new_price_int = int(row.price)
+            new_qty = int(row.size)
+            new_bucket = _bucket_for(new_side, new_price_int, p_ref_int)
+            new_bucket_enter_ts = ts_event
+            new_order = OrderState(
+                side=new_side,
+                price_int=new_price_int,
+                qty=new_qty,
+                bucket=new_bucket,
+                bucket_enter_ts=new_bucket_enter_ts,
+            )
+        elif action == "C":
+            new_order = None
+        elif action == "M":
+            new_price_int = int(row.price)
+            new_qty = int(row.size)
+            new_bucket = _bucket_for(old_side, new_price_int, p_ref_int)
+            if new_bucket != old_bucket:
+                new_bucket_enter_ts = ts_event
+            new_order = OrderState(
+                side=old_side,
+                price_int=new_price_int,
+                qty=new_qty,
+                bucket=new_bucket,
+                bucket_enter_ts=new_bucket_enter_ts,
+            )
+        elif action == "F":
+            new_qty = old_qty - int(row.size)
+            if new_qty > 0:
+                new_order = OrderState(
+                    side=old_side,
+                    price_int=old_price_int,
+                    qty=new_qty,
+                    bucket=old_bucket,
+                    bucket_enter_ts=old_bucket_enter_ts,
+                )
+        elif action == "T":
+            new_order = old
+        else:
+            raise ValueError(f"Unsupported action: {action}")
+
+        new_in_ask = new_order is not None and new_order.side == "A" and new_order.bucket in ASK_INFLUENCE
+        new_in_bid = new_order is not None and new_order.side == "B" and new_order.bucket in BID_INFLUENCE
+
+        q_old_ask_zone = old_qty if old_in_ask else 0
+        q_new_ask_zone = new_order.qty if new_in_ask else 0
+        q_old_bid_zone = old_qty if old_in_bid else 0
+        q_new_bid_zone = new_order.qty if new_in_bid else 0
+
+        delta_ask = q_new_ask_zone - q_old_ask_zone
+        delta_bid = q_new_bid_zone - q_old_bid_zone
+
+        if delta_ask > 0:
+            accum["ask_add_qty"] += float(delta_ask)
+        if delta_bid > 0:
+            accum["bid_add_qty"] += float(delta_bid)
+
+        if delta_ask < 0 and action in PULL_ACTIONS:
+            age_ns = ts_event - old_bucket_enter_ts
+            if age_ns >= REST_NS:
+                pull = float(-delta_ask)
+                accum["ask_pull_rest_qty"] += pull
+                if old_bucket == ASK_ABOVE_NEAR:
+                    accum["ask_pull_rest_qty_near"] += pull
+
+        if delta_bid < 0 and action in PULL_ACTIONS:
+            age_ns = ts_event - old_bucket_enter_ts
+            if age_ns >= REST_NS:
+                pull = float(-delta_bid)
+                accum["bid_pull_rest_qty"] += pull
+                if old_bucket == BID_BELOW_NEAR:
+                    accum["bid_pull_rest_qty_near"] += pull
+
+        if action == "M" and old_side == "A" and old_bucket in ASK_INFLUENCE:
+            age_ns = ts_event - old_bucket_enter_ts
+            if age_ns >= REST_NS:
+                dist_old = (old_price_int - p_ref_int) / TICK_INT
+                if new_price_int <= p_ref_int:
+                    accum["ask_reprice_toward_rest_qty"] += float(old_qty)
+                else:
+                    dist_new = (new_price_int - p_ref_int) / TICK_INT
+                    if dist_new > dist_old:
+                        accum["ask_reprice_away_rest_qty"] += float(old_qty)
+                    elif dist_new < dist_old:
+                        accum["ask_reprice_toward_rest_qty"] += float(old_qty)
+
+        if action == "M" and old_side == "B" and old_bucket in BID_INFLUENCE:
+            age_ns = ts_event - old_bucket_enter_ts
+            if age_ns >= REST_NS:
+                dist_old = (p_ref_int - old_price_int) / TICK_INT
+                if new_price_int >= p_ref_int:
+                    accum["bid_reprice_toward_rest_qty"] += float(old_qty)
+                else:
+                    dist_new = (p_ref_int - new_price_int) / TICK_INT
+                    if dist_new > dist_old:
+                        accum["bid_reprice_away_rest_qty"] += float(old_qty)
+                    elif dist_new < dist_old:
+                        accum["bid_reprice_toward_rest_qty"] += float(old_qty)
+
+        if action == "A":
+            orders[order_id] = new_order
+        elif action == "C":
+            orders.pop(order_id, None)
+        elif action == "M":
+            orders[order_id] = new_order
+        elif action == "F":
+            if new_order is None:
+                orders.pop(order_id, None)
+            else:
+                orders[order_id] = new_order
+        elif action == "T":
+            continue
+
+    if current_window_id is not None and not window_invalid:
+        end_snapshot = _snapshot(orders, p_ref_int)
+        base_features = _compute_base_features(window_start_snapshot, end_snapshot, accum)
+        rows.append(
+            {
+                "window_start_ts_ns": int(window_start_ts_ns),
+                "window_end_ts_ns": int(window_end_ts_ns),
+                "P_ref": float(p_ref),
+                "P_REF_INT": int(p_ref_int),
+                **base_features,
+            }
+        )
+
+    if len(rows) == 0:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    rows = _add_derivatives(rows)
+    df_out = pd.DataFrame(rows)
+    return df_out.loc[:, OUTPUT_COLUMNS]
+
+
+def _bucket_for(side: str, price_int: int, p_ref_int: int) -> str:
+    if side == "A" and price_int > p_ref_int:
+        ticks = int(round((price_int - p_ref_int) / TICK_INT))
+        if ticks < 1 or ticks > DELTA_TICKS:
+            return BUCKET_OUT
+        if ticks <= NEAR_TICKS:
+            return ASK_ABOVE_NEAR
+        if ticks >= FAR_TICKS_LOW:
+            return ASK_ABOVE_FAR
+        return ASK_ABOVE_MID
+
+    if side == "B" and price_int < p_ref_int:
+        ticks = int(round((p_ref_int - price_int) / TICK_INT))
+        if ticks < 1 or ticks > DELTA_TICKS:
+            return BUCKET_OUT
+        if ticks <= NEAR_TICKS:
+            return BID_BELOW_NEAR
+        if ticks >= FAR_TICKS_LOW:
+            return BID_BELOW_FAR
+        return BID_BELOW_MID
+
+    return BUCKET_OUT
+
+
+def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
+    ask_depth_total = 0.0
+    ask_depth_near = 0.0
+    ask_depth_far = 0.0
+    ask_com_num = 0.0
+    bid_depth_total = 0.0
+    bid_depth_near = 0.0
+    bid_depth_far = 0.0
+    bid_com_num = 0.0
+
+    for order in orders.values():
+        if order.side == "A" and order.bucket in ASK_INFLUENCE:
+            qty = float(order.qty)
+            ask_depth_total += qty
+            ask_com_num += float(order.price_int) * qty
+            if order.bucket == ASK_ABOVE_NEAR:
+                ask_depth_near += qty
+            elif order.bucket == ASK_ABOVE_FAR:
+                ask_depth_far += qty
+        elif order.side == "B" and order.bucket in BID_INFLUENCE:
+            qty = float(order.qty)
+            bid_depth_total += qty
+            bid_com_num += float(order.price_int) * qty
+            if order.bucket == BID_BELOW_NEAR:
+                bid_depth_near += qty
+            elif order.bucket == BID_BELOW_FAR:
+                bid_depth_far += qty
+
+    ask_com_price_int = ask_com_num / max(ask_depth_total, EPS_QTY)
+    bid_com_price_int = bid_com_num / max(bid_depth_total, EPS_QTY)
+
+    d_ask_ticks = max((ask_com_price_int - p_ref_int) / TICK_INT, 0.0)
+    d_bid_ticks = max((p_ref_int - bid_com_price_int) / TICK_INT, 0.0)
+
+    return {
+        "ask_depth_total": ask_depth_total,
+        "ask_depth_near": ask_depth_near,
+        "ask_depth_far": ask_depth_far,
+        "ask_com_price_int": ask_com_price_int,
+        "bid_depth_total": bid_depth_total,
+        "bid_depth_near": bid_depth_near,
+        "bid_depth_far": bid_depth_far,
+        "bid_com_price_int": bid_com_price_int,
+        "d_ask_ticks": d_ask_ticks,
+        "d_bid_ticks": d_bid_ticks,
+    }
+
+
+def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
+    f1_ask_com_disp_log = math.log((end["d_ask_ticks"] + EPS_DIST_TICKS) / (start["d_ask_ticks"] + EPS_DIST_TICKS))
+    f1_ask_slope_convex_log = math.log((end["ask_depth_far"] + EPS_QTY) / (end["ask_depth_near"] + EPS_QTY))
+    near_share_start = start["ask_depth_near"] / (start["ask_depth_total"] + EPS_QTY)
+    near_share_end = end["ask_depth_near"] / (end["ask_depth_total"] + EPS_QTY)
+    f1_ask_near_share_delta = near_share_end - near_share_start
+
+    den_ask_reprice = acc["ask_reprice_away_rest_qty"] + acc["ask_reprice_toward_rest_qty"]
+    if den_ask_reprice == 0:
+        f1_ask_reprice_away_share_rest = 0.5
+    else:
+        f1_ask_reprice_away_share_rest = acc["ask_reprice_away_rest_qty"] / (den_ask_reprice + EPS_QTY)
+
+    f2_ask_pull_add_log_rest = math.log((acc["ask_pull_rest_qty"] + EPS_QTY) / (acc["ask_add_qty"] + EPS_QTY))
+    f2_ask_pull_intensity_rest = acc["ask_pull_rest_qty"] / (start["ask_depth_total"] + EPS_QTY)
+    f2_ask_near_pull_share_rest = acc["ask_pull_rest_qty_near"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
+
+    f3_bid_com_disp_log = math.log((end["d_bid_ticks"] + EPS_DIST_TICKS) / (start["d_bid_ticks"] + EPS_DIST_TICKS))
+    f3_bid_slope_convex_log = math.log((end["bid_depth_far"] + EPS_QTY) / (end["bid_depth_near"] + EPS_QTY))
+    near_share_start = start["bid_depth_near"] / (start["bid_depth_total"] + EPS_QTY)
+    near_share_end = end["bid_depth_near"] / (end["bid_depth_total"] + EPS_QTY)
+    f3_bid_near_share_delta = near_share_end - near_share_start
+
+    den_bid_reprice = acc["bid_reprice_away_rest_qty"] + acc["bid_reprice_toward_rest_qty"]
+    if den_bid_reprice == 0:
+        f3_bid_reprice_away_share_rest = 0.5
+    else:
+        f3_bid_reprice_away_share_rest = acc["bid_reprice_away_rest_qty"] / (den_bid_reprice + EPS_QTY)
+
+    f4_bid_pull_add_log_rest = math.log((acc["bid_pull_rest_qty"] + EPS_QTY) / (acc["bid_add_qty"] + EPS_QTY))
+    f4_bid_pull_intensity_rest = acc["bid_pull_rest_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    f4_bid_near_pull_share_rest = acc["bid_pull_rest_qty_near"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
+
+    f5_vacuum_expansion_log = f1_ask_com_disp_log + f3_bid_com_disp_log
+    f6_vacuum_decay_log = f2_ask_pull_add_log_rest + f4_bid_pull_add_log_rest
+    f7_vacuum_total_log = f5_vacuum_expansion_log + f6_vacuum_decay_log
+
+    return {
+        "f1_ask_com_disp_log": float(f1_ask_com_disp_log),
+        "f1_ask_slope_convex_log": float(f1_ask_slope_convex_log),
+        "f1_ask_near_share_delta": float(f1_ask_near_share_delta),
+        "f1_ask_reprice_away_share_rest": float(f1_ask_reprice_away_share_rest),
+        "f2_ask_pull_add_log_rest": float(f2_ask_pull_add_log_rest),
+        "f2_ask_pull_intensity_rest": float(f2_ask_pull_intensity_rest),
+        "f2_ask_near_pull_share_rest": float(f2_ask_near_pull_share_rest),
+        "f3_bid_com_disp_log": float(f3_bid_com_disp_log),
+        "f3_bid_slope_convex_log": float(f3_bid_slope_convex_log),
+        "f3_bid_near_share_delta": float(f3_bid_near_share_delta),
+        "f3_bid_reprice_away_share_rest": float(f3_bid_reprice_away_share_rest),
+        "f4_bid_pull_add_log_rest": float(f4_bid_pull_add_log_rest),
+        "f4_bid_pull_intensity_rest": float(f4_bid_pull_intensity_rest),
+        "f4_bid_near_pull_share_rest": float(f4_bid_near_pull_share_rest),
+        "f5_vacuum_expansion_log": float(f5_vacuum_expansion_log),
+        "f6_vacuum_decay_log": float(f6_vacuum_decay_log),
+        "f7_vacuum_total_log": float(f7_vacuum_total_log),
+    }
+
+
+def _add_derivatives(rows: list[dict]) -> list[dict]:
+    prev = {name: None for name in BASE_FEATURES}
+    prev_d1 = {name: 0.0 for name in BASE_FEATURES}
+    prev_d2 = {name: 0.0 for name in BASE_FEATURES}
+
+    for row in rows:
+        for name in BASE_FEATURES:
+            if prev[name] is None:
+                d1 = 0.0
+                d2 = 0.0
+                d3 = 0.0
+            else:
+                d1 = row[name] - prev[name]
+                d2 = d1 - prev_d1[name]
+                d3 = d2 - prev_d2[name]
+            row[f"d1_{name}"] = float(d1)
+            row[f"d2_{name}"] = float(d2)
+            row[f"d3_{name}"] = float(d3)
+            prev[name] = row[name]
+            prev_d1[name] = d1
+            prev_d2[name] = d2
+
+    return rows
+
+
+def _new_accumulators() -> dict:
+    return {
+        "ask_add_qty": 0.0,
+        "ask_pull_rest_qty": 0.0,
+        "ask_pull_rest_qty_near": 0.0,
+        "ask_reprice_away_rest_qty": 0.0,
+        "ask_reprice_toward_rest_qty": 0.0,
+        "bid_add_qty": 0.0,
+        "bid_pull_rest_qty": 0.0,
+        "bid_pull_rest_qty_near": 0.0,
+        "bid_reprice_away_rest_qty": 0.0,
+        "bid_reprice_toward_rest_qty": 0.0,
+    }
+
+
+def _load_p_ref() -> float:
+    value = os.environ.get("P_REF")
+    if value is None:
+        raise ValueError("Missing P_REF env var")
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid P_REF: {value}") from exc

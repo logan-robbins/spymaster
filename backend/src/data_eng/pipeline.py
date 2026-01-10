@@ -61,7 +61,25 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 GoldFilterFirst3Hours(),
             ]
 
+    elif product_type == "future_mbo":
+        from .stages.bronze.future_mbo.ingest_preview import BronzeIngestMboPreview
+        from .stages.silver.future_mbo.compute_level_vacuum_5s import (
+            SilverComputeMboLevelVacuum5s,
+        )
+
+        if layer == "bronze":
+            return [BronzeIngestMboPreview()]
+        elif layer == "silver":
+            return [SilverComputeMboLevelVacuum5s()]
+        elif layer == "gold":
+            return []
+        elif layer == "all":
+            return [
+                BronzeIngestMboPreview(),
+                SilverComputeMboLevelVacuum5s(),
+            ]
+
     raise ValueError(
         f"Unknown product_type: {product_type}. "
-        f"Must be one of: future, future_option, equity, equity_option"
+        f"Must be one of: future, future_option, future_mbo, equity, equity_option"
     )

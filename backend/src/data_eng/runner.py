@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--product-type",
         required=True,
-        choices=["future", "future_option", "equity", "equity_option"],
+        choices=["future", "future_option", "future_mbo", "equity", "equity_option"],
         help="Product type",
     )
     p.add_argument(

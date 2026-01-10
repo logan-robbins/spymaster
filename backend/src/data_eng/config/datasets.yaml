@@ -27,6 +27,13 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_option/statistics.avsc
 
+  # Bronze - Future MBO (preview)
+  bronze.future_mbo.mbo:
+    path: bronze/source=preview/product_type=future_mbo/symbol={symbol}/table=mbo
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/future_mbo/mbo.avsc
+
   # Silver - Futures
   silver.future.market_by_price_10:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10
@@ -51,6 +58,13 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future/market_by_price_10_bar5s.avsc
+
+  # Silver - Future MBO
+  silver.future_mbo.mbo_level_vacuum_5s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=mbo_level_vacuum_5s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/mbo_level_vacuum_5s.avsc
 
   # Silver - Futures - 2-minute candle level approach (one per level type)
   silver.future.market_by_price_10_pm_high_approach2m:
