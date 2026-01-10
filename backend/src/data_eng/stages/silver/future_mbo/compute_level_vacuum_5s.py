@@ -52,12 +52,32 @@ BASE_FEATURES = [
     "f7_vacuum_total_log",
 ]
 
-DERIV_FEATURES = [
-    f"d1_{name}" for name in BASE_FEATURES
-] + [
-    f"d2_{name}" for name in BASE_FEATURES
-] + [
+UP_FEATURES = [
+    "u1_ask_com_disp_log",
+    "u2_ask_slope_convex_log",
+    "u3_ask_near_share_decay",
+    "u4_ask_reprice_away_share_rest",
+    "u5_ask_pull_add_log_rest",
+    "u6_ask_pull_intensity_rest",
+    "u7_ask_near_pull_share_rest",
+    "u8_bid_com_approach_log",
+    "u9_bid_slope_support_log",
+    "u10_bid_near_share_rise",
+    "u11_bid_reprice_toward_share_rest",
+    "u12_bid_add_pull_log_rest",
+    "u13_bid_add_intensity",
+    "u14_bid_far_pull_share_rest",
+    "u15_up_expansion_log",
+    "u16_up_flow_log",
+    "u17_up_total_log",
+]
+
+DERIV_FEATURES = [f"d1_{name}" for name in BASE_FEATURES] + [f"d2_{name}" for name in BASE_FEATURES] + [
     f"d3_{name}" for name in BASE_FEATURES
+]
+
+UP_DERIV_FEATURES = [f"d1_{name}" for name in UP_FEATURES] + [f"d2_{name}" for name in UP_FEATURES] + [
+    f"d3_{name}" for name in UP_FEATURES
 ]
 
 OUTPUT_COLUMNS = [
@@ -65,7 +85,7 @@ OUTPUT_COLUMNS = [
     "window_end_ts_ns",
     "P_ref",
     "P_REF_INT",
-] + BASE_FEATURES + DERIV_FEATURES
+] + BASE_FEATURES + DERIV_FEATURES + UP_FEATURES + UP_DERIV_FEATURES
 
 
 @dataclass
@@ -142,6 +162,7 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
             if not window_invalid:
                 end_snapshot = _snapshot(orders, p_ref_int)
                 base_features = _compute_base_features(window_start_snapshot, end_snapshot, accum)
+                up_features = _compute_up_features(base_features, window_start_snapshot, accum)
                 rows.append(
                     {
                         "window_start_ts_ns": int(window_start_ts_ns),
@@ -149,6 +170,7 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
                         "P_ref": float(p_ref),
                         "P_REF_INT": int(p_ref_int),
                         **base_features,
+                        **up_features,
                     }
                 )
             current_window_id = window_id
@@ -312,6 +334,7 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
     if current_window_id is not None and not window_invalid:
         end_snapshot = _snapshot(orders, p_ref_int)
         base_features = _compute_base_features(window_start_snapshot, end_snapshot, accum)
+        up_features = _compute_up_features(base_features, window_start_snapshot, accum)
         rows.append(
             {
                 "window_start_ts_ns": int(window_start_ts_ns),
@@ -319,13 +342,15 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
                 "P_ref": float(p_ref),
                 "P_REF_INT": int(p_ref_int),
                 **base_features,
+                **up_features,
             }
         )
 
     if len(rows) == 0:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-    rows = _add_derivatives(rows)
+    _add_derivatives(rows, BASE_FEATURES)
+    _add_derivatives(rows, UP_FEATURES)
     df_out = pd.DataFrame(rows)
     return df_out.loc[:, OUTPUT_COLUMNS]
 
@@ -460,13 +485,55 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
     }
 
 
-def _add_derivatives(rows: list[dict]) -> list[dict]:
-    prev = {name: None for name in BASE_FEATURES}
-    prev_d1 = {name: 0.0 for name in BASE_FEATURES}
-    prev_d2 = {name: 0.0 for name in BASE_FEATURES}
+def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
+    u1_ask_com_disp_log = base["f1_ask_com_disp_log"]
+    u2_ask_slope_convex_log = base["f1_ask_slope_convex_log"]
+    u3_ask_near_share_decay = -base["f1_ask_near_share_delta"]
+    u4_ask_reprice_away_share_rest = base["f1_ask_reprice_away_share_rest"]
+    u5_ask_pull_add_log_rest = base["f2_ask_pull_add_log_rest"]
+    u6_ask_pull_intensity_rest = base["f2_ask_pull_intensity_rest"]
+    u7_ask_near_pull_share_rest = base["f2_ask_near_pull_share_rest"]
+
+    u8_bid_com_approach_log = -base["f3_bid_com_disp_log"]
+    u9_bid_slope_support_log = -base["f3_bid_slope_convex_log"]
+    u10_bid_near_share_rise = base["f3_bid_near_share_delta"]
+    u11_bid_reprice_toward_share_rest = 1.0 - base["f3_bid_reprice_away_share_rest"]
+    u12_bid_add_pull_log_rest = -base["f4_bid_pull_add_log_rest"]
+    u13_bid_add_intensity = acc["bid_add_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    u14_bid_far_pull_share_rest = 1.0 - base["f4_bid_near_pull_share_rest"]
+
+    u15_up_expansion_log = u1_ask_com_disp_log + u8_bid_com_approach_log
+    u16_up_flow_log = u5_ask_pull_add_log_rest + u12_bid_add_pull_log_rest
+    u17_up_total_log = u15_up_expansion_log + u16_up_flow_log
+
+    return {
+        "u1_ask_com_disp_log": float(u1_ask_com_disp_log),
+        "u2_ask_slope_convex_log": float(u2_ask_slope_convex_log),
+        "u3_ask_near_share_decay": float(u3_ask_near_share_decay),
+        "u4_ask_reprice_away_share_rest": float(u4_ask_reprice_away_share_rest),
+        "u5_ask_pull_add_log_rest": float(u5_ask_pull_add_log_rest),
+        "u6_ask_pull_intensity_rest": float(u6_ask_pull_intensity_rest),
+        "u7_ask_near_pull_share_rest": float(u7_ask_near_pull_share_rest),
+        "u8_bid_com_approach_log": float(u8_bid_com_approach_log),
+        "u9_bid_slope_support_log": float(u9_bid_slope_support_log),
+        "u10_bid_near_share_rise": float(u10_bid_near_share_rise),
+        "u11_bid_reprice_toward_share_rest": float(u11_bid_reprice_toward_share_rest),
+        "u12_bid_add_pull_log_rest": float(u12_bid_add_pull_log_rest),
+        "u13_bid_add_intensity": float(u13_bid_add_intensity),
+        "u14_bid_far_pull_share_rest": float(u14_bid_far_pull_share_rest),
+        "u15_up_expansion_log": float(u15_up_expansion_log),
+        "u16_up_flow_log": float(u16_up_flow_log),
+        "u17_up_total_log": float(u17_up_total_log),
+    }
+
+
+def _add_derivatives(rows: list[dict], feature_names: list[str]) -> list[dict]:
+    prev = {name: None for name in feature_names}
+    prev_d1 = {name: 0.0 for name in feature_names}
+    prev_d2 = {name: 0.0 for name in feature_names}
 
     for row in rows:
-        for name in BASE_FEATURES:
+        for name in feature_names:
             if prev[name] is None:
                 d1 = 0.0
                 d2 = 0.0

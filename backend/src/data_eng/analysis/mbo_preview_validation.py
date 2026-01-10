@@ -12,6 +12,8 @@ from ..stages.silver.future_mbo.compute_level_vacuum_5s import (
     BASE_FEATURES,
     DERIV_FEATURES,
     OUTPUT_COLUMNS,
+    UP_DERIV_FEATURES,
+    UP_FEATURES,
     TICK_INT,
     WINDOW_NS,
     compute_mbo_level_vacuum_5s,
@@ -209,7 +211,7 @@ def _assert_derivatives_zero(df: pd.DataFrame) -> None:
     if len(df) == 0:
         raise ValueError("No rows for derivative check")
     first = df.iloc[0]
-    for name in DERIV_FEATURES:
+    for name in DERIV_FEATURES + UP_DERIV_FEATURES:
         if not math.isclose(float(first[name]), 0.0, abs_tol=1e-12):
             raise ValueError(f"Derivative {name} expected 0")
 
@@ -217,7 +219,7 @@ def _assert_derivatives_zero(df: pd.DataFrame) -> None:
 def _assert_finite(df: pd.DataFrame) -> None:
     if len(df) == 0:
         return
-    subset = df[BASE_FEATURES + DERIV_FEATURES]
+    subset = df[BASE_FEATURES + DERIV_FEATURES + UP_FEATURES + UP_DERIV_FEATURES]
     if not subset.replace([float("inf"), float("-inf")], pd.NA).notna().all().all():
         raise ValueError("Non-finite feature values")
 
