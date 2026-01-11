@@ -338,9 +338,9 @@ we are ONLY working with the mbo_preview.json data, we do not have the raw data 
 - YOU ONLY work in the spymaster/ workspace. 
 - EVERY time you compress your context history you re-read DEV.md DO NOT FORGET THIS. 
 
-Remove ANY CODE or stale data that is in the way of completing RESET_4.md exactly to spec. These are meant to be breaking changes. do not preserve. your ONLY mandate is to work in data_eng/ and do not delete any raw data. 
-
 **YOU DO NOT NEED TO READ ANY OTHER MD DOCUMENTS**
 **ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/EXTEND TO ACCOMPLISTH YOUR TASK.**
 
-you must follow the rules carefully to implement all tasks in RESET_4.md -- they overwrite/extend RESET_3.md which was already completed. Set items to COMPLETE as you go in line in RESET_4.md.
+You must follow the rules carefully to implement all tasks in RESET_5.md -- they overwrite/extend RESET_4.md which was already completed. Set items to COMPLETE as you go in line in RESET_4.md.
+
+Remove ANY CODE or stale data that is in the way of completing RESET_5.md exactly to spec. These are meant to be breaking changes. do not preserve. your ONLY mandate is to work in data_eng/ and do not delete any raw data. 
