@@ -341,6 +341,6 @@ we are ONLY working with the mbo_preview.json data, we do not have the raw data 
 **YOU DO NOT NEED TO READ ANY OTHER MD DOCUMENTS**
 **ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/EXTEND TO ACCOMPLISTH YOUR TASK.**
 
-You must follow the rules carefully to implement all tasks in RESET_5.md -- they overwrite/extend RESET_4.md which was already completed. Set items to COMPLETE as you go in line in RESET_4.md.
+You must follow the rules carefully to implement all tasks in SPEC.md -- they overwrite/extend any code that currently exists. 
 
-Remove ANY CODE or stale data that is in the way of completing RESET_5.md exactly to spec. These are meant to be breaking changes. do not preserve. your ONLY mandate is to work in data_eng/ and do not delete any raw data. 
+Remove ANY CODE or stale data that is in the way of completing SPEC.md exactly to spec. These are meant to be breaking changes. do not preserve. your ONLY mandate is to work in data_eng/ and do not delete any raw data. 
