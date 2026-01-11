@@ -35,6 +35,7 @@ env/
 
 **/*.parquet
 **/*.dbn
+**/*.dbn.zst
 **/*.zip
 
 # Testing
