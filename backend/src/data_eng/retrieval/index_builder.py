@@ -13,6 +13,7 @@ from ..contracts import enforce_contract, load_avro_contract
 from ..io import is_partition_complete, partition_ref, read_partition
 from ..utils import expand_date_range
 from .normalization import RobustStats, apply_robust_scaling, fit_robust_stats, l2_normalize
+from .mbo_contract_day_selector import load_selection
 
 try:
     import faiss
@@ -120,16 +121,27 @@ def _write_metadata(path: Path, df: pd.DataFrame) -> None:
     np.savez_compressed(path, **metadata)
 
 
-def _load_vectors(repo_root: Path, symbol: str, dates: List[str]) -> pd.DataFrame:
+def _load_selection_rows(selection_path: Path, dates: List[str]) -> pd.DataFrame:
+    df = load_selection(selection_path)
+    df = df.loc[df["session_date"].isin(dates)].copy()
+    df = df.loc[(df["include_flag"] == 1) & (df["selected_symbol"] != "")]
+    if len(df) == 0:
+        raise ValueError("No included sessions in selection map")
+    return df
+
+
+def _load_vectors(repo_root: Path, selection: pd.DataFrame) -> pd.DataFrame:
     cfg = load_config(repo_root, repo_root / "src" / "data_eng" / "config" / "datasets.yaml")
     contract_path = repo_root / cfg.dataset(DATASET_KEY).contract
     contract = load_avro_contract(contract_path)
 
     frames = []
-    for dt in dates:
-        ref = partition_ref(cfg, DATASET_KEY, symbol, dt)
+    for row in selection.itertuples(index=False):
+        session_date = str(getattr(row, "session_date"))
+        symbol = str(getattr(row, "selected_symbol"))
+        ref = partition_ref(cfg, DATASET_KEY, symbol, session_date)
         if not is_partition_complete(ref):
-            raise FileNotFoundError(f"Missing partition: {DATASET_KEY} dt={dt}")
+            raise FileNotFoundError(f"Missing partition: {DATASET_KEY} symbol={symbol} dt={session_date}")
         df = read_partition(ref)
         if len(df) > 0:
             df = enforce_contract(df, contract)
@@ -143,8 +155,8 @@ def _load_vectors(repo_root: Path, symbol: str, dates: List[str]) -> pd.DataFram
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build FAISS indices for trigger vectors.")
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[3])
-    parser.add_argument("--symbol", required=True)
     parser.add_argument("--dates", required=True)
+    parser.add_argument("--selection-path", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
@@ -152,7 +164,8 @@ def main() -> None:
     if not dates:
         raise ValueError("No dates provided")
 
-    df = _load_vectors(args.repo_root, args.symbol, dates)
+    selection = _load_selection_rows(args.selection_path, dates)
+    df = _load_vectors(args.repo_root, selection)
     if len(df) == 0:
         raise ValueError("No vectors loaded from lake")
 

@@ -18,6 +18,7 @@ from ....io import (
     read_partition,
     write_partition,
 )
+from ....retrieval.mbo_contract_day_selector import load_selection
 from ...silver.future_mbo.compute_level_vacuum_5s import TICK_INT
 from ....utils import session_window_ns
 
@@ -117,6 +118,8 @@ OUTPUT_COLUMNS = [
     "vector_dim",
 ]
 
+_SELECTION_CACHE: Dict[str, pd.DataFrame] = {}
+
 
 @dataclass
 class HitInfo:
@@ -153,6 +156,17 @@ class GoldBuildMboTriggerVectors(Stage):
     def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
         out_ref = partition_ref(cfg, self.io.output, symbol, dt)
         if is_partition_complete(out_ref):
+            return
+
+        selection_path = _load_selection_path()
+        selection_df = _get_selection(selection_path)
+        selection_row = selection_df.loc[selection_df["session_date"] == dt]
+        if selection_row.empty:
+            raise ValueError(f"Selection map missing session_date: {dt}")
+        selected_symbol = str(selection_row["selected_symbol"].iloc[0])
+        include_flag = int(selection_row["include_flag"].iloc[0])
+        if include_flag != 1 or selected_symbol != symbol:
+            _write_empty_output(cfg, repo_root, self.io.output, symbol, dt, self.name)
             return
 
         vacuum_key = "silver.future_mbo.mbo_level_vacuum_5s"
@@ -212,6 +226,52 @@ class GoldBuildMboTriggerVectors(Stage):
 
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         raise NotImplementedError("Use run() directly")
+
+
+def _load_selection_path() -> Path:
+    value = os.environ.get("MBO_SELECTION_PATH")
+    if value is None:
+        raise ValueError("Missing MBO_SELECTION_PATH env var")
+    value = value.strip()
+    if not value:
+        raise ValueError("MBO_SELECTION_PATH env var is empty")
+    path = Path(value).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"MBO_SELECTION_PATH not found: {path}")
+    return path
+
+
+def _get_selection(path: Path) -> pd.DataFrame:
+    key = path.as_posix()
+    cached = _SELECTION_CACHE.get(key)
+    if cached is not None:
+        return cached
+    df = load_selection(path)
+    _SELECTION_CACHE[key] = df
+    return df
+
+
+def _write_empty_output(
+    cfg: AppConfig,
+    repo_root: Path,
+    dataset_key: str,
+    symbol: str,
+    dt: str,
+    stage: str,
+) -> None:
+    out_contract_path = repo_root / cfg.dataset(dataset_key).contract
+    out_contract = load_avro_contract(out_contract_path)
+    df_out = pd.DataFrame(columns=out_contract.fields)
+    write_partition(
+        cfg=cfg,
+        dataset_key=dataset_key,
+        symbol=symbol,
+        dt=dt,
+        df=df_out,
+        contract_path=out_contract_path,
+        inputs=[],
+        stage=stage,
+    )
 
 
 def _build_trigger_vectors(

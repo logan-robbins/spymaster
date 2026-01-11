@@ -152,7 +152,7 @@ grep -r "class.*Stage.*:" stages/ --include="*.py"
 **Find pipeline composition:**
 ```python
 from src.data_eng.pipeline import build_pipeline
-stages = build_pipeline("future", "silver")  # Returns ordered stage list
+stages = build_pipeline("future_mbo", "silver")  # Returns ordered stage list
 ```
 
 **Find all datasets:**
@@ -184,8 +184,8 @@ All stages extend `Stage` with:
 
 ```python
 StageIO(
-    inputs=["silver.future.table_a", "silver.future.table_b"],  # Input dataset keys
-    output="silver.future.table_c"  # Output dataset key
+    inputs=["silver.future_mbo.table_a", "silver.future_mbo.table_b"],  # Input dataset keys
+    output="silver.future_mbo.table_c"  # Output dataset key
 )
 ```
 
@@ -238,7 +238,7 @@ Key functions:
 `build_pipeline(product_type, layer)` returns ordered list of Stage instances.
 
 Layers: `bronze`, `silver`, `gold`, `all`
-Product types: `future`
+Product types: `future_mbo`
 
 Stages execute sequentially. Each stage's output becomes available for subsequent stages but the PIPLINE RUNS IN PARALLEL.
 
@@ -247,14 +247,14 @@ Stages execute sequentially. Each stage's output becomes available for subsequen
 ```bash
 
 uv run python -m src.data_eng.runner \
-  --product-type future \
+  --product-type future_mbo \
   --layer silver \
   --symbol ESU5 \
   --dates 2025-06-4:2025-09-30 \
   --workers 8
 
 uv run python -m src.data_eng.runner \
-  --product-type future \
+  --product-type future_mbo \
   --layer silver \
   --symbol ESZ5 \
   --dates 2025-09-01:2025-09-30 \
@@ -262,21 +262,21 @@ uv run python -m src.data_eng.runner \
 
 # Single date
 uv run python -m src.data_eng.runner \
-  --product-type future \
+  --product-type future_mbo \
   --layer silver \
   --symbol ESU5 \
   --dt 2025-06-05
 
 # Date range (inclusive)
 uv run python -m src.data_eng.runner \
-  --product-type future \
+  --product-type future_mbo \
   --layer gold \
   --symbol ESU5 \
   --dates 2025-06-11:2025-08-30 \
   --workers 8
 
 uv run python -m src.data_eng.runner \
-  --product-type future \
+  --product-type future_mbo \
   --layer gold \
   --symbol ESZ5 \
   --dates 2025-09-01:2025-09-30 \
@@ -331,8 +331,7 @@ df = enforce_contract(df, contract)  # Raises if mismatch
 </readme>
 
 **IMPORTANT** 
-we are ONLY working with the mbo_preview.json data, we do not have the raw data yet. 
- 
+we are ONLY working with the future_mbo mbo_preview.json data.
 
 **IMPORTANT** 
 - YOU ONLY work in the spymaster/ workspace. 
@@ -341,6 +340,61 @@ we are ONLY working with the mbo_preview.json data, we do not have the raw data 
 **YOU DO NOT NEED TO READ ANY OTHER MD DOCUMENTS**
 **ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/EXTEND TO ACCOMPLISTH YOUR TASK.**
 
-You must follow the rules carefully to implement all tasks in SPEC.md -- they overwrite/extend any code that currently exists. 
+**work in data_eng/ and do not delete any raw data.**
 
-Remove ANY CODE or stale data that is in the way of completing SPEC.md exactly to spec. These are meant to be breaking changes. do not preserve. your ONLY mandate is to work in data_eng/ and do not delete any raw data. 
+## HOW IT WORKS TODAY ##
+
+• Bronze
+
+  - Reads raw DBN MBO and writes per‑contract parquet partitions under backend/lake/bronze/.../product_type=future_mbo/symbol=.../table=mbo.
+  - File: backend/src/data_eng/stages/bronze/future_mbo/ingest_preview.py
+      - Filters spreads, enforces session window, casts types, writes per‑contract partitions.
+  - No filter logic for contract eligibility here (by design).
+
+  Silver
+
+  - Builds 5‑second vacuum features per contract/day (uses PM_HIGH computed from premarket trades inside the stage).
+  - File: backend/src/data_eng/stages/silver/future_mbo/compute_level_vacuum_5s.py
+      - Inputs: bronze.future_mbo.mbo
+      - Outputs: silver.future_mbo.mbo_level_vacuum_5s
+  - No contract eligibility filter here (keeps all contracts/dates).
+
+  Gold
+
+  - Builds trigger vectors and labels per contract/day, then trigger signals and pressure stream.
+  - Files:
+      - backend/src/data_eng/stages/gold/future_mbo/build_trigger_vectors.py
+          - Inputs: silver vacuum + bronze MBO
+          - Outputs: gold.future_mbo.mbo_trigger_vectors
+          - Filter logic happens here: uses MBO_SELECTION_PATH to include/exclude contract‑days.
+      - backend/src/data_eng/stages/gold/future_mbo/build_trigger_signals.py
+      - backend/src/data_eng/stages/gold/future_mbo/build_pressure_stream.py
+
+  Contract‑day selection (filter logic source)
+
+  - Builds the selection map used by gold.
+  - File: backend/src/data_eng/retrieval/mbo_contract_day_selector.py
+      - Reads trade prints across all contracts for a session date in RTH (09:30–12:30 NY).
+      - Applies dominance threshold, run trimming, and liquidity floor.
+      - Outputs selection map: session_date → selected_symbol or exclude.
+
+  Indexing
+
+  - Builds pooled FAISS indices across all selected contract‑days.
+  - File: backend/src/data_eng/retrieval/index_builder.py
+      - Loads vectors using the selection map (pooled across symbols/dates).
+      - Writes one index per level_id and approach_dir.
+
+## YOUR TASK ##
+
+Your task is to read the future_mbo pipline and implement the fix to the filter logic described below. 
+
+Test the silver pipeline a one date, and then validate that the schema matches exactly what you expect. Then use nohup and parallel runner option to use 8 works and process all valid dates/contracts from 2025-10-01 thru 2026-001-09. 
+
+Then, you can run the gold pipeline in the same fashion. 
+
+
+**THE FULL SPEC is in SPEC.md you can search if you have questions**
+
+## TASK ##
+

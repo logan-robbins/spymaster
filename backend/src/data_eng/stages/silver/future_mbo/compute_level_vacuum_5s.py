@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -170,7 +169,7 @@ class SilverComputeMboLevelVacuum5s(Stage):
         if len(df) == 0:
             return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-        p_ref = _load_p_ref()
+        p_ref = _load_p_ref(df, dt)
         symbol_target = df["symbol"].iloc[0]
         return compute_mbo_level_vacuum_5s(df, p_ref, symbol_target)
 
@@ -677,11 +676,25 @@ def _compute_approach_dir(px_end_int: np.ndarray, p_ref_int: int) -> np.ndarray:
     return approach
 
 
-def _load_p_ref() -> float:
-    value = os.environ.get("P_REF")
-    if value is None:
-        raise ValueError("Missing P_REF env var")
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise ValueError(f"Invalid P_REF: {value}") from exc
+def _premarket_window_ns(dt: str) -> tuple[int, int]:
+    start_local = pd.Timestamp(f"{dt} 05:00:00", tz="America/New_York")
+    end_local = pd.Timestamp(f"{dt} 08:30:00", tz="America/New_York")
+    return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)
+
+
+def _load_p_ref(df: pd.DataFrame, dt: str) -> float:
+    start_ns, end_ns = _premarket_window_ns(dt)
+    ts_event = df["ts_event"].to_numpy(dtype=np.int64)
+    is_trade = df["action"].to_numpy() == TRADE_ACTION
+    in_window = (ts_event >= start_ns) & (ts_event < end_ns)
+    mask = is_trade & in_window
+    if not np.any(mask):
+        raise ValueError(f"No trades in premarket window for {dt}")
+
+    prices = df.loc[mask, "price"].to_numpy(dtype=np.int64)
+    prices = prices[prices > 0]
+    if prices.size == 0:
+        raise ValueError(f"No valid trade prices in premarket window for {dt}")
+
+    p_ref_int = int(prices.max())
+    return float(p_ref_int) * PRICE_SCALE

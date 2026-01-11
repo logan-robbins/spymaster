@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DATE_RANGE="2025-10-01:2026-01-09"
+SELECTION_PATH="lake/selection/mbo_contract_day_selection.parquet"
+INDEX_DIR="lake/indexes/mbo_pm_high"
+
+uv run python -m src.data_eng.retrieval.mbo_contract_day_selector \
+  --dates "${DATE_RANGE}" \
+  --output-path "${SELECTION_PATH}"
+
+SYMBOL_DATES=$(uv run python - <<'PY'
+from pathlib import Path
+
+from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
+
+selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
+selection = selection.loc[(selection["include_flag"] == 1) & (selection["selected_symbol"] != "")]
+if len(selection) == 0:
+    raise ValueError("No included sessions in selection map")
+groups = selection.groupby("selected_symbol")["session_date"].apply(list)
+for symbol, dates in groups.items():
+    print(f"{symbol}|{','.join(dates)}")
+PY
+)
+
+while IFS= read -r line; do
+  symbol="${line%%|*}"
+  dates="${line#*|}"
+  if [ -z "${symbol}" ] || [ -z "${dates}" ]; then
+    echo "Missing symbol or dates in selection map" >&2
+    exit 1
+  fi
+  uv run python -m src.data_eng.runner \
+    --product-type future_mbo \
+    --layer silver \
+    --symbol "${symbol}" \
+    --dates "${dates}" \
+    --workers 8
+done <<< "${SYMBOL_DATES}"
+
+MBO_SELECTION_PATH="${SELECTION_PATH}" LEVEL_ID=pm_high uv run python - <<'PY'
+from pathlib import Path
+
+from src.data_eng.config import load_config
+from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
+from src.data_eng.stages.gold.future_mbo.build_trigger_vectors import GoldBuildMboTriggerVectors
+
+repo_root = Path.cwd()
+cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
+selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
+selection = selection.loc[(selection["include_flag"] == 1) & (selection["selected_symbol"] != "")]
+
+stage = GoldBuildMboTriggerVectors()
+for row in selection.itertuples(index=False):
+    symbol = str(getattr(row, "selected_symbol"))
+    session_date = str(getattr(row, "session_date"))
+    stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=session_date)
+    print(f"vectors {symbol} {session_date}")
+PY
+
+uv run python -m src.data_eng.retrieval.index_builder \
+  --dates "${DATE_RANGE}" \
+  --selection-path "${SELECTION_PATH}" \
+  --output-dir "${INDEX_DIR}"
+
+while IFS= read -r line; do
+  symbol="${line%%|*}"
+  dates="${line#*|}"
+  if [ -z "${symbol}" ] || [ -z "${dates}" ]; then
+    echo "Missing symbol or dates in selection map" >&2
+    exit 1
+  fi
+  LEVEL_ID=pm_high MBO_SELECTION_PATH="${SELECTION_PATH}" MBO_INDEX_DIR="${INDEX_DIR}" uv run python -m src.data_eng.runner \
+    --product-type future_mbo \
+    --layer gold \
+    --symbol "${symbol}" \
+    --dates "${dates}" \
+    --workers 8
+done <<< "${SYMBOL_DATES}"

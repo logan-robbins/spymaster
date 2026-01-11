@@ -27,9 +27,9 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_option/statistics.avsc
 
-  # Bronze - Future MBO (preview)
+  # Bronze - Future MBO
   bronze.future_mbo.mbo:
-    path: bronze/source=preview/product_type=future_mbo/symbol={symbol}/table=mbo
+    path: bronze/source=databento/product_type=future_mbo/symbol={symbol}/table=mbo
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_mbo/mbo.avsc
