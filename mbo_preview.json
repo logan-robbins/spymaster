@@ -1,0 +1,382 @@
+[
+  {
+    "ts_recv": "2022-01-03T00:00:00.000000000Z",
+    "hd": {
+      "ts_event": "2022-01-02T20:00:06.673124187Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "R",
+    "side": "N",
+    "price": null,
+    "size": 0,
+    "channel_id": 0,
+    "order_id": "0",
+    "flags": 40,
+    "ts_in_delta": 0,
+    "sequence": 0,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:00:00.000000000Z",
+    "hd": {
+      "ts_event": "2022-01-02T20:00:06.673124187Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "A",
+    "side": "A",
+    "price": "4770.000000000",
+    "size": 1,
+    "channel_id": 0,
+    "order_id": "649190949155",
+    "flags": 40,
+    "ts_in_delta": 0,
+    "sequence": 1642,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:00:00.000000000Z",
+    "hd": {
+      "ts_event": "2022-01-02T20:00:06.673124187Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "A",
+    "side": "A",
+    "price": "4800.000000000",
+    "size": 1,
+    "channel_id": 0,
+    "order_id": "649190545820",
+    "flags": 40,
+    "ts_in_delta": 0,
+    "sequence": 1642,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:00:00.000000000Z",
+    "hd": {
+      "ts_event": "2022-01-02T23:00:00.161490699Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "A",
+    "side": "A",
+    "price": "4781.250000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 40,
+    "ts_in_delta": 0,
+    "sequence": 4537,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:00:00.000000000Z",
+    "hd": {
+      "ts_event": "2022-01-02T23:22:02.906372921Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "A",
+    "side": "B",
+    "price": "4743.250000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 168,
+    "ts_in_delta": 0,
+    "sequence": 80310,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:41.854645743Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:41.854269725Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4743.500000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 20087,
+    "sequence": 160793,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:44.606235524Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:44.605380379Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4744.000000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 22716,
+    "sequence": 160965,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:44.719441680Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:44.718833045Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4744.250000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 24658,
+    "sequence": 161128,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.022099239Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.021839847Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4744.500000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 16780,
+    "sequence": 161335,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.050395765Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.050167751Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4781.500000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 19989,
+    "sequence": 161420,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.124118809Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.123999225Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4744.750000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 16437,
+    "sequence": 161611,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.152461299Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.152157375Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4781.750000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 16409,
+    "sequence": 161650,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.155464322Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.155241349Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4782.000000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 16228,
+    "sequence": 161728,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:45.229523433Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:45.229405601Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4745.000000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 16345,
+    "sequence": 161875,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:24:54.008726609Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:24:54.008425169Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4745.250000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 16999,
+    "sequence": 163462,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:28:06.933237468Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:28:06.932950447Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4782.250000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 23664,
+    "sequence": 173364,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:28:06.933450192Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:28:06.932995989Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4745.500000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 25275,
+    "sequence": 173367,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:30:10.271523910Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:30:10.271277157Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4782.500000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 16989,
+    "sequence": 178251,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:30:10.271680250Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:30:10.271384611Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "B",
+    "price": "4745.750000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484295",
+    "flags": 130,
+    "ts_in_delta": 17424,
+    "sequence": 178272,
+    "symbol": "ESZ2"
+  },
+  {
+    "ts_recv": "2022-01-03T00:30:48.299185940Z",
+    "hd": {
+      "ts_event": "2022-01-03T00:30:48.298593449Z",
+      "rtype": 160,
+      "publisher_id": 1,
+      "instrument_id": 206323
+    },
+    "action": "M",
+    "side": "A",
+    "price": "4782.750000000",
+    "size": 2,
+    "channel_id": 0,
+    "order_id": "649196484296",
+    "flags": 130,
+    "ts_in_delta": 18830,
+    "sequence": 179666,
+    "symbol": "ESZ2"
+  }
+]

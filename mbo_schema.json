@@ -1,0 +1,88 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Market Data Message",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ts_recv": {
+        "type": "integer",
+        "description": "Capture-server-received timestamp expressed as the number of nanoseconds since the UNIX epoch."
+      },
+      "size": {
+        "type": "integer",
+        "description": "The order quantity."
+      },
+      "ts_event": {
+        "type": "integer",
+        "description": "Matching-engine-received timestamp expressed as the number of nanoseconds since the UNIX epoch."
+      },
+      "channel_id": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Channel ID assigned by Databento as an incrementing integer starting at zero."
+      },
+      "rtype": {
+        "type": "integer",
+        "description": "Record type. Each schema corresponds with a single rtype value."
+      },
+      "order_id": {
+        "type": "integer",
+        "description": "Order ID assigned at the venue."
+      },
+      "publisher_id": {
+        "type": "integer",
+        "description": "Publisher ID assigned by Databento, denoting dataset and venue."
+      },
+      "flags": {
+        "type": "integer",
+        "description": "Bit field indicating event end, message characteristics, and data quality."
+      },
+      "instrument_id": {
+        "type": "integer",
+        "description": "Numeric instrument ID."
+      },
+      "ts_in_delta": {
+        "type": "integer",
+        "description": "Matching-engine-sending timestamp expressed as the number of nanoseconds before ts_recv."
+      },
+      "action": {
+        "type": "string",
+        "enum": ["A", "C", "M", "R", "T", "F", "N"],
+        "description": "Event action: Add, Cancel, Modify, Clear book, Trade, Fill, or None."
+      },
+      "sequence": {
+        "type": "integer",
+        "description": "Message sequence number assigned at the venue."
+      },
+      "side": {
+        "type": "string",
+        "enum": ["A", "B", "N"],
+        "description": "Initiating side: Ask, Bid, or None."
+      },
+      "symbol": {
+        "type": "string",
+        "description": "Requested symbol for the instrument."
+      },
+      "price": {
+        "type": "integer",
+        "description": "Order price as a signed integer where 1 unit equals 1e-9 (0.000000001)."
+      }
+    },
+    "required": [
+      "ts_recv",
+      "size",
+      "ts_event",
+      "channel_id",
+      "rtype",
+      "order_id",
+      "publisher_id",
+      "flags",
+      "instrument_id",
+      "ts_in_delta",
+      "action",
+      "sequence",
+      "side",
+      "symbol",
+      "price"
+    ]
+}  
