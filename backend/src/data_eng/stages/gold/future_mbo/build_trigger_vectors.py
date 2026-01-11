@@ -19,6 +19,7 @@ from ....io import (
     write_partition,
 )
 from ...silver.future_mbo.compute_level_vacuum_5s import TICK_INT
+from ....utils import session_window_ns
 
 BAR_NS = 120_000_000_000
 N_BARS = 6
@@ -358,8 +359,8 @@ def _extract_trade_stream(df_mbo: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]
 
 
 def _session_start_ns(dt: str) -> int:
-    ts_local = pd.Timestamp(f"{dt} 08:30:00", tz="America/New_York")
-    return int(ts_local.tz_convert("UTC").value)
+    start_ns, _ = session_window_ns(dt)
+    return start_ns
 
 
 def _label_trigger(

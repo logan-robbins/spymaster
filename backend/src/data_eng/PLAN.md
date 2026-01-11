@@ -4,3 +4,5 @@ Plan (Living)
 3. COMPLETE - Add sanity checks, CLI outputs, and minimal verification.
 4. COMPLETE - Add example walk-forward config under backend/.
 5. COMPLETE - Run walk-forward runner against mbo_preview.json.
+6. COMPLETE - Enforce 05:00-16:00 ET session window and align session anchor in MBO pipelines.
+7. COMPLETE - Verify session window logic with a minimal uv run command.

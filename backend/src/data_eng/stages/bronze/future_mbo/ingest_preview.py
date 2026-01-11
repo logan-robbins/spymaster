@@ -10,6 +10,7 @@ from ...base import Stage, StageIO
 from ....config import AppConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, write_partition
+from ....utils import session_window_ns
 
 PRICE_SCALE_INT = Decimal("1000000000")
 
@@ -96,8 +97,8 @@ class BronzeIngestMboPreview(Stage):
             )
             return
 
-        event_dates = pd.to_datetime(df["ts_event"], unit="ns", utc=True).dt.strftime("%Y-%m-%d")
-        df = df.loc[event_dates == dt].copy()
+        session_start_ns, session_end_ns = session_window_ns(dt)
+        df = df.loc[(df["ts_event"] >= session_start_ns) & (df["ts_event"] < session_end_ns)].copy()
         if len(df) == 0:
             out_contract_path = repo_root / cfg.dataset(self.io.output).contract
             out_contract = load_avro_contract(out_contract_path)

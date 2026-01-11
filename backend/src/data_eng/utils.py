@@ -46,3 +46,9 @@ def expand_date_range(
             expanded.add(clean_d)
             
     return sorted(list(expanded))
+
+
+def session_window_ns(session_date: str) -> tuple[int, int]:
+    start_local = pd.Timestamp(f"{session_date} 05:00:00", tz="America/New_York")
+    end_local = pd.Timestamp(f"{session_date} 16:00:00", tz="America/New_York")
+    return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)

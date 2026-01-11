@@ -18,6 +18,7 @@ from ..stages.silver.future_mbo.compute_level_vacuum_5s import (
     _extract_trade_stream,
     compute_mbo_level_vacuum_5s,
 )
+from ..utils import session_window_ns
 from ..stages.gold.future_mbo.build_trigger_vectors import (
     BAR_NS,
     LOOKBACK_WINDOWS,
@@ -318,10 +319,10 @@ def _load_mbo_preview(path: Path, symbol: str, session_date: str) -> pd.DataFram
     if len(df) == 0:
         raise ValueError("No rows loaded for symbol")
 
-    event_dates = pd.to_datetime(df["ts_event"], unit="ns", utc=True).dt.strftime("%Y-%m-%d")
-    df = df.loc[event_dates == session_date].copy()
+    session_start_ns, session_end_ns = session_window_ns(session_date)
+    df = df.loc[(df["ts_event"] >= session_start_ns) & (df["ts_event"] < session_end_ns)].copy()
     if len(df) == 0:
-        raise ValueError("No rows found for session_date in MBO source")
+        raise ValueError("No rows found for session window in MBO source")
 
     df = df.sort_values(["ts_event", "sequence"], ascending=[True, True])
     for col in [
