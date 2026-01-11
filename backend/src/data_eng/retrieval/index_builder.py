@@ -124,7 +124,7 @@ def _write_metadata(path: Path, df: pd.DataFrame) -> None:
 def _load_selection_rows(selection_path: Path, dates: List[str]) -> pd.DataFrame:
     df = load_selection(selection_path)
     df = df.loc[df["session_date"].isin(dates)].copy()
-    df = df.loc[(df["include_flag"] == 1) & (df["selected_symbol"] != "")]
+    df = df.loc[df["selected_symbol"] != ""]
     if len(df) == 0:
         raise ValueError("No included sessions in selection map")
     return df

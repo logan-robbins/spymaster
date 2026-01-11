@@ -164,8 +164,7 @@ class GoldBuildMboTriggerVectors(Stage):
         if selection_row.empty:
             raise ValueError(f"Selection map missing session_date: {dt}")
         selected_symbol = str(selection_row["selected_symbol"].iloc[0])
-        include_flag = int(selection_row["include_flag"].iloc[0])
-        if include_flag != 1 or selected_symbol != symbol:
+        if selected_symbol != symbol:
             _write_empty_output(cfg, repo_root, self.io.output, symbol, dt, self.name)
             return
 

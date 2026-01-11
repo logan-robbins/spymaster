@@ -385,16 +385,16 @@ we are ONLY working with the future_mbo mbo_preview.json data.
       - Loads vectors using the selection map (pooled across symbols/dates).
       - Writes one index per level_id and approach_dir.
 
+69 selection dates across 2 contracts (ESZ5, ESH6). Silver succeeded for 68/69 dates (missing only ESZ5 2025-11-28). Gold succeeded for 68/68 dates where silver exists.
+
 ## YOUR TASK ##
 
 Your task is to read the future_mbo pipline and implement the fix to the filter logic described below. 
 
-Test the silver pipeline a one date, and then validate that the schema matches exactly what you expect. Then use nohup and parallel runner option to use 8 works and process all valid dates/contracts from 2025-10-01 thru 2026-001-09. 
+Test the silver pipeline a one date, and then validate that the schema matches exactly what you expect. Then use nohup and parallel runner option to use 8 works and process all valid dates/contracts from 2025-10-01 thru 2026-001-09. You can clear any existing silver/gold data.
 
 Then, you can run the gold pipeline in the same fashion. 
 
 
 **THE FULL SPEC is in SPEC.md you can search if you have questions**
-
-## TASK ##
 

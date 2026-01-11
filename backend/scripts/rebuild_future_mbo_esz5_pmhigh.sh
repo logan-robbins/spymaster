@@ -15,7 +15,7 @@ from pathlib import Path
 from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
 
 selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
-selection = selection.loc[(selection["include_flag"] == 1) & (selection["selected_symbol"] != "")]
+selection = selection.loc[selection["selected_symbol"] != ""]
 if len(selection) == 0:
     raise ValueError("No included sessions in selection map")
 groups = selection.groupby("selected_symbol")["session_date"].apply(list)
@@ -49,7 +49,7 @@ from src.data_eng.stages.gold.future_mbo.build_trigger_vectors import GoldBuildM
 repo_root = Path.cwd()
 cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
 selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
-selection = selection.loc[(selection["include_flag"] == 1) & (selection["selected_symbol"] != "")]
+selection = selection.loc[selection["selected_symbol"] != ""]
 
 stage = GoldBuildMboTriggerVectors()
 for row in selection.itertuples(index=False):

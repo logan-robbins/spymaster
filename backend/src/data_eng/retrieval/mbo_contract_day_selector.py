@@ -2,64 +2,137 @@ from __future__ import annotations
 
 import argparse
 import glob
+import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import duckdb
-import numpy as np
 import pandas as pd
-from zoneinfo import ZoneInfo
 
 from ..utils import expand_date_range
 
 REQUIRED_COLUMNS = [
     "session_date",
-    "dominant_symbol",
-    "dominance_ratio",
-    "total_trade_count",
-    "trade_count_dominant",
-    "run_id",
-    "run_pos",
-    "run_len",
-    "median_trade_count_run",
-    "trade_count_ratio",
-    "include_flag",
     "selected_symbol",
+    "selected_exp_date",
+    "prev_trading_date",
+    "prev_volume_selected",
+    "prev_volume_rank2",
+    "roll_flag",
 ]
+
+SYMBOL_RE = re.compile(r"^ES[HMUZ]\d{1,2}$")
+MONTH_MAP = {
+    "H": 3,
+    "M": 6,
+    "U": 9,
+    "Z": 12,
+}
 
 
 @dataclass
-class SessionSelection:
+class SelectionRow:
     session_date: str
-    dominant_symbol: str
-    dominance_ratio: float
-    total_trade_count: int
-    trade_count_dominant: int
-    run_id: int
-    run_pos: int
-    run_len: int
-    median_trade_count_run: float
-    trade_count_ratio: float
-    include_flag: int
     selected_symbol: str
+    selected_exp_date: str
+    prev_trading_date: str
+    prev_volume_selected: int
+    prev_volume_rank2: int
+    roll_flag: int
 
 
-def _rth_window_ns(session_date: str) -> tuple[int, int]:
-    tz = ZoneInfo("America/New_York")
-    date_obj = datetime.strptime(session_date, "%Y-%m-%d")
-    start_local = datetime(date_obj.year, date_obj.month, date_obj.day, 9, 30, tzinfo=tz)
-    end_local = start_local + timedelta(hours=3)
-    start_ns = int(start_local.astimezone(timezone.utc).timestamp() * 1e9)
-    end_ns = int(end_local.astimezone(timezone.utc).timestamp() * 1e9)
-    return start_ns, end_ns
+def _discover_symbols(bronze_root: Path) -> List[str]:
+    base = bronze_root / "source=databento" / "product_type=future_mbo"
+    if not base.exists():
+        raise FileNotFoundError(f"Missing bronze root: {base}")
+    symbols: List[str] = []
+    for path in base.glob("symbol=*"):
+        symbol = path.name.split("symbol=")[-1]
+        if "-" in symbol:
+            continue
+        if SYMBOL_RE.match(symbol):
+            symbols.append(symbol)
+    return sorted(set(symbols))
 
 
-def _load_trade_counts(
+def _parse_contract_symbol(symbol: str) -> Tuple[int, int]:
+    match = SYMBOL_RE.match(symbol)
+    if not match:
+        raise ValueError(f"Invalid contract symbol: {symbol}")
+    month_code = symbol[2]
+    year_part = symbol[3:]
+    month = MONTH_MAP[month_code]
+    if len(year_part) == 1:
+        year = 2020 + int(year_part)
+    else:
+        year = 2000 + int(year_part)
+    return year, month
+
+
+def _third_friday(year: int, month: int) -> date:
+    d = date(year, month, 1)
+    offset = (4 - d.weekday() + 7) % 7
+    first_friday = d.toordinal() + offset
+    third_friday = date.fromordinal(first_friday + 14)
+    return third_friday
+
+
+def _build_expirations(symbols: List[str]) -> Dict[str, date]:
+    expirations: Dict[str, date] = {}
+    for symbol in symbols:
+        year, month = _parse_contract_symbol(symbol)
+        expirations[symbol] = _third_friday(year, month)
+    return expirations
+
+
+def _premarket_window_ns(session_date: str) -> tuple[int, int]:
+    start_local = pd.Timestamp(f"{session_date} 05:00:00", tz="America/New_York")
+    end_local = pd.Timestamp(f"{session_date} 08:30:00", tz="America/New_York")
+    return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)
+
+
+def _premarket_trade_dates(
     conn: duckdb.DuckDBPyConnection,
     bronze_root: Path,
-    session_date: str,
+    symbols: List[str],
+    dates: List[str],
+) -> List[str]:
+    conn.register("eligible_symbols", pd.DataFrame({"symbol": symbols}))
+    valid: List[str] = []
+    for session_date in dates:
+        pattern = (
+            bronze_root
+            / "source=databento"
+            / "product_type=future_mbo"
+            / "symbol=*"
+            / "table=mbo"
+            / f"dt={session_date}"
+            / "*.parquet"
+        )
+        files = glob.glob(pattern.as_posix())
+        if not files:
+            continue
+        start_ns, end_ns = _premarket_window_ns(session_date)
+        query = f"""
+            SELECT COUNT(*) AS trade_count
+            FROM read_parquet('{pattern.as_posix()}', hive_partitioning=true)
+            WHERE action = 'T'
+              AND ts_event >= {start_ns}
+              AND ts_event < {end_ns}
+              AND symbol IN (SELECT symbol FROM eligible_symbols)
+        """
+        count = int(conn.execute(query).fetchone()[0])
+        if count > 0:
+            valid.append(session_date)
+    return valid
+
+
+def _load_daily_volumes(
+    conn: duckdb.DuckDBPyConnection,
+    bronze_root: Path,
+    symbols: List[str],
 ) -> pd.DataFrame:
     pattern = (
         bronze_root
@@ -67,139 +140,137 @@ def _load_trade_counts(
         / "product_type=future_mbo"
         / "symbol=*"
         / "table=mbo"
-        / f"dt={session_date}"
+        / "dt=*"
         / "*.parquet"
     )
     files = glob.glob(pattern.as_posix())
     if not files:
-        return pd.DataFrame(columns=["symbol", "trade_count"])
+        return pd.DataFrame(columns=["session_date", "symbol", "daily_volume"])
 
-    start_ns, end_ns = _rth_window_ns(session_date)
+    conn.register("eligible_symbols", pd.DataFrame({"symbol": symbols}))
     query = f"""
         SELECT
+            dt AS session_date,
             symbol,
-            COUNT(*) AS trade_count
+            SUM(size) AS daily_volume
         FROM read_parquet('{pattern.as_posix()}', hive_partitioning=true)
         WHERE action = 'T'
-          AND ts_event >= {start_ns}
-          AND ts_event < {end_ns}
-        GROUP BY symbol
-        ORDER BY trade_count DESC
+          AND symbol IN (SELECT symbol FROM eligible_symbols)
+        GROUP BY dt, symbol
     """
     return conn.execute(query).fetchdf()
+
+
+def _build_trading_dates(volumes: pd.DataFrame) -> List[str]:
+    totals = volumes.groupby("session_date", as_index=False)["daily_volume"].sum()
+    trading = totals.loc[totals["daily_volume"] > 0, "session_date"].astype(str).tolist()
+    return sorted(trading)
+
+
+def _select_symbol_for_date(
+    session_date: str,
+    prev_date: str,
+    expirations: Dict[str, date],
+    vol_map: Dict[Tuple[str, str], int],
+) -> Tuple[str, int, int]:
+    session_dt = date.fromisoformat(session_date)
+    candidates = [s for s, exp_date in expirations.items() if session_dt < exp_date]
+    if not candidates:
+        raise ValueError(f"No eligible contracts for session_date {session_date}")
+
+    volumes = [int(vol_map.get((prev_date, symbol), 0)) for symbol in candidates]
+    max_volume = max(volumes)
+    top_symbols = [s for s, v in zip(candidates, volumes) if v == max_volume]
+    if len(top_symbols) > 1:
+        min_exp = min(expirations[s] for s in top_symbols)
+        top_symbols = [s for s in top_symbols if expirations[s] == min_exp]
+    selected_symbol = sorted(top_symbols)[0]
+
+    sorted_vols = sorted(volumes, reverse=True)
+    rank2 = int(sorted_vols[1]) if len(sorted_vols) > 1 else 0
+    prev_selected = int(vol_map.get((prev_date, selected_symbol), 0))
+    return selected_symbol, prev_selected, rank2
 
 
 def build_selection(
     dates: List[str],
     bronze_root: Path,
-    dominance_threshold: float = 0.80,
-    trim_count: int = 2,
-    liquidity_ratio: float = 0.50,
 ) -> pd.DataFrame:
+    if not dates:
+        raise ValueError("No dates provided")
+
+    symbols = _discover_symbols(bronze_root)
+    if not symbols:
+        raise ValueError("No eligible ES symbols found in bronze data")
+
+    expirations = _build_expirations(symbols)
     conn = duckdb.connect(":memory:")
-    entries: List[Dict[str, object]] = []
+    volumes = _load_daily_volumes(conn, bronze_root, symbols)
+    if volumes.empty:
+        raise ValueError("No trade volume found in bronze data")
 
-    for session_date in dates:
-        df_counts = _load_trade_counts(conn, bronze_root, session_date)
-        if df_counts.empty:
-            entries.append(
-                {
-                    "session_date": session_date,
-                    "dominant_symbol": "",
-                    "dominance_ratio": 0.0,
-                    "total_trade_count": 0,
-                    "trade_count_dominant": 0,
-                    "include_by_dominance": 0,
-                    "has_data": 0,
-                }
-            )
-            continue
+    volumes["session_date"] = volumes["session_date"].astype(str)
+    volumes["symbol"] = volumes["symbol"].astype(str)
+    volumes["daily_volume"] = volumes["daily_volume"].astype("int64")
 
-        total_trade_count = int(df_counts["trade_count"].sum())
-        dominant_symbol = str(df_counts.iloc[0]["symbol"])
-        trade_count_dominant = int(df_counts.iloc[0]["trade_count"])
-        dominance_ratio = trade_count_dominant / max(total_trade_count, 1)
-        include_by_dominance = 1 if dominance_ratio >= dominance_threshold else 0
-        entries.append(
-            {
-                "session_date": session_date,
-                "dominant_symbol": dominant_symbol,
-                "dominance_ratio": float(dominance_ratio),
-                "total_trade_count": total_trade_count,
-                "trade_count_dominant": trade_count_dominant,
-                "include_by_dominance": include_by_dominance,
-                "has_data": 1,
-            }
+    trading_dates = _build_trading_dates(volumes)
+    if not trading_dates:
+        raise ValueError("No trading dates found in bronze data")
+
+    premarket_dates = set(_premarket_trade_dates(conn, bronze_root, symbols, trading_dates))
+    trading_dates = [d for d in trading_dates if d in premarket_dates]
+    if not trading_dates:
+        raise ValueError("No trading dates with premarket trades")
+
+    start_date = min(dates)
+    end_date = max(dates)
+    selection_dates = [d for d in trading_dates if start_date <= d <= end_date]
+    if not selection_dates:
+        raise ValueError("No trading dates within requested range")
+
+    date_index = {d: idx for idx, d in enumerate(trading_dates)}
+    start_idx = date_index[selection_dates[0]]
+    end_idx = date_index[selection_dates[-1]]
+
+    vol_map = {
+        (str(row.session_date), str(row.symbol)): int(row.daily_volume)
+        for row in volumes.itertuples(index=False)
+    }
+
+    selection_start_idx = start_idx - 1 if start_idx > 0 else start_idx
+    selected_by_date: Dict[str, str] = {}
+    prev_vol_by_date: Dict[str, int] = {}
+    rank2_by_date: Dict[str, int] = {}
+
+    for idx in range(selection_start_idx, end_idx + 1):
+        session_date = trading_dates[idx]
+        prev_date = trading_dates[idx - 1] if idx > 0 else ""
+        selected_symbol, prev_volume_selected, prev_volume_rank2 = _select_symbol_for_date(
+            session_date,
+            prev_date,
+            expirations,
+            vol_map,
         )
+        selected_by_date[session_date] = selected_symbol
+        prev_vol_by_date[session_date] = prev_volume_selected
+        rank2_by_date[session_date] = prev_volume_rank2
 
-    run_id = -1
-    current_symbol = ""
-    run_indices: List[int] = []
-
-    def finalize_run(indices: List[int]) -> None:
-        nonlocal run_id
-        if not indices:
-            return
-        run_id += 1
-        run_len = len(indices)
-        counts = [entries[i]["trade_count_dominant"] for i in indices]
-        median_count = float(np.median(counts)) if counts else 0.0
-        for pos, idx in enumerate(indices):
-            entries[idx]["run_id"] = run_id
-            entries[idx]["run_pos"] = pos
-            entries[idx]["run_len"] = run_len
-            entries[idx]["median_trade_count_run"] = median_count
-            ratio = entries[idx]["trade_count_dominant"] / max(median_count, 1.0)
-            entries[idx]["trade_count_ratio"] = float(ratio)
-
-    for idx, entry in enumerate(entries):
-        if entry["has_data"] == 0 or entry["include_by_dominance"] == 0:
-            finalize_run(run_indices)
-            run_indices = []
-            current_symbol = ""
-            continue
-        dominant_symbol = str(entry["dominant_symbol"])
-        if current_symbol == "":
-            current_symbol = dominant_symbol
-            run_indices = [idx]
-            continue
-        if dominant_symbol != current_symbol:
-            finalize_run(run_indices)
-            current_symbol = dominant_symbol
-            run_indices = [idx]
-            continue
-        run_indices.append(idx)
-
-    finalize_run(run_indices)
-
-    rows: List[SessionSelection] = []
-    for entry in entries:
-        run_len = int(entry.get("run_len", 0))
-        run_pos = int(entry.get("run_pos", -1))
-        include_by_dominance = int(entry.get("include_by_dominance", 0))
-        include_by_run = 0
-        if run_len > trim_count * 2:
-            include_by_run = 1 if trim_count <= run_pos <= (run_len - trim_count - 1) else 0
-        median_count = float(entry.get("median_trade_count_run", 0.0))
-        trade_count_ratio = float(entry.get("trade_count_ratio", 0.0))
-        include_by_liquidity = 1 if trade_count_ratio >= liquidity_ratio else 0
-        include_flag = 1 if include_by_dominance and include_by_run and include_by_liquidity else 0
-        dominant_symbol = str(entry.get("dominant_symbol", ""))
-        selected_symbol = dominant_symbol if include_flag == 1 else ""
+    rows: List[SelectionRow] = []
+    for session_date in selection_dates:
+        idx = date_index[session_date]
+        prev_date = trading_dates[idx - 1] if idx > 0 else ""
+        selected_symbol = selected_by_date[session_date]
+        prev_selected_symbol = selected_by_date.get(prev_date, "")
+        roll_flag = 1 if prev_selected_symbol and selected_symbol != prev_selected_symbol else 0
         rows.append(
-            SessionSelection(
-                session_date=str(entry["session_date"]),
-                dominant_symbol=dominant_symbol,
-                dominance_ratio=float(entry.get("dominance_ratio", 0.0)),
-                total_trade_count=int(entry.get("total_trade_count", 0)),
-                trade_count_dominant=int(entry.get("trade_count_dominant", 0)),
-                run_id=int(entry.get("run_id", -1)),
-                run_pos=run_pos,
-                run_len=run_len,
-                median_trade_count_run=median_count,
-                trade_count_ratio=trade_count_ratio,
-                include_flag=include_flag,
+            SelectionRow(
+                session_date=session_date,
                 selected_symbol=selected_symbol,
+                selected_exp_date=expirations[selected_symbol].isoformat(),
+                prev_trading_date=prev_date,
+                prev_volume_selected=prev_vol_by_date[session_date],
+                prev_volume_rank2=rank2_by_date[session_date],
+                roll_flag=roll_flag,
             )
         )
 
