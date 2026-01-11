@@ -124,6 +124,18 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_mbo/mbo_trigger_vectors.avsc
 
+  gold.future_mbo.mbo_trigger_signals:
+    path: gold/product_type=future_mbo/symbol={symbol}/table=mbo_trigger_signals
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future_mbo/mbo_trigger_signals.avsc
+
+  gold.future_mbo.mbo_pressure_stream:
+    path: gold/product_type=future_mbo/symbol={symbol}/table=mbo_pressure_stream
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future_mbo/mbo_pressure_stream.avsc
+
   # Gold - Future Options
   gold.future_option.trades_first3h:
     path: gold/product_type=future_option/symbol={symbol}/table=trades_first3h

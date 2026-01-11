@@ -231,8 +231,7 @@ def _build_trigger_vectors(
 
     v_matrix = _build_v_matrix(x_matrix)
     window_end_ts = df_vacuum["window_end_ts_ns"].to_numpy(dtype=np.int64)
-    px_end_int = _compute_px_end_int(df_mbo, window_end_ts)
-    approach_dir = _compute_approach_dir(px_end_int, p_ref_int)
+    approach_dir = df_vacuum["approach_dir"].to_numpy(dtype=object)
 
     eligible_mask = approach_dir[LOOKBACK_WINDOWS - 1 :] != "approach_none"
     if not np.any(eligible_mask):
@@ -356,37 +355,6 @@ def _extract_trade_stream(df_mbo: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]
     price = trades["price"].to_numpy(dtype=np.int64)
     return ts_event, price
 
-
-def _compute_px_end_int(df_mbo: pd.DataFrame, window_end_ts: np.ndarray) -> np.ndarray:
-    trade_ts, trade_px = _extract_trade_stream(df_mbo)
-    px_end = np.full(window_end_ts.shape[0], np.nan, dtype=np.float64)
-    if trade_ts.size == 0:
-        return px_end
-
-    idx = np.searchsorted(trade_ts, window_end_ts, side="right") - 1
-    valid = idx >= 0
-    px_end[valid] = trade_px[idx[valid]].astype(np.float64)
-    return px_end
-
-
-def _compute_approach_dir(px_end_int: np.ndarray, p_ref_int: int) -> np.ndarray:
-    dist_ticks = (px_end_int - float(p_ref_int)) / float(TICK_INT)
-    trend = np.full(dist_ticks.shape, np.nan, dtype=np.float64)
-    if dist_ticks.shape[0] > 3:
-        trend_vals = px_end_int[3:] - px_end_int[:-3]
-        trend[3:] = trend_vals
-
-    approach = np.full(dist_ticks.shape, "approach_none", dtype=object)
-    valid = np.isfinite(dist_ticks) & np.isfinite(trend)
-    if not np.any(valid):
-        return approach
-
-    dist_ok = np.abs(dist_ticks) <= 20
-    up_mask = valid & dist_ok & (dist_ticks < 0) & (trend > 0)
-    down_mask = valid & dist_ok & (dist_ticks > 0) & (trend < 0)
-    approach[up_mask] = "approach_up"
-    approach[down_mask] = "approach_down"
-    return approach
 
 
 def _session_start_ns(dt: str) -> int:

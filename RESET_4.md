@@ -1,4 +1,4 @@
-## 34) Declare a **trigger** (fire/no-fire) from FAISS retrieval — stop-aware, horizon-aware
+## 34) Declare a **trigger** (fire/no-fire) from FAISS retrieval — stop-aware, horizon-aware - COMPLETE
 
 This section defines the **exact** real-time decision rule that turns neighbor distributions into a **binary trigger** (LONG / SHORT / NONE), and the offline procedure to tune thresholds via precision/recall.
 
@@ -195,7 +195,7 @@ Maintain an integer `episode_id` that increments when:
 
 ---
 
-# 35) Offline evaluation: precision/recall tradeoff (stop-aware, horizon-aware)
+# 35) Offline evaluation: precision/recall tradeoff (stop-aware, horizon-aware) - COMPLETE
 
 This section tells the agent exactly how to tune `P_MIN` and `MARGIN_MIN` using the labels you built (H0..H6), while preserving stop-aware correctness.
 
@@ -300,7 +300,7 @@ The chosen pair becomes production constants.
 
 ---
 
-# 36) Production output contract for the trigger engine (what gets streamed)
+# 36) Production output contract for the trigger engine (what gets streamed) - COMPLETE
 
 For every eligible 5s window (whether it fires or not), emit:
 
@@ -323,3 +323,220 @@ No raw book sizes, no raw returns, no dollars — only distributions, ratios, bi
 * **Pre-retail timing:** the gating + resolve-rate requirement biases signals toward setups that historically resolve by **bar+1**.
 * **Stop-aware by design:** barrier-first labeling defines correctness; trigger additionally blocks setups whose neighbor history implies frequent adverse excursion beyond stop before resolution.
 * **Chop/noise handled explicitly:** CHOP is “no barrier hit by N bars,” and the trigger suppresses when `p_chop` is high or whipsaw rate is high.
+
+
+
+Next is **Priority 2**: define the **pressure stream schema/interface** your engine emits every 5 seconds per level, so UI can render “pressure above vs below” plus “state / trigger readiness” without needing to know microstructure internals.
+
+---
+
+## 38) Pressure Stream Interface (5s) — schema + derivations - COMPLETE
+
+You will emit **one message per (level_id, 5s window)**. The UI consumes only this stream.
+
+### 38.1 Message cadence and keying
+
+* Cadence: every 5 seconds (exactly one per feature window).
+* Primary key: `(symbol, session_date, level_id, window_end_ts_ns)`
+* Ordering: strictly increasing `window_end_ts_ns`.
+
+---
+
+## 38.2 Input source for this layer
+
+This layer uses only outputs already computed:
+
+* per-window features `f*`, `u*` and their derivatives
+* trigger engine outputs from Section 34:
+
+  * `p_break`, `p_reject`, `p_chop`, `margin`, `risk_q80`, `resolve_rate`, `whipsaw_rate`, `SIGNAL`, `FIRE_FLAG`, `episode_id`
+* approach_dir from Section 25.2
+* level metadata: `P_ref`
+
+No raw MBO, no raw quantities.
+
+---
+
+## 38.3 Canonical “pressure axes” (two gauges)
+
+The UI needs two primary gauges per window:
+
+* **Pressure Above (Resistance condition)**
+* **Pressure Below (Support condition)**
+
+Each gauge exposes:
+
+1. **Retreat/Approach** (is liquidity moving away or toward the level)
+2. **Structural Decay/Build** (is liquidity being pulled or replenished)
+3. **Localization** (is the action concentrated near the level)
+4. **Shock** (is the rate of change spiking: d2/d3)
+
+You will compute these as **normalized scores in ([0,1])**.
+
+---
+
+## 38.4 Normalize feature components into ([0,1]) scores (fixed mapping)
+
+You will use a deterministic squashing function that depends only on ratios (no units):
+
+### 38.4.1 Squash function
+
+For any real scalar `x`:
+
+* `S(x) = 1 / (1 + exp(-x))`  (sigmoid)
+
+This makes every score ([0,1]) without arbitrary clipping.
+
+### 38.4.2 Use “UP_VECTOR” vs “DOWN_VECTOR” depending on approach_dir
+
+Pressure should reflect the **current test direction**:
+
+* If `approach_dir == approach_up` (testing resistance from below): use **UP-oriented features** `u*`
+* If `approach_dir == approach_down` (testing support from above): use **DOWN-oriented features** `f*`
+* If `approach_dir == approach_none`: emit scores as `null` and set `state="IDLE"`
+
+This keeps UI semantics stable: “pressure supportive of the current approach’s likely outcome.”
+
+---
+
+## 38.5 Compute the pressure scores (exact formulas)
+
+### 38.5.1 If `approach_up` (resistance test)
+
+**Above pressure = “ghosting resistance above” (good for breaking up)**
+Use UP features:
+
+* `above_retreat = S( u1_ask_com_disp_log )`
+* `above_decay  = S( u5_ask_pull_add_log_rest )`
+* `above_local  = S( u7_ask_near_pull_share_rest - 0.5 )`
+  (center at 0.5 so >0.5 becomes positive)
+* `above_shock  = S( d2_u5_ask_pull_add_log_rest )`
+  (acceleration of decay is the cleanest “shock” proxy)
+
+**Below pressure = “support building below” (good for breaking up)**
+
+* `below_approach = S( u8_bid_com_approach_log )`
+* `below_build    = S( u12_bid_add_pull_log_rest )`
+* `below_local    = S( u10_bid_near_share_rise )`
+* `below_shock    = S( d2_u12_bid_add_pull_log_rest )`
+
+### 38.5.2 If `approach_down` (support test)
+
+**Above pressure = “resistance builds above” (good for breaking down)**
+Use DOWN features but interpret “pressure above” as **what helps continuation down**:
+
+* `above_retreat = S( f1_ask_com_disp_log )`
+  (asks moving away up increases vacuum, helps down snap; keep as-is)
+* `above_decay   = S( f2_ask_pull_add_log_rest )`
+* `above_local   = S( f2_ask_near_pull_share_rest - 0.5 )`
+* `above_shock   = S( d2_f2_ask_pull_add_log_rest )`
+
+**Below pressure = “support evaporates below” (good for breaking down)**
+
+* `below_recede = S( f3_bid_com_disp_log )`
+* `below_decay  = S( f4_bid_pull_add_log_rest )`
+* `below_local  = S( f4_bid_near_pull_share_rest - 0.5 )`
+* `below_shock  = S( d2_f4_bid_pull_add_log_rest )`
+
+---
+
+## 38.6 Aggregate pressure scores (single scalars per side)
+
+These are what the UI should primarily plot.
+
+### 38.6.1 Per-side aggregate
+
+For any side (above/below), define:
+
+* `pressure_side = mean([retreat_or_recede, decay_or_build, local, shock])`
+
+So you output:
+
+* `pressure_above` (0..1)
+* `pressure_below` (0..1)
+
+### 38.6.2 Vacuum score (combined)
+
+* `vacuum_score = mean([pressure_above, pressure_below])`
+
+This is the “setup quality” gauge.
+
+---
+
+## 38.7 Discrete state machine (what UI displays)
+
+Use only current window scalars and trigger engine outputs.
+
+### 38.7.1 Fixed thresholds
+
+* `WATCH_VACUUM = 0.60`
+* `ARMED_VACUUM = 0.70`
+* `FIRE_FLAG` is already computed by Section 34.
+
+### 38.7.2 State definition
+
+If `approach_dir == approach_none`:
+
+* `state = "IDLE"`
+
+Else:
+
+* If `FIRE_FLAG == 1`: `state = "FIRE"`
+* Else if `vacuum_score >= ARMED_VACUUM` and `margin >= 0.20`: `state = "ARMED"`
+* Else if `vacuum_score >= WATCH_VACUUM`: `state = "WATCH"`
+* Else: `state = "TRACK"`
+
+---
+
+## 38.8 Stream payload (exact JSON schema)
+
+Emit exactly this structure (fields may be `null` only when `state == IDLE`):
+
+```json
+{
+  "ts_end_ns": 0,
+  "symbol": "ES",
+  "session_date": "YYYY-MM-DD",
+  "level_id": "PRE_MARKET_HIGH",
+  "p_ref": 0.0,
+  "approach_dir": "approach_up | approach_down | approach_none",
+
+  "pressure": {
+    "above": {
+      "retreat": 0.0,
+      "decay_or_build": 0.0,
+      "localization": 0.0,
+      "shock": 0.0,
+      "score": 0.0
+    },
+    "below": {
+      "retreat_or_recede": 0.0,
+      "decay_or_build": 0.0,
+      "localization": 0.0,
+      "shock": 0.0,
+      "score": 0.0
+    },
+    "vacuum_score": 0.0
+  },
+
+  "retrieval": {
+    "h_fire": 1,
+    "p_break": 0.0,
+    "p_reject": 0.0,
+    "p_chop": 0.0,
+    "margin": 0.0,
+    "risk_q80_ticks": 0.0,
+    "resolve_rate": 0.0,
+    "whipsaw_rate": 0.0
+  },
+
+  "signal": {
+    "state": "IDLE | TRACK | WATCH | ARMED | FIRE",
+    "fire_flag": 0,
+    "signal": "LONG | SHORT | NONE",
+    "episode_id": 0
+  }
+}
+```
+
+---

@@ -1,4 +1,4 @@
 Plan (Living)
-1. COMPLETE - Add gold future_mbo trigger vector + labeling stage with contracts/datasets.
-2. COMPLETE - Implement FAISS normalization/index builder and query for new layout.
-3. COMPLETE - Wire pipeline + verify on mbo_preview sample.
+1. COMPLETE - Implement trigger engine logic + trigger signals stage with new contracts/datasets.
+2. COMPLETE - Implement pressure stream stage + contract and pipeline wiring.
+3. COMPLETE - Implement threshold evaluation script and run a minimal verification.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
+import numpy as np
 import pandas as pd
 
 from ...base import Stage, StageIO
@@ -31,6 +32,7 @@ WINDOW_NS = 5_000_000_000
 REST_NS = 500_000_000
 EPS_QTY = 1.0
 EPS_DIST_TICKS = 1.0
+TRADE_ACTION = "T"
 
 BUCKET_OUT = "OUT"
 ASK_ABOVE_NEAR = "ASK_ABOVE_NEAR"
@@ -96,6 +98,7 @@ OUTPUT_COLUMNS = [
     "window_end_ts_ns",
     "P_ref",
     "P_REF_INT",
+    "approach_dir",
 ] + BASE_FEATURES + DERIV_FEATURES + UP_FEATURES + UP_DERIV_FEATURES
 
 
@@ -408,6 +411,13 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
     _add_derivatives(rows, BASE_FEATURES)
     _add_derivatives(rows, UP_FEATURES)
     df_out = pd.DataFrame(rows)
+    trade_ts, trade_px = _extract_trade_stream(df)
+    px_end_int = _compute_px_end_int(
+        trade_ts,
+        trade_px,
+        df_out["window_end_ts_ns"].to_numpy(dtype=np.int64),
+    )
+    df_out["approach_dir"] = _compute_approach_dir(px_end_int, p_ref_int)
     return df_out.loc[:, OUTPUT_COLUMNS]
 
 
@@ -621,6 +631,50 @@ def _new_accumulators() -> dict:
         "bid_reprice_away_rest_qty": 0.0,
         "bid_reprice_toward_rest_qty": 0.0,
     }
+
+
+def _extract_trade_stream(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    trades = df.loc[df["action"] == TRADE_ACTION].copy()
+    if len(trades) == 0:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+    trades = trades.sort_values(["ts_event", "sequence"], ascending=[True, True])
+    ts_event = trades["ts_event"].to_numpy(dtype=np.int64)
+    price = trades["price"].to_numpy(dtype=np.int64)
+    return ts_event, price
+
+
+def _compute_px_end_int(
+    trade_ts: np.ndarray,
+    trade_px: np.ndarray,
+    window_end_ts: np.ndarray,
+) -> np.ndarray:
+    px_end = np.full(window_end_ts.shape[0], np.nan, dtype=np.float64)
+    if trade_ts.size == 0:
+        return px_end
+    idx = np.searchsorted(trade_ts, window_end_ts, side="right") - 1
+    valid = idx >= 0
+    px_end[valid] = trade_px[idx[valid]].astype(np.float64)
+    return px_end
+
+
+def _compute_approach_dir(px_end_int: np.ndarray, p_ref_int: int) -> np.ndarray:
+    dist_ticks = (px_end_int - float(p_ref_int)) / float(TICK_INT)
+    trend = np.full(dist_ticks.shape, np.nan, dtype=np.float64)
+    if dist_ticks.shape[0] > 3:
+        trend_vals = px_end_int[3:] - px_end_int[:-3]
+        trend[3:] = trend_vals
+
+    approach = np.full(dist_ticks.shape, "approach_none", dtype=object)
+    valid = np.isfinite(dist_ticks) & np.isfinite(trend)
+    if not np.any(valid):
+        return approach
+
+    dist_ok = np.abs(dist_ticks) <= 20
+    up_mask = valid & dist_ok & (dist_ticks < 0) & (trend > 0)
+    down_mask = valid & dist_ok & (dist_ticks > 0) & (trend < 0)
+    approach[up_mask] = "approach_up"
+    approach[down_mask] = "approach_down"
+    return approach
 
 
 def _load_p_ref() -> float:

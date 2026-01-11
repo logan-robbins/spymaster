@@ -105,3 +105,8 @@ Computing the d1/d2/d3 between 5s windows for extra insight as *how* 1-4 are beh
 First priority is 100% research quality feature definition and engineering. Second priority is visualization of the pressure above and below the Level (not the UI, just defining the schema/interface for what we would stream to the UI team). Third priority is retrieval strategy (vector/embedding search). Fourth priority is experimentation with transformers with multi-attention heads to learn importance of time series features and see if prediction + history gives any edge. 
 
 **System**: Retrieves historically similar market setups when price approaches technical levels, presenting empirical outcome distributions.
+
+
+**IMPORTANT** 
+- YOU ONLY work in the spymaster/ workspace. 
+- EVERY time you compress your context history you re-read DEV.md DO NOT FORGET THIS. 
