@@ -3,10 +3,21 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List
 
 import pandas as pd
 
 from ...base import Stage, StageIO
+from ....config import AppConfig
+from ....contracts import enforce_contract, load_avro_contract
+from ....io import (
+    is_partition_complete,
+    partition_ref,
+    read_manifest_hash,
+    read_partition,
+    write_partition,
+)
 
 PRICE_SCALE = 1e-9
 TICK_SIZE = 0.25
@@ -105,6 +116,51 @@ class SilverComputeMboLevelVacuum5s(Stage):
                 inputs=["bronze.future_mbo.mbo"],
                 output="silver.future_mbo.mbo_level_vacuum_5s",
             ),
+        )
+
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+        out_ref = partition_ref(cfg, self.io.output, symbol, dt)
+        out_contract_path = repo_root / cfg.dataset(self.io.output).contract
+        out_contract = load_avro_contract(out_contract_path)
+
+        if is_partition_complete(out_ref):
+            try:
+                existing = read_partition(out_ref)
+                enforce_contract(existing, out_contract)
+                return
+            except Exception:
+                pass
+
+        input_key = self.io.inputs[0]
+        in_ref = partition_ref(cfg, input_key, symbol, dt)
+        if not is_partition_complete(in_ref):
+            raise FileNotFoundError(f"Input not ready: {input_key} dt={dt}")
+
+        in_contract_path = repo_root / cfg.dataset(input_key).contract
+        in_contract = load_avro_contract(in_contract_path)
+        df_in = read_partition(in_ref)
+        df_in = enforce_contract(df_in, in_contract)
+
+        df_out = self.transform(df_in, dt)
+        df_out = enforce_contract(df_out, out_contract)
+
+        lineage: List[Dict[str, Any]] = [
+            {
+                "dataset": in_ref.dataset_key,
+                "dt": dt,
+                "manifest_sha256": read_manifest_hash(in_ref),
+            }
+        ]
+
+        write_partition(
+            cfg=cfg,
+            dataset_key=self.io.output,
+            symbol=symbol,
+            dt=dt,
+            df=df_out,
+            contract_path=out_contract_path,
+            inputs=lineage,
+            stage=self.name,
         )
 
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:

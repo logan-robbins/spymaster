@@ -66,17 +66,21 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future_mbo.compute_level_vacuum_5s import (
             SilverComputeMboLevelVacuum5s,
         )
+        from .stages.gold.future_mbo.build_trigger_vectors import (
+            GoldBuildMboTriggerVectors,
+        )
 
         if layer == "bronze":
             return [BronzeIngestMboPreview()]
         elif layer == "silver":
             return [SilverComputeMboLevelVacuum5s()]
         elif layer == "gold":
-            return []
+            return [GoldBuildMboTriggerVectors()]
         elif layer == "all":
             return [
                 BronzeIngestMboPreview(),
                 SilverComputeMboLevelVacuum5s(),
+                GoldBuildMboTriggerVectors(),
             ]
 
     raise ValueError(
