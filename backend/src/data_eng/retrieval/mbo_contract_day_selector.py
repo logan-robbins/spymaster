@@ -57,6 +57,15 @@ def _discover_symbols(bronze_root: Path) -> List[str]:
     return sorted(set(symbols))
 
 
+def discover_mbo_contracts(bronze_root: Path, base_symbol: str) -> List[str]:
+    if base_symbol != "ES":
+        raise ValueError(f"Unsupported base symbol for MBO selection: {base_symbol}")
+    symbols = _discover_symbols(bronze_root)
+    if not symbols:
+        raise ValueError("No eligible ES symbols found in bronze data")
+    return symbols
+
+
 def _parse_contract_symbol(symbol: str) -> Tuple[int, int]:
     match = SYMBOL_RE.match(symbol)
     if not match:

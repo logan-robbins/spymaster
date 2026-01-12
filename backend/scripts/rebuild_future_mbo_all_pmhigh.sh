@@ -1,46 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATE_RANGE="2025-10-01:2026-01-09"
 SELECTION_PATH="lake/selection/mbo_contract_day_selection.parquet"
 INDEX_DIR="lake/indexes/mbo_pm_high"
+WORKERS=8
+LEVEL_ID=pm_high
+export LEVEL_ID
 
-rm -rf lake/silver/product_type=future_mbo lake/gold/product_type=future_mbo lake/indexes
+if [ ! -f "${SELECTION_PATH}" ]; then
+  echo "Missing selection map: ${SELECTION_PATH}" >&2
+  exit 1
+fi
 
-uv run python -m src.data_eng.retrieval.mbo_contract_day_selector \
-  --dates "${DATE_RANGE}" \
-  --output-path "${SELECTION_PATH}"
+DATE_RANGE=$(uv run python - <<'PY'
+import pandas as pd
 
-BRONZE_SYMBOLS=$(ls -d lake/bronze/source=databento/product_type=future_mbo/symbol=* | sed 's/.*symbol=//')
-
-for symbol in ${BRONZE_SYMBOLS}; do
-  uv run python -m src.data_eng.runner \
-    --product-type future_mbo \
-    --layer silver \
-    --symbol "${symbol}" \
-    --dates "${DATE_RANGE}" \
-    --workers 8
-done
-
-SYMBOL_DATES=$(uv run python - <<'PY'
-from pathlib import Path
-
-from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
-
-selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
-selection = selection.loc[selection["selected_symbol"] != ""]
-if len(selection) == 0:
+df = pd.read_parquet("lake/selection/mbo_contract_day_selection.parquet")
+df = df.loc[df["selected_symbol"] != ""]
+if df.empty:
     raise ValueError("No included sessions in selection map")
-groups = selection.groupby("selected_symbol")["session_date"].apply(list)
-for symbol, dates in groups.items():
-    print(f"{symbol}|{','.join(dates)}")
+dates = df["session_date"].astype(str)
+print(f"{dates.min()}:{dates.max()}")
 PY
 )
 
-MBO_SELECTION_PATH="${SELECTION_PATH}" LEVEL_ID=pm_high uv run python - <<'PY'
+uv run python -m src.data_eng.runner \
+  --product-type future_mbo \
+  --layer silver \
+  --symbol ES \
+  --dates "${DATE_RANGE}" \
+  --workers "${WORKERS}" \
+  --overwrite
+
+uv run python - <<'PY'
 from pathlib import Path
+import shutil
+
+import pandas as pd
 
 from src.data_eng.config import load_config
+from src.data_eng.io import partition_ref
 from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
 from src.data_eng.stages.gold.future_mbo.build_trigger_vectors import GoldBuildMboTriggerVectors
 
@@ -48,11 +47,21 @@ repo_root = Path.cwd()
 cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
 selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
 selection = selection.loc[selection["selected_symbol"] != ""]
+if len(selection) == 0:
+    raise ValueError("No included sessions in selection map")
 
 stage = GoldBuildMboTriggerVectors()
+feature_key = "gold.future_mbo.mbo_trigger_vector_features"
+
 for row in selection.itertuples(index=False):
     symbol = str(getattr(row, "selected_symbol"))
     session_date = str(getattr(row, "session_date"))
+    out_ref = partition_ref(cfg, stage.io.output, symbol, session_date)
+    if out_ref.dir.exists():
+        shutil.rmtree(out_ref.dir)
+    feature_ref = partition_ref(cfg, feature_key, symbol, session_date)
+    if feature_ref.dir.exists():
+        shutil.rmtree(feature_ref.dir)
     stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=session_date)
     print(f"vectors {symbol} {session_date}")
 PY
@@ -72,6 +81,8 @@ repo_root = Path.cwd()
 cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
 selection = pd.read_parquet("lake/selection/mbo_contract_day_selection.parquet")
 selection = selection.loc[selection["selected_symbol"] != ""]
+if selection.empty:
+    raise ValueError("No included sessions in selection map")
 
 key = "gold.future_mbo.mbo_trigger_vectors"
 contract = load_avro_contract(repo_root / cfg.dataset(key).contract)
@@ -107,21 +118,42 @@ PY
 
 uv run python -m src.data_eng.retrieval.index_builder \
   --dates "${DATE_RANGE}" \
-  --selection-path "${SELECTION_PATH}" \
   --output-dir "${INDEX_DIR}" \
-  --norm-stats-path "${INDEX_DIR}/norm_stats_seed.json"
+  --norm-stats-path "${INDEX_DIR}/norm_stats_seed.json" \
+  --overwrite
 
-while IFS= read -r line; do
-  symbol="${line%%|*}"
-  dates="${line#*|}"
-  if [ -z "${symbol}" ] || [ -z "${dates}" ]; then
-    echo "Missing symbol or dates in selection map" >&2
-    exit 1
-  fi
-  LEVEL_ID=pm_high MBO_SELECTION_PATH="${SELECTION_PATH}" MBO_INDEX_DIR="${INDEX_DIR}" uv run python -m src.data_eng.runner \
-    --product-type future_mbo \
-    --layer gold \
-    --symbol "${symbol}" \
-    --dates "${dates}" \
-    --workers 8
-done <<< "${SYMBOL_DATES}"
+uv run python - <<'PY'
+from pathlib import Path
+import shutil
+
+from src.data_eng.config import load_config
+from src.data_eng.io import partition_ref
+from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
+
+repo_root = Path.cwd()
+cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
+selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
+selection = selection.loc[selection["selected_symbol"] != ""]
+if selection.empty:
+    raise ValueError("No included sessions in selection map")
+
+targets = [
+    "gold.future_mbo.mbo_trigger_signals",
+    "gold.future_mbo.mbo_pressure_stream",
+]
+
+for row in selection.itertuples(index=False):
+    symbol = str(getattr(row, "selected_symbol"))
+    session_date = str(getattr(row, "session_date"))
+    for dataset_key in targets:
+        ref = partition_ref(cfg, dataset_key, symbol, session_date)
+        if ref.dir.exists():
+            shutil.rmtree(ref.dir)
+PY
+
+MBO_INDEX_DIR="${INDEX_DIR}" uv run python -m src.data_eng.runner \
+  --product-type future_mbo \
+  --layer gold \
+  --symbol ES \
+  --dates "${DATE_RANGE}" \
+  --workers "${WORKERS}"

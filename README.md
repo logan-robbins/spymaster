@@ -78,11 +78,10 @@ Key feature families:
 - Pull shares for at and near buckets
 
 Vector schema:
-- Base feature counts: f_down=23, f_up=22 (total 45)
+- Base feature counts: f_down=n, f_up=n
 - Derived columns: d1_/d2_/d3_ per base feature
-- X_COLUMNS count: 180
 - Vector blocks: w0, w3_mean, w3_delta, w9_mean, w9_delta, w24_mean, w24_delta
-- Vector dim: 1260
+- Vector dim: n
 
 All feature definitions live in `backend/src/data_eng/VECTOR_INDEX_FEATURES.md`.
 
@@ -208,21 +207,45 @@ Stages execute sequentially. Each stage output becomes available for subsequent 
 
 ## CLI Usage
 
+### Default Rebuild Workflow (future_mbo pm_high)
+
+Order of operations:
+1) Silver rebuild (parallel workers)
+2) Trigger vectors rebuild (single process)
+3) Seed stats rebuild (median/MAD from vectors)
+4) Index rebuild (single process)
+5) Trigger signals + pressure stream rebuild (parallel workers)
+
+Default rebuild script (runs the full sequence above):
+```bash
+nohup bash backend/scripts/rebuild_future_mbo_all_pmhigh.sh > backend/logs/rebuild_future_mbo_all_pmhigh_$(date +%Y%m%d_%H%M%S).out 2>&1 &
+```
+
+Notes:
+- Silver and gold use base symbol `ES` with the selection map to route dates to contracts.
+- The selection map is read from `backend/lake/selection/mbo_contract_day_selection.parquet`.
+- Silver is the only parallel stage in the rebuild sequence.
+
+### Direct Commands
+
 ```bash
 uv run python -m src.data_eng.runner \
   --product-type future_mbo \
   --layer silver \
-  --symbol ESZ5 \
+  --symbol ES \
   --dates 2025-10-01:2026-01-08 \
-  --workers 8
+  --workers 8 \
+  --overwrite
 
-uv run python -m src.data_eng.runner \
+LEVEL_ID=pm_high MBO_INDEX_DIR=backend/lake/indexes/mbo_pm_high uv run python -m src.data_eng.runner \
   --product-type future_mbo \
   --layer gold \
-  --symbol ESZ5 \
+  --symbol ES \
   --dates 2025-10-01:2026-01-08 \
   --workers 8
 ```
+
+Gold requires a fresh index build. Use the rebuild script for a full clean run.
 
 Date options:
 - `--dates 2025-10-01:2026-01-08` — Range (colon‑separated, inclusive)
@@ -231,7 +254,7 @@ Date options:
 
 ## Gold Environment Variables
 
-- `MBO_SELECTION_PATH`: path to selection map parquet
+- `MBO_SELECTION_PATH`: selection map parquet path. If unset, defaults to `backend/lake/selection/mbo_contract_day_selection.parquet`.
 - `LEVEL_ID`: level identifier used by trigger vectors (current: `pm_high`)
 - `MBO_INDEX_DIR`: index directory for retrieval (current: `backend/lake/indexes/mbo_pm_high`)
 

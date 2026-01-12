@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -390,20 +391,44 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build FAISS indices for trigger vectors.")
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[3])
     parser.add_argument("--dates", required=True)
-    parser.add_argument("--selection-path", type=Path, required=True)
+    parser.add_argument("--selection-path", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--norm-stats-path", type=Path, required=True)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     dates = expand_date_range(dates=args.dates)
     if not dates:
         raise ValueError("No dates provided")
 
+    if args.selection_path is None:
+        args.selection_path = args.repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
+
+    stats = _load_stats(args.norm_stats_path)
+    output_dir = args.output_dir.resolve()
+    norm_stats_path = args.norm_stats_path.resolve()
+    seed_payload = None
+    try:
+        norm_stats_path.relative_to(output_dir)
+        seed_payload = {
+            "median": stats.median.tolist(),
+            "mad": stats.mad.tolist(),
+            "vector_dim": int(stats.median.shape[0]),
+        }
+    except ValueError:
+        seed_payload = None
+
+    if args.overwrite and args.output_dir.exists():
+        shutil.rmtree(args.output_dir)
+
+    if seed_payload is not None:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        norm_stats_path.write_text(json.dumps(seed_payload))
+
     selection = _load_selection_rows(args.selection_path, dates)
     df, lineage = _load_vectors(args.repo_root, selection)
     if len(df) == 0:
         raise ValueError("No vectors loaded from lake")
-    stats = _load_stats(args.norm_stats_path)
     build_indices(df, args.output_dir, stats, args.repo_root, lineage)
 
 

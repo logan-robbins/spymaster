@@ -112,7 +112,7 @@ class GoldBuildMboTriggerVectors(Stage):
 
         _write_feature_list_output(cfg, repo_root, symbol, dt, self.name)
 
-        selection_path = _load_selection_path()
+        selection_path = _load_selection_path(repo_root)
         selection_df = _get_selection(selection_path)
         selection_row = selection_df.loc[selection_df["session_date"] == dt]
         if selection_row.empty:
@@ -181,14 +181,12 @@ class GoldBuildMboTriggerVectors(Stage):
         raise NotImplementedError("Use run() directly")
 
 
-def _load_selection_path() -> Path:
+def _load_selection_path(repo_root: Path) -> Path:
     value = os.environ.get("MBO_SELECTION_PATH")
-    if value is None:
-        raise ValueError("Missing MBO_SELECTION_PATH env var")
-    value = value.strip()
-    if not value:
-        raise ValueError("MBO_SELECTION_PATH env var is empty")
-    path = Path(value).expanduser()
+    if value is None or not value.strip():
+        path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
+    else:
+        path = Path(value.strip()).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"MBO_SELECTION_PATH not found: {path}")
     return path

@@ -1,0 +1,3 @@
+1. Update future_mbo runner to skip missing selection dates (weekends/holidays). [done]
+2. Verify runner date filtering with selection map. [done]
+3. Rerun full rebuild in nohup with updated runner. [in progress]
