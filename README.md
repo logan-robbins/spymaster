@@ -225,6 +225,7 @@ Notes:
 - Silver and gold use base symbol `ES` with the selection map to route dates to contracts.
 - The selection map is read from `backend/lake/selection/mbo_contract_day_selection.parquet`.
 - Silver is the only parallel stage in the rebuild sequence.
+- The rebuild script clears `backend/lake/silver/product_type=future_mbo`, `backend/lake/gold/product_type=future_mbo`, and `backend/lake/indexes/mbo_pm_high` before it starts.
 
 ### Direct Commands
 

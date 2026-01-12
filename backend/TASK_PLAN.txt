@@ -1,3 +1,2 @@
-1. Update future_mbo runner to skip missing selection dates (weekends/holidays). [done]
-2. Verify runner date filtering with selection map. [done]
-3. Rerun full rebuild in nohup with updated runner. [in progress]
+1. Update rebuild script to clear silver/gold/indexes and add stage-complete logging. [done]
+2. Clarify rebuild deletion behavior in README. [done]

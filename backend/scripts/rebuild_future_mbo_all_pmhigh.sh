@@ -6,6 +6,7 @@ INDEX_DIR="lake/indexes/mbo_pm_high"
 WORKERS=8
 LEVEL_ID=pm_high
 export LEVEL_ID
+TS_FORMAT="+%Y-%m-%d %H:%M:%S"
 
 if [ ! -f "${SELECTION_PATH}" ]; then
   echo "Missing selection map: ${SELECTION_PATH}" >&2
@@ -24,6 +25,12 @@ print(f"{dates.min()}:{dates.max()}")
 PY
 )
 
+echo "[$(date "${TS_FORMAT}")] CLEAR silver/gold/indexes"
+rm -rf lake/silver/product_type=future_mbo
+rm -rf lake/gold/product_type=future_mbo
+rm -rf "${INDEX_DIR}"
+
+echo "[$(date "${TS_FORMAT}")] START silver rebuild"
 uv run python -m src.data_eng.runner \
   --product-type future_mbo \
   --layer silver \
@@ -31,7 +38,9 @@ uv run python -m src.data_eng.runner \
   --dates "${DATE_RANGE}" \
   --workers "${WORKERS}" \
   --overwrite
+echo "[$(date "${TS_FORMAT}")] DONE silver rebuild"
 
+echo "[$(date "${TS_FORMAT}")] START trigger vectors rebuild"
 uv run python - <<'PY'
 from pathlib import Path
 import shutil
@@ -65,7 +74,9 @@ for row in selection.itertuples(index=False):
     stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=session_date)
     print(f"vectors {symbol} {session_date}")
 PY
+echo "[$(date "${TS_FORMAT}")] DONE trigger vectors rebuild"
 
+echo "[$(date "${TS_FORMAT}")] START seed stats rebuild"
 uv run python - <<'PY'
 from pathlib import Path
 import json
@@ -115,45 +126,22 @@ seed_path.write_text(json.dumps({
 }))
 print(seed_path)
 PY
+echo "[$(date "${TS_FORMAT}")] DONE seed stats rebuild"
 
+echo "[$(date "${TS_FORMAT}")] START index rebuild"
 uv run python -m src.data_eng.retrieval.index_builder \
   --dates "${DATE_RANGE}" \
   --output-dir "${INDEX_DIR}" \
   --norm-stats-path "${INDEX_DIR}/norm_stats_seed.json" \
   --overwrite
+echo "[$(date "${TS_FORMAT}")] DONE index rebuild"
 
-uv run python - <<'PY'
-from pathlib import Path
-import shutil
-
-from src.data_eng.config import load_config
-from src.data_eng.io import partition_ref
-from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
-
-repo_root = Path.cwd()
-cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
-selection = load_selection(Path("lake/selection/mbo_contract_day_selection.parquet"))
-selection = selection.loc[selection["selected_symbol"] != ""]
-if selection.empty:
-    raise ValueError("No included sessions in selection map")
-
-targets = [
-    "gold.future_mbo.mbo_trigger_signals",
-    "gold.future_mbo.mbo_pressure_stream",
-]
-
-for row in selection.itertuples(index=False):
-    symbol = str(getattr(row, "selected_symbol"))
-    session_date = str(getattr(row, "session_date"))
-    for dataset_key in targets:
-        ref = partition_ref(cfg, dataset_key, symbol, session_date)
-        if ref.dir.exists():
-            shutil.rmtree(ref.dir)
-PY
-
+echo "[$(date "${TS_FORMAT}")] START gold signals/pressure rebuild"
 MBO_INDEX_DIR="${INDEX_DIR}" uv run python -m src.data_eng.runner \
   --product-type future_mbo \
   --layer gold \
   --symbol ES \
   --dates "${DATE_RANGE}" \
   --workers "${WORKERS}"
+echo "[$(date "${TS_FORMAT}")] DONE gold signals/pressure rebuild"
+echo "[$(date "${TS_FORMAT}")] DONE full rebuild"
