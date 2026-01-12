@@ -37,6 +37,12 @@ env/
 **/*.dbn
 **/*.dbn.zst
 **/*.zip
+**/*.npz
+**/*.npy
+**/*.index
+**/*.faiss
+**/*.pkl
+**/*.bin
 
 # Testing
 .pytest_cache/
