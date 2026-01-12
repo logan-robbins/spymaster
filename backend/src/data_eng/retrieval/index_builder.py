@@ -79,7 +79,7 @@ METADATA_TYPES = {
     "mae_before_lower_ticks": "float",
 }
 
-INVARIANT_DIM = 952
+INVARIANT_DIM = VECTOR_DIM
 FEATURE_NAMES = vector_feature_names()
 METADATA_SCHEMA_HASH = hashlib.sha256(
     json.dumps(METADATA_TYPES, sort_keys=True).encode("utf-8")

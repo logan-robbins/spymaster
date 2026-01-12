@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_mbo/mbo_trigger_vector_features.avsc",
+  "contract_sha256": "802cdb5b8b71cb148e9ab5d2be8674b1dde0ceb887f050ce02fb72b80aab5a31",
+  "dataset": "gold.future_mbo.mbo_trigger_vector_features",
+  "dt": "2025-11-27",
+  "hour": null,
+  "inputs": [],
+  "row_count": 1260,
+  "stage": "gold_build_mbo_trigger_vectors"
+}

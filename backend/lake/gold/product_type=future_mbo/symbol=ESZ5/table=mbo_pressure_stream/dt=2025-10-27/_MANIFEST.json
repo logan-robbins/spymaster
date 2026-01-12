@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_mbo/mbo_pressure_stream.avsc",
+  "contract_sha256": "6ef1eb83a441bde6170097c37b8fed7926feec57e6c0abba6bacef0fd6d0fab6",
+  "dataset": "gold.future_mbo.mbo_pressure_stream",
+  "dt": "2025-10-27",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future_mbo.mbo_level_vacuum_5s",
+      "dt": "2025-10-27",
+      "manifest_sha256": "044c78542f8592c536a7d0cf9c119083f6c2430b8ab902a1b27bfc3ab6e93dc5"
+    },
+    {
+      "dataset": "gold.future_mbo.mbo_trigger_signals",
+      "dt": "2025-10-27",
+      "manifest_sha256": "ed65f705e8caf64fb929962c8c05c95bdbd1e98a45953704de6cad3e201bcb3f"
+    }
+  ],
+  "row_count": 7920,
+  "stage": "gold_build_mbo_pressure_stream"
+}

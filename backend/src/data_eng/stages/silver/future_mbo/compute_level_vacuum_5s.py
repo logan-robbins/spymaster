@@ -24,6 +24,7 @@ TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 PULL_ACTIONS = {"C", "M"}
 DELTA_TICKS = 20
+AT_TICKS = 2
 NEAR_TICKS = 5
 FAR_TICKS_LOW = 15
 FAR_TICKS_HIGH = 20
@@ -36,30 +37,38 @@ TINY_TOL = 1e-9
 MAX_INTENSITY_LOG = 100.0
 
 BUCKET_OUT = "OUT"
+ASK_ABOVE_AT = "ASK_ABOVE_AT"
 ASK_ABOVE_NEAR = "ASK_ABOVE_NEAR"
 ASK_ABOVE_MID = "ASK_ABOVE_MID"
 ASK_ABOVE_FAR = "ASK_ABOVE_FAR"
+BID_BELOW_AT = "BID_BELOW_AT"
 BID_BELOW_NEAR = "BID_BELOW_NEAR"
 BID_BELOW_MID = "BID_BELOW_MID"
 BID_BELOW_FAR = "BID_BELOW_FAR"
 
-ASK_INFLUENCE = {ASK_ABOVE_NEAR, ASK_ABOVE_MID, ASK_ABOVE_FAR}
-BID_INFLUENCE = {BID_BELOW_NEAR, BID_BELOW_MID, BID_BELOW_FAR}
+ASK_INFLUENCE = {ASK_ABOVE_AT, ASK_ABOVE_NEAR, ASK_ABOVE_MID, ASK_ABOVE_FAR}
+BID_INFLUENCE = {BID_BELOW_AT, BID_BELOW_NEAR, BID_BELOW_MID, BID_BELOW_FAR}
 
 BASE_FEATURES = [
     "f1_ask_com_disp_log",
     "f1_ask_slope_convex_log",
+    "f1_ask_slope_inner_log",
+    "f1_ask_at_share_delta",
     "f1_ask_near_share_delta",
     "f1_ask_reprice_away_share_rest",
     "f2_ask_pull_add_log_rest",
     "f2_ask_pull_intensity_log_rest",
+    "f2_ask_at_pull_share_rest",
     "f2_ask_near_pull_share_rest",
     "f3_bid_com_disp_log",
     "f3_bid_slope_convex_log",
+    "f3_bid_slope_inner_log",
+    "f3_bid_at_share_delta",
     "f3_bid_near_share_delta",
     "f3_bid_reprice_away_share_rest",
     "f4_bid_pull_add_log_rest",
     "f4_bid_pull_intensity_log_rest",
+    "f4_bid_at_pull_share_rest",
     "f4_bid_near_pull_share_rest",
     "f5_vacuum_expansion_log",
     "f6_vacuum_decay_log",
@@ -69,13 +78,18 @@ BASE_FEATURES = [
 UP_FEATURES = [
     "u1_ask_com_disp_log",
     "u2_ask_slope_convex_log",
+    "u2_ask_slope_inner_log",
+    "u3_ask_at_share_decay",
     "u3_ask_near_share_decay",
     "u4_ask_reprice_away_share_rest",
     "u5_ask_pull_add_log_rest",
     "u6_ask_pull_intensity_log_rest",
+    "u7_ask_at_pull_share_rest",
     "u7_ask_near_pull_share_rest",
     "u8_bid_com_approach_log",
     "u9_bid_slope_support_log",
+    "u9_bid_slope_inner_log",
+    "u10_bid_at_share_rise",
     "u10_bid_near_share_rise",
     "u11_bid_reprice_toward_share_rest",
     "u12_bid_add_pull_log_rest",
@@ -340,6 +354,8 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
             if age_ns >= REST_NS:
                 pull = float(-delta_ask)
                 accum["ask_pull_rest_qty"] += pull
+                if old_bucket == ASK_ABOVE_AT:
+                    accum["ask_pull_rest_qty_at"] += pull
                 if old_bucket == ASK_ABOVE_NEAR:
                     accum["ask_pull_rest_qty_near"] += pull
 
@@ -348,6 +364,8 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
             if age_ns >= REST_NS:
                 pull = float(-delta_bid)
                 accum["bid_pull_rest_qty"] += pull
+                if old_bucket == BID_BELOW_AT:
+                    accum["bid_pull_rest_qty_at"] += pull
                 if old_bucket == BID_BELOW_NEAR:
                     accum["bid_pull_rest_qty_near"] += pull
 
@@ -424,20 +442,24 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
 
 
 def _bucket_for(side: str, price_int: int, p_ref_int: int) -> str:
-    if side == "A" and price_int > p_ref_int:
+    if side == "A" and price_int >= p_ref_int:
         ticks = int(round((price_int - p_ref_int) / TICK_INT))
-        if ticks < 1 or ticks > DELTA_TICKS:
+        if ticks < 0 or ticks > DELTA_TICKS:
             return BUCKET_OUT
+        if ticks <= AT_TICKS:
+            return ASK_ABOVE_AT
         if ticks <= NEAR_TICKS:
             return ASK_ABOVE_NEAR
         if ticks >= FAR_TICKS_LOW:
             return ASK_ABOVE_FAR
         return ASK_ABOVE_MID
 
-    if side == "B" and price_int < p_ref_int:
+    if side == "B" and price_int <= p_ref_int:
         ticks = int(round((p_ref_int - price_int) / TICK_INT))
-        if ticks < 1 or ticks > DELTA_TICKS:
+        if ticks < 0 or ticks > DELTA_TICKS:
             return BUCKET_OUT
+        if ticks <= AT_TICKS:
+            return BID_BELOW_AT
         if ticks <= NEAR_TICKS:
             return BID_BELOW_NEAR
         if ticks >= FAR_TICKS_LOW:
@@ -449,10 +471,12 @@ def _bucket_for(side: str, price_int: int, p_ref_int: int) -> str:
 
 def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
     ask_depth_total = 0.0
+    ask_depth_at = 0.0
     ask_depth_near = 0.0
     ask_depth_far = 0.0
     ask_com_num = 0.0
     bid_depth_total = 0.0
+    bid_depth_at = 0.0
     bid_depth_near = 0.0
     bid_depth_far = 0.0
     bid_com_num = 0.0
@@ -462,7 +486,9 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
             qty = float(order.qty)
             ask_depth_total += qty
             ask_com_num += float(order.price_int) * qty
-            if order.bucket == ASK_ABOVE_NEAR:
+            if order.bucket == ASK_ABOVE_AT:
+                ask_depth_at += qty
+            elif order.bucket == ASK_ABOVE_NEAR:
                 ask_depth_near += qty
             elif order.bucket == ASK_ABOVE_FAR:
                 ask_depth_far += qty
@@ -470,7 +496,9 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
             qty = float(order.qty)
             bid_depth_total += qty
             bid_com_num += float(order.price_int) * qty
-            if order.bucket == BID_BELOW_NEAR:
+            if order.bucket == BID_BELOW_AT:
+                bid_depth_at += qty
+            elif order.bucket == BID_BELOW_NEAR:
                 bid_depth_near += qty
             elif order.bucket == BID_BELOW_FAR:
                 bid_depth_far += qty
@@ -483,10 +511,12 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
 
     return {
         "ask_depth_total": ask_depth_total,
+        "ask_depth_at": ask_depth_at,
         "ask_depth_near": ask_depth_near,
         "ask_depth_far": ask_depth_far,
         "ask_com_price_int": ask_com_price_int,
         "bid_depth_total": bid_depth_total,
+        "bid_depth_at": bid_depth_at,
         "bid_depth_near": bid_depth_near,
         "bid_depth_far": bid_depth_far,
         "bid_com_price_int": bid_com_price_int,
@@ -498,6 +528,10 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
 def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
     f1_ask_com_disp_log = math.log((end["d_ask_ticks"] + EPS_DIST_TICKS) / (start["d_ask_ticks"] + EPS_DIST_TICKS))
     f1_ask_slope_convex_log = math.log((end["ask_depth_far"] + EPS_QTY) / (end["ask_depth_near"] + EPS_QTY))
+    f1_ask_slope_inner_log = math.log((end["ask_depth_near"] + EPS_QTY) / (end["ask_depth_at"] + EPS_QTY))
+    at_share_start = start["ask_depth_at"] / (start["ask_depth_total"] + EPS_QTY)
+    at_share_end = end["ask_depth_at"] / (end["ask_depth_total"] + EPS_QTY)
+    f1_ask_at_share_delta = at_share_end - at_share_start
     near_share_start = start["ask_depth_near"] / (start["ask_depth_total"] + EPS_QTY)
     near_share_end = end["ask_depth_near"] / (end["ask_depth_total"] + EPS_QTY)
     f1_ask_near_share_delta = near_share_end - near_share_start
@@ -512,10 +546,15 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
     f2_ask_pull_intensity_log_rest = math.log1p(
         acc["ask_pull_rest_qty"] / (start["ask_depth_total"] + EPS_QTY)
     )
+    f2_ask_at_pull_share_rest = acc["ask_pull_rest_qty_at"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
     f2_ask_near_pull_share_rest = acc["ask_pull_rest_qty_near"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
 
     f3_bid_com_disp_log = math.log((end["d_bid_ticks"] + EPS_DIST_TICKS) / (start["d_bid_ticks"] + EPS_DIST_TICKS))
     f3_bid_slope_convex_log = math.log((end["bid_depth_far"] + EPS_QTY) / (end["bid_depth_near"] + EPS_QTY))
+    f3_bid_slope_inner_log = math.log((end["bid_depth_near"] + EPS_QTY) / (end["bid_depth_at"] + EPS_QTY))
+    at_share_start = start["bid_depth_at"] / (start["bid_depth_total"] + EPS_QTY)
+    at_share_end = end["bid_depth_at"] / (end["bid_depth_total"] + EPS_QTY)
+    f3_bid_at_share_delta = at_share_end - at_share_start
     near_share_start = start["bid_depth_near"] / (start["bid_depth_total"] + EPS_QTY)
     near_share_end = end["bid_depth_near"] / (end["bid_depth_total"] + EPS_QTY)
     f3_bid_near_share_delta = near_share_end - near_share_start
@@ -530,6 +569,7 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
     f4_bid_pull_intensity_log_rest = math.log1p(
         acc["bid_pull_rest_qty"] / (start["bid_depth_total"] + EPS_QTY)
     )
+    f4_bid_at_pull_share_rest = acc["bid_pull_rest_qty_at"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
     f4_bid_near_pull_share_rest = acc["bid_pull_rest_qty_near"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
 
     f5_vacuum_expansion_log = f1_ask_com_disp_log + f3_bid_com_disp_log
@@ -539,17 +579,23 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
     return {
         "f1_ask_com_disp_log": float(f1_ask_com_disp_log),
         "f1_ask_slope_convex_log": float(f1_ask_slope_convex_log),
+        "f1_ask_slope_inner_log": float(f1_ask_slope_inner_log),
+        "f1_ask_at_share_delta": float(f1_ask_at_share_delta),
         "f1_ask_near_share_delta": float(f1_ask_near_share_delta),
         "f1_ask_reprice_away_share_rest": float(f1_ask_reprice_away_share_rest),
         "f2_ask_pull_add_log_rest": float(f2_ask_pull_add_log_rest),
         "f2_ask_pull_intensity_log_rest": float(f2_ask_pull_intensity_log_rest),
+        "f2_ask_at_pull_share_rest": float(f2_ask_at_pull_share_rest),
         "f2_ask_near_pull_share_rest": float(f2_ask_near_pull_share_rest),
         "f3_bid_com_disp_log": float(f3_bid_com_disp_log),
         "f3_bid_slope_convex_log": float(f3_bid_slope_convex_log),
+        "f3_bid_slope_inner_log": float(f3_bid_slope_inner_log),
+        "f3_bid_at_share_delta": float(f3_bid_at_share_delta),
         "f3_bid_near_share_delta": float(f3_bid_near_share_delta),
         "f3_bid_reprice_away_share_rest": float(f3_bid_reprice_away_share_rest),
         "f4_bid_pull_add_log_rest": float(f4_bid_pull_add_log_rest),
         "f4_bid_pull_intensity_log_rest": float(f4_bid_pull_intensity_log_rest),
+        "f4_bid_at_pull_share_rest": float(f4_bid_at_pull_share_rest),
         "f4_bid_near_pull_share_rest": float(f4_bid_near_pull_share_rest),
         "f5_vacuum_expansion_log": float(f5_vacuum_expansion_log),
         "f6_vacuum_decay_log": float(f6_vacuum_decay_log),
@@ -560,21 +606,26 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
 def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
     u1_ask_com_disp_log = base["f1_ask_com_disp_log"]
     u2_ask_slope_convex_log = base["f1_ask_slope_convex_log"]
+    u2_ask_slope_inner_log = base["f1_ask_slope_inner_log"]
+    u3_ask_at_share_decay = -base["f1_ask_at_share_delta"]
     u3_ask_near_share_decay = -base["f1_ask_near_share_delta"]
     u4_ask_reprice_away_share_rest = base["f1_ask_reprice_away_share_rest"]
     u5_ask_pull_add_log_rest = base["f2_ask_pull_add_log_rest"]
     u6_ask_pull_intensity_log_rest = base["f2_ask_pull_intensity_log_rest"]
+    u7_ask_at_pull_share_rest = base["f2_ask_at_pull_share_rest"]
     u7_ask_near_pull_share_rest = base["f2_ask_near_pull_share_rest"]
 
     u8_bid_com_approach_log = -base["f3_bid_com_disp_log"]
     u9_bid_slope_support_log = -base["f3_bid_slope_convex_log"]
+    u9_bid_slope_inner_log = -base["f3_bid_slope_inner_log"]
+    u10_bid_at_share_rise = base["f3_bid_at_share_delta"]
     u10_bid_near_share_rise = base["f3_bid_near_share_delta"]
     u11_bid_reprice_toward_share_rest = 1.0 - base["f3_bid_reprice_away_share_rest"]
     u12_bid_add_pull_log_rest = -base["f4_bid_pull_add_log_rest"]
     u13_bid_add_intensity_log = math.log1p(
         acc["bid_add_qty"] / (start["bid_depth_total"] + EPS_QTY)
     )
-    u14_bid_far_pull_share_rest = 1.0 - base["f4_bid_near_pull_share_rest"]
+    u14_bid_far_pull_share_rest = 1.0 - base["f4_bid_at_pull_share_rest"] - base["f4_bid_near_pull_share_rest"]
 
     u15_up_expansion_log = u1_ask_com_disp_log + u8_bid_com_approach_log
     u16_up_flow_log = u5_ask_pull_add_log_rest + u12_bid_add_pull_log_rest
@@ -583,13 +634,18 @@ def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
     return {
         "u1_ask_com_disp_log": float(u1_ask_com_disp_log),
         "u2_ask_slope_convex_log": float(u2_ask_slope_convex_log),
+        "u2_ask_slope_inner_log": float(u2_ask_slope_inner_log),
+        "u3_ask_at_share_decay": float(u3_ask_at_share_decay),
         "u3_ask_near_share_decay": float(u3_ask_near_share_decay),
         "u4_ask_reprice_away_share_rest": float(u4_ask_reprice_away_share_rest),
         "u5_ask_pull_add_log_rest": float(u5_ask_pull_add_log_rest),
         "u6_ask_pull_intensity_log_rest": float(u6_ask_pull_intensity_log_rest),
+        "u7_ask_at_pull_share_rest": float(u7_ask_at_pull_share_rest),
         "u7_ask_near_pull_share_rest": float(u7_ask_near_pull_share_rest),
         "u8_bid_com_approach_log": float(u8_bid_com_approach_log),
         "u9_bid_slope_support_log": float(u9_bid_slope_support_log),
+        "u9_bid_slope_inner_log": float(u9_bid_slope_inner_log),
+        "u10_bid_at_share_rise": float(u10_bid_at_share_rise),
         "u10_bid_near_share_rise": float(u10_bid_near_share_rise),
         "u11_bid_reprice_toward_share_rest": float(u11_bid_reprice_toward_share_rest),
         "u12_bid_add_pull_log_rest": float(u12_bid_add_pull_log_rest),
@@ -630,11 +686,13 @@ def _new_accumulators() -> dict:
     return {
         "ask_add_qty": 0.0,
         "ask_pull_rest_qty": 0.0,
+        "ask_pull_rest_qty_at": 0.0,
         "ask_pull_rest_qty_near": 0.0,
         "ask_reprice_away_rest_qty": 0.0,
         "ask_reprice_toward_rest_qty": 0.0,
         "bid_add_qty": 0.0,
         "bid_pull_rest_qty": 0.0,
+        "bid_pull_rest_qty_at": 0.0,
         "bid_pull_rest_qty_near": 0.0,
         "bid_reprice_away_rest_qty": 0.0,
         "bid_reprice_toward_rest_qty": 0.0,
@@ -690,9 +748,13 @@ def _validate_feature_ranges(df: pd.DataFrame) -> None:
         return
 
     signed_cols = [
+        "f1_ask_at_share_delta",
         "f1_ask_near_share_delta",
+        "f3_bid_at_share_delta",
         "f3_bid_near_share_delta",
+        "u3_ask_at_share_decay",
         "u3_ask_near_share_decay",
+        "u10_bid_at_share_rise",
         "u10_bid_near_share_rise",
     ]
     intensity_cols = [

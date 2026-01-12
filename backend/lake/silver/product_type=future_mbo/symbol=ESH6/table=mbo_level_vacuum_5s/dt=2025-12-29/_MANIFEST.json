@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/mbo_level_vacuum_5s.avsc",
+  "contract_sha256": "154de33e40c00d863605a2324ba96171c8d7f63b6a3d3297ead319a0616b771f",
+  "dataset": "silver.future_mbo.mbo_level_vacuum_5s",
+  "dt": "2025-12-29",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.future_mbo.mbo",
+      "dt": "2025-12-29",
+      "manifest_sha256": "94634b64f838aa805754016b4f83f5a2f0425af34262ac6b78c590abd684858e"
+    }
+  ],
+  "row_count": 7916,
+  "stage": "silver_compute_mbo_level_vacuum_5s"
+}

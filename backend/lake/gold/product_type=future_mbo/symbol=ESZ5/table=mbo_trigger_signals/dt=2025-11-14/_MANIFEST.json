@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_mbo/mbo_trigger_signals.avsc",
+  "contract_sha256": "ac1574c9e87bc6316caf54fe90aea6f0edd0774aab4a58037f36105fda429d58",
+  "dataset": "gold.future_mbo.mbo_trigger_signals",
+  "dt": "2025-11-14",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future_mbo.mbo_level_vacuum_5s",
+      "dt": "2025-11-14",
+      "manifest_sha256": "d87f1a09f119590934023ba2a9e25229febfd1f1ed5f27a7a6590fec4cec9a60"
+    },
+    {
+      "dataset": "gold.future_mbo.mbo_trigger_vectors",
+      "dt": "2025-11-14",
+      "manifest_sha256": "8c099730120623cb3d1ae0356ad49d23ba477b239fc6ce7a9aa90a863c7da782"
+    }
+  ],
+  "row_count": 271,
+  "stage": "gold_build_mbo_trigger_signals"
+}
