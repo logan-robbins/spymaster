@@ -117,7 +117,7 @@ First priority is 100% research quality feature definition and engineering. Seco
 Market data pipeline for retrieving historically similar setups when price approaches a definied level. Transforms raw market data (DBN format) through Bronze → Silver → Gold layers into feature-rich datasets for similarity search.
 
 
-## Last Schema P
+## Last Schema 
 
 - ALWAYS refer to the pipeline definition to find the final Stage output Schema per layer. 
 
@@ -329,9 +329,6 @@ df = enforce_contract(df, contract)  # Raises if mismatch
 ```
 
 </readme>
-
-**IMPORTANT** 
-we are ONLY working with the future_mbo mbo_preview.json data.
 
 **IMPORTANT** 
 - YOU ONLY work in the spymaster/ workspace. 
