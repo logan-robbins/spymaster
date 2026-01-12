@@ -32,6 +32,8 @@ REST_NS = 500_000_000
 EPS_QTY = 1.0
 EPS_DIST_TICKS = 1.0
 TRADE_ACTION = "T"
+TINY_TOL = 1e-9
+MAX_INTENSITY_LOG = 100.0
 
 BUCKET_OUT = "OUT"
 ASK_ABOVE_NEAR = "ASK_ABOVE_NEAR"
@@ -50,14 +52,14 @@ BASE_FEATURES = [
     "f1_ask_near_share_delta",
     "f1_ask_reprice_away_share_rest",
     "f2_ask_pull_add_log_rest",
-    "f2_ask_pull_intensity_rest",
+    "f2_ask_pull_intensity_log_rest",
     "f2_ask_near_pull_share_rest",
     "f3_bid_com_disp_log",
     "f3_bid_slope_convex_log",
     "f3_bid_near_share_delta",
     "f3_bid_reprice_away_share_rest",
     "f4_bid_pull_add_log_rest",
-    "f4_bid_pull_intensity_rest",
+    "f4_bid_pull_intensity_log_rest",
     "f4_bid_near_pull_share_rest",
     "f5_vacuum_expansion_log",
     "f6_vacuum_decay_log",
@@ -70,14 +72,14 @@ UP_FEATURES = [
     "u3_ask_near_share_decay",
     "u4_ask_reprice_away_share_rest",
     "u5_ask_pull_add_log_rest",
-    "u6_ask_pull_intensity_rest",
+    "u6_ask_pull_intensity_log_rest",
     "u7_ask_near_pull_share_rest",
     "u8_bid_com_approach_log",
     "u9_bid_slope_support_log",
     "u10_bid_near_share_rise",
     "u11_bid_reprice_toward_share_rest",
     "u12_bid_add_pull_log_rest",
-    "u13_bid_add_intensity",
+    "u13_bid_add_intensity_log",
     "u14_bid_far_pull_share_rest",
     "u15_up_expansion_log",
     "u16_up_flow_log",
@@ -417,6 +419,7 @@ def compute_mbo_level_vacuum_5s(df: pd.DataFrame, p_ref: float, symbol_target: s
         df_out["window_end_ts_ns"].to_numpy(dtype=np.int64),
     )
     df_out["approach_dir"] = _compute_approach_dir(px_end_int, p_ref_int)
+    _validate_feature_ranges(df_out)
     return df_out.loc[:, OUTPUT_COLUMNS]
 
 
@@ -506,7 +509,9 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
         f1_ask_reprice_away_share_rest = acc["ask_reprice_away_rest_qty"] / (den_ask_reprice + EPS_QTY)
 
     f2_ask_pull_add_log_rest = math.log((acc["ask_pull_rest_qty"] + EPS_QTY) / (acc["ask_add_qty"] + EPS_QTY))
-    f2_ask_pull_intensity_rest = acc["ask_pull_rest_qty"] / (start["ask_depth_total"] + EPS_QTY)
+    f2_ask_pull_intensity_log_rest = math.log1p(
+        acc["ask_pull_rest_qty"] / (start["ask_depth_total"] + EPS_QTY)
+    )
     f2_ask_near_pull_share_rest = acc["ask_pull_rest_qty_near"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
 
     f3_bid_com_disp_log = math.log((end["d_bid_ticks"] + EPS_DIST_TICKS) / (start["d_bid_ticks"] + EPS_DIST_TICKS))
@@ -522,7 +527,9 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
         f3_bid_reprice_away_share_rest = acc["bid_reprice_away_rest_qty"] / (den_bid_reprice + EPS_QTY)
 
     f4_bid_pull_add_log_rest = math.log((acc["bid_pull_rest_qty"] + EPS_QTY) / (acc["bid_add_qty"] + EPS_QTY))
-    f4_bid_pull_intensity_rest = acc["bid_pull_rest_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    f4_bid_pull_intensity_log_rest = math.log1p(
+        acc["bid_pull_rest_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    )
     f4_bid_near_pull_share_rest = acc["bid_pull_rest_qty_near"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
 
     f5_vacuum_expansion_log = f1_ask_com_disp_log + f3_bid_com_disp_log
@@ -535,14 +542,14 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
         "f1_ask_near_share_delta": float(f1_ask_near_share_delta),
         "f1_ask_reprice_away_share_rest": float(f1_ask_reprice_away_share_rest),
         "f2_ask_pull_add_log_rest": float(f2_ask_pull_add_log_rest),
-        "f2_ask_pull_intensity_rest": float(f2_ask_pull_intensity_rest),
+        "f2_ask_pull_intensity_log_rest": float(f2_ask_pull_intensity_log_rest),
         "f2_ask_near_pull_share_rest": float(f2_ask_near_pull_share_rest),
         "f3_bid_com_disp_log": float(f3_bid_com_disp_log),
         "f3_bid_slope_convex_log": float(f3_bid_slope_convex_log),
         "f3_bid_near_share_delta": float(f3_bid_near_share_delta),
         "f3_bid_reprice_away_share_rest": float(f3_bid_reprice_away_share_rest),
         "f4_bid_pull_add_log_rest": float(f4_bid_pull_add_log_rest),
-        "f4_bid_pull_intensity_rest": float(f4_bid_pull_intensity_rest),
+        "f4_bid_pull_intensity_log_rest": float(f4_bid_pull_intensity_log_rest),
         "f4_bid_near_pull_share_rest": float(f4_bid_near_pull_share_rest),
         "f5_vacuum_expansion_log": float(f5_vacuum_expansion_log),
         "f6_vacuum_decay_log": float(f6_vacuum_decay_log),
@@ -556,7 +563,7 @@ def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
     u3_ask_near_share_decay = -base["f1_ask_near_share_delta"]
     u4_ask_reprice_away_share_rest = base["f1_ask_reprice_away_share_rest"]
     u5_ask_pull_add_log_rest = base["f2_ask_pull_add_log_rest"]
-    u6_ask_pull_intensity_rest = base["f2_ask_pull_intensity_rest"]
+    u6_ask_pull_intensity_log_rest = base["f2_ask_pull_intensity_log_rest"]
     u7_ask_near_pull_share_rest = base["f2_ask_near_pull_share_rest"]
 
     u8_bid_com_approach_log = -base["f3_bid_com_disp_log"]
@@ -564,7 +571,9 @@ def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
     u10_bid_near_share_rise = base["f3_bid_near_share_delta"]
     u11_bid_reprice_toward_share_rest = 1.0 - base["f3_bid_reprice_away_share_rest"]
     u12_bid_add_pull_log_rest = -base["f4_bid_pull_add_log_rest"]
-    u13_bid_add_intensity = acc["bid_add_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    u13_bid_add_intensity_log = math.log1p(
+        acc["bid_add_qty"] / (start["bid_depth_total"] + EPS_QTY)
+    )
     u14_bid_far_pull_share_rest = 1.0 - base["f4_bid_near_pull_share_rest"]
 
     u15_up_expansion_log = u1_ask_com_disp_log + u8_bid_com_approach_log
@@ -577,14 +586,14 @@ def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
         "u3_ask_near_share_decay": float(u3_ask_near_share_decay),
         "u4_ask_reprice_away_share_rest": float(u4_ask_reprice_away_share_rest),
         "u5_ask_pull_add_log_rest": float(u5_ask_pull_add_log_rest),
-        "u6_ask_pull_intensity_rest": float(u6_ask_pull_intensity_rest),
+        "u6_ask_pull_intensity_log_rest": float(u6_ask_pull_intensity_log_rest),
         "u7_ask_near_pull_share_rest": float(u7_ask_near_pull_share_rest),
         "u8_bid_com_approach_log": float(u8_bid_com_approach_log),
         "u9_bid_slope_support_log": float(u9_bid_slope_support_log),
         "u10_bid_near_share_rise": float(u10_bid_near_share_rise),
         "u11_bid_reprice_toward_share_rest": float(u11_bid_reprice_toward_share_rest),
         "u12_bid_add_pull_log_rest": float(u12_bid_add_pull_log_rest),
-        "u13_bid_add_intensity": float(u13_bid_add_intensity),
+        "u13_bid_add_intensity_log": float(u13_bid_add_intensity_log),
         "u14_bid_far_pull_share_rest": float(u14_bid_far_pull_share_rest),
         "u15_up_expansion_log": float(u15_up_expansion_log),
         "u16_up_flow_log": float(u16_up_flow_log),
@@ -676,9 +685,49 @@ def _compute_approach_dir(px_end_int: np.ndarray, p_ref_int: int) -> np.ndarray:
     return approach
 
 
+def _validate_feature_ranges(df: pd.DataFrame) -> None:
+    if len(df) == 0:
+        return
+
+    signed_cols = [
+        "f1_ask_near_share_delta",
+        "f3_bid_near_share_delta",
+        "u3_ask_near_share_decay",
+        "u10_bid_near_share_rise",
+    ]
+    intensity_cols = [
+        "f2_ask_pull_intensity_log_rest",
+        "f4_bid_pull_intensity_log_rest",
+        "u6_ask_pull_intensity_log_rest",
+        "u13_bid_add_intensity_log",
+    ]
+
+    for name in signed_cols:
+        if name not in df.columns:
+            raise ValueError(f"Missing signed ratio feature: {name}")
+        values = df[name].to_numpy(dtype=np.float64)
+        if not np.isfinite(values).all():
+            raise ValueError(f"Non-finite signed ratio values: {name}")
+        if values.min() < -1.0 - TINY_TOL:
+            raise ValueError(f"Signed ratio below -1: {name}")
+        if values.max() > 1.0 + TINY_TOL:
+            raise ValueError(f"Signed ratio above 1: {name}")
+
+    for name in intensity_cols:
+        if name not in df.columns:
+            raise ValueError(f"Missing intensity log feature: {name}")
+        values = df[name].to_numpy(dtype=np.float64)
+        if not np.isfinite(values).all():
+            raise ValueError(f"Non-finite intensity log values: {name}")
+        if values.min() < 0.0 - TINY_TOL:
+            raise ValueError(f"Negative intensity log values: {name}")
+        if values.max() >= MAX_INTENSITY_LOG:
+            raise ValueError(f"Intensity log exceeds max: {name}")
+
+
 def _premarket_window_ns(dt: str) -> tuple[int, int]:
     start_local = pd.Timestamp(f"{dt} 05:00:00", tz="America/New_York")
-    end_local = pd.Timestamp(f"{dt} 08:30:00", tz="America/New_York")
+    end_local = pd.Timestamp(f"{dt} 09:30:00", tz="America/New_York")
     return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)
 
 
