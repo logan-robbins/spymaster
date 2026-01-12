@@ -389,12 +389,6 @@ we are ONLY working with the future_mbo mbo_preview.json data.
 
 ## YOUR TASK ##
 
-Your task is to read the future_mbo pipline and implement the fix to the filter logic described below. 
+Implement every single item in backend/src/data_eng/QA.md step by step. FAIL HARD on any error you find and FIX THAT FIRST before continuing. Iterate until all are complete. You must mark your progress IN-LINE in QA.md  so you can resume from where you left off. 
 
-Test the silver pipeline a one date, and then validate that the schema matches exactly what you expect. Then use nohup and parallel runner option to use 8 works and process all valid dates/contracts from 2025-10-01 thru 2026-001-09. You can clear any existing silver/gold data.
-
-Then, you can run the gold pipeline in the same fashion. 
-
-
-**THE FULL SPEC is in SPEC.md you can search if you have questions**
-
+** You have full power to regenerate data when you need to **

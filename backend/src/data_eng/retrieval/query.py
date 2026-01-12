@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
 
 from .normalization import RobustStats, apply_robust_scaling
+from .index_builder import FEATURE_NAMES, INVARIANT_DIM, METADATA_FIELDS, METADATA_SCHEMA_HASH
 
 try:
     import faiss
@@ -34,10 +36,24 @@ class OutcomeDistribution:
 class TriggerVectorRetriever:
     def __init__(self, indices_dir: Path):
         self.indices_dir = Path(indices_dir)
-        self.stats = self._load_stats()
+        self.feature_hash = self._load_feature_list()
+        self.stats, self.stats_hash = self._load_stats()
         self.indices: Dict[str, Dict[str, object]] = {}
         self.metadata: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {}
         self._load_indices()
+
+    def _load_feature_list(self) -> str:
+        path = self.indices_dir / "feature_list.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Missing feature_list.json in {self.indices_dir}")
+        payload = json.loads(path.read_text())
+        vector_dim = int(payload.get("vector_dim", 0))
+        features = payload.get("features", [])
+        if vector_dim != INVARIANT_DIM:
+            raise ValueError("Feature list dim mismatch")
+        if features != FEATURE_NAMES:
+            raise ValueError("Feature list mismatch")
+        return hashlib.sha256(path.read_bytes()).hexdigest()
 
     def _load_stats(self) -> RobustStats:
         stats_path = self.indices_dir / "norm_stats.json"
@@ -48,7 +64,10 @@ class TriggerVectorRetriever:
         mad = np.array(payload.get("mad", []), dtype=np.float64)
         if median.size == 0 or mad.size == 0:
             raise ValueError("Invalid norm_stats.json contents")
-        return RobustStats(median=median, mad=mad)
+        if median.size != INVARIANT_DIM:
+            raise ValueError("Norm stats dim mismatch")
+        stats_hash = hashlib.sha256(stats_path.read_bytes()).hexdigest()
+        return RobustStats(median=median, mad=mad), stats_hash
 
     def _load_indices(self) -> None:
         if faiss is None:
@@ -63,15 +82,41 @@ class TriggerVectorRetriever:
             for approach_dir in APPROACH_DIRS:
                 index_path = level_dir / f"{approach_dir}.index"
                 meta_path = level_dir / f"metadata_{approach_dir}.npz"
+                manifest_path = level_dir / f"manifest_{approach_dir}.json"
                 if not index_path.exists():
                     raise FileNotFoundError(f"Missing index: {index_path}")
                 if not meta_path.exists():
                     raise FileNotFoundError(f"Missing metadata: {meta_path}")
+                if not manifest_path.exists():
+                    raise FileNotFoundError(f"Missing manifest: {manifest_path}")
+                manifest = json.loads(manifest_path.read_text())
+                if manifest.get("level_id") != level_id:
+                    raise ValueError("Manifest level_id mismatch")
+                if manifest.get("approach_dir") != approach_dir:
+                    raise ValueError("Manifest approach_dir mismatch")
+                if int(manifest.get("vector_dim", 0)) != INVARIANT_DIM:
+                    raise ValueError("Manifest dim mismatch")
+                if manifest.get("norm_stats_sha256") != self.stats_hash:
+                    raise ValueError("Norm stats hash mismatch")
+                if manifest.get("feature_list_sha256") != self.feature_hash:
+                    raise ValueError("Feature list hash mismatch")
+                if manifest.get("metadata_schema_sha256") != METADATA_SCHEMA_HASH:
+                    raise ValueError("Metadata schema hash mismatch")
                 index = faiss.read_index(str(index_path))
+                if index.metric_type != faiss.METRIC_INNER_PRODUCT:
+                    raise ValueError("Index metric mismatch")
+                if index.d != INVARIANT_DIM:
+                    raise ValueError("Index dim mismatch")
                 if hasattr(index, "hnsw"):
                     index.hnsw.efSearch = 64
+                meta = _load_metadata(meta_path)
+                _validate_metadata_schema(meta)
+                if index.ntotal != len(meta["id"]):
+                    raise ValueError("Index count mismatch")
+                if int(manifest.get("count", -1)) != int(index.ntotal):
+                    raise ValueError("Manifest count mismatch")
                 self.indices[level_id][approach_dir] = index
-                self.metadata[level_id][approach_dir] = _load_metadata(meta_path)
+                self.metadata[level_id][approach_dir] = meta
 
     def normalize_vector(self, vector: np.ndarray) -> np.ndarray:
         v = np.asarray(vector, dtype=np.float64).reshape(-1)
@@ -172,3 +217,9 @@ def _metadata_row(meta: Dict[str, np.ndarray], idx: int) -> Dict[str, object]:
         else:
             row[key] = val
     return row
+
+
+def _validate_metadata_schema(meta: Dict[str, np.ndarray]) -> None:
+    expected = ["id"] + METADATA_FIELDS
+    if sorted(meta.keys()) != sorted(expected):
+        raise ValueError("Metadata fields mismatch")

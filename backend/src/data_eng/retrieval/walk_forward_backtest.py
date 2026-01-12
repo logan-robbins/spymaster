@@ -62,7 +62,7 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("faiss-cpu or faiss-gpu required") from exc
 
 
-WARMUP_SESSIONS = 20
+WARMUP_SESSIONS = 15
 P_GRID = [0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
 MARGIN_GRID = [0.10, 0.15, 0.20, 0.25]
 HORIZONS = list(range(N_BARS + 1))

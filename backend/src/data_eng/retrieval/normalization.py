@@ -27,6 +27,9 @@ def fit_robust_stats(vectors: np.ndarray) -> RobustStats:
 def apply_robust_scaling(vectors: np.ndarray, stats: RobustStats) -> np.ndarray:
     scaled = (vectors - stats.median) / (SCALE * stats.mad + EPS)
     scaled = np.clip(scaled, -CLIP, CLIP)
+    zero_mask = stats.mad == 0
+    if np.any(zero_mask):
+        scaled[:, zero_mask] = 0.0
     return np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
 
 

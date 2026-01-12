@@ -21,62 +21,13 @@ from ....io import (
 from ....retrieval.mbo_contract_day_selector import load_selection
 from ...silver.future_mbo.compute_level_vacuum_5s import TICK_INT
 from ....utils import session_window_ns
+from ....vector_schema import VECTOR_BLOCKS, VECTOR_DIM, X_COLUMNS, vector_feature_rows
 
 BAR_NS = 120_000_000_000
 N_BARS = 6
 THRESH_TICKS = 8
 LOOKBACK_WINDOWS = 24
 TRADE_ACTION = "T"
-
-F_DOWN = [
-    "f1_ask_com_disp_log",
-    "f1_ask_slope_convex_log",
-    "f1_ask_near_share_delta",
-    "f1_ask_reprice_away_share_rest",
-    "f2_ask_pull_add_log_rest",
-    "f2_ask_pull_intensity_rest",
-    "f2_ask_near_pull_share_rest",
-    "f3_bid_com_disp_log",
-    "f3_bid_slope_convex_log",
-    "f3_bid_near_share_delta",
-    "f3_bid_reprice_away_share_rest",
-    "f4_bid_pull_add_log_rest",
-    "f4_bid_pull_intensity_rest",
-    "f4_bid_near_pull_share_rest",
-    "f5_vacuum_expansion_log",
-    "f6_vacuum_decay_log",
-    "f7_vacuum_total_log",
-]
-
-F_UP = [
-    "u1_ask_com_disp_log",
-    "u2_ask_slope_convex_log",
-    "u3_ask_near_share_decay",
-    "u4_ask_reprice_away_share_rest",
-    "u5_ask_pull_add_log_rest",
-    "u6_ask_pull_intensity_rest",
-    "u7_ask_near_pull_share_rest",
-    "u8_bid_com_approach_log",
-    "u9_bid_slope_support_log",
-    "u10_bid_near_share_rise",
-    "u11_bid_reprice_toward_share_rest",
-    "u12_bid_add_pull_log_rest",
-    "u13_bid_add_intensity",
-    "u14_bid_far_pull_share_rest",
-    "u15_up_expansion_log",
-    "u16_up_flow_log",
-    "u17_up_total_log",
-]
-
-X_COLUMNS = [
-    col
-    for name in F_DOWN
-    for col in (name, f"d1_{name}", f"d2_{name}", f"d3_{name}")
-] + [
-    col
-    for name in F_UP
-    for col in (name, f"d1_{name}", f"d2_{name}", f"d3_{name}")
-]
 
 OUTPUT_COLUMNS = [
     "vector_id",
@@ -156,7 +107,10 @@ class GoldBuildMboTriggerVectors(Stage):
     def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
         out_ref = partition_ref(cfg, self.io.output, symbol, dt)
         if is_partition_complete(out_ref):
+            _write_feature_list_output(cfg, repo_root, symbol, dt, self.name)
             return
+
+        _write_feature_list_output(cfg, repo_root, symbol, dt, self.name)
 
         selection_path = _load_selection_path()
         selection_df = _get_selection(selection_path)
@@ -261,6 +215,33 @@ def _write_empty_output(
     out_contract_path = repo_root / cfg.dataset(dataset_key).contract
     out_contract = load_avro_contract(out_contract_path)
     df_out = pd.DataFrame(columns=out_contract.fields)
+    write_partition(
+        cfg=cfg,
+        dataset_key=dataset_key,
+        symbol=symbol,
+        dt=dt,
+        df=df_out,
+        contract_path=out_contract_path,
+        inputs=[],
+        stage=stage,
+    )
+
+
+def _write_feature_list_output(
+    cfg: AppConfig,
+    repo_root: Path,
+    symbol: str,
+    dt: str,
+    stage: str,
+) -> None:
+    dataset_key = "gold.future_mbo.mbo_trigger_vector_features"
+    out_ref = partition_ref(cfg, dataset_key, symbol, dt)
+    if is_partition_complete(out_ref):
+        return
+    out_contract_path = repo_root / cfg.dataset(dataset_key).contract
+    out_contract = load_avro_contract(out_contract_path)
+    df_out = pd.DataFrame(vector_feature_rows())
+    df_out = enforce_contract(df_out, out_contract)
     write_partition(
         cfg=cfg,
         dataset_key=dataset_key,
@@ -385,6 +366,8 @@ def _build_x_matrix(df_vacuum: pd.DataFrame) -> np.ndarray:
 
 def _build_v_matrix(x_matrix: np.ndarray) -> np.ndarray:
     n_rows, dims = x_matrix.shape
+    if dims * len(VECTOR_BLOCKS) != VECTOR_DIM:
+        raise ValueError("Vector dim invariant violated")
     if n_rows < LOOKBACK_WINDOWS:
         return np.empty((0, dims * 7), dtype=np.float64)
 
