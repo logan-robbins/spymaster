@@ -437,6 +437,7 @@ uv run pytest tests/path/to_test.py -k "pattern"
 - ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/EXTEND TO ACCOMPLISTH YOUR TASK
 - You have full power to regenerate data when you need to except for raw and bronze
 - use backend/.venv/bin/ for python commands
+- YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 2 minutes so you can exit it something is not working. 
 
 **NEVER delete raw data dbn dbn.zst files or any data in the raw/ data layer.**
 
