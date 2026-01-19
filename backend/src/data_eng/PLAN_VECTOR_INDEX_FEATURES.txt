@@ -1,4 +1,0 @@
-1) Locate vector schema, rollup definitions, and normalization details for final index features. DONE - vector_schema + rollup + normalization located.
-2) Define concise base-feature descriptions and derivative descriptions. DONE - base/derivative mapping defined with dn_/up_ prefixes.
-3) Generate full vector feature list with per-feature one-line meanings into a markdown file. DONE - `src/data_eng/VECTOR_INDEX_FEATURES.md` regenerated with dn_/up_ prefixes.
-4) Validate counts and update this plan with results. DONE - 34 base features, 952 vector features.

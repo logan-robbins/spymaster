@@ -341,3 +341,20 @@ df = enforce_contract(df, contract)
 
 All features are defined in:
 - `backend/src/data_eng/VECTOR_INDEX_FEATURES.md`
+
+## TESTING
+
+Backend code: `backend/src/`  
+Backend tests: `backend/tests/`
+
+Run all backend tests:
+```bash
+cd backend
+uv run pytest
+```
+
+Run a single test module or subset:
+```bash
+cd backend
+uv run pytest tests/path/to_test.py -k "pattern"
+```

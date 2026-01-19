@@ -67,7 +67,6 @@ No code in summaries. Skip summaries for simple questions.
 
 <readme>
 
-
 ## Purpose
 
 Market data pipeline for retrieving historically similar setups when price approaches a defined level. Transforms raw market data (DBN format) through Bronze → Silver → Gold layers into feature-rich datasets for similarity search and outcome distributions.
@@ -295,6 +294,7 @@ Notes:
 - Silver and gold use base symbol `ES` with the selection map to route dates to contracts.
 - The selection map is read from `backend/lake/selection/mbo_contract_day_selection.parquet`.
 - Silver is the only parallel stage in the rebuild sequence.
+- The rebuild script clears `backend/lake/silver/product_type=future_mbo`, `backend/lake/gold/product_type=future_mbo`, and `backend/lake/indexes/mbo_pm_high` before it starts.
 
 ### Direct Commands
 
@@ -411,6 +411,22 @@ df = enforce_contract(df, contract)
 All features are defined in:
 - `backend/src/data_eng/VECTOR_INDEX_FEATURES.md`
 
+## TESTING
+
+Backend code: `backend/src/`  
+Backend tests: `backend/tests/`
+
+Run all backend tests:
+```bash
+cd backend
+uv run pytest
+```
+
+Run a single test module or subset:
+```bash
+cd backend
+uv run pytest tests/path/to_test.py -k "pattern"
+```
 
 
 </readme>
