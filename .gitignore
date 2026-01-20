@@ -32,6 +32,7 @@ wheels/
 venv/
 ENV/
 env/
+README.md.bk
 
 **/*.parquet
 **/*.dbn
