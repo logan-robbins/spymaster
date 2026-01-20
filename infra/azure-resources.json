@@ -1,7 +1,7 @@
 {
   "_metadata": {
     "description": "Comprehensive Azure resource inventory for Spymaster project. Use this file for quick reference to resource IDs, names, endpoints, and identities without running Azure CLI commands.",
-    "generated_at": "2026-01-20T15:57:04.763621+00:00",
+    "generated_at": "2026-01-20T16:05:42.861848+00:00",
     "subscription_id": "70464868-52ea-435d-93a6-8002e83f0b89",
     "subscription_name": "Azure subscription 1",
     "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf",
