@@ -27,20 +27,22 @@ infra/
 │   ├── fabric-capacity.bicep      # Microsoft Fabric capacity
 │   ├── loganalytics.bicep         # Log Analytics workspace
 │   └── ...
-├── databricks/
+├── databricks/                     # Git submodule → spymaster-databricks repo
 │   ├── streaming/                 # Real-time streaming notebooks
 │   │   ├── rt__mbo_raw_to_bronze.py
 │   │   ├── rt__bronze_to_silver.py
 │   │   ├── rt__silver_to_gold.py
 │   │   └── rt__gold_to_inference.py
-│   ├── hist/                      # Historical batch notebooks
+│   ├── batch/                      # Historical batch notebooks
 │   │   ├── hist_dbn_to_bronze.py
 │   │   ├── hist_bronze_to_silver.py
 │   │   ├── hist_silver_to_gold.py
 │   │   └── hist_export_training_snapshot.py
-│   └── jobs/                      # Job definitions (JSON)
-│       ├── rt__*.json             # Streaming job configs
-│       └── hist__*.json           # Batch job configs
+│   └── jobs/                       # Job definitions (JSON)
+│       ├── streaming/              # Streaming job configs
+│       │   └── rt__*.json
+│       └── batch/                  # Batch job configs
+│           └── hist__*.json
 ├── aml/
 │   ├── deploy_endpoint.py         # Script to deploy ML endpoint
 │   ├── endpoints/es_model/        # Endpoint configuration
@@ -56,6 +58,14 @@ infra/
 ├── azure-resources.json           # Complete resource inventory
 └── README.md                      # This file
 
+```
+
+**IMPORTANT**: `infra/databricks/` is a **Git submodule** pointing to:
+- https://github.com/qmachina/spymaster-databricks
+
+To initialize after cloning:
+```bash
+git submodule update --init --recursive
 ```
 
 ---
@@ -149,39 +159,50 @@ az deployment group show \
   --query properties.provisioningState -o tsv
 ```
 
-### 2. Deploy Databricks Notebooks
+### 2. Deploy Databricks Notebooks via Git (Recommended)
 
-**Upload streaming notebooks:**
+**IMPORTANT**: The `databricks/` directory is a Git submodule pointing to:
+- Repository: https://github.com/qmachina/spymaster-databricks
+- Local path: `infra/databricks/` (submodule)
+
+**Setup Git integration in Databricks:**
 ```bash
 # Authenticate with Databricks
 databricks configure --token --host https://adb-7405608014630062.2.azuredatabricks.net
 
-# Upload streaming notebooks
-databricks workspace import_dir \
-  databricks/streaming/ \
-  /Shared/spymaster/ \
-  --overwrite
+# Create Repos integration (one-time setup)
+databricks repos create \
+  --url https://github.com/qmachina/spymaster-databricks \
+  --provider github \
+  --path /Repos/logan@qmachina.com/spymaster-databricks
 
-# Upload historical notebooks
-databricks workspace import_dir \
-  databricks/hist/ \
-  /Shared/spymaster/hist/ \
-  --overwrite
-
-# Verify upload
-databricks workspace ls /Shared/spymaster/
+# Verify
+databricks repos list --output json | jq '.repos[] | {path:.path, url:.url, branch:.branch}'
 ```
 
-**Alternative: Using Azure CLI**
+**Notebooks will be available at:**
+```
+/Repos/logan@qmachina.com/spymaster-databricks/
+├── streaming/
+│   ├── rt__mbo_raw_to_bronze
+│   ├── rt__bronze_to_silver
+│   ├── rt__silver_to_gold
+│   └── rt__gold_to_inference
+└── batch/
+    ├── hist_dbn_to_bronze
+    ├── hist_bronze_to_silver
+    ├── hist_silver_to_gold
+    └── hist_export_training_snapshot
+```
+
+**Updates**: When code changes in the spymaster-databricks repo:
 ```bash
-az databricks workspace import \
-  --resource-group rg-spymaster-dev \
-  --workspace-name adbspymasterdevoxxrlojskvxey \
-  --path /Shared/spymaster/rt__mbo_raw_to_bronze \
-  --file databricks/streaming/rt__mbo_raw_to_bronze.py \
-  --language PYTHON \
-  --format SOURCE \
-  --overwrite
+# Update to latest
+databricks repos update \
+  --repo-id <id> \
+  --branch main
+
+# Or enable auto-sync in Databricks UI
 ```
 
 ### 3. Create Databricks Secret Scope
@@ -236,19 +257,32 @@ databricks sql execute \
 
 ### 5. Create Databricks Jobs
 
+**IMPORTANT**: Job definitions reference Git paths, not manual uploads.
+
+**Verify job definitions have correct paths:**
 ```bash
-# Create streaming jobs
-databricks jobs create --json-file databricks/jobs/rt__mbo_raw_to_bronze.json
-databricks jobs create --json-file databricks/jobs/rt__bronze_to_silver.json
-databricks jobs create --json-file databricks/jobs/rt__silver_to_gold.json
-databricks jobs create --json-file databricks/jobs/rt__gold_to_inference.json
+# Should reference /Repos/logan@qmachina.com/spymaster-databricks/...
+cat databricks/jobs/streaming/rt__mbo_raw_to_bronze.json | jq '.tasks[].notebook_task.notebook_path'
+```
 
-# Create historical batch jobs
-databricks jobs create --json-file databricks/jobs/hist__dbn_to_bronze.json
-databricks jobs create --json-file databricks/jobs/hist__bronze_to_silver.json
-databricks jobs create --json-file databricks/jobs/hist__silver_to_gold.json
+**Create streaming jobs:**
+```bash
+databricks jobs create --json-file databricks/jobs/streaming/rt__mbo_raw_to_bronze.json
+databricks jobs create --json-file databricks/jobs/streaming/rt__bronze_to_silver.json
+databricks jobs create --json-file databricks/jobs/streaming/rt__silver_to_gold.json
+databricks jobs create --json-file databricks/jobs/streaming/rt__gold_to_inference.json
+```
 
-# List all jobs
+**Create historical batch jobs:**
+```bash
+databricks jobs create --json-file databricks/jobs/batch/hist__dbn_to_bronze.json
+databricks jobs create --json-file databricks/jobs/batch/hist__bronze_to_silver.json
+databricks jobs create --json-file databricks/jobs/batch/hist__silver_to_gold.json
+databricks jobs create --json-file databricks/jobs/batch/hist__export_training_snapshot.json
+```
+
+**List all jobs:**
+```bash
 databricks jobs list --output json | jq '.jobs[] | {name:.settings.name, id:.job_id}'
 ```
 
