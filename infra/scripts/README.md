@@ -55,7 +55,16 @@ Queries Azure CLI for complete resource inventory:
 
 ### Notes for AI Agents
 
-- Always regenerate before deployments to ensure current state
-- Use `azure-resources.json` as single source of truth for resource names/IDs
+**CRITICAL**: `azure-resources.json` is in `.gitignore` (contains sensitive information)
+
+- **ALWAYS regenerate locally** before any deployment or operation
+- File does NOT exist in fresh clones - must be generated first
+- Use as single source of truth for resource names/IDs after generation
 - Do not hardcode resource values in code or documentation
 - Script handles missing permissions gracefully (returns empty dicts)
+
+**First-time setup after cloning repo:**
+```bash
+cd infra
+../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json
+```
