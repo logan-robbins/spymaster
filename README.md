@@ -214,21 +214,35 @@ bash scripts/run_replay.sh
 ```bash
 cd infra
 
-# Deploy all resources
+# Deploy all resources (includes Bicep deployment + post-deployment automation)
 bash scripts/deploy_infrastructure.sh
 
 # Verify deployment
 az deployment group show --resource-group rg-spymaster-dev --name main
 ```
 
-### Configure Databricks
-```bash
-# Link Git repo for notebooks
-databricks repos create \
-  --url https://github.com/qmachina/spymaster-databricks \
-  --provider github
+The deployment script automatically handles:
+- Azure resource provisioning (Bicep)
+- Resource inventory generation (`azure-resources.json`)
+- Databricks Git integration and jobs
+- Unity Catalog setup
+- Secret scope configuration
 
-# Add secrets to Key Vault
+### Working with Azure Resources
+```bash
+# Regenerate resource inventory anytime
+cd infra
+../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json
+
+# Query resource details
+jq '.quick_reference' azure-resources.json
+jq '.databricks.workspace.workspace_url' azure-resources.json
+jq '.eventhubs.hubs' azure-resources.json
+```
+
+### Manual Post-Deployment Steps
+```bash
+# Add Databento API key to Key Vault
 az keyvault secret set \
   --vault-name <vault-name> \
   --name databento-api-key \
