@@ -311,7 +311,7 @@ FEATURE_GROUPS_TA = [
 ]
 
 
-def create_mechanics_only_manifest(version: str = "v1.0_mechanics_only") -> FeatureManifest:
+def create_mechanics_only_manifest(version: str = "mechanics_only") -> FeatureManifest:
     """Create a mechanics-only baseline manifest."""
     return FeatureManifest(
         version=version,
@@ -329,7 +329,7 @@ def create_mechanics_only_manifest(version: str = "v1.0_mechanics_only") -> Feat
     )
 
 
-def create_full_ensemble_manifest(version: str = "v2.0_full_ensemble") -> FeatureManifest:
+def create_full_ensemble_manifest(version: str = "full_ensemble") -> FeatureManifest:
     """Create a full ensemble manifest with all features."""
     return FeatureManifest(
         version=version,
@@ -342,7 +342,7 @@ def create_full_ensemble_manifest(version: str = "v2.0_full_ensemble") -> Featur
         ),
         feature_groups=FEATURE_GROUPS_MECHANICS_ONLY + FEATURE_GROUPS_TA,
         parameters=Parameters(),
-        parent_version="v1.0_mechanics_only",
+        parent_version="mechanics_only",
         tags=["full", "ensemble", "mechanics", "ta"],
         notes="Full feature set combining mechanics and technical analysis"
     )

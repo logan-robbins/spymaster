@@ -29,7 +29,7 @@ class TestComprehensiveSchema:
             ts_event_ns=time.time_ns(),
             symbol="ES",
             level_price=6870.0,
-            level_kind=LevelKind.STRIKE,
+            level_kind=LevelKind.CALL_WALL,
             is_first_15m=True,
             wall_ratio=2.5,
             gamma_exposure=5000000.0,
@@ -59,8 +59,8 @@ class TestComprehensiveSchema:
             
             # Level identity
             level_price=6870.0,
-            level_kind=LevelKind.STRIKE,
-            level_id="STRIKE_6870",
+            level_kind=LevelKind.CALL_WALL,
+            level_id="CALL_WALL_6870",
             direction=Direction.SUPPORT,
             distance=4.2,
             
@@ -130,11 +130,11 @@ class TestComprehensiveSchema:
     def test_incremental_feature_addition(self):
         """Test adding features incrementally (Agent A → B → C workflow)."""
         # Agent A: Basic physics
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="test_003",
             ts_event_ns=time.time_ns(),
             level_price=687.0,
-            level_kind=LevelKind.STRIKE,
+            level_kind=LevelKind.CALL_WALL,
             wall_ratio=2.0,
             gamma_exposure=3000000.0,
             tape_velocity=10.0,
@@ -163,8 +163,8 @@ class TestComprehensiveSchema:
     def test_all_enums_accessible(self):
         """Test that all enum types are properly defined."""
         # LevelKind
-        assert LevelKind.STRIKE == "STRIKE"
-        assert LevelKind.VWAP == "VWAP"
+        assert LevelKind.CALL_WALL == "CALL_WALL"
+        assert LevelKind.PM_HIGH == "PM_HIGH"
         assert LevelKind.CALL_WALL == "CALL_WALL"
         
         # OutcomeLabel
@@ -198,11 +198,11 @@ class TestComprehensiveSchema:
     def test_schema_validation_constraints(self):
         """Test that schema validation works for constrained fields."""
         # Valid scores (0-100)
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="test_004",
             ts_event_ns=time.time_ns(),
             level_price=687.0,
-            level_kind=LevelKind.STRIKE,
+            level_kind=LevelKind.CALL_WALL,
             wall_ratio=2.0,
             gamma_exposure=0.0,
             tape_velocity=0.0,
@@ -223,11 +223,11 @@ class TestComprehensiveSchema:
     
     def test_feature_vector_extraction(self):
         """Test extracting features for ML experimentation."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="test_005",
             ts_event_ns=time.time_ns(),
             level_price=687.0,
-            level_kind=LevelKind.STRIKE,
+            level_kind=LevelKind.CALL_WALL,
             wall_ratio=2.5,
             gamma_exposure=5000000.0,
             tape_velocity=12.0,
@@ -254,11 +254,11 @@ class TestComprehensiveSchema:
     
     def test_json_serialization(self):
         """Test that schema can be serialized to/from JSON."""
-        signal = LevelSignalV1(
+        signal = LevelSignal(
             event_id="test_006",
             ts_event_ns=time.time_ns(),
             level_price=687.0,
-            level_kind=LevelKind.STRIKE,
+            level_kind=LevelKind.CALL_WALL,
             wall_ratio=2.0,
             gamma_exposure=0.0,
             tape_velocity=10.0,
@@ -268,12 +268,12 @@ class TestComprehensiveSchema:
         
         # Serialize to dict
         signal_dict = signal.model_dump()
-        assert signal_dict['level_kind'] == 'STRIKE'
+        assert signal_dict['level_kind'] == 'CALL_WALL'
         assert signal_dict['barrier_state'] == 'VACUUM'
         
         # Deserialize from dict
-        signal_restored = LevelSignalV1(**signal_dict)
-        assert signal_restored.level_kind == LevelKind.STRIKE
+        signal_restored = LevelSignal(**signal_dict)
+        assert signal_restored.level_kind == LevelKind.CALL_WALL
         assert signal_restored.barrier_state == BarrierState.VACUUM
 
 

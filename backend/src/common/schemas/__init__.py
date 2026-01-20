@@ -2,48 +2,38 @@
 Arrow/Pydantic schema definitions for Bronze/Silver/Gold data tiers.
 
 This module provides:
-- Pydantic v2 models for runtime validation
+- Pydantic models for runtime validation
 - PyArrow schemas for Parquet storage
 - Schema registry for version tracking
 
-Schemas per PLAN.md §2.4:
+Schemas:
 
 Bronze (raw, normalized):
 - options.trades - ES option trades
-- futures.trades.v1 - ES futures trades
 - futures.mbp10 - ES MBP-10 depth
 
 Silver (cleaned, enriched):
-- options.trades_enriched.v1 - Option trades with Greeks joined
+- options.trades_enriched - Option trades with Greeks joined
+- features.es_pipeline - Silver tier ML features
 
 Gold (derived analytics):
-- levels.signals.v1 - Level break/reject signals
+- levels.signals - Level break/reject signals
+- training.es_pipeline - Gold tier ML training datasets
 
 Usage:
     from src.common.schemas import (
-        OptionTradeV1,
-        FuturesTradeV1,
+        OptionTrade,
+        MBP10,
         SchemaRegistry,
     )
 
-    # Create a validated record
-    trade = FuturesTradeV1(
-        ts_event_ns=1734567890000000000,
-        ts_recv_ns=1734567890001000000,
-        source='direct_feed',
-        symbol='ES',
-        price=6870.50,
-        size=5,
-    )
-
     # Get Arrow schema for Parquet writing
-    arrow_schema = FuturesTradeV1._arrow_schema
+    arrow_schema = OptionTrade._arrow_schema
 
     # List all registered schemas
     SchemaRegistry.list_schemas()
 """
 
-# Base utilities
 from .base import (
     SchemaVersion,
     SchemaRegistry,
@@ -55,16 +45,12 @@ from .base import (
     pydantic_to_arrow_table,
 )
 
-# Bronze tier schemas
-from .options_trades import OptionTradeV1
-from .futures_trades import FuturesTradeV1
+from .options_trades import OptionTrade
 from .futures_mbp10 import MBP10, BidAskLevelModel
 
-# Silver tier schemas
-from .options_trades_enriched import OptionTradeEnrichedV1
-from .silver_features import SilverFeaturesESPipelineV1, validate_silver_features
+from .options_trades_enriched import OptionTradeEnriched
+from .silver_features import SilverFeaturesESPipeline, validate_silver_features
 
-# Gold tier schemas
 from .levels_signals import (
     LevelSignal,
     LevelKind,
@@ -76,10 +62,9 @@ from .levels_signals import (
     FuelEffect,
     RunwayQuality,
 )
-from .gold_training import GoldTrainingESPipelineV1, validate_gold_training
+from .gold_training import GoldTrainingESPipeline, validate_gold_training
 
 __all__ = [
-    # Base
     'SchemaVersion',
     'SchemaRegistry',
     'BaseEventModel',
@@ -88,20 +73,13 @@ __all__ = [
     'ARROW_TYPE_MAP',
     'build_arrow_schema',
     'pydantic_to_arrow_table',
-    
-    # Bronze
-    'OptionTradeV1',
-    'FuturesTradeV1',
+    'OptionTrade',
     'MBP10',
     'BidAskLevelModel',
-    
-    # Silver
-    'OptionTradeEnrichedV1',
-    'SilverFeaturesESPipelineV1',
+    'OptionTradeEnriched',
+    'SilverFeaturesESPipeline',
     'validate_silver_features',
-    
-    # Gold
-    'GoldTrainingESPipelineV1',
+    'GoldTrainingESPipeline',
     'validate_gold_training',
     'LevelSignal',
     'LevelKind',
@@ -113,13 +91,3 @@ __all__ = [
     'FuelEffect',
     'RunwayQuality',
 ]
-
-# Version information
-__version__ = '1.0.0'
-__schema_versions__ = {
-    'options.trades': 1,
-    'options.trades_enriched': 1,
-    'futures.trades': 1,
-    'futures.mbp10': 1,
-    'levels.signals': 1,
-}

@@ -432,6 +432,10 @@ infra/azure-resources.json
 
 </readme>
 
+<infra_readme>
+infra/README.md
+</infra_readme>
+
 **IMPORTANT** 
 - YOU ONLY work in the spymaster/ workspace. 
 - YOU DO NOT NEED TO READ ANY OTHER MD DOCUMENTS unless instructed
@@ -443,10 +447,11 @@ infra/azure-resources.json
 **NEVER delete raw data dbn dbn.zst files or any data in the raw/ data layer.**
 
 **MOST IMPORTANT - DO NOT FORGET**
-You MUST follow all rules in DEV.md and AGENTS.md
+- You MUST follow all rules in DEV.md
 
 <your_task>
-You are implementung the tasks in UPGRADE.md  in their entirety. You have access to the azure mcp knowledge tool for up to date documentation, do not guess-- consult for latest commands first. Ensure you run the full deployments and tests in the real infrastructure and validate using the API. You can upload samples of data from the backend/src/data_eng/pipeline.py to make sure you properly build the steps. You should have full access to databricks, fabric, etc. use az cli (you are logged in with full permissions). DO NOT prioritize non-functional requirements, work as effectively as you can for FUNCTION. We do not have databento streaming ingestion right now, so you can setup the bicep / test for the infra only, or possibly simulate but that is last priority. you MUST track your progress in UPGRADE.md with [COMPLETE] tags in-line as you complete each task. DO NOT move one from one task until you have completed it, do not skip something because it is *hard* or requires more work.
-You have access to fast internet and you MUSt use azure mcp or web search to validate your commands, do not guess. You may reference infra/WORK.md but your instructions are in UPGRADE.md.
+- You are logged in as the primary users to all local CLIs, if you are not, STOP and ask the user to login.
+
+Go step by step and implement the fixes in infra/BICEP_GAP_ANALYSIS.md  so that the entire account can be torn down and rebuilt at will. Think about the sample data we have created, look at the code carefully and delete anything that is not in use, everything that is IN use must be accounted for in bicep and launch scripts etc.
 </your_task>
 

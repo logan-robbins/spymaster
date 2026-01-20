@@ -34,6 +34,9 @@ param computeMaxNodes int
 @description('Idle time before AML compute scales down.')
 param computeIdleTime string
 
+@description('Object ID of user deploying infrastructure for Key Vault access.')
+param deployingUserObjectId string = ''
+
 var storageSuffix = environment().suffixes.storage
 var storageEndpoint = storageSuffix
 
@@ -105,6 +108,37 @@ resource amlWorkspace 'Microsoft.MachineLearningServices/workspaces@2025-06-01' 
     applicationInsights: amlAppInsights.id
     containerRegistry: amlAcr.id
     storageAccount: amlStorage.id
+  }
+}
+
+resource amlKeyVaultAccessPolicies 'Microsoft.KeyVault/vaults/accessPolicies@2024-11-01' = {
+  parent: amlKeyVault
+  name: 'add'
+  properties: {
+    accessPolicies: concat(
+      [
+        {
+          tenantId: subscription().tenantId
+          objectId: amlWorkspace.identity.principalId
+          permissions: {
+            secrets: ['all']
+            keys: ['all']
+            certificates: ['all']
+          }
+        }
+      ],
+      deployingUserObjectId != '' ? [
+        {
+          tenantId: subscription().tenantId
+          objectId: deployingUserObjectId
+          permissions: {
+            secrets: ['get', 'list', 'set', 'delete']
+            keys: ['get', 'list']
+            certificates: ['get', 'list']
+          }
+        }
+      ] : []
+    )
   }
 }
 

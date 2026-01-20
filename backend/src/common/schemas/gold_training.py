@@ -13,10 +13,10 @@ from typing import ClassVar
 import pyarrow as pa
 
 from .base import SchemaVersion
-from .silver_features import SilverFeaturesESPipelineV1
+from .silver_features import SilverFeaturesESPipeline
 
 
-class GoldTrainingESPipelineV1:
+class GoldTrainingESPipeline:
     """
     Gold tier training dataset from ES pipeline.
     
@@ -40,8 +40,8 @@ class GoldTrainingESPipelineV1:
 
 # Gold training schema is identical to Silver features
 # (Gold tier represents quality/curation, not schema changes)
-GoldTrainingESPipelineV1._arrow_schema = pa.schema(
-    SilverFeaturesESPipelineV1._arrow_schema,
+GoldTrainingESPipeline._arrow_schema = pa.schema(
+    SilverFeaturesESPipeline._arrow_schema,
     metadata={
         'schema_name': 'training.es_pipeline.v1',
         'tier': 'gold',

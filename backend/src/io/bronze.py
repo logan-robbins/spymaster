@@ -447,10 +447,10 @@ class BronzeWriter:
 
     def _get_arrow_schema(self, schema_name: str) -> pa.Schema:
         """Get canonical Arrow schema for a schema name."""
-        from src.common.schemas import OptionTradeV1, MBP10
+        from src.common.schemas import OptionTrade, MBP10
         
         schema_map = {
-            'options.trades': OptionTradeV1._arrow_schema,
+            'options.trades': OptionTrade._arrow_schema,
             'futures.mbp10': MBP10._arrow_schema,
         }
         

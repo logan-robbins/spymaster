@@ -9,6 +9,12 @@
 - Current Azure user: Run `az account show --query user.name -o tsv`
 - Resource details: Always read from `azure-resources.json`, never hardcode
 
+### Full deployment from scratch
+bash scripts/deploy_infrastructure.sh
+
+###  Teardown everything
+bash scripts/destroy_environment.sh
+
 **IMPORTANT**: `azure-resources.json` is in `.gitignore` (contains sensitive info). Regenerate locally before any deployment.
 
 ---

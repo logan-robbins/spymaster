@@ -491,7 +491,7 @@ class GoldCurator:
         
         # Promote Silver experiment to Gold training
         curator.promote_to_training(
-            silver_version='v2.0_full_ensemble',
+            silver_version='full_ensemble',
             dataset_name='signals_production',
             notes='Best performing full ensemble model'
         )

@@ -14,9 +14,6 @@ resource purview 'Microsoft.Purview/accounts@2021-12-01' = {
   identity: {
     type: 'SystemAssigned'
   }
-  sku: {
-    name: 'Standard'
-  }
   properties: {
     managedResourceGroupName: managedResourceGroupName
   }

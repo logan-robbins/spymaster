@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.37.4.10188",
-      "templateHash": "2334507516761624738"
+      "templateHash": "14040090669283121281"
     }
   },
   "parameters": {
@@ -160,6 +160,13 @@
       "metadata": {
         "description": "Role definition id for Key Vault Secrets User."
       }
+    },
+    "deployingUserObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID of user deploying infrastructure for Key Vault access."
+      }
     }
   },
   "variables": {
@@ -181,7 +188,7 @@
     "databricksAccessConnectorName": "[substring(variables('databricksAccessConnectorBase'), 0, min(length(variables('databricksAccessConnectorBase')), 64))]",
     "runtimeKeyVaultName": "[toLower(substring(format('kv{0}{1}rt{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')), 0, 24))]",
     "logAnalyticsWorkspaceName": "[toLower(format('law-{0}-{1}', parameters('namePrefix'), parameters('environment')))]",
-    "containerAppsEnvName": "[toLower(format('cae-{0}-{1}', parameters('namePrefix'), parameters('environment')))]",
+    "containerAppsEnvName": "[toLower(format('cae{0}{1}', parameters('namePrefix'), parameters('environment')))]",
     "lakeContainers": [
       "raw-dbn",
       "lake",
@@ -217,7 +224,7 @@
         "partitionCount": "[parameters('eventHubPartitionCount')]",
         "messageRetentionInDays": "[parameters('eventHubRetentionDays')]",
         "consumerGroups": [
-          "databricks_features",
+          "databricks_gold",
           "fabric_stream",
           "analytics"
         ]
@@ -232,7 +239,9 @@
           "analytics"
         ]
       }
-    ]
+    ],
+    "purviewAccountName": "[toLower(format('pv{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "purviewManagedRgName": "[format('rg-{0}-mrg', variables('purviewAccountName'))]"
   },
   "resources": [
     {
@@ -823,6 +832,9 @@
           },
           "computeIdleTime": {
             "value": "[parameters('amlComputeIdleTime')]"
+          },
+          "deployingUserObjectId": {
+            "value": "[parameters('deployingUserObjectId')]"
           }
         },
         "template": {
@@ -832,7 +844,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.37.4.10188",
-              "templateHash": "6917621090048018304"
+              "templateHash": "12362684484537382056"
             }
           },
           "parameters": {
@@ -906,6 +918,13 @@
               "type": "string",
               "metadata": {
                 "description": "Idle time before AML compute scales down."
+              }
+            },
+            "deployingUserObjectId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Object ID of user deploying infrastructure for Key Vault access."
               }
             }
           },
@@ -990,6 +1009,18 @@
                 "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]",
                 "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', parameters('amlStorageAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2024-11-01",
+              "name": "[format('{0}/{1}', parameters('keyVaultName'), 'add')]",
+              "properties": {
+                "accessPolicies": "[concat(createArray(createObject('tenantId', subscription().tenantId, 'objectId', reference(resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName')), '2025-06-01', 'full').identity.principalId, 'permissions', createObject('secrets', createArray('all'), 'keys', createArray('all'), 'certificates', createArray('all')))), if(not(equals(parameters('deployingUserObjectId'), '')), createArray(createObject('tenantId', subscription().tenantId, 'objectId', parameters('deployingUserObjectId'), 'permissions', createObject('secrets', createArray('get', 'list', 'set', 'delete'), 'keys', createArray('get', 'list'), 'certificates', createArray('get', 'list')))), createArray()))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+                "[resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName'))]"
               ]
             },
             {
@@ -1553,6 +1584,87 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'loganalytics')]"
       ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "purview",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "purviewAccountName": {
+            "value": "[variables('purviewAccountName')]"
+          },
+          "managedResourceGroupName": {
+            "value": "[variables('purviewManagedRgName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "1101836223582221558"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Purview account."
+              }
+            },
+            "purviewAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Purview account name."
+              }
+            },
+            "managedResourceGroupName": {
+              "type": "string",
+              "metadata": {
+                "description": "Managed resource group name for Purview."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Purview/accounts",
+              "apiVersion": "2021-12-01",
+              "name": "[parameters('purviewAccountName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "managedResourceGroupName": "[parameters('managedResourceGroupName')]"
+              }
+            }
+          ],
+          "outputs": {
+            "purviewAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Purview/accounts', parameters('purviewAccountName'))]"
+            },
+            "purviewAccountName": {
+              "type": "string",
+              "value": "[parameters('purviewAccountName')]"
+            },
+            "purviewPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Purview/accounts', parameters('purviewAccountName')), '2021-12-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      }
     }
   ],
   "outputs": {
@@ -1627,6 +1739,14 @@
     "containerAppsDefaultDomain": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'containerapps'), '2022-09-01').outputs.defaultDomain.value]"
+    },
+    "purviewAccountName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'purview'), '2022-09-01').outputs.purviewAccountName.value]"
+    },
+    "purviewAccountId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'purview'), '2022-09-01').outputs.purviewAccountId.value]"
     }
   }
 }

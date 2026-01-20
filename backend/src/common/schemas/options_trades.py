@@ -35,7 +35,7 @@ from .base import (
 
 
 @SchemaRegistry.register
-class OptionTradeV1(BaseEventModel):
+class OptionTrade(BaseEventModel):
     """
     Bronze tier option trade event.
 
@@ -144,7 +144,7 @@ class OptionTradeV1(BaseEventModel):
 
 
 # Arrow schema definition
-OptionTradeV1._arrow_schema = build_arrow_schema(
+OptionTrade._arrow_schema = build_arrow_schema(
     fields=[
         ('ts_event_ns', pa.int64(), False),
         ('ts_recv_ns', pa.int64(), False),

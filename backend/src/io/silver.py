@@ -29,7 +29,7 @@ from src.common.schemas.silver_features import (
     FEATURE_COLUMNS,
     IDENTITY_COLUMNS,
     LABEL_COLUMNS,
-    SilverFeaturesESPipelineV1,
+    SilverFeaturesESPipeline,
 )
 from src.io.bronze import BronzeReader
 
@@ -50,7 +50,7 @@ class SilverFeatureBuilder:
         builder = SilverFeatureBuilder()
         
         # Create new feature version
-        manifest = FeatureManifest.from_file('manifests/v1.0_mechanics_only.yaml')
+        manifest = FeatureManifest.from_file('manifests/mechanics_only.yaml')
         builder.build_feature_set(
             manifest=manifest,
             dates=['2025-12-16', '2025-12-17']
@@ -153,7 +153,7 @@ class SilverFeatureBuilder:
                     logger.warning(f"  No signals for {date}")
                     continue
 
-                schema_cols = set(SilverFeaturesESPipelineV1._arrow_schema.names)
+                schema_cols = set(SilverFeaturesESPipeline._arrow_schema.names)
                 identity_cols = list(IDENTITY_COLUMNS)
                 label_cols = list(LABEL_COLUMNS)
 
@@ -438,7 +438,7 @@ def create_baseline_features(data_root: Optional[str] = None):
 
     # Create mechanics-only baseline
     logger.info("\n" + "="*70)
-    logger.info("BUILDING: v1.0_mechanics_only")
+    logger.info("BUILDING: mechanics_only")
     logger.info("="*70)
     manifest_v1 = create_mechanics_only_manifest()
     stats_v1 = builder.build_feature_set(
@@ -449,7 +449,7 @@ def create_baseline_features(data_root: Optional[str] = None):
 
     # Create full ensemble
     logger.info("\n" + "="*70)
-    logger.info("BUILDING: v2.0_full_ensemble")
+    logger.info("BUILDING: full_ensemble")
     logger.info("="*70)
     manifest_v2 = create_full_ensemble_manifest()
     stats_v2 = builder.build_feature_set(

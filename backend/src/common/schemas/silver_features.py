@@ -50,7 +50,7 @@ LABEL_COLUMNS: Set[str] = {
 }
 
 
-class SilverFeaturesESPipelineV1:
+class SilverFeaturesESPipeline:
     """
     Silver tier features from single-level ES pipeline.
     
@@ -87,7 +87,7 @@ class SilverFeaturesESPipelineV1:
 
 
 # Arrow schema definition for single-level pipeline output
-SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
+SilverFeaturesESPipeline._arrow_schema = pa.schema([
     # ===== IDENTITY (10 columns) =====
     ('event_id', pa.utf8(), False),
     ('ts_ns', pa.int64(), False),
@@ -296,7 +296,7 @@ SilverFeaturesESPipelineV1._arrow_schema = pa.schema([
 # Feature columns (excludes identity and labels)
 FEATURE_COLUMNS: List[str] = [
     name
-    for name in SilverFeaturesESPipelineV1._arrow_schema.names
+    for name in SilverFeaturesESPipeline._arrow_schema.names
     if name not in IDENTITY_COLUMNS and name not in LABEL_COLUMNS
 ]
 

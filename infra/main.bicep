@@ -70,6 +70,9 @@ param eventHubsDataReceiverRoleId string
 @description('Role definition id for Key Vault Secrets User.')
 param keyVaultSecretsUserRoleId string
 
+@description('Object ID of user deploying infrastructure for Key Vault access.')
+param deployingUserObjectId string = ''
+
 var nameSeed = uniqueString(resourceGroup().id)
 var storageBase = toLower('${namePrefix}${environment}lake${nameSeed}')
 var amlAcrBase = toLower('acr${namePrefix}${environment}${nameSeed}')
@@ -127,7 +130,7 @@ var eventHubEntities = [
     partitionCount: eventHubPartitionCount
     messageRetentionInDays: eventHubRetentionDays
     consumerGroups: [
-      'databricks_features'
+      'databricks_gold'
       'fabric_stream'
       'analytics'
     ]
@@ -208,6 +211,7 @@ module aml './modules/aml.bicep' = {
     computeMinNodes: amlComputeMinNodes
     computeMaxNodes: amlComputeMaxNodes
     computeIdleTime: amlComputeIdleTime
+    deployingUserObjectId: deployingUserObjectId
   }
 }
 
@@ -254,6 +258,18 @@ module containerapps './modules/containerapps.bicep' = {
   }
 }
 
+var purviewAccountName = toLower('pv${namePrefix}${environment}${nameSeed}')
+var purviewManagedRgName = 'rg-${purviewAccountName}-mrg'
+
+module purview './modules/purview.bicep' = {
+  name: 'purview'
+  params: {
+    location: location
+    purviewAccountName: purviewAccountName
+    managedResourceGroupName: purviewManagedRgName
+  }
+}
+
 output storageAccountName string = storage.outputs.storageAccountName
 output storageAccountId string = storage.outputs.storageAccountId
 output dataFactoryName string = datafactory.outputs.dataFactoryName
@@ -272,3 +288,5 @@ output logAnalyticsWorkspaceName string = loganalytics.outputs.workspaceName
 output logAnalyticsWorkspaceId string = loganalytics.outputs.workspaceId
 output containerAppsEnvName string = containerapps.outputs.environmentName
 output containerAppsDefaultDomain string = containerapps.outputs.defaultDomain
+output purviewAccountName string = purview.outputs.purviewAccountName
+output purviewAccountId string = purview.outputs.purviewAccountId

@@ -47,7 +47,7 @@ Sequence classification/regression over OHLCV context. Useful for comparing engi
 **Input**: Silver feature datasets (versioned experiments from Bronze)
 
 **Process**:
-1. Load Silver features for specific version (e.g., `v2.0_full_ensemble`)
+1. Load Silver features for specific manifest (e.g., `full_ensemble`)
 2. Walk-forward split by date (no random shuffles)
 3. Train boosted-tree heads independently
 4. Build kNN retrieval index from normalized features
@@ -59,7 +59,7 @@ Sequence classification/regression over OHLCV context. Useful for comparing engi
 
 **Workflow**:
 ```
-Silver Features (versioned, e.g., v2.0_full_ensemble)
+Silver Features (manifest-based, e.g., full_ensemble)
     ↓ [MLflow Experiments]
     └─ Train multiple models with different hyperparameters
     └─ Evaluate on validation set
@@ -181,7 +181,7 @@ uv run python -m src.ml.calibration_eval \
 ## Experiment Tracking
 
 **MLflow** (Primary for Silver Experiments):
-- Experiments track Silver feature versions: `spymaster_v2.0_full_ensemble`, `spymaster_v1.0_mechanics_only`, etc.
+- Experiments track Silver feature manifests: `spymaster_full_ensemble`, `spymaster_mechanics_only`, etc.
 - Each run logs:
   - Hyperparameters (stage, ablation, val/test sizes, HistGradientBoosting params)
   - Metrics (AUC, precision, recall, Brier scores per head)
@@ -196,7 +196,7 @@ uv run python -m src.ml.calibration_eval \
 - Note: No tracking URL required for W&B; use `WANDB_ENTITY` only if logging to a team namespace.
 
 **Experiment Workflow**:
-1. Create Silver feature version (e.g., `v2.1_custom`)
+1. Create Silver feature manifest (e.g., `custom_features`)
 2. Run MLflow experiments on that Silver version
 3. Compare metrics across runs in MLflow UI
 4. Identify best model/hyperparameters

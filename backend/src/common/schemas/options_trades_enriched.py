@@ -30,7 +30,7 @@ from .base import (
 
 
 @SchemaRegistry.register
-class OptionTradeEnrichedV1(BaseEventModel):
+class OptionTradeEnriched(BaseEventModel):
     """
     Silver tier enriched option trade.
 
@@ -158,7 +158,7 @@ class OptionTradeEnrichedV1(BaseEventModel):
             raise ValueError(f"Timestamp {v} outside valid range")
         return v
 
-    def compute_notionals(self) -> "OptionTradeEnrichedV1":
+    def compute_notionals(self) -> "OptionTradeEnriched":
         """
         Compute delta_notional and gamma_notional from delta, gamma, size.
 
@@ -174,7 +174,7 @@ class OptionTradeEnrichedV1(BaseEventModel):
 
 
 # Arrow schema definition
-OptionTradeEnrichedV1._arrow_schema = build_arrow_schema(
+OptionTradeEnriched._arrow_schema = build_arrow_schema(
     fields=[
         # Bronze fields
         ('ts_event_ns', pa.int64(), False),

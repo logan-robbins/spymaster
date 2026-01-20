@@ -206,7 +206,7 @@ class ExperimentRunner:
     
     # --- Helper Methods ---
     
-    def _calculate_outcome_stats(self, signals: List[LevelSignalV1]) -> Dict[str, float]:
+    def _calculate_outcome_stats(self, signals: List[LevelSignal]) -> Dict[str, float]:
         """Calculate outcome statistics for a list of signals."""
         if not signals:
             return {"count": 0, "bounce_rate": 0.0, "break_rate": 0.0, "chop_rate": 0.0}
