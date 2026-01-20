@@ -15,7 +15,7 @@ I’m locking the stack to:
 
 1. Deploy Databricks streaming jobs (secret scope, notebook upload, job creation). [COMPLETE]
 2. Configure Fabric Real-Time Intelligence (Eventhouse, Eventstreams, dashboard). [COMPLETE]
-3. Run end-to-end pipeline test with synthetic events and validate outputs. [IN_PROGRESS]
+3. Run end-to-end pipeline test with synthetic events and validate outputs. [BLOCKED - Azure VM Capacity]
 4. Apply production hardening (monitoring, cost, security). [PENDING]
 
 # 0) Target runtime contract 
@@ -586,19 +586,42 @@ producer.send_batch(batch)
 Completion notes:
 - Sent a synthetic event with `backend/scripts/send_eventhub_test.py` using Key Vault secret `eventhub-connection-string`.
 
-### 3.2 Validate Pipeline Flow [IN_PROGRESS]
+### 3.2 Validate Pipeline Flow [BLOCKED - AZURE CAPACITY]
 1. Verify Bronze Delta table populated in `lake/bronze/stream/`
 2. Verify Silver bar_5s stream in `lake/silver/bar_5s_stream/`
 3. Verify Gold vectors in `lake/gold/setup_vectors_stream/`
 4. Verify inference scores in `lake/gold/inference_scores_stream/`
 5. Verify Fabric dashboard shows real-time data
 
+### Validation Status (2026-01-20)
 
+**Issues Fixed:**
+- Spark version in job definitions updated from `17.0.x-scala2.12` to `16.4.x-scala2.12`
+- Duplicate streaming jobs cleaned up (4 duplicates removed)
+- Cluster configuration reduced to single-node (Standard_D4ds_v4, num_workers=0) for quota compliance
+- All 4 streaming jobs recreated with correct configuration
+
+**Blocking Issue:**
+- **Azure VM Capacity Constraint**: westus region cannot provision Standard_D4ds_v4 VMs (stuck in PENDING state for 10+ minutes)
+- DSv3 quota: 8/10 cores used (exhausted)
+- DDSv4 quota: 0/10 cores available but no VM capacity in region
+
+**ML Endpoint Status:**
+- `es-model-endpoint` deployed and responding
+- Correct request format: `{"features": [0.01, 0.02, -0.01, 1.5, 0.8]}`
+- Returns: `{"predictions": [0], "probabilities": [[0.5, 0.5]]}`
 
 ## Continuation (Next Engineer)
 
-1. Confirm `rt__mbo_raw_to_bronze` is running and processing events; check run output for streaming errors.
-2. Verify Bronze data files exist under `lake/bronze/stream/` (not just `_delta_log`).
-3. Start and verify Silver, Gold, and Inference streaming jobs; confirm outputs land in their Delta paths.
-4. Validate Fabric Eventhouse tables and dashboard tiles show live data from `features_gold` and `inference_scores`.
-5. Mark Execution Plan step 3 as [COMPLETE] once Bronze → Silver → Gold → Inference → Fabric is validated end-to-end.
+**Priority 1: Resolve Azure VM Capacity**
+- Option A: Request quota increase + wait for capacity in westus
+- Option B: Redeploy Databricks workspace to eastus or eastus2 (has better capacity)
+- Quota increase link: https://aka.ms/ProdportalCRP
+
+**Priority 2: Once Clusters Provision**
+1. Start `rt__mbo_raw_to_bronze` job (job_id: 1118305726389719)
+2. Send test events: `EVENTHUB_CONNECTION_STRING=... backend/.venv/bin/python3 backend/scripts/send_eventhub_test.py`
+3. Query Bronze table: `SELECT COUNT(*) FROM bronze.default.mbo_stream`
+4. Start remaining jobs in order: bronze_to_silver → silver_to_gold → gold_to_inference
+5. Validate Fabric dashboard per `infra/fabric/SETUP_GUIDE.md`
+6. Mark Execution Plan step 3 as [COMPLETE]

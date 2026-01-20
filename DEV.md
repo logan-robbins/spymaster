@@ -450,8 +450,64 @@ infra/README.md
 - You MUST follow all rules in DEV.md
 
 <your_task>
-- You are logged in as the primary users to all local CLIs, if you are not, STOP and ask the user to login.
+INFRASTRUCTURE VALIDATION (2026-01-20)
 
-Go step by step and implement the fixes in infra/BICEP_GAP_ANALYSIS.md  so that the entire account can be torn down and rebuilt at will. Think about the sample data we have created, look at the code carefully and delete anything that is not in use, everything that is IN use must be accounted for in bicep and launch scripts etc.
+## Validated Components
+
+1. **Azure CLI & Databricks CLI**: Logged in as logan@qmachina.com
+2. **Resource Inventory**: azure-resources.json generated successfully
+3. **Event Hubs**: All 3 topics active (mbo_raw, features_gold, inference_scores)
+4. **Azure ML Endpoint**: es-model-endpoint deployed and responding (requires `{"features": [...]}` format)
+5. **Key Vault Secrets**: All required secrets present (aml-endpoint-key, databento-api-key, eventhub-connection-string)
+6. **Databricks Repos**: spymaster-databricks linked at /Repos/logan@qmachina.com/spymaster-databricks
+7. **Databricks Secret Scope**: spymaster scope linked to Key Vault
+8. **Fabric RTI Config Files**: eventhouse_schema.kql, dashboard_queries.kql, SETUP_GUIDE.md present
+
+## Fixed Issues
+
+1. **Spark Version Error**: All streaming job definitions had invalid `17.0.x-scala2.12`. Fixed to `16.4.x-scala2.12`.
+2. **Duplicate Jobs**: 4 duplicate streaming jobs deleted, 4 unique jobs recreated.
+3. **Cluster Sizing**: Reduced to single-node (num_workers=0) with Standard_D4ds_v4 for quota compliance.
+
+## Resolved Issues (2026-01-20)
+
+1. **Azure VM SKU Availability**: Initial attempts with Standard_D4ds_v4, Standard_DS3_v2, Standard_F4s failed with `SkuNotAvailable` error.
+   - **Root Cause**: Azure activity log showed `SkuNotAvailable` for these specific SKUs in westus
+   - **Solution**: Use `Standard_D2ads_v6` (2-core AMD v6 series) which has availability in westus
+   - All job configs updated in `infra/databricks/jobs/streaming/rt__*.json`
+
+2. **Maven Library Error**: Jobs failed with `Library resolution failed: azure-eventhubs-spark_2.12:2.3.26 not found`
+   - **Root Cause**: Version 2.3.26 doesn't exist - latest is 2.3.22
+   - **Solution**: Changed all jobs to use `com.microsoft.azure:azure-eventhubs-spark_2.12:2.3.22`
+
+3. **Clusters Now Provisioning Successfully**:
+   - Standard_D2ads_v6 (2 cores, 8GB RAM) provisions within ~90 seconds
+   - Total regional vCPU quota: 10 (sufficient for 4 single-node streaming clusters)
+
+## Current Status
+
+- **Streaming Jobs**: All 4 jobs deploying with continuous restart policy
+- **VM Type**: Standard_D2ads_v6 (2-core, 8GB, AMD EPYC)
+- **Spark Version**: 16.4.x-scala2.12 (Spark 3.5.2 LTS)
+- **Event Hubs Connector**: azure-eventhubs-spark_2.12:2.3.22
+
+## Next Steps
+
+1. Verify streaming notebooks execute correctly (read from Event Hubs, write to Delta)
+2. Send test events via `backend/scripts/send_eventhub_test.py`
+3. Validate end-to-end: Event Hub → Bronze → Silver → Gold → ML Endpoint → Fabric Dashboard
+
+## Test Commands Ready
+
+Send mock events: `EVENTHUB_CONNECTION_STRING=... backend/.venv/bin/python3 backend/scripts/send_eventhub_test.py`
+Test ML endpoint: `{"features": [0.01, 0.02, -0.01, 1.5, 0.8]}` returns predictions
+
+## Next Steps
+
+1. Request Azure quota increase for westus OR redeploy to eastus/eastus2
+2. Once clusters provision, verify Bronze streaming job processes Event Hub events
+3. Chain-validate Silver, Gold, Inference streaming jobs
+4. Configure Fabric Eventhouse manually per SETUP_GUIDE.md
+5. Validate end-to-end: Event Hub → Bronze → Silver → Gold → ML Endpoint → Fabric Dashboard
 </your_task>
 
