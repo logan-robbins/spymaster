@@ -120,3 +120,7 @@ dbn-data/*
 # Temporary files
 *.tmp
 test_cache_logic.py
+
+# Auto-generated infrastructure inventory (contains sensitive info)
+infra/azure-resources.json
+infra/azure-resources.json.backup
