@@ -4,10 +4,12 @@
 
 **CONTEXT**: 
 - Python environment: `../backend/.venv/bin/python3`
-- Resource inventory: `azure-resources.json` (auto-generated, do not manually edit)
-- Generate fresh inventory: `../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json`
+- Resource inventory: `azure-resources.json` (auto-generated locally, NOT in git)
+- Generate inventory: `../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json`
 - Current Azure user: Run `az account show --query user.name -o tsv`
 - Resource details: Always read from `azure-resources.json`, never hardcode
+
+**IMPORTANT**: `azure-resources.json` is in `.gitignore` (contains sensitive info). Regenerate locally before any deployment.
 
 ---
 
