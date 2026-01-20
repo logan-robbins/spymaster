@@ -1,0 +1,15 @@
+{
+  "namespace": "com.marketdata.gold",
+  "type": "record",
+  "name": "FeatureVectorRecord",
+  "fields": [
+    {"name": "vector_time", "type": "long"},
+    {"name": "model_id", "type": "string"},
+    {"name": "contract_id", "type": "string"},
+    {"name": "lookback_spec", "type": "string"},
+    {"name": "feature_vector", "type": {"type": "array", "items": "double"}},
+    {"name": "feature_hash", "type": "string"},
+    {"name": "label", "type": ["null", "string"], "default": null},
+    {"name": "data_version", "type": "string"}
+  ]
+}

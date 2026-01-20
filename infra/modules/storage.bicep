@@ -16,8 +16,11 @@ resource storage 'Microsoft.Storage/storageAccounts@2025-01-01' = {
     name: 'Standard_LRS'
   }
   properties: {
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
     isHnsEnabled: true
     accessTier: 'Hot'
+    minimumTlsVersion: 'TLS1_2'
   }
 }
 

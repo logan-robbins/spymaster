@@ -1,0 +1,4 @@
+$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
+name: spymaster-hyperopt
+image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04
+conda_file: conda/spymaster_hyperopt_conda.yaml

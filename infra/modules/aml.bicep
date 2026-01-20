@@ -4,11 +4,11 @@ param location string
 @description('Azure ML workspace name.')
 param amlWorkspaceName string
 
-@description('Lake storage account name for ADLS Gen2 datastores.')
-param lakeStorageAccountName string
-
 @description('AML system storage account name.')
 param amlStorageAccountName string
+
+@description('Lake storage account name for AML datastores.')
+param lakeStorageAccountName string
 
 @description('Key Vault name for AML workspace.')
 param keyVaultName string
@@ -19,8 +19,8 @@ param containerRegistryName string
 @description('Application Insights name for AML workspace.')
 param appInsightsName string
 
-@description('Container names to register as AML datastores.')
-param datastoreContainers array
+@description('Datastore definitions with names and filesystem containers.')
+param datastores array
 
 @description('Compute VM size for AML AmlCompute cluster.')
 param computeVmSize string
@@ -37,7 +37,6 @@ param computeIdleTime string
 var storageSuffix = environment().suffixes.storage
 var storageEndpoint = storageSuffix
 
-// AML-managed dependencies required by the workspace.
 resource amlStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = {
   name: amlStorageAccountName
   location: location
@@ -47,7 +46,12 @@ resource amlStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = {
   }
   properties: {
     accessTier: 'Hot'
+    isHnsEnabled: false
   }
+}
+
+resource lakeStorage 'Microsoft.Storage/storageAccounts@2025-01-01' existing = {
+  name: lakeStorageAccountName
 }
 
 resource amlKeyVault 'Microsoft.KeyVault/vaults@2024-11-01' = {
@@ -72,7 +76,7 @@ resource amlAcr 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
     name: 'Basic'
   }
   properties: {
-    adminUserEnabled: false
+    adminUserEnabled: true
   }
 }
 
@@ -85,7 +89,6 @@ resource amlAppInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-// AML workspace manages ML pipelines; dependent resources are service-managed.
 resource amlWorkspace 'Microsoft.MachineLearningServices/workspaces@2025-06-01' = {
   name: amlWorkspaceName
   location: location
@@ -127,12 +130,12 @@ resource amlCompute 'Microsoft.MachineLearningServices/workspaces/computes@2025-
 }
 
 resource amlDatastores 'Microsoft.MachineLearningServices/workspaces/datastores@2025-06-01' = [
-  for containerName in datastoreContainers: {
-    name: '${amlWorkspace.name}/${containerName}'
+  for datastore in datastores: {
+    name: '${amlWorkspace.name}/${datastore.name}'
     properties: {
       datastoreType: 'AzureDataLakeGen2'
-      accountName: lakeStorageAccountName
-      filesystem: containerName
+      accountName: lakeStorage.name
+      filesystem: datastore.filesystem
       protocol: 'https'
       endpoint: storageEndpoint
       resourceGroup: resourceGroup().name

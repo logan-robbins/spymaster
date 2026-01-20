@@ -4,9 +4,6 @@ param location string
 @description('Data Factory name.')
 param dataFactoryName string
 
-@description('Purview resource ID to link for lineage.')
-param purviewResourceId string
-
 @description('Storage account name for ADLS Gen2.')
 param storageAccountName string
 
@@ -21,9 +18,7 @@ resource factory 'Microsoft.DataFactory/factories@2018-06-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    purviewConfiguration: {
-      purviewResourceId: purviewResourceId
-    }
+    publicNetworkAccess: 'Enabled'
   }
 }
 

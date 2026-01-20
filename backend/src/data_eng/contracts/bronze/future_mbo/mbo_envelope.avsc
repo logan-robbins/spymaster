@@ -1,0 +1,21 @@
+{
+  "namespace": "com.marketdata.bronze",
+  "type": "record",
+  "name": "MboEnvelopeEvent",
+  "fields": [
+    {"name": "event_time", "type": "long"},
+    {"name": "ingest_time", "type": "long"},
+    {"name": "venue", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "instrument_type", "type": "string"},
+    {"name": "underlier", "type": "string"},
+    {"name": "contract_id", "type": "string"},
+    {"name": "action", "type": "string"},
+    {"name": "order_id", "type": "long"},
+    {"name": "side", "type": "string"},
+    {"name": "price", "type": "double"},
+    {"name": "size", "type": "long"},
+    {"name": "sequence", "type": "long"},
+    {"name": "payload", "type": "string"}
+  ]
+}

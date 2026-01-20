@@ -29,7 +29,7 @@ Your existing stage classes map 1:1 into Databricks tasks (batch) and into strea
 
 Create these resources in one Resource Group:
 
-1. **Azure Storage account (ADLS Gen2 enabled)**
+1. **Azure Storage account (ADLS Gen2 enabled)** [COMPLETE]
 
    * Containers:
 
@@ -40,20 +40,20 @@ Create these resources in one Resource Group:
      * `lake/checkpoints/` (streaming checkpoints)
      * `ml/artifacts/` (exported train datasets, model backtest outputs)
 
-2. **Azure Databricks workspace**
+2. **Azure Databricks workspace** [COMPLETE]
 
-   * Enable **Unity Catalog** (governance) and register ADLS as an External Location.
-   * Create 3 catalogs/schemas (or equivalent UC structure): `bronze`, `silver`, `gold`.
+   * Enable **Unity Catalog** (governance) and register ADLS as an External Location. [COMPLETE]
+   * Create 3 catalogs/schemas (or equivalent UC structure): `bronze`, `silver`, `gold`. [COMPLETE]
 
-3. **Azure Data Factory**
+3. **Azure Data Factory** [COMPLETE]
 
    * This will only orchestrate historical (batch) runs and backfills.
 
-4. **Azure Machine Learning workspace**
+4. **Azure Machine Learning workspace** [COMPLETE]
 
    * This becomes your system of record for: MLflow tracking, experiment runs, model registry, managed endpoints. ([Microsoft Learn][1])
 
-5. **Azure Event Hubs namespace**
+5. **Azure Event Hubs namespace** [COMPLETE]
 
    * Event Hubs (topics):
 
@@ -66,7 +66,7 @@ Create these resources in one Resource Group:
      * Fabric Eventstream ingestion
      * Any downstream analytics/QA
 
-6. **Microsoft Fabric workspace (Real-Time Intelligence)**
+6. **Microsoft Fabric workspace (Real-Time Intelligence)** [COMPLETE]
 
    * You will create:
 
@@ -75,7 +75,7 @@ Create these resources in one Resource Group:
      * one **Real-Time Dashboard** (tiles backed by KQL queries) ([Microsoft Learn][6])
      * Power BI report(s) for anomaly detection on feature/inference time-series ([Microsoft Learn][7])
 
-7. **Azure Key Vault**
+7. **Azure Key Vault** [COMPLETE]
 
    * Store:
 
@@ -85,7 +85,7 @@ Create these resources in one Resource Group:
 
 ---
 
-## 1.2 Define the enterprise data contract (required for everything downstream)
+## 1.2 Define the enterprise data contract (required for everything downstream) [COMPLETE]
 
 Create a shared schema contract (documented in repo) for:
 
@@ -121,7 +121,7 @@ This contract is what keeps “historical” and “real-time” identical.
 
 # 2) Phase 1 — Build Model (Historical)
 
-## Step 1 — Upload `.dbn.zst` to **ADLS Gen2**
+## Step 1 — Upload `.dbn.zst` to **ADLS Gen2** [COMPLETE]
 
 * Landing path convention:
 
@@ -130,7 +130,7 @@ This contract is what keeps “historical” and “real-time” identical.
 
   * file path, checksum, session date, underlier, instrument_type, ingestion batch id
 
-## Step 2 — Process to **Bronze** using **Azure Databricks Job**
+## Step 2 — Process to **Bronze** using **Azure Databricks Job** [COMPLETE]
 
 Create a Databricks Job: `hist__dbn_to_bronze`
 
@@ -145,7 +145,7 @@ Create a Databricks Job: `hist__dbn_to_bronze`
   * dedupe policy (based on `venue+sequence` or `order_id+event_time+action` per your rules)
   * append-only
 
-## Step 3 — Process to **Silver** using **Azure Databricks Job**
+## Step 3 — Process to **Silver** using **Azure Databricks Job** [COMPLETE]
 
 Create a Databricks Job: `hist__bronze_to_silver`
 
@@ -163,7 +163,7 @@ Map tasks exactly to your stage classes in order:
 * `silver.bar_5s` (canonical rollups used downstream)
 * `silver.feature_primitives` (intermediate computed fields)
 
-## Step 4 — Process to **Gold** using **Azure Databricks Job**
+## Step 4 — Process to **Gold** using **Azure Databricks Job** [COMPLETE]
 
 Create a Databricks Job: `hist__silver_to_gold`
 
@@ -174,7 +174,7 @@ Create a Databricks Job: `hist__silver_to_gold`
   * `gold.labels` (if you label events/outcomes)
   * `gold.training_view` (join of vectors + labels + metadata)
 
-## Step 5 — Prepare ML features using **Databricks → Export snapshot to ADLS**
+## Step 5 — Prepare ML features using **Databricks → Export snapshot to ADLS** [COMPLETE]
 
 To make Azure ML training deterministic and versioned:
 
@@ -187,7 +187,7 @@ To make Azure ML training deterministic and versioned:
 
 (Delta stays the system of record; the snapshot is the immutable training input.)
 
-## Step 6 — Split train/test/eval using **Azure Machine Learning Job**
+## Step 6 — Split train/test/eval using **Azure Machine Learning Job** [COMPLETE]
 
 In Azure ML:
 
@@ -436,3 +436,18 @@ Databricks real-time inference always calls a **specific model version** (passed
 [9]: https://learn.microsoft.com/en-us/azure/machine-learning/how-to-deploy-mlflow-models-online-endpoints?view=azureml-api-2&utm_source=chatgpt.com "Deploy MLflow models to online endpoints - Azure"
 [10]: https://learn.microsoft.com/en-us/azure/machine-learning/how-to-deploy-online-endpoints?view=azureml-api-2&utm_source=chatgpt.com "Deploy Machine Learning Models to Online Endpoints"
 [11]: https://learn.microsoft.com/en-us/kusto/query/series-decompose-anomalies-function?view=microsoft-fabric&utm_source=chatgpt.com "series_decompose_anomalies() - Kusto"
+
+## Handoff summary
+
+- Databricks batch jobs are created and executed: hist__dbn_to_bronze (job_id 34416110842711), hist__bronze_to_silver (job_id 616566000685834), hist__silver_to_gold (job_id 66228837418678); outputs landed in ADLS lake/bronze, lake/silver, and lake/gold with session_date=2025-10-01 partitions.
+- External locations created in Unity Catalog for raw and ml containers: spymaster_raw (raw-dbn) and spymaster_ml (ml-artifacts) using storage credential spymaster_lake_cred.
+- Training snapshot export job hist__export_training_snapshot (job_id 1031675175331261) succeeded; snapshot stored at ml-artifacts/datasets/ES_MODEL/2025-10-01/.
+- Azure ML data asset registered: es_training_snapshot version 2025-10-01 pointing to ml_artifacts datastore.
+- Azure ML split job succeeded (split_training_snapshot_retry); train/val/test files at ml-artifacts/datasets/ES_MODEL/2025-10-01/splits/{train,val,test}/part-00000.parquet.
+- Azure ML environment spymaster-hyperopt version 2 created with numpy/pandas/pyarrow/scikit-learn/hyperopt/mlflow/azureml-mlflow; sweep job train_hyperopt_sweep_run is running as of last check.
+
+## Next engineer actions
+
+- Check status of Azure ML sweep job train_hyperopt_sweep_run; if failed, stream logs and fix, then rerun sweep until completed.
+- Once sweep completes, identify best run in MLflow, register model, and proceed with managed online endpoint deployment.
+- Continue remaining WORK.md steps: endpoint integration, real-time ingestion, Databricks streaming, Fabric RTI artifacts, and validation.

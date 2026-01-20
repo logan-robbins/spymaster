@@ -4,21 +4,46 @@ param storageAccountName string
 @description('ADF managed identity principal ID.')
 param dataFactoryPrincipalId string
 
-@description('Purview managed identity principal ID.')
-param purviewPrincipalId string
-
 @description('AML workspace managed identity principal ID.')
 param amlWorkspacePrincipalId string
 
 @description('AML compute managed identity principal ID.')
 param amlComputePrincipalId string
 
+@description('Databricks access connector principal ID.')
+param databricksAccessConnectorPrincipalId string
+
+@description('Event Hubs namespace name.')
+param eventHubsNamespaceName string
+
+@description('Runtime Key Vault name.')
+param runtimeKeyVaultName string
+
+@description('Azure Event Hubs Data Sender role definition GUID.')
+param eventHubsDataSenderRoleId string
+
+@description('Azure Event Hubs Data Receiver role definition GUID.')
+param eventHubsDataReceiverRoleId string
+
+@description('Key Vault Secrets User role definition GUID.')
+param keyVaultSecretsUserRoleId string
+
 // Data plane access for storage is required for ADF/AML/Purview interoperability.
 var storageBlobDataContributorRoleId = '/subscriptions/${subscription().subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-var storageBlobDataReaderRoleId = '/subscriptions/${subscription().subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+var eventHubsDataSenderRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', eventHubsDataSenderRoleId)
+var eventHubsDataReceiverRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', eventHubsDataReceiverRoleId)
+var keyVaultSecretsUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
 
 resource storage 'Microsoft.Storage/storageAccounts@2025-01-01' existing = {
   name: storageAccountName
+}
+
+resource eventHubsNamespace 'Microsoft.EventHub/namespaces@2025-05-01-preview' existing = {
+  name: eventHubsNamespaceName
+}
+
+resource runtimeKeyVault 'Microsoft.KeyVault/vaults@2024-11-01' existing = {
+  name: runtimeKeyVaultName
 }
 
 resource adfStorageContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -51,12 +76,52 @@ resource amlComputeStorageContributor 'Microsoft.Authorization/roleAssignments@2
   }
 }
 
-resource purviewStorageReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storage.id, purviewPrincipalId, storageBlobDataReaderRoleId)
+resource databricksAccessConnectorStorageContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, databricksAccessConnectorPrincipalId, storageBlobDataContributorRoleId)
   scope: storage
   properties: {
-    roleDefinitionId: storageBlobDataReaderRoleId
-    principalId: purviewPrincipalId
+    roleDefinitionId: storageBlobDataContributorRoleId
+    principalId: databricksAccessConnectorPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource databricksEventHubsSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(eventHubsNamespace.id, databricksAccessConnectorPrincipalId, eventHubsDataSenderRoleDefinitionId)
+  scope: eventHubsNamespace
+  properties: {
+    roleDefinitionId: eventHubsDataSenderRoleDefinitionId
+    principalId: databricksAccessConnectorPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource databricksEventHubsReceiver 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(eventHubsNamespace.id, databricksAccessConnectorPrincipalId, eventHubsDataReceiverRoleDefinitionId)
+  scope: eventHubsNamespace
+  properties: {
+    roleDefinitionId: eventHubsDataReceiverRoleDefinitionId
+    principalId: databricksAccessConnectorPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource adfKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(runtimeKeyVault.id, dataFactoryPrincipalId, keyVaultSecretsUserRoleDefinitionId)
+  scope: runtimeKeyVault
+  properties: {
+    roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
+    principalId: dataFactoryPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource databricksKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(runtimeKeyVault.id, databricksAccessConnectorPrincipalId, keyVaultSecretsUserRoleDefinitionId)
+  scope: runtimeKeyVault
+  properties: {
+    roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
+    principalId: databricksAccessConnectorPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

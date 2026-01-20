@@ -1,0 +1,6 @@
+$schema: https://azuremlschemas.azureedge.net/latest/data.schema.json
+name: es_training_snapshot
+version: "2025-10-01"
+type: uri_folder
+path: azureml://datastores/ml_artifacts/paths/datasets/ES_MODEL/2025-10-01/
+description: ES training snapshot 2025-10-01
