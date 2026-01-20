@@ -1,7 +1,7 @@
 targetScope = 'resourceGroup'
 
 @description('Location for all resources.')
-param location string = 'eastus'
+param location string = 'westus'
 
 @description('Prefix for resource names (lowercase, alphanumeric).')
 @minLength(3)
@@ -87,6 +87,8 @@ var databricksManagedRgName = 'rg-${databricksWorkspaceName}-managed'
 var databricksAccessConnectorBase = toLower('adbacc${namePrefix}${environment}${nameSeed}')
 var databricksAccessConnectorName = substring(databricksAccessConnectorBase, 0, min(length(databricksAccessConnectorBase), 64))
 var runtimeKeyVaultName = toLower(substring('kv${namePrefix}${environment}rt${nameSeed}', 0, 24))
+var logAnalyticsWorkspaceName = toLower('law-${namePrefix}-${environment}')
+var containerAppsEnvName = toLower('cae${namePrefix}${environment}')
 
 var lakeContainers = [
   'raw-dbn'
@@ -235,6 +237,23 @@ module rbac './modules/rbac.bicep' = {
   }
 }
 
+module loganalytics './modules/loganalytics.bicep' = {
+  name: 'loganalytics'
+  params: {
+    location: location
+    workspaceName: logAnalyticsWorkspaceName
+  }
+}
+
+module containerapps './modules/containerapps.bicep' = {
+  name: 'containerapps'
+  params: {
+    location: location
+    environmentName: containerAppsEnvName
+    logAnalyticsWorkspaceName: loganalytics.outputs.workspaceName
+  }
+}
+
 output storageAccountName string = storage.outputs.storageAccountName
 output storageAccountId string = storage.outputs.storageAccountId
 output dataFactoryName string = datafactory.outputs.dataFactoryName
@@ -249,3 +268,7 @@ output databricksWorkspaceName string = databricks.outputs.workspaceName
 output databricksWorkspaceUrl string = databricks.outputs.workspaceUrl
 output fabricCapacityName string = deployFabric ? fabric.outputs.capacityName : ''
 output fabricCapacityId string = deployFabric ? fabric.outputs.capacityId : ''
+output logAnalyticsWorkspaceName string = loganalytics.outputs.workspaceName
+output logAnalyticsWorkspaceId string = loganalytics.outputs.workspaceId
+output containerAppsEnvName string = containerapps.outputs.environmentName
+output containerAppsDefaultDomain string = containerapps.outputs.defaultDomain

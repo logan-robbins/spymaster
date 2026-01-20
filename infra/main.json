@@ -1,0 +1,1632 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.37.4.10188",
+      "templateHash": "2334507516761624738"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "westus",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "spymaster",
+      "minLength": 3,
+      "maxLength": 12,
+      "metadata": {
+        "description": "Prefix for resource names (lowercase, alphanumeric)."
+      }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "dev",
+      "minLength": 2,
+      "maxLength": 6,
+      "metadata": {
+        "description": "Environment tag for naming."
+      }
+    },
+    "fabricCapacitySku": {
+      "type": "string",
+      "defaultValue": "F2",
+      "metadata": {
+        "description": "Fabric capacity SKU name, for example F2 or F4."
+      }
+    },
+    "fabricCapacityName": {
+      "type": "string",
+      "metadata": {
+        "description": "Fabric capacity name."
+      }
+    },
+    "fabricCapacityLocation": {
+      "type": "string",
+      "defaultValue": "[parameters('location')]",
+      "metadata": {
+        "description": "Fabric capacity location."
+      }
+    },
+    "fabricAdminMembers": {
+      "type": "array",
+      "metadata": {
+        "description": "Fabric capacity admin members (UPNs)."
+      }
+    },
+    "deployFabric": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Whether to deploy Fabric capacity in this run."
+      }
+    },
+    "amlComputeVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_DS3_v2",
+      "metadata": {
+        "description": "AML compute VM size."
+      }
+    },
+    "amlWorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure ML workspace name."
+      }
+    },
+    "amlComputeMinNodes": {
+      "type": "int",
+      "defaultValue": 0,
+      "metadata": {
+        "description": "AML compute cluster min nodes."
+      }
+    },
+    "amlComputeMaxNodes": {
+      "type": "int",
+      "defaultValue": 2,
+      "metadata": {
+        "description": "AML compute cluster max nodes."
+      }
+    },
+    "amlComputeIdleTime": {
+      "type": "string",
+      "defaultValue": "PT10M",
+      "metadata": {
+        "description": "AML compute idle time before scale down."
+      }
+    },
+    "eventHubsSkuName": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "metadata": {
+        "description": "Event Hubs SKU name."
+      }
+    },
+    "eventHubsSkuCapacity": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "Event Hubs capacity units."
+      }
+    },
+    "eventHubPartitionCount": {
+      "type": "int",
+      "defaultValue": 4,
+      "metadata": {
+        "description": "Event Hubs partition count per hub."
+      }
+    },
+    "eventHubRetentionDays": {
+      "type": "int",
+      "defaultValue": 7,
+      "metadata": {
+        "description": "Event Hubs retention in days."
+      }
+    },
+    "databricksSkuName": {
+      "type": "string",
+      "defaultValue": "premium",
+      "metadata": {
+        "description": "Databricks workspace SKU name."
+      }
+    },
+    "databricksPublicNetworkAccess": {
+      "type": "string",
+      "defaultValue": "Enabled",
+      "metadata": {
+        "description": "Databricks public network access."
+      }
+    },
+    "eventHubsDataSenderRoleId": {
+      "type": "string",
+      "metadata": {
+        "description": "Role definition id for Azure Event Hubs Data Sender."
+      }
+    },
+    "eventHubsDataReceiverRoleId": {
+      "type": "string",
+      "metadata": {
+        "description": "Role definition id for Azure Event Hubs Data Receiver."
+      }
+    },
+    "keyVaultSecretsUserRoleId": {
+      "type": "string",
+      "metadata": {
+        "description": "Role definition id for Key Vault Secrets User."
+      }
+    }
+  },
+  "variables": {
+    "nameSeed": "[uniqueString(resourceGroup().id)]",
+    "storageBase": "[toLower(format('{0}{1}lake{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "amlAcrBase": "[toLower(format('acr{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "amlStorageBase": "[toLower(format('{0}{1}mls{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "storageAccountName": "[substring(variables('storageBase'), 0, min(length(variables('storageBase')), 24))]",
+    "amlStorageAccountName": "[substring(variables('amlStorageBase'), 0, min(length(variables('amlStorageBase')), 24))]",
+    "dataFactoryName": "[toLower(format('adf{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "amlKeyVaultName": "[toLower(substring(format('kv{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')), 0, 24))]",
+    "amlContainerRegistryName": "[substring(variables('amlAcrBase'), 0, min(length(variables('amlAcrBase')), 50))]",
+    "amlAppInsightsName": "[toLower(format('appi{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "eventHubsNamespaceName": "[toLower(format('ehn{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "databricksWorkspaceBase": "[toLower(format('adb{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "databricksWorkspaceName": "[substring(variables('databricksWorkspaceBase'), 0, min(length(variables('databricksWorkspaceBase')), 64))]",
+    "databricksManagedRgName": "[format('rg-{0}-managed', variables('databricksWorkspaceName'))]",
+    "databricksAccessConnectorBase": "[toLower(format('adbacc{0}{1}{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')))]",
+    "databricksAccessConnectorName": "[substring(variables('databricksAccessConnectorBase'), 0, min(length(variables('databricksAccessConnectorBase')), 64))]",
+    "runtimeKeyVaultName": "[toLower(substring(format('kv{0}{1}rt{2}', parameters('namePrefix'), parameters('environment'), variables('nameSeed')), 0, 24))]",
+    "logAnalyticsWorkspaceName": "[toLower(format('law-{0}-{1}', parameters('namePrefix'), parameters('environment')))]",
+    "containerAppsEnvName": "[toLower(format('cae-{0}-{1}', parameters('namePrefix'), parameters('environment')))]",
+    "lakeContainers": [
+      "raw-dbn",
+      "lake",
+      "ml-artifacts"
+    ],
+    "amlDatastoreContainers": [
+      {
+        "name": "raw_dbn",
+        "filesystem": "raw-dbn"
+      },
+      {
+        "name": "lake",
+        "filesystem": "lake"
+      },
+      {
+        "name": "ml_artifacts",
+        "filesystem": "ml-artifacts"
+      }
+    ],
+    "eventHubEntities": [
+      {
+        "name": "mbo_raw",
+        "partitionCount": "[parameters('eventHubPartitionCount')]",
+        "messageRetentionInDays": "[parameters('eventHubRetentionDays')]",
+        "consumerGroups": [
+          "databricks_bronze",
+          "fabric_stream",
+          "analytics"
+        ]
+      },
+      {
+        "name": "features_gold",
+        "partitionCount": "[parameters('eventHubPartitionCount')]",
+        "messageRetentionInDays": "[parameters('eventHubRetentionDays')]",
+        "consumerGroups": [
+          "databricks_features",
+          "fabric_stream",
+          "analytics"
+        ]
+      },
+      {
+        "name": "inference_scores",
+        "partitionCount": "[parameters('eventHubPartitionCount')]",
+        "messageRetentionInDays": "[parameters('eventHubRetentionDays')]",
+        "consumerGroups": [
+          "databricks_inference",
+          "fabric_stream",
+          "analytics"
+        ]
+      }
+    ]
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "storage",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "containers": {
+            "value": "[variables('lakeContainers')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "4538960518349871029"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the storage account."
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Globally unique storage account name."
+              }
+            },
+            "containers": {
+              "type": "array",
+              "metadata": {
+                "description": "Container names to create in the lake account."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2025-01-01",
+              "name": "[parameters('storageAccountName')]",
+              "location": "[parameters('location')]",
+              "kind": "StorageV2",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "properties": {
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "isHnsEnabled": true,
+                "accessTier": "Hot",
+                "minimumTlsVersion": "TLS1_2"
+              }
+            },
+            {
+              "copy": {
+                "name": "lakeContainers",
+                "count": "[length(parameters('containers'))]"
+              },
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2025-01-01",
+              "name": "[format('{0}/default/{1}', parameters('storageAccountName'), parameters('containers')[copyIndex()])]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "storageAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            },
+            "storageAccountName": {
+              "type": "string",
+              "value": "[parameters('storageAccountName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "datafactory",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "dataFactoryName": {
+            "value": "[variables('dataFactoryName')]"
+          },
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2022-09-01').outputs.storageAccountName.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "2134998204988402825"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Data Factory."
+              }
+            },
+            "dataFactoryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Data Factory name."
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name for ADLS Gen2."
+              }
+            }
+          },
+          "variables": {
+            "storageSuffix": "[environment().suffixes.storage]",
+            "dfsEndpoint": "[format('https://{0}.dfs.{1}', parameters('storageAccountName'), variables('storageSuffix'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DataFactory/factories",
+              "apiVersion": "2018-06-01",
+              "name": "[parameters('dataFactoryName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            {
+              "type": "Microsoft.DataFactory/factories/linkedservices",
+              "apiVersion": "2018-06-01",
+              "name": "[format('{0}/LakeStorage', parameters('dataFactoryName'))]",
+              "properties": {
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                  "url": "[variables('dfsEndpoint')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DataFactory/factories', parameters('dataFactoryName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "dataFactoryId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DataFactory/factories', parameters('dataFactoryName'))]"
+            },
+            "dataFactoryName": {
+              "type": "string",
+              "value": "[parameters('dataFactoryName')]"
+            },
+            "dataFactoryPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.DataFactory/factories', parameters('dataFactoryName')), '2018-06-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "runtime-kv",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "keyVaultName": {
+            "value": "[variables('runtimeKeyVaultName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "6207256123175107171"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Key Vault."
+              }
+            },
+            "keyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2024-11-01",
+              "name": "[parameters('keyVaultName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "tenantId": "[subscription().tenantId]",
+                "enablePurgeProtection": true,
+                "enableRbacAuthorization": true,
+                "accessPolicies": [],
+                "sku": {
+                  "name": "standard",
+                  "family": "A"
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "keyVaultId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "value": "[parameters('keyVaultName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "eventhubs",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namespaceName": {
+            "value": "[variables('eventHubsNamespaceName')]"
+          },
+          "skuName": {
+            "value": "[parameters('eventHubsSkuName')]"
+          },
+          "skuCapacity": {
+            "value": "[parameters('eventHubsSkuCapacity')]"
+          },
+          "eventHubs": {
+            "value": "[variables('eventHubEntities')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "1212578740584434432"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Event Hubs namespace."
+              }
+            },
+            "namespaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Event Hubs namespace name."
+              }
+            },
+            "skuName": {
+              "type": "string",
+              "defaultValue": "Standard",
+              "metadata": {
+                "description": "Event Hubs SKU name."
+              }
+            },
+            "skuCapacity": {
+              "type": "int",
+              "defaultValue": 1,
+              "metadata": {
+                "description": "Event Hubs capacity units."
+              }
+            },
+            "eventHubs": {
+              "type": "array",
+              "metadata": {
+                "description": "Event hub definitions with partition counts, retention, and consumer groups."
+              }
+            }
+          },
+          "variables": {
+            "consumerGroupDefinitions": "[reduce(map(parameters('eventHubs'), lambda('hub', map(lambdaVariables('hub').consumerGroups, lambda('cg', createObject('hubName', lambdaVariables('hub').name, 'name', lambdaVariables('cg')))))), createArray(), lambda('acc', 'next', concat(lambdaVariables('acc'), lambdaVariables('next'))))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.EventHub/namespaces",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[parameters('namespaceName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('skuName')]",
+                "tier": "[parameters('skuName')]",
+                "capacity": "[parameters('skuCapacity')]"
+              },
+              "properties": {
+                "minimumTlsVersion": "1.2",
+                "publicNetworkAccess": "Enabled",
+                "isAutoInflateEnabled": false
+              }
+            },
+            {
+              "copy": {
+                "name": "hubs",
+                "count": "[length(parameters('eventHubs'))]"
+              },
+              "type": "Microsoft.EventHub/namespaces/eventhubs",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('namespaceName'), parameters('eventHubs')[copyIndex()].name)]",
+              "properties": {
+                "messageRetentionInDays": "[parameters('eventHubs')[copyIndex()].messageRetentionInDays]",
+                "partitionCount": "[parameters('eventHubs')[copyIndex()].partitionCount]",
+                "status": "Active"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('namespaceName'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "consumerGroups",
+                "count": "[length(variables('consumerGroupDefinitions'))]"
+              },
+              "type": "Microsoft.EventHub/namespaces/eventhubs/consumergroups",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('namespaceName'), variables('consumerGroupDefinitions')[copyIndex()].hubName, variables('consumerGroupDefinitions')[copyIndex()].name)]",
+              "properties": {},
+              "dependsOn": [
+                "hubs",
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('namespaceName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "namespaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.EventHub/namespaces', parameters('namespaceName'))]"
+            },
+            "namespaceName": {
+              "type": "string",
+              "value": "[parameters('namespaceName')]"
+            },
+            "eventHubNames": {
+              "type": "array",
+              "copy": {
+                "count": "[length(parameters('eventHubs'))]",
+                "input": "[parameters('eventHubs')[copyIndex()].name]"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "databricks",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "workspaceName": {
+            "value": "[variables('databricksWorkspaceName')]"
+          },
+          "managedResourceGroupName": {
+            "value": "[variables('databricksManagedRgName')]"
+          },
+          "skuName": {
+            "value": "[parameters('databricksSkuName')]"
+          },
+          "publicNetworkAccess": {
+            "value": "[parameters('databricksPublicNetworkAccess')]"
+          },
+          "accessConnectorName": {
+            "value": "[variables('databricksAccessConnectorName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "13889001212701774689"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for Databricks workspace resources."
+              }
+            },
+            "workspaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Databricks workspace name."
+              }
+            },
+            "managedResourceGroupName": {
+              "type": "string",
+              "metadata": {
+                "description": "Managed resource group name for the workspace."
+              }
+            },
+            "skuName": {
+              "type": "string",
+              "defaultValue": "premium",
+              "metadata": {
+                "description": "Databricks workspace SKU name."
+              }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Enabled",
+              "metadata": {
+                "description": "Databricks public network access setting."
+              }
+            },
+            "accessConnectorName": {
+              "type": "string",
+              "metadata": {
+                "description": "Databricks access connector name."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Databricks/accessConnectors",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('accessConnectorName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {}
+            },
+            {
+              "type": "Microsoft.Databricks/workspaces",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('workspaceName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('skuName')]",
+                "tier": "[parameters('skuName')]"
+              },
+              "properties": {
+                "managedResourceGroupId": "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('managedResourceGroupName'))]",
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]"
+              }
+            }
+          ],
+          "outputs": {
+            "workspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Databricks/workspaces', parameters('workspaceName'))]"
+            },
+            "workspaceName": {
+              "type": "string",
+              "value": "[parameters('workspaceName')]"
+            },
+            "workspaceUrl": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Databricks/workspaces', parameters('workspaceName')), '2024-05-01').workspaceUrl]"
+            },
+            "accessConnectorId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Databricks/accessConnectors', parameters('accessConnectorName'))]"
+            },
+            "accessConnectorPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Databricks/accessConnectors', parameters('accessConnectorName')), '2024-05-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "aml",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "amlWorkspaceName": {
+            "value": "[parameters('amlWorkspaceName')]"
+          },
+          "amlStorageAccountName": {
+            "value": "[variables('amlStorageAccountName')]"
+          },
+          "lakeStorageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2022-09-01').outputs.storageAccountName.value]"
+          },
+          "keyVaultName": {
+            "value": "[variables('amlKeyVaultName')]"
+          },
+          "containerRegistryName": {
+            "value": "[variables('amlContainerRegistryName')]"
+          },
+          "appInsightsName": {
+            "value": "[variables('amlAppInsightsName')]"
+          },
+          "datastores": {
+            "value": "[variables('amlDatastoreContainers')]"
+          },
+          "computeVmSize": {
+            "value": "[parameters('amlComputeVmSize')]"
+          },
+          "computeMinNodes": {
+            "value": "[parameters('amlComputeMinNodes')]"
+          },
+          "computeMaxNodes": {
+            "value": "[parameters('amlComputeMaxNodes')]"
+          },
+          "computeIdleTime": {
+            "value": "[parameters('amlComputeIdleTime')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "6917621090048018304"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for AML resources."
+              }
+            },
+            "amlWorkspaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure ML workspace name."
+              }
+            },
+            "amlStorageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "AML system storage account name."
+              }
+            },
+            "lakeStorageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Lake storage account name for AML datastores."
+              }
+            },
+            "keyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name for AML workspace."
+              }
+            },
+            "containerRegistryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Container Registry name for AML workspace."
+              }
+            },
+            "appInsightsName": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights name for AML workspace."
+              }
+            },
+            "datastores": {
+              "type": "array",
+              "metadata": {
+                "description": "Datastore definitions with names and filesystem containers."
+              }
+            },
+            "computeVmSize": {
+              "type": "string",
+              "metadata": {
+                "description": "Compute VM size for AML AmlCompute cluster."
+              }
+            },
+            "computeMinNodes": {
+              "type": "int",
+              "metadata": {
+                "description": "Minimum node count for AML compute."
+              }
+            },
+            "computeMaxNodes": {
+              "type": "int",
+              "metadata": {
+                "description": "Maximum node count for AML compute."
+              }
+            },
+            "computeIdleTime": {
+              "type": "string",
+              "metadata": {
+                "description": "Idle time before AML compute scales down."
+              }
+            }
+          },
+          "variables": {
+            "storageSuffix": "[environment().suffixes.storage]",
+            "storageEndpoint": "[variables('storageSuffix')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2025-01-01",
+              "name": "[parameters('amlStorageAccountName')]",
+              "location": "[parameters('location')]",
+              "kind": "StorageV2",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "properties": {
+                "accessTier": "Hot",
+                "isHnsEnabled": false
+              }
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2024-11-01",
+              "name": "[parameters('keyVaultName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "tenantId": "[subscription().tenantId]",
+                "enablePurgeProtection": true,
+                "enableRbacAuthorization": false,
+                "accessPolicies": [],
+                "sku": {
+                  "name": "standard",
+                  "family": "A"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.ContainerRegistry/registries",
+              "apiVersion": "2025-04-01",
+              "name": "[parameters('containerRegistryName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Basic"
+              },
+              "properties": {
+                "adminUserEnabled": true
+              }
+            },
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2020-02-02",
+              "name": "[parameters('appInsightsName')]",
+              "location": "[parameters('location')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web"
+              }
+            },
+            {
+              "type": "Microsoft.MachineLearningServices/workspaces",
+              "apiVersion": "2025-06-01",
+              "name": "[parameters('amlWorkspaceName')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "sku": {
+                "name": "Basic"
+              },
+              "properties": {
+                "description": "Spymaster ML workspace",
+                "friendlyName": "Spymaster ML",
+                "keyVault": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+                "applicationInsights": "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]",
+                "containerRegistry": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName'))]",
+                "storageAccount": "[resourceId('Microsoft.Storage/storageAccounts', parameters('amlStorageAccountName'))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName'))]",
+                "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]",
+                "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('amlStorageAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.MachineLearningServices/workspaces/computes",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/cpu-cluster', parameters('amlWorkspaceName'))]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "computeType": "AmlCompute",
+                "properties": {
+                  "vmSize": "[parameters('computeVmSize')]",
+                  "vmPriority": "Dedicated",
+                  "osType": "Linux",
+                  "scaleSettings": {
+                    "minNodeCount": "[parameters('computeMinNodes')]",
+                    "maxNodeCount": "[parameters('computeMaxNodes')]",
+                    "nodeIdleTimeBeforeScaleDown": "[parameters('computeIdleTime')]"
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "amlDatastores",
+                "count": "[length(parameters('datastores'))]"
+              },
+              "type": "Microsoft.MachineLearningServices/workspaces/datastores",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/{1}', parameters('amlWorkspaceName'), parameters('datastores')[copyIndex()].name)]",
+              "properties": {
+                "datastoreType": "AzureDataLakeGen2",
+                "accountName": "[parameters('lakeStorageAccountName')]",
+                "filesystem": "[parameters('datastores')[copyIndex()].filesystem]",
+                "protocol": "https",
+                "endpoint": "[variables('storageEndpoint')]",
+                "resourceGroup": "[resourceGroup().name]",
+                "subscriptionId": "[subscription().subscriptionId]",
+                "serviceDataAccessAuthIdentity": "WorkspaceSystemAssignedIdentity",
+                "credentials": {
+                  "credentialsType": "None"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "amlWorkspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName'))]"
+            },
+            "amlWorkspaceName": {
+              "type": "string",
+              "value": "[parameters('amlWorkspaceName')]"
+            },
+            "amlWorkspacePrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.MachineLearningServices/workspaces', parameters('amlWorkspaceName')), '2025-06-01', 'full').identity.principalId]"
+            },
+            "amlComputeName": {
+              "type": "string",
+              "value": "[format('{0}/cpu-cluster', parameters('amlWorkspaceName'))]"
+            },
+            "amlComputePrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.MachineLearningServices/workspaces/computes', split(format('{0}/cpu-cluster', parameters('amlWorkspaceName')), '/')[0], split(format('{0}/cpu-cluster', parameters('amlWorkspaceName')), '/')[1]), '2025-06-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployFabric')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "fabric",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('fabricCapacityLocation')]"
+          },
+          "capacityName": {
+            "value": "[parameters('fabricCapacityName')]"
+          },
+          "skuName": {
+            "value": "[parameters('fabricCapacitySku')]"
+          },
+          "adminMembers": {
+            "value": "[parameters('fabricAdminMembers')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "14099704106080886247"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Fabric capacity."
+              }
+            },
+            "capacityName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fabric capacity name."
+              }
+            },
+            "skuName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fabric capacity SKU name (F2, F4, etc)."
+              }
+            },
+            "adminMembers": {
+              "type": "array",
+              "metadata": {
+                "description": "Fabric capacity admin members (UPNs)."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Fabric/capacities",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('capacityName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('skuName')]",
+                "tier": "Fabric"
+              },
+              "properties": {
+                "administration": {
+                  "members": "[parameters('adminMembers')]"
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "capacityName": {
+              "type": "string",
+              "value": "[parameters('capacityName')]"
+            },
+            "capacityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Fabric/capacities', parameters('capacityName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "rbac",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2022-09-01').outputs.storageAccountName.value]"
+          },
+          "dataFactoryPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'datafactory'), '2022-09-01').outputs.dataFactoryPrincipalId.value]"
+          },
+          "amlWorkspacePrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'aml'), '2022-09-01').outputs.amlWorkspacePrincipalId.value]"
+          },
+          "amlComputePrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'aml'), '2022-09-01').outputs.amlComputePrincipalId.value]"
+          },
+          "databricksAccessConnectorPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'databricks'), '2022-09-01').outputs.accessConnectorPrincipalId.value]"
+          },
+          "eventHubsNamespaceName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'eventhubs'), '2022-09-01').outputs.namespaceName.value]"
+          },
+          "runtimeKeyVaultName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'runtime-kv'), '2022-09-01').outputs.keyVaultName.value]"
+          },
+          "eventHubsDataSenderRoleId": {
+            "value": "[parameters('eventHubsDataSenderRoleId')]"
+          },
+          "eventHubsDataReceiverRoleId": {
+            "value": "[parameters('eventHubsDataReceiverRoleId')]"
+          },
+          "keyVaultSecretsUserRoleId": {
+            "value": "[parameters('keyVaultSecretsUserRoleId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "16653873696824484408"
+            }
+          },
+          "parameters": {
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name to scope data access roles."
+              }
+            },
+            "dataFactoryPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "ADF managed identity principal ID."
+              }
+            },
+            "amlWorkspacePrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "AML workspace managed identity principal ID."
+              }
+            },
+            "amlComputePrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "AML compute managed identity principal ID."
+              }
+            },
+            "databricksAccessConnectorPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Databricks access connector principal ID."
+              }
+            },
+            "eventHubsNamespaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Event Hubs namespace name."
+              }
+            },
+            "runtimeKeyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Runtime Key Vault name."
+              }
+            },
+            "eventHubsDataSenderRoleId": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure Event Hubs Data Sender role definition GUID."
+              }
+            },
+            "eventHubsDataReceiverRoleId": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure Event Hubs Data Receiver role definition GUID."
+              }
+            },
+            "keyVaultSecretsUserRoleId": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault Secrets User role definition GUID."
+              }
+            }
+          },
+          "variables": {
+            "storageBlobDataContributorRoleId": "[format('/subscriptions/{0}/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe', subscription().subscriptionId)]",
+            "eventHubsDataSenderRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', parameters('eventHubsDataSenderRoleId'))]",
+            "eventHubsDataReceiverRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', parameters('eventHubsDataReceiverRoleId'))]",
+            "keyVaultSecretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', parameters('keyVaultSecretsUserRoleId'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('dataFactoryPrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('storageBlobDataContributorRoleId')]",
+                "principalId": "[parameters('dataFactoryPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('amlWorkspacePrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('storageBlobDataContributorRoleId')]",
+                "principalId": "[parameters('amlWorkspacePrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('amlComputePrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('storageBlobDataContributorRoleId')]",
+                "principalId": "[parameters('amlComputePrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('databricksAccessConnectorPrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('storageBlobDataContributorRoleId')]",
+                "principalId": "[parameters('databricksAccessConnectorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.EventHub/namespaces/{0}', parameters('eventHubsNamespaceName'))]",
+              "name": "[guid(resourceId('Microsoft.EventHub/namespaces', parameters('eventHubsNamespaceName')), parameters('databricksAccessConnectorPrincipalId'), variables('eventHubsDataSenderRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('eventHubsDataSenderRoleDefinitionId')]",
+                "principalId": "[parameters('databricksAccessConnectorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.EventHub/namespaces/{0}', parameters('eventHubsNamespaceName'))]",
+              "name": "[guid(resourceId('Microsoft.EventHub/namespaces', parameters('eventHubsNamespaceName')), parameters('databricksAccessConnectorPrincipalId'), variables('eventHubsDataReceiverRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('eventHubsDataReceiverRoleDefinitionId')]",
+                "principalId": "[parameters('databricksAccessConnectorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('runtimeKeyVaultName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('runtimeKeyVaultName')), parameters('dataFactoryPrincipalId'), variables('keyVaultSecretsUserRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('keyVaultSecretsUserRoleDefinitionId')]",
+                "principalId": "[parameters('dataFactoryPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('runtimeKeyVaultName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('runtimeKeyVaultName')), parameters('databricksAccessConnectorPrincipalId'), variables('keyVaultSecretsUserRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('keyVaultSecretsUserRoleDefinitionId')]",
+                "principalId": "[parameters('databricksAccessConnectorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'aml')]",
+        "[resourceId('Microsoft.Resources/deployments', 'databricks')]",
+        "[resourceId('Microsoft.Resources/deployments', 'datafactory')]",
+        "[resourceId('Microsoft.Resources/deployments', 'eventhubs')]",
+        "[resourceId('Microsoft.Resources/deployments', 'runtime-kv')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "loganalytics",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "workspaceName": {
+            "value": "[variables('logAnalyticsWorkspaceName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "1503140148728237599"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Log Analytics workspace."
+              }
+            },
+            "workspaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics workspace name."
+              }
+            },
+            "retentionInDays": {
+              "type": "int",
+              "defaultValue": 30,
+              "metadata": {
+                "description": "Retention in days."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('workspaceName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": "[parameters('retentionInDays')]",
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+              }
+            }
+          ],
+          "outputs": {
+            "workspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+            },
+            "workspaceName": {
+              "type": "string",
+              "value": "[parameters('workspaceName')]"
+            },
+            "customerId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), '2023-09-01').customerId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "containerapps",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "environmentName": {
+            "value": "[variables('containerAppsEnvName')]"
+          },
+          "logAnalyticsWorkspaceName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'loganalytics'), '2022-09-01').outputs.workspaceName.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "6520698829719437325"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Container Apps environment."
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Container Apps environment name."
+              }
+            },
+            "logAnalyticsWorkspaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics workspace name."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/managedEnvironments",
+              "apiVersion": "2024-03-01",
+              "name": "[parameters('environmentName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "appLogsConfiguration": {
+                  "destination": "log-analytics",
+                  "logAnalyticsConfiguration": {
+                    "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName')), '2023-09-01').customerId]",
+                    "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName')), '2023-09-01').primarySharedKey]"
+                  }
+                },
+                "zoneRedundant": false
+              }
+            }
+          ],
+          "outputs": {
+            "environmentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]"
+            },
+            "environmentName": {
+              "type": "string",
+              "value": "[parameters('environmentName')]"
+            },
+            "defaultDomain": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/managedEnvironments', parameters('environmentName')), '2024-03-01').defaultDomain]"
+            },
+            "staticIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/managedEnvironments', parameters('environmentName')), '2024-03-01').staticIp]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'loganalytics')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "storageAccountName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2022-09-01').outputs.storageAccountName.value]"
+    },
+    "storageAccountId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2022-09-01').outputs.storageAccountId.value]"
+    },
+    "dataFactoryName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'datafactory'), '2022-09-01').outputs.dataFactoryName.value]"
+    },
+    "dataFactoryId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'datafactory'), '2022-09-01').outputs.dataFactoryId.value]"
+    },
+    "eventHubsNamespaceName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'eventhubs'), '2022-09-01').outputs.namespaceName.value]"
+    },
+    "eventHubNames": {
+      "type": "array",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'eventhubs'), '2022-09-01').outputs.eventHubNames.value]"
+    },
+    "runtimeKeyVaultName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'runtime-kv'), '2022-09-01').outputs.keyVaultName.value]"
+    },
+    "amlWorkspaceName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'aml'), '2022-09-01').outputs.amlWorkspaceName.value]"
+    },
+    "amlWorkspaceId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'aml'), '2022-09-01').outputs.amlWorkspaceId.value]"
+    },
+    "amlComputeName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'aml'), '2022-09-01').outputs.amlComputeName.value]"
+    },
+    "databricksWorkspaceName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'databricks'), '2022-09-01').outputs.workspaceName.value]"
+    },
+    "databricksWorkspaceUrl": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'databricks'), '2022-09-01').outputs.workspaceUrl.value]"
+    },
+    "fabricCapacityName": {
+      "type": "string",
+      "value": "[if(parameters('deployFabric'), reference(resourceId('Microsoft.Resources/deployments', 'fabric'), '2022-09-01').outputs.capacityName.value, '')]"
+    },
+    "fabricCapacityId": {
+      "type": "string",
+      "value": "[if(parameters('deployFabric'), reference(resourceId('Microsoft.Resources/deployments', 'fabric'), '2022-09-01').outputs.capacityId.value, '')]"
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'loganalytics'), '2022-09-01').outputs.workspaceName.value]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'loganalytics'), '2022-09-01').outputs.workspaceId.value]"
+    },
+    "containerAppsEnvName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'containerapps'), '2022-09-01').outputs.environmentName.value]"
+    },
+    "containerAppsDefaultDomain": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'containerapps'), '2022-09-01').outputs.defaultDomain.value]"
+    }
+  }
+}

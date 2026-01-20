@@ -1,0 +1,4 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
+name: es-model-endpoint
+description: ES futures model inference endpoint
+auth_mode: key

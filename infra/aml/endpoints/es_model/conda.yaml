@@ -1,0 +1,10 @@
+name: inference-env
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - numpy
+    - scikit-learn
+    - azureml-inference-server-http

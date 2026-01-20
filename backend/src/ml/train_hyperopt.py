@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import mlflow
+import mlflow.sklearn
 import numpy as np
 import pandas as pd
 from hyperopt import STATUS_OK, Trials, fmin, hp, tpe
@@ -89,7 +90,7 @@ def main() -> None:
         model_path.parent.mkdir(parents=True, exist_ok=True)
         with model_path.open("wb") as handle:
             pickle.dump(best_model, handle)
-        mlflow.log_artifact(str(model_path), artifact_path="model")
+        mlflow.log_param("model_output_path", str(model_path))
 
 
 if __name__ == "__main__":

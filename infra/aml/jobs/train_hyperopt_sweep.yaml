@@ -1,7 +1,7 @@
 $schema: https://azuremlschemas.azureedge.net/latest/sweepJob.schema.json
 type: sweep
-name: train_hyperopt_sweep_run
-display_name: train_hyperopt_sweep_run
+name: train_hyperopt_sweep_v3
+display_name: train_hyperopt_sweep_v3
 experiment_name: spymaster_hyperopt
 compute: azureml:cpu-cluster
 sampling_algorithm:
