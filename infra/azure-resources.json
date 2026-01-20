@@ -1,36 +1,14 @@
 {
   "_metadata": {
     "description": "Comprehensive Azure resource inventory for Spymaster project. Use this file for quick reference to resource IDs, names, endpoints, and identities without running Azure CLI commands.",
-    "generated_at": "2026-01-19T20:00:00Z",
+    "generated_at": "2026-01-20T15:57:04.763621+00:00",
     "subscription_id": "70464868-52ea-435d-93a6-8002e83f0b89",
     "subscription_name": "Azure subscription 1",
     "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf",
     "environment": "dev",
-    "primary_location": "westus"
+    "primary_location": "westus",
+    "primary_resource_group": "rg-spymaster-dev"
   },
-
-  "quick_reference": {
-    "resource_group": "rg-spymaster-dev",
-    "storage_account_lake": "spymasterdevlakeoxxrlojs",
-    "storage_account_aml": "spymasterdevmlsoxxrlojsk",
-    "eventhubs_namespace": "ehnspymasterdevoxxrlojskvxey",
-    "databricks_workspace": "adbspymasterdevoxxrlojskvxey",
-    "databricks_workspace_url": "adb-7405608014630062.2.azuredatabricks.net",
-    "aml_workspace": "mlwspymasterdevpoc",
-    "aml_endpoint": "es-model-endpoint",
-    "aml_scoring_uri": "https://es-model-endpoint.westus.inference.ml.azure.com/score",
-    "keyvault_aml": "kvspymasterdevoxxrlojskv",
-    "keyvault_runtime": "kvspymasterdevrtoxxrlojs",
-    "container_registry": "acrspymasterdevoxxrlojskvxey",
-    "acr_login_server": "acrspymasterdevoxxrlojskvxey.azurecr.io",
-    "data_factory": "adfspymasterdevoxxrlojskvxey",
-    "fabric_capacity": "qfabric",
-    "log_analytics": "law-spymaster-dev",
-    "app_insights": "appispymasterdevoxxrlojskvxey",
-    "container_apps_env": "caespymasterdev",
-    "purview": "pvspymasterdevoxxrlojskvxey"
-  },
-
   "resource_groups": [
     {
       "name": "rg-spymaster-dev",
@@ -57,7 +35,6 @@
       "purpose": "Purview managed resource group"
     }
   ],
-
   "storage": {
     "lake": {
       "name": "spymasterdevlakeoxxrlojs",
@@ -78,12 +55,28 @@
         "web": "https://spymasterdevlakeoxxrlojs.z22.web.core.windows.net/"
       },
       "containers": [
-        {"name": "lake", "purpose": "Medallion architecture data lake (bronze/silver/gold)"},
-        {"name": "ml-artifacts", "purpose": "ML model artifacts and training outputs"},
-        {"name": "raw-dbn", "purpose": "Raw Databento DBN files"},
-        {"name": "power-bi-backup", "purpose": "Power BI backup data"},
-        {"name": "powerbi", "purpose": "Power BI datasets"}
-      ]
+        {
+          "name": "lake",
+          "purpose": "Medallion architecture data lake (bronze/silver/gold)"
+        },
+        {
+          "name": "ml-artifacts",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "power-bi-backup",
+          "purpose": "Container"
+        },
+        {
+          "name": "powerbi",
+          "purpose": "Power BI datasets"
+        },
+        {
+          "name": "raw-dbn",
+          "purpose": "Raw Databento DBN files"
+        }
+      ],
+      "purpose": "Data lake storage for medallion architecture"
     },
     "aml": {
       "name": "spymasterdevmlsoxxrlojsk",
@@ -92,15 +85,98 @@
       "kind": "StorageV2",
       "sku": "Standard_LRS",
       "is_hns_enabled": false,
-      "purpose": "AML workspace default storage",
+      "minimum_tls_version": "TLS1_0",
+      "allow_blob_public_access": false,
+      "allow_shared_key_access": null,
       "endpoints": {
         "blob": "https://spymasterdevmlsoxxrlojsk.blob.core.windows.net/",
         "dfs": "https://spymasterdevmlsoxxrlojsk.dfs.core.windows.net/",
-        "file": "https://spymasterdevmlsoxxrlojsk.file.core.windows.net/"
-      }
+        "file": "https://spymasterdevmlsoxxrlojsk.file.core.windows.net/",
+        "queue": "https://spymasterdevmlsoxxrlojsk.queue.core.windows.net/",
+        "table": "https://spymasterdevmlsoxxrlojsk.table.core.windows.net/",
+        "web": "https://spymasterdevmlsoxxrlojsk.z22.web.core.windows.net/"
+      },
+      "containers": [
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-11q9lmiwf1ntvv7cni2a6z8oh1",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-1y6zn4wchktl82p4bfohayg1fg",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-31aufdvgoqdnrv26s8uyt3bdtp",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-39i3y7w0l72ujk9hzjao6zev8k",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-4thoyq383vmx8jkvzm70u3xu4k",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-bp3n9a7aud2s2u1v62dhuowcd0",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-e91z3spkozlecj60o4sb1gskxb",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-s9gdpc3fbo18ynz1cnwzso9gle",
+          "purpose": "Container"
+        },
+        {
+          "name": "8ac9ffc4-0b11-4397-9d99-936f00756f3e-uvskih2ltukb1ddzbj9lpmdabx",
+          "purpose": "Container"
+        },
+        {
+          "name": "aml-environment-image-build",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "azureml",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "azureml-blobstore-8ac9ffc4-0b11-4397-9d99-936f00756f3e",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "azureml-environments",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "azureml-metrics",
+          "purpose": "ML model artifacts and training outputs"
+        },
+        {
+          "name": "insights-logs-auditevent",
+          "purpose": "Container"
+        },
+        {
+          "name": "insights-metrics-pt1m",
+          "purpose": "Container"
+        },
+        {
+          "name": "revisions",
+          "purpose": "Container"
+        },
+        {
+          "name": "snapshots",
+          "purpose": "Container"
+        },
+        {
+          "name": "snapshotzips",
+          "purpose": "Container"
+        }
+      ],
+      "purpose": "AML workspace default storage"
     }
   },
-
   "eventhubs": {
     "namespace": {
       "name": "ehnspymasterdevoxxrlojskvxey",
@@ -114,66 +190,147 @@
       "metric_id": "70464868-52ea-435d-93a6-8002e83f0b89:ehnspymasterdevoxxrlojskvxey"
     },
     "hubs": {
-      "mbo_raw": {
-        "name": "mbo_raw",
-        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw",
-        "partition_count": 4,
-        "partition_ids": ["0", "1", "2", "3"],
-        "retention_days": 7,
-        "purpose": "Raw MBO market events from Databento",
-        "consumer_groups": [
-          {"name": "$Default", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/$Default"},
-          {"name": "analytics", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/analytics"},
-          {"name": "analytics-qa", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/analytics-qa"},
-          {"name": "databricks-bronze", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/databricks-bronze"},
-          {"name": "databricks_bronze", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/databricks_bronze"},
-          {"name": "fabric-eventstream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/fabric-eventstream"},
-          {"name": "fabric_stream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/fabric_stream"}
-        ]
-      },
       "features_gold": {
         "name": "features_gold",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold",
         "partition_count": 4,
-        "partition_ids": ["0", "1", "2", "3"],
+        "partition_ids": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
         "retention_days": 7,
         "purpose": "Real-time feature vectors from gold layer",
         "consumer_groups": [
-          {"name": "$Default", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/$Default"},
-          {"name": "analytics", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/analytics"},
-          {"name": "analytics-qa", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/analytics-qa"},
-          {"name": "databricks-bronze", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/databricks-bronze"},
-          {"name": "databricks_features", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/databricks_features"},
-          {"name": "fabric-eventstream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/fabric-eventstream"},
-          {"name": "fabric_stream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/fabric_stream"}
+          {
+            "name": "$Default",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/$Default"
+          },
+          {
+            "name": "analytics",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/analytics"
+          },
+          {
+            "name": "analytics-qa",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/analytics-qa"
+          },
+          {
+            "name": "databricks-bronze",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/databricks-bronze"
+          },
+          {
+            "name": "databricks_features",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/databricks_features"
+          },
+          {
+            "name": "fabric-eventstream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/fabric-eventstream"
+          },
+          {
+            "name": "fabric_stream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/features_gold/consumergroups/fabric_stream"
+          }
         ]
       },
       "inference_scores": {
         "name": "inference_scores",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores",
         "partition_count": 4,
-        "partition_ids": ["0", "1", "2", "3"],
+        "partition_ids": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
         "retention_days": 7,
         "purpose": "Model inference predictions/scores",
         "consumer_groups": [
-          {"name": "$Default", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/$Default"},
-          {"name": "analytics", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/analytics"},
-          {"name": "analytics-qa", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/analytics-qa"},
-          {"name": "databricks-bronze", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/databricks-bronze"},
-          {"name": "databricks_inference", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/databricks_inference"},
-          {"name": "fabric-eventstream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/fabric-eventstream"},
-          {"name": "fabric_stream", "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/fabric_stream"}
+          {
+            "name": "$Default",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/$Default"
+          },
+          {
+            "name": "analytics",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/analytics"
+          },
+          {
+            "name": "analytics-qa",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/analytics-qa"
+          },
+          {
+            "name": "databricks-bronze",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/databricks-bronze"
+          },
+          {
+            "name": "databricks_inference",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/databricks_inference"
+          },
+          {
+            "name": "fabric-eventstream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/fabric-eventstream"
+          },
+          {
+            "name": "fabric_stream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/inference_scores/consumergroups/fabric_stream"
+          }
+        ]
+      },
+      "mbo_raw": {
+        "name": "mbo_raw",
+        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw",
+        "partition_count": 4,
+        "partition_ids": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
+        "retention_days": 7,
+        "purpose": "Raw MBO market events from Databento",
+        "consumer_groups": [
+          {
+            "name": "$Default",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/$Default"
+          },
+          {
+            "name": "analytics",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/analytics"
+          },
+          {
+            "name": "analytics-qa",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/analytics-qa"
+          },
+          {
+            "name": "databricks-bronze",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/databricks-bronze"
+          },
+          {
+            "name": "databricks_bronze",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/databricks_bronze"
+          },
+          {
+            "name": "fabric-eventstream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/fabric-eventstream"
+          },
+          {
+            "name": "fabric_stream",
+            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/eventhubs/mbo_raw/consumergroups/fabric_stream"
+          }
         ]
       }
     },
     "authorization_rules": {
       "RootManageSharedAccessKey": {
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.EventHub/namespaces/ehnspymasterdevoxxrlojskvxey/authorizationrules/RootManageSharedAccessKey",
-        "rights": ["Listen", "Manage", "Send"]
+        "rights": [
+          "Listen",
+          "Manage",
+          "Send"
+        ]
       }
     }
   },
-
   "databricks": {
     "workspace": {
       "name": "adbspymasterdevoxxrlojskvxey",
@@ -198,26 +355,25 @@
       }
     }
   },
-
   "machine_learning": {
     "workspace": {
       "name": "mlwspymasterdevpoc",
       "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc",
       "location": "westus",
-      "display_name": "Spymaster ML",
+      "display_name": "mlwspymasterdevpoc",
       "description": "Spymaster ML workspace",
       "mlflow_tracking_uri": "azureml://westus.api.azureml.ms/mlflow/v1.0/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc",
       "discovery_url": "https://westus.api.azureml.ms/discovery",
       "identity": {
-        "type": "system_assigned",
         "principal_id": "47632728-3a49-4d46-9808-ff15879cf36f",
-        "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf"
+        "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf",
+        "type": "system_assigned"
       },
       "linked_resources": {
-        "storage_account": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.Storage/storageAccounts/spymasterdevmlsoxxrlojsk",
-        "key_vault": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.Keyvault/vaults/kvspymasterdevoxxrlojskv",
-        "application_insights": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.insights/components/appispymasterdevoxxrlojskvxey",
-        "container_registry": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.ContainerRegistry/registries/acrspymasterdevoxxrlojskvxey"
+        "storage_account": null,
+        "key_vault": null,
+        "application_insights": null,
+        "container_registry": null
       }
     },
     "compute": {
@@ -226,38 +382,34 @@
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/computes/cpu-cluster",
         "location": "westus",
         "type": "amlcompute",
-        "size": "Standard_DS3_v2",
+        "size": null,
         "tier": "dedicated",
         "min_instances": 0,
         "max_instances": 2,
         "idle_time_before_scale_down_seconds": 600,
         "identity": {
-          "type": "system_assigned",
           "principal_id": "b43cb65a-b8b3-475d-9271-537b1c521d8e",
-          "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf"
+          "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf",
+          "type": "system_assigned"
         }
       }
     },
     "endpoints": {
       "es_model_endpoint": {
         "name": "es-model-endpoint",
-        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/onlineEndpoints/es-model-endpoint",
+        "id": "endpoint-es-model-endpoint",
         "location": "westus",
         "auth_mode": "key",
-        "scoring_uri": "https://es-model-endpoint.westus.inference.ml.azure.com/score",
-        "openapi_uri": "https://es-model-endpoint.westus.inference.ml.azure.com/swagger.json",
-        "description": "ES futures model inference endpoint",
-        "traffic": {"blue": 100},
-        "identity": {
-          "type": "system_assigned",
-          "principal_id": "08f3e809-36ba-43d0-b3b9-e778358a6391",
-          "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf"
-        },
+        "scoring_uri": null,
+        "openapi_uri": null,
+        "description": "",
+        "traffic": {},
+        "identity": {},
         "deployments": {
           "blue": {
             "name": "blue",
-            "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/onlineEndpoints/es-model-endpoint/deployments/blue",
-            "instance_type": "Standard_DS2_v2",
+            "id": "deployment-blue",
+            "instance_type": null,
             "model": "azureml:/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/models/es_logreg_model/versions/1"
           }
         }
@@ -275,33 +427,53 @@
         "name": "raw_dbn",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/raw_dbn",
         "type": "azure_data_lake_gen2",
-        "account_name": "spymasterdevlakeoxxrlojs",
-        "filesystem": "raw-dbn"
-      },
-      "lake": {
-        "name": "lake",
-        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/lake",
-        "type": "azure_data_lake_gen2",
-        "account_name": "spymasterdevlakeoxxrlojs",
-        "filesystem": "lake"
+        "account_name": "unknown",
+        "filesystem": null
       },
       "ml_artifacts": {
         "name": "ml_artifacts",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/ml_artifacts",
         "type": "azure_data_lake_gen2",
-        "account_name": "spymasterdevlakeoxxrlojs",
-        "filesystem": "ml-artifacts"
+        "account_name": "unknown",
+        "filesystem": null
+      },
+      "lake": {
+        "name": "lake",
+        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/lake",
+        "type": "azure_data_lake_gen2",
+        "account_name": "unknown",
+        "filesystem": null
       },
       "workspaceblobstore": {
         "name": "workspaceblobstore",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/workspaceblobstore",
         "type": "azure_blob",
-        "account_name": "spymasterdevmlsoxxrlojsk",
-        "container_name": "azureml-blobstore-8ac9ffc4-0b11-4397-9d99-936f00756f3e"
+        "account_name": "unknown",
+        "filesystem": null
+      },
+      "workspaceworkingdirectory": {
+        "name": "workspaceworkingdirectory",
+        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/workspaceworkingdirectory",
+        "type": "azure_file",
+        "account_name": "unknown",
+        "filesystem": null
+      },
+      "workspaceartifactstore": {
+        "name": "workspaceartifactstore",
+        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/workspaceartifactstore",
+        "type": "azure_blob",
+        "account_name": "unknown",
+        "filesystem": null
+      },
+      "workspacefilestore": {
+        "name": "workspacefilestore",
+        "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.MachineLearningServices/workspaces/mlwspymasterdevpoc/datastores/workspacefilestore",
+        "type": "azure_file",
+        "account_name": "unknown",
+        "filesystem": null
       }
     }
   },
-
   "keyvaults": {
     "aml": {
       "name": "kvspymasterdevoxxrlojskv",
@@ -312,7 +484,8 @@
       "enable_rbac_authorization": false,
       "enable_purge_protection": true,
       "soft_delete_retention_days": 90,
-      "purpose": "AML workspace key vault"
+      "purpose": "AML workspace key vault",
+      "secrets": []
     },
     "runtime": {
       "name": "kvspymasterdevrtoxxrlojs",
@@ -325,33 +498,41 @@
       "soft_delete_retention_days": 90,
       "purpose": "Runtime secrets for applications",
       "secrets": [
-        {"name": "aml-endpoint-key", "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/aml-endpoint-key"},
-        {"name": "databento-api-key", "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/databento-api-key"},
-        {"name": "eventhub-connection-string", "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/eventhub-connection-string"}
+        {
+          "name": "aml-endpoint-key",
+          "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/aml-endpoint-key"
+        },
+        {
+          "name": "databento-api-key",
+          "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/databento-api-key"
+        },
+        {
+          "name": "eventhub-connection-string",
+          "uri": "https://kvspymasterdevrtoxxrlojs.vault.azure.net/secrets/eventhub-connection-string"
+        }
       ]
     }
   },
-
   "data_factory": {
     "name": "adfspymasterdevoxxrlojskvxey",
     "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.DataFactory/factories/adfspymasterdevoxxrlojskvxey",
     "location": "westus",
     "version": "2018-06-01",
     "identity": {
+      "principalId": "720efbe7-af18-4680-90bb-b75144a69e82",
+      "tenantId": "2843abed-8970-461e-a260-a59dc1398dbf",
       "type": "SystemAssigned",
-      "principal_id": "720efbe7-af18-4680-90bb-b75144a69e82",
-      "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf"
+      "userAssignedIdentities": null
     },
     "linked_services": {
       "LakeStorage": {
         "name": "LakeStorage",
         "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.DataFactory/factories/adfspymasterdevoxxrlojskvxey/linkedservices/LakeStorage",
         "type": "AzureBlobFS",
-        "url": "https://spymasterdevlakeoxxrlojs.dfs.core.windows.net"
+        "url": null
       }
     }
   },
-
   "container_registry": {
     "name": "acrspymasterdevoxxrlojskvxey",
     "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.ContainerRegistry/registries/acrspymasterdevoxxrlojskvxey",
@@ -365,7 +546,6 @@
       "azureml/azureml_6baeba0686b6cbbee358dafab579c2c8"
     ]
   },
-
   "fabric": {
     "capacity": {
       "name": "qfabric",
@@ -374,10 +554,9 @@
       "sku": "F8",
       "tier": "Fabric",
       "state": "Active",
-      "administrators": ["logan@qmachina.com"]
+      "administrators": []
     }
   },
-
   "monitoring": {
     "log_analytics": {
       "name": "law-spymaster-dev",
@@ -391,30 +570,14 @@
       "name": "appispymasterdevoxxrlojskvxey",
       "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/microsoft.insights/components/appispymasterdevoxxrlojskvxey",
       "location": "westus",
-      "app_id": "567f5ce5-90b2-4978-aedb-fba89642dbdb",
-      "instrumentation_key": "0229e90f-fe35-41e1-a70b-c0816ae0196c",
-      "connection_string": "InstrumentationKey=0229e90f-fe35-41e1-a70b-c0816ae0196c;IngestionEndpoint=https://westus-0.in.applicationinsights.azure.com/;LiveEndpoint=https://westus.livediagnostics.monitor.azure.com/;ApplicationId=567f5ce5-90b2-4978-aedb-fba89642dbdb",
+      "app_id": null,
+      "instrumentation_key": null,
+      "connection_string": null,
       "application_type": "web",
       "retention_in_days": 90,
       "ingestion_mode": "LogAnalytics"
     }
   },
-
-  "container_apps": {
-    "environment": {
-      "name": "caespymasterdev",
-      "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.App/managedEnvironments/caespymasterdev",
-      "location": "West US",
-      "default_domain": "braveglacier-ec436aed.westus.azurecontainerapps.io",
-      "static_ip": "20.245.126.70",
-      "event_stream_endpoint": "https://westus.azurecontainerapps.dev/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/managedEnvironments/caespymasterdev/eventstream",
-      "zone_redundant": false,
-      "dapr_version": "1.13.6-msft.6",
-      "keda_version": "2.17.2",
-      "log_analytics_customer_id": "9bebcbfb-b213-4b66-a827-989b9e971587"
-    }
-  },
-
   "purview": {
     "name": "pvspymasterdevoxxrlojskvxey",
     "id": "/subscriptions/70464868-52ea-435d-93a6-8002e83f0b89/resourceGroups/rg-spymaster-dev/providers/Microsoft.Purview/accounts/pvspymasterdevoxxrlojskvxey",
@@ -423,33 +586,27 @@
     "managed_resource_group": "rg-pvspymasterdevoxxrlojskvxey-mrg",
     "endpoints": {
       "catalog": "https://2843abed-8970-461e-a260-a59dc1398dbf-api.purview-service.microsoft.com/catalog",
-      "scan": "https://2843abed-8970-461e-a260-a59dc1398dbf-api.purview-service.microsoft.com/scan",
-      "guardian": "https://pvspymasterdevoxxrlojskvxey.purview.azure.com/guardian"
+      "guardian": "https://pvspymasterdevoxxrlojskvxey.purview.azure.com/guardian",
+      "scan": "https://2843abed-8970-461e-a260-a59dc1398dbf-api.purview-service.microsoft.com/scan"
     },
     "identity": {
-      "type": "SystemAssigned",
-      "principal_id": "c2c9c38a-acdc-40c3-b642-49b05c91657d",
-      "tenant_id": "2843abed-8970-461e-a260-a59dc1398dbf"
+      "principalId": "c2c9c38a-acdc-40c3-b642-49b05c91657d",
+      "tenantId": "2843abed-8970-461e-a260-a59dc1398dbf",
+      "type": "SystemAssigned"
     }
   },
-
   "managed_identities": {
     "summary": "All managed identities used by Spymaster resources for RBAC-based access",
     "identities": {
       "aml_workspace": {
         "resource": "mlwspymasterdevpoc",
         "principal_id": "47632728-3a49-4d46-9808-ff15879cf36f",
-        "type": "SystemAssigned"
+        "type": "system_assigned"
       },
-      "aml_compute": {
+      "aml_cpu_cluster": {
         "resource": "cpu-cluster",
         "principal_id": "b43cb65a-b8b3-475d-9271-537b1c521d8e",
-        "type": "SystemAssigned"
-      },
-      "aml_endpoint": {
-        "resource": "es-model-endpoint",
-        "principal_id": "08f3e809-36ba-43d0-b3b9-e778358a6391",
-        "type": "SystemAssigned"
+        "type": "system_assigned"
       },
       "databricks_access_connector": {
         "resource": "adbaccspymasterdevoxxrlojskvxey",
@@ -460,15 +617,28 @@
         "resource": "adfspymasterdevoxxrlojskvxey",
         "principal_id": "720efbe7-af18-4680-90bb-b75144a69e82",
         "type": "SystemAssigned"
-      },
-      "purview": {
-        "resource": "pvspymasterdevoxxrlojskvxey",
-        "principal_id": "c2c9c38a-acdc-40c3-b642-49b05c91657d",
-        "type": "SystemAssigned"
       }
     }
   },
-
+  "quick_reference": {
+    "resource_group": "rg-spymaster-dev",
+    "storage_account_lake": "spymasterdevlakeoxxrlojs",
+    "storage_account_aml": "spymasterdevmlsoxxrlojsk",
+    "eventhubs_namespace": "ehnspymasterdevoxxrlojskvxey",
+    "databricks_workspace": "adbspymasterdevoxxrlojskvxey",
+    "databricks_workspace_url": "adb-7405608014630062.2.azuredatabricks.net",
+    "aml_workspace": "mlwspymasterdevpoc",
+    "aml_es_model_endpoint": "es-model-endpoint",
+    "aml_scoring_uri_es_model_endpoint": null,
+    "keyvault_aml": "kvspymasterdevoxxrlojskv",
+    "keyvault_runtime": "kvspymasterdevrtoxxrlojs",
+    "data_factory": "adfspymasterdevoxxrlojskvxey",
+    "container_registry": "acrspymasterdevoxxrlojskvxey",
+    "acr_login_server": "acrspymasterdevoxxrlojskvxey.azurecr.io",
+    "fabric_capacity": "qfabric",
+    "log_analytics": "law-spymaster-dev",
+    "app_insights": "appispymasterdevoxxrlojskvxey"
+  },
   "role_definitions": {
     "reference": "Common Azure RBAC role definition IDs used in this deployment",
     "storage_blob_data_contributor": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
@@ -476,16 +646,14 @@
     "event_hubs_data_receiver": "a638d3c7-ab3a-418d-83e6-5f17a39d4fde",
     "key_vault_secrets_user": "4633458b-17de-408a-b874-0445c86b69e6"
   },
-
   "connection_strings": {
     "note": "These are template patterns. Actual connection strings may require secrets from Key Vault.",
     "eventhubs_namespace": "Endpoint=sb://ehnspymasterdevoxxrlojskvxey.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=<from-keyvault>",
     "storage_lake_abfss": "abfss://{container}@spymasterdevlakeoxxrlojs.dfs.core.windows.net/",
     "storage_lake_https": "https://spymasterdevlakeoxxrlojs.dfs.core.windows.net/{container}/",
     "databricks_host": "https://adb-7405608014630062.2.azuredatabricks.net",
-    "aml_scoring": "https://es-model-endpoint.westus.inference.ml.azure.com/score"
+    "aml_scoring": null
   },
-
   "data_paths": {
     "lake_bronze": "abfss://lake@spymasterdevlakeoxxrlojs.dfs.core.windows.net/bronze/",
     "lake_silver": "abfss://lake@spymasterdevlakeoxxrlojs.dfs.core.windows.net/silver/",

@@ -4,11 +4,10 @@
 
 **CONTEXT**: 
 - Python environment: `../backend/.venv/bin/python3`
-- Azure CLI user: `logan@qmachina.com`
-- Subscription: `70464868-52ea-435d-93a6-8002e83f0b89`
-- Tenant: `2843abed-8970-461e-a260-a59dc1398dbf`
-- Resource Group: `rg-spymaster-dev`
-- Location: `westus`
+- Resource inventory: `azure-resources.json` (auto-generated, do not manually edit)
+- Generate fresh inventory: `../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json`
+- Current Azure user: Run `az account show --query user.name -o tsv`
+- Resource details: Always read from `azure-resources.json`, never hardcode
 
 ---
 
@@ -101,27 +100,36 @@ Raw DBN Files → Event Hubs → Bronze (Delta) → Silver (Delta) → Gold (Del
 
 ## Quick Reference: Resource Details
 
-**Storage Account (Lake)**: `spymasterdevlakeoxxrlojs`
-- Containers: `lake`, `raw-dbn`, `ml-artifacts`
+**IMPORTANT**: Resource names, IDs, endpoints, and URLs are maintained in `azure-resources.json`.
 
-**Databricks Workspace**: `adbspymasterdevoxxrlojskvxey`
-- URL: `https://adb-7405608014630062.2.azuredatabricks.net`
-- Unity Catalog enabled
+**To get current resource details:**
+```bash
+# Generate fresh inventory
+../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json
 
-**Event Hubs Namespace**: `ehnspymasterdevoxxrlojskvxey`
-- Hubs: `mbo_raw`, `features_gold`, `inference_scores`
+# Quick lookup
+jq '.quick_reference' azure-resources.json
 
-**AML Workspace**: `mlwspymasterdevpoc`
-- Endpoint: `es-model-endpoint`
-- Scoring URI: `https://es-model-endpoint.westus.inference.ml.azure.com/score`
+# Get specific resource
+jq '.databricks.workspace.workspace_url' azure-resources.json
+jq '.eventhubs.hubs.mbo_raw' azure-resources.json
+jq '.machine_learning.endpoints' azure-resources.json
+```
 
-**Key Vaults**:
-- Runtime: `kvspymasterdevrtoxxrlojs` (for runtime secrets)
-- AML: `kvspymasterdevoxxrlojskv` (for AML workspace)
+**Common lookups:**
+```bash
+# Storage account
+export STORAGE_ACCOUNT=$(jq -r '.quick_reference.storage_account_lake' azure-resources.json)
 
-**Fabric Capacity**: `qfabric` (F8)
+# Databricks URL
+export DATABRICKS_URL=$(jq -r '.quick_reference.databricks_workspace_url' azure-resources.json)
 
-Full details in `azure-resources.json`.
+# Event Hubs namespace
+export EVENTHUB_NS=$(jq -r '.quick_reference.eventhubs_namespace' azure-resources.json)
+
+# AML scoring endpoint
+export AML_ENDPOINT=$(jq -r '.machine_learning.endpoints.es_model_endpoint.scoring_uri' azure-resources.json)
+```
 
 ---
 
@@ -135,9 +143,15 @@ az account show --query "{subscription:name, user:user.name}" -o table
 # Verify Python environment
 ../backend/.venv/bin/python3 --version
 
-# Install required tools
+# Install required Azure CLI extensions
 az extension add --name databricks --upgrade
 az extension add --name ml --upgrade
+
+# Generate fresh resource inventory
+../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json
+
+# Verify inventory
+jq '._metadata.generated_at, .quick_reference' azure-resources.json
 ```
 
 ### 1. Deploy Azure Infrastructure (Bicep)
@@ -599,17 +613,24 @@ az group delete \
 
 ## Environment Variables
 
-Set these for Python scripts:
+Load from `azure-resources.json`:
 
 ```bash
-export AZURE_SUBSCRIPTION_ID=70464868-52ea-435d-93a6-8002e83f0b89
-export AZURE_TENANT_ID=2843abed-8970-461e-a260-a59dc1398dbf
-export RESOURCE_GROUP=rg-spymaster-dev
-export DATABRICKS_HOST=https://adb-7405608014630062.2.azuredatabricks.net
-export AML_WORKSPACE=mlwspymasterdevpoc
-export STORAGE_ACCOUNT=spymasterdevlakeoxxrlojs
-export EVENTHUB_NAMESPACE=ehnspymasterdevoxxrlojskvxey
-export KEYVAULT_NAME=kvspymasterdevrtoxxrlojs
+# Generate fresh inventory first
+../backend/.venv/bin/python3 scripts/generate_azure_resources_inventory.py > azure-resources.json
+
+# Set environment variables from inventory
+export AZURE_SUBSCRIPTION_ID=$(jq -r '._metadata.subscription_id' azure-resources.json)
+export AZURE_TENANT_ID=$(jq -r '._metadata.tenant_id' azure-resources.json)
+export RESOURCE_GROUP=$(jq -r '.quick_reference.resource_group' azure-resources.json)
+export DATABRICKS_HOST=https://$(jq -r '.quick_reference.databricks_workspace_url' azure-resources.json)
+export AML_WORKSPACE=$(jq -r '.quick_reference.aml_workspace' azure-resources.json)
+export STORAGE_ACCOUNT=$(jq -r '.quick_reference.storage_account_lake' azure-resources.json)
+export EVENTHUB_NAMESPACE=$(jq -r '.quick_reference.eventhubs_namespace' azure-resources.json)
+export KEYVAULT_NAME=$(jq -r '.quick_reference.keyvault_runtime' azure-resources.json)
+
+# Verify
+env | grep AZURE
 ```
 
 ---
@@ -618,13 +639,13 @@ export KEYVAULT_NAME=kvspymasterdevrtoxxrlojs
 
 | File | Purpose |
 |------|---------|
-| `azure-resources.json` | Complete inventory of deployed resources |
+| `azure-resources.json` | Auto-generated inventory (regenerate before deployments) |
+| `scripts/generate_azure_resources_inventory.py` | Script to generate resource inventory |
 | `main.bicep` | Infrastructure as Code (IaC) template |
-| `databricks/streaming/rt__*.py` | Real-time streaming notebooks |
-| `databricks/hist/hist_*.py` | Historical batch processing notebooks |
-| `databricks/jobs/*.json` | Job definitions with cluster configs |
+| `databricks/` | Git submodule → spymaster-databricks repo |
 | `aml/deploy_endpoint.py` | Script to deploy ML inference endpoint |
 | `fabric/eventhouse_schema.kql` | KQL schema for Fabric Eventhouse |
+| `README.md` | This file (AI agent deployment guide) |
 
 ---
 
