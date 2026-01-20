@@ -344,7 +344,7 @@ Each section below contains factual best practices with implementation steps and
 
 ---
 
-## PRIORITY 1: Add Watermarking to All Streaming Queries
+## PRIORITY 1: Add Watermarking to All Streaming Queries [COMPLETE]
 
 **Current Gap:** No watermarks defined on any streaming query, causing unbounded state growth.
 
@@ -374,7 +374,7 @@ Each section below contains factual best practices with implementation steps and
 
 ---
 
-## PRIORITY 2: Replace `applyInPandasWithState` with `transformWithStateInPandas`
+## PRIORITY 2: Replace `applyInPandasWithState` with `transformWithStateInPandas` [COMPLETE]
 
 **Current Gap:** Using legacy API without TTL support; state grows unbounded.
 
@@ -414,7 +414,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 3: Implement Dead Letter Queue (DLQ) for Error Handling
+## PRIORITY 3: Implement Dead Letter Queue (DLQ) for Error Handling [COMPLETE]
 
 **Current Gap:** No exception handling in stateful functions; malformed events crash streams.
 
@@ -454,7 +454,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 4: Add Rate Limiting for Backpressure Control
+## PRIORITY 4: Add Rate Limiting for Backpressure Control [COMPLETE]
 
 **Current Gap:** No `maxFilesPerTrigger` or `maxBytesPerTrigger`; OOM risk on data spikes.
 
@@ -488,7 +488,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 5: Enable RocksDB State Store with Changelog Checkpointing
+## PRIORITY 5: Enable RocksDB State Store with Changelog Checkpointing [COMPLETE]
 
 **Current Gap:** Using default in-memory state store; checkpoint duration and GC pressure issues.
 
@@ -531,7 +531,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 6: Add Streaming Metrics and Alerting
+## PRIORITY 6: Add Streaming Metrics and Alerting [COMPLETE]
 
 **Current Gap:** No monitoring integration; `print()` statements instead of proper logging.
 
@@ -569,7 +569,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 7: Create Unit and Integration Test Suites
+## PRIORITY 7: Create Unit and Integration Test Suites [COMPLETE]
 
 **Current Gap:** Zero test coverage for transformation logic.
 
@@ -614,7 +614,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-## PRIORITY 8: Migrate to Unity Catalog Managed Tables
+## PRIORITY 8: Migrate to Unity Catalog Managed Tables [COMPLETE]
 
 **Current Gap:** Writing to ABFSS paths directly; losing governance features.
 
@@ -655,7 +655,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ## ADDITIONAL ITEMS
 
-### Item 1.1: Migrate to Lakeflow Declarative Pipelines
+### Item 1.1: Migrate to Lakeflow Declarative Pipelines [DEFERRED]
 
 **Implementation Steps:**
 
@@ -671,7 +671,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-### Item 6.1: Replace `iterrows()` with Vectorized Operations
+### Item 6.1: Replace `iterrows()` with Vectorized Operations [COMPLETE]
 
 **Implementation Steps:**
 
@@ -690,7 +690,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-### Item 6.2: Tune `spark.sql.shuffle.partitions`
+### Item 6.2: Tune `spark.sql.shuffle.partitions` [COMPLETE]
 
 **Implementation Steps:**
 
@@ -711,7 +711,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-### Item 6.4: Enable Auto-Optimize for Delta Tables
+### Item 6.4: Enable Auto-Optimize for Delta Tables [COMPLETE]
 
 **Implementation Steps:**
 
@@ -735,7 +735,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-### Item 7.1: Use Service Principals for Production Jobs
+### Item 7.1: Use Service Principals for Production Jobs [DEFERRED]
 
 **Implementation Steps:**
 
@@ -752,7 +752,7 @@ For new pipelines, Databricks recommends Lakeflow over manual Structured Streami
 
 ---
 
-### Items 9.1-9.3: Job Definition Configuration
+### Items 9.1-9.3: Job Definition Configuration [COMPLETE]
 
 **Implementation Steps:**
 
