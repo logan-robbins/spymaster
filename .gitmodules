@@ -1,0 +1,3 @@
+[submodule "infra/databricks"]
+	path = infra/databricks
+	url = https://github.com/qmachina/spymaster-databricks.git
