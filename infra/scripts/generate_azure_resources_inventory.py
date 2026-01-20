@@ -708,6 +708,7 @@ def build_quick_reference(resources: Dict[str, Any]) -> Dict[str, str]:
 
 def main():
     """Generate comprehensive Azure resource inventory."""
+    import sys
     print("Generating Azure resource inventory...", file=sys.stderr)
     
     # Get account info
