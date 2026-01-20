@@ -11,6 +11,13 @@ I’m locking the stack to:
 
 ---
 
+# Execution Plan (Living)
+
+1. Deploy Databricks streaming jobs (secret scope, notebook upload, job creation). [COMPLETE]
+2. Configure Fabric Real-Time Intelligence (Eventhouse, Eventstreams, dashboard). [COMPLETE]
+3. Run end-to-end pipeline test with synthetic events and validate outputs. [IN_PROGRESS]
+4. Apply production hardening (monitoring, cost, security). [PENDING]
+
 # 0) Target runtime contract 
 
 **Core rule:** the *same* logical stages exist in both batch and streaming:
@@ -528,7 +535,7 @@ Databricks real-time inference always calls a **specific model version** (passed
 
 ## Priority 1: Deploy Databricks Streaming Jobs
 
-### 1.1 Create Databricks Secret Scope
+### 1.1 Create Databricks Secret Scope [COMPLETE]
 ```bash
 # Install Databricks CLI and configure
 databricks configure --token
@@ -540,14 +547,14 @@ databricks secrets create-scope --scope spymaster \
   --dns-name https://kvspymasterdevrtoxxrlojs.vault.azure.net/
 ```
 
-### 1.2 Upload Streaming Notebooks
+### 1.2 Upload Streaming Notebooks [COMPLETE]
 Upload all files from `infra/databricks/streaming/` to Databricks workspace:
 - `rt__mbo_raw_to_bronze.py`
 - `rt__bronze_to_silver.py`
 - `rt__silver_to_gold.py`
 - `rt__gold_to_inference.py`
 
-### 1.3 Create Databricks Jobs
+### 1.3 Create Databricks Jobs [COMPLETE]
 For each notebook, create a job with:
 - Cluster: Shared job cluster with Event Hubs library (`com.microsoft.azure:azure-eventhubs-spark_2.12:2.3.22`)
 - Schedule: Continuous (streaming)
@@ -555,12 +562,12 @@ For each notebook, create a job with:
 
 ## Priority 2: Configure Fabric Real-Time Intelligence
 
-### 2.1 Create Eventhouse
+### 2.1 Create Eventhouse [COMPLETE]
 1. Open Fabric workspace `qfabric`
 2. Create Eventhouse: `trading_eventhouse`
 3. Run KQL from `infra/fabric/eventhouse_schema.kql` to create tables
 
-### 2.2 Create Eventstreams
+### 2.2 Create Eventstreams [COMPLETE]
 1. Create Eventstream: `features_stream`
    - Source: Event Hubs `features_gold` (consumer group: `fabric_stream`)
    - Destination: `trading_eventhouse.features`
@@ -568,7 +575,7 @@ For each notebook, create a job with:
    - Source: Event Hubs `inference_scores` (consumer group: `fabric_stream`)
    - Destination: `trading_eventhouse.scores`
 
-### 2.3 Create Real-Time Dashboard
+### 2.3 Create Real-Time Dashboard [COMPLETE]
 1. Create dashboard: `Spymaster Trading Intelligence`
 2. Add tiles using queries from `infra/fabric/dashboard_queries.kql`
 3. Set auto-refresh: 30 seconds
@@ -577,7 +584,7 @@ See `infra/fabric/SETUP_GUIDE.md` for detailed instructions.
 
 ## Priority 3: End-to-End Testing
 
-### 3.1 Test with Synthetic Data
+### 3.1 Test with Synthetic Data [COMPLETE]
 ```python
 # Publish test events to Event Hub mbo_raw
 from azure.eventhub import EventHubProducerClient, EventData
@@ -608,7 +615,10 @@ batch.add(EventData(json.dumps(test_event)))
 producer.send_batch(batch)
 ```
 
-### 3.2 Validate Pipeline Flow
+Completion notes:
+- Sent a synthetic event with `backend/scripts/send_eventhub_test.py` using Key Vault secret `eventhub-connection-string`.
+
+### 3.2 Validate Pipeline Flow [IN_PROGRESS]
 1. Verify Bronze Delta table populated in `lake/bronze/stream/`
 2. Verify Silver bar_5s stream in `lake/silver/bar_5s_stream/`
 3. Verify Gold vectors in `lake/gold/setup_vectors_stream/`
@@ -646,3 +656,11 @@ producer.send_batch(batch)
 | `infra/containers/databento_ingestor/` | Databento ingestor container |
 | `infra/aml/endpoints/es_model/` | ML endpoint configuration |
 | `backend/src/ml/train_hyperopt.py` | Training script |
+
+## Continuation (Next Engineer)
+
+1. Confirm `rt__mbo_raw_to_bronze` is running and processing events; check run output for streaming errors.
+2. Verify Bronze data files exist under `lake/bronze/stream/` (not just `_delta_log`).
+3. Start and verify Silver, Gold, and Inference streaming jobs; confirm outputs land in their Delta paths.
+4. Validate Fabric Eventhouse tables and dashboard tiles show live data from `features_gold` and `inference_scores`.
+5. Mark Execution Plan step 3 as [COMPLETE] once Bronze → Silver → Gold → Inference → Fabric is validated end-to-end.

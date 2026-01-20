@@ -428,6 +428,7 @@ cd backend
 uv run pytest tests/path/to_test.py -k "pattern"
 ```
 
+infra/azure-resources.json
 
 </readme>
 
@@ -446,5 +447,6 @@ You MUST follow all rules in DEV.md and AGENTS.md
 
 <your_task>
 You are implementung the tasks in infra/WORK.md  in their entirety. You have access to the azure mcp knowledge tool for up to date documentation, do not guess-- consult for latest commands first. Ensure you run the full deployments and tests in the real infrastructure and validate using the API. You can upload samples of data from the backend/src/data_eng/pipeline.py to make sure you properly build the steps. You should have full access to databricks, fabric, etc. use az cli (you are logged in with full permissions). DO NOT prioritize non-functional requirements, work as effectively as you can for FUNCTION. We do not have databento streaming ingestion right now, so you can setup the bicep / test for the infra only, or possibly simulate but that is last priority. you MUST track your progress in WORK.md with [COMPLETE] tags in-line as you complete each task. DO NOT move one from one task until you have completed it, do not skip something because it is *hard* or requires more work.
+You have access to fast internet and you MUSt use azure mcp or web search to validate your commands, do not guess.
 </your_task>
 

@@ -5,6 +5,8 @@
 
 # COMMAND ----------
 
+import json
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, current_timestamp, to_date
 from pyspark.sql.types import (
@@ -47,12 +49,21 @@ bronze_schema = StructType([
 # COMMAND ----------
 
 # Event Hubs configuration
+starting_position = json.dumps(
+    {
+        "seqNo": -1,
+        "offset": "-1",
+        "enqueuedTime": None,
+        "isInclusive": True,
+    }
+)
+
 ehConf = {
     "eventhubs.connectionString": sc._jvm.org.apache.spark.eventhubs.EventHubsUtils.encrypt(
         f"{EVENTHUB_CONNECTION_STRING};EntityPath={EVENTHUB_NAME}"
     ),
     "eventhubs.consumerGroup": CONSUMER_GROUP,
-    "eventhubs.startingPosition": '{"offset": "-1", "seqNo": -1, "enqueuedTime": null, "isInclusive": true}',
+    "eventhubs.startingPosition": starting_position,
 }
 
 # COMMAND ----------
