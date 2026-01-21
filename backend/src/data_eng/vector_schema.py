@@ -26,6 +26,8 @@ F_DOWN = [
     "f5_vacuum_expansion_log",
     "f6_vacuum_decay_log",
     "f7_vacuum_total_log",
+    "f8_ask_bbo_dist_ticks",
+    "f9_bid_bbo_dist_ticks",
 ]
 
 F_UP = [
@@ -51,6 +53,8 @@ F_UP = [
     "u15_up_expansion_log",
     "u16_up_flow_log",
     "u17_up_total_log",
+    "u18_ask_bbo_dist_ticks",
+    "u19_bid_bbo_dist_ticks",
 ]
 
 X_COLUMNS = [

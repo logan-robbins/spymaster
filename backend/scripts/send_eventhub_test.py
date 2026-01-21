@@ -16,7 +16,7 @@ def main() -> None:
         "event_time": now_ns,
         "ingest_time": now_ns,
         "venue": "GLBX.MDP3",
-        "symbol": 12345,
+        "symbol": "ESH6",
         "instrument_type": "FUT",
         "underlier": "ES",
         "contract_id": "ESH6",

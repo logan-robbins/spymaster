@@ -8,7 +8,7 @@
     {
       "dataset": "silver.future_mbo.mbo_level_vacuum_5s",
       "dt": "2025-10-01",
-      "manifest_sha256": "a494943b71cb14780d94ccead3417aba819baca5cbd9e9bd4ed4e8dd5f4faa73"
+      "manifest_sha256": "77b97debfa8f0a07771884f4e8c38b931efffc1c7a8ac1cb26aac5f571ceeb7e"
     },
     {
       "dataset": "bronze.future_mbo.mbo",

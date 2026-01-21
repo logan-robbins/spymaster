@@ -116,6 +116,14 @@
       "type": "double"
     },
     {
+      "name": "f8_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "f9_bid_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
       "name": "d1_f1_ask_com_disp_log",
       "type": "double"
     },
@@ -205,6 +213,14 @@
     },
     {
       "name": "d1_f7_vacuum_total_log",
+      "type": "double"
+    },
+    {
+      "name": "d1_f8_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d1_f9_bid_bbo_dist_ticks",
       "type": "double"
     },
     {
@@ -300,6 +316,14 @@
       "type": "double"
     },
     {
+      "name": "d2_f8_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d2_f9_bid_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
       "name": "d3_f1_ask_com_disp_log",
       "type": "double"
     },
@@ -392,6 +416,14 @@
       "type": "double"
     },
     {
+      "name": "d3_f8_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d3_f9_bid_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
       "name": "u1_ask_com_disp_log",
       "type": "double"
     },
@@ -477,6 +509,14 @@
     },
     {
       "name": "u17_up_total_log",
+      "type": "double"
+    },
+    {
+      "name": "u18_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "u19_bid_bbo_dist_ticks",
       "type": "double"
     },
     {
@@ -568,6 +608,14 @@
       "type": "double"
     },
     {
+      "name": "d1_u18_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d1_u19_bid_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
       "name": "d2_u1_ask_com_disp_log",
       "type": "double"
     },
@@ -656,6 +704,14 @@
       "type": "double"
     },
     {
+      "name": "d2_u18_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d2_u19_bid_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
       "name": "d3_u1_ask_com_disp_log",
       "type": "double"
     },
@@ -741,6 +797,14 @@
     },
     {
       "name": "d3_u17_up_total_log",
+      "type": "double"
+    },
+    {
+      "name": "d3_u18_ask_bbo_dist_ticks",
+      "type": "double"
+    },
+    {
+      "name": "d3_u19_bid_bbo_dist_ticks",
       "type": "double"
     }
   ]

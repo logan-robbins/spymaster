@@ -73,6 +73,8 @@ BASE_FEATURES = [
     "f5_vacuum_expansion_log",
     "f6_vacuum_decay_log",
     "f7_vacuum_total_log",
+    "f8_ask_bbo_dist_ticks",
+    "f9_bid_bbo_dist_ticks",
 ]
 
 UP_FEATURES = [
@@ -98,6 +100,8 @@ UP_FEATURES = [
     "u15_up_expansion_log",
     "u16_up_flow_log",
     "u17_up_total_log",
+    "u18_ask_bbo_dist_ticks",
+    "u19_bid_bbo_dist_ticks",
 ]
 
 DERIV_FEATURES = [f"d1_{name}" for name in BASE_FEATURES] + [f"d2_{name}" for name in BASE_FEATURES] + [
@@ -479,7 +483,11 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
     bid_depth_at = 0.0
     bid_depth_near = 0.0
     bid_depth_far = 0.0
+    bid_depth_far = 0.0
     bid_com_num = 0.0
+
+    min_ask_int = None
+    max_bid_int = None
 
     for order in orders.values():
         if order.side == "A" and order.bucket in ASK_INFLUENCE:
@@ -492,6 +500,10 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
                 ask_depth_near += qty
             elif order.bucket == ASK_ABOVE_FAR:
                 ask_depth_far += qty
+            
+            p = order.price_int
+            if min_ask_int is None or p < min_ask_int:
+                min_ask_int = p
         elif order.side == "B" and order.bucket in BID_INFLUENCE:
             qty = float(order.qty)
             bid_depth_total += qty
@@ -502,12 +514,36 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
                 bid_depth_near += qty
             elif order.bucket == BID_BELOW_FAR:
                 bid_depth_far += qty
+            
+            p = order.price_int
+            if max_bid_int is None or p > max_bid_int:
+                max_bid_int = p
 
-    ask_com_price_int = ask_com_num / max(ask_depth_total, EPS_QTY)
-    bid_com_price_int = bid_com_num / max(bid_depth_total, EPS_QTY)
+    # Fix for empty book bug: if depth is 0, distance is MAX (DELTA_TICKS) not 0.
+    if ask_depth_total < TINY_TOL:
+        d_ask_ticks = float(DELTA_TICKS)
+        ask_com_price_int = float(p_ref_int) + float(DELTA_TICKS * TICK_INT) # artificial logic for com
+    else:
+        ask_com_price_int = ask_com_num / ask_depth_total
+        d_ask_ticks = max((ask_com_price_int - p_ref_int) / TICK_INT, 0.0)
 
-    d_ask_ticks = max((ask_com_price_int - p_ref_int) / TICK_INT, 0.0)
-    d_bid_ticks = max((p_ref_int - bid_com_price_int) / TICK_INT, 0.0)
+    if bid_depth_total < TINY_TOL:
+        d_bid_ticks = float(DELTA_TICKS)
+        bid_com_price_int = float(p_ref_int) - float(DELTA_TICKS * TICK_INT)
+    else:
+        bid_com_price_int = bid_com_num / bid_depth_total
+        d_bid_ticks = max((p_ref_int - bid_com_price_int) / TICK_INT, 0.0)
+
+    # BBO Calcs
+    if min_ask_int is None:
+        bbo_ask_ticks = float(DELTA_TICKS)
+    else:
+        bbo_ask_ticks = max((min_ask_int - p_ref_int) / TICK_INT, 0.0)
+    
+    if max_bid_int is None:
+        bbo_bid_ticks = float(DELTA_TICKS)
+    else:
+        bbo_bid_ticks = max((p_ref_int - max_bid_int) / TICK_INT, 0.0)
 
     return {
         "ask_depth_total": ask_depth_total,
@@ -522,6 +558,8 @@ def _snapshot(orders: dict[int, OrderState], p_ref_int: int) -> dict:
         "bid_com_price_int": bid_com_price_int,
         "d_ask_ticks": d_ask_ticks,
         "d_bid_ticks": d_bid_ticks,
+        "bbo_ask_ticks": bbo_ask_ticks,
+        "bbo_bid_ticks": bbo_bid_ticks,
     }
 
 
@@ -600,6 +638,8 @@ def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
         "f5_vacuum_expansion_log": float(f5_vacuum_expansion_log),
         "f6_vacuum_decay_log": float(f6_vacuum_decay_log),
         "f7_vacuum_total_log": float(f7_vacuum_total_log),
+        "f8_ask_bbo_dist_ticks": float(end["bbo_ask_ticks"]),
+        "f9_bid_bbo_dist_ticks": float(end["bbo_bid_ticks"]),
     }
 
 
@@ -654,6 +694,8 @@ def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
         "u15_up_expansion_log": float(u15_up_expansion_log),
         "u16_up_flow_log": float(u16_up_flow_log),
         "u17_up_total_log": float(u17_up_total_log),
+        "u18_ask_bbo_dist_ticks": float(base["f8_ask_bbo_dist_ticks"]),
+        "u19_bid_bbo_dist_ticks": float(base["f9_bid_bbo_dist_ticks"]),
     }
 
 

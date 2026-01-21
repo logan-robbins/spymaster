@@ -86,6 +86,12 @@ def main() -> None:
         mlflow.log_param("best_C", float(best["C"]))
         mlflow.log_param("best_max_iter", int(best["max_iter"]))
 
+        mlflow.sklearn.log_model(best_model, artifact_path="model")
+        model_uri = f"runs:/{mlflow.active_run().info.run_id}/model"
+        model_version = mlflow.register_model(model_uri, "es_logreg_model")
+        mlflow.log_param("registered_model_name", "es_logreg_model")
+        mlflow.log_param("registered_model_version", model_version.version)
+
         model_path = Path(args.model_out)
         model_path.parent.mkdir(parents=True, exist_ok=True)
         with model_path.open("wb") as handle:

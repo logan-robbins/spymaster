@@ -279,7 +279,15 @@ def _null_pressure() -> Dict[str, object]:
 
 def _pressure_scores(vac: object, approach_dir: str) -> Dict[str, float | None]:
     if approach_dir == "approach_up":
-        above_retreat = _sigmoid(_safe_float(getattr(vac, "u1_ask_com_disp_log")))
+        # Gate Retreat by BBO distance: u18_ask_bbo_dist_ticks
+        # If bbo dist < 1.0 (tight), gate ~ 0.5 or less.
+        # If bbo dist > 1.0 (open), gate -> 1.0.
+        # Using sigmoid(dist - 1.5) -> sigmoid(-1.5) = 0.18, sigmoid(0.5) = 0.62?
+        # Let's use sigmoid(dist - 1.0). At 0 dist -> sigmoid(-1) = 0.26. At 1 dist -> sigmoid(0) = 0.5. At 2 dist -> 0.73.
+        # This penalizes tight BBO significantly.
+        bbo_gate_above = _sigmoid(_safe_float(getattr(vac, "u18_ask_bbo_dist_ticks")) - 1.0)
+        
+        above_retreat = _sigmoid(_safe_float(getattr(vac, "u1_ask_com_disp_log"))) * bbo_gate_above
         above_decay = _sigmoid(_safe_float(getattr(vac, "u5_ask_pull_add_log_rest")))
         above_local = _sigmoid(_safe_float(getattr(vac, "u7_ask_near_pull_share_rest")) - 0.5)
         above_shock = _sigmoid(_safe_float(getattr(vac, "d2_u5_ask_pull_add_log_rest")))
@@ -294,7 +302,10 @@ def _pressure_scores(vac: object, approach_dir: str) -> Dict[str, float | None]:
         above_local = _sigmoid(_safe_float(getattr(vac, "f2_ask_near_pull_share_rest")) - 0.5)
         above_shock = _sigmoid(_safe_float(getattr(vac, "d2_f2_ask_pull_add_log_rest")))
 
-        below_retreat = _sigmoid(_safe_float(getattr(vac, "f3_bid_com_disp_log")))
+        # Gate Retreat by BBO distance: f9_bid_bbo_dist_ticks
+        bbo_gate_below = _sigmoid(_safe_float(getattr(vac, "f9_bid_bbo_dist_ticks")) - 1.0)
+        
+        below_retreat = _sigmoid(_safe_float(getattr(vac, "f3_bid_com_disp_log"))) * bbo_gate_below
         below_decay = _sigmoid(_safe_float(getattr(vac, "f4_bid_pull_add_log_rest")))
         below_local = _sigmoid(_safe_float(getattr(vac, "f4_bid_near_pull_share_rest")) - 0.5)
         below_shock = _sigmoid(_safe_float(getattr(vac, "d2_f4_bid_pull_add_log_rest")))

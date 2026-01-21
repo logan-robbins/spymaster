@@ -1,6 +1,6 @@
 {
   "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/mbo_level_vacuum_5s.avsc",
-  "contract_sha256": "154de33e40c00d863605a2324ba96171c8d7f63b6a3d3297ead319a0616b771f",
+  "contract_sha256": "5869d08cc648a57899e1489c5363f4eecf923b879e30011452c934d5dd5cef2e",
   "dataset": "silver.future_mbo.mbo_level_vacuum_5s",
   "dt": "2026-01-07",
   "hour": null,

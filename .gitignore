@@ -33,6 +33,7 @@ venv/
 ENV/
 env/
 README.md.bk
+FINISH.md
 
 **/*.parquet
 **/*.dbn

@@ -1,6 +1,6 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
-name: split_training_snapshot_retry
-display_name: split_training_snapshot_retry
+name: split_training_snapshot_retry_v2
+display_name: split_training_snapshot_retry_v2
 experiment_name: spymaster_split
 code: ../../../backend/src
 command: >-
@@ -15,5 +15,5 @@ outputs:
   output_dir:
     type: uri_folder
     path: azureml://datastores/ml_artifacts/paths/datasets/ES_MODEL/2025-10-01/splits/
-environment: azureml:AzureML-ACPT-pytorch-1.13-py38-cuda11.7-gpu@10
+environment: azureml:spymaster-hyperopt:2
 compute: azureml:cpu-cluster

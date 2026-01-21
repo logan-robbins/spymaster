@@ -7,7 +7,6 @@ from azure.ai.ml.entities import (
     Environment,
     CodeConfiguration,
 )
-import uuid
 import time
 
 subscription_id = "70464868-52ea-435d-93a6-8002e83f0b89"
@@ -17,8 +16,7 @@ workspace_name = "mlwspymasterdevpoc"
 credential = DefaultAzureCredential()
 ml_client = MLClient(credential, subscription_id, resource_group, workspace_name)
 
-unique_suffix = str(uuid.uuid4())[:6]
-endpoint_name = f"es-model-{unique_suffix}"
+endpoint_name = "es-model-endpoint"
 print(f"Creating endpoint: {endpoint_name}")
 
 endpoint = ManagedOnlineEndpoint(
@@ -41,10 +39,15 @@ if endpoint.provisioning_state != "Succeeded":
     print(f"Endpoint failed to provision: {endpoint.provisioning_state}")
     exit(1)
 
+models = list(ml_client.models.list(name="es_logreg_model"))
+if not models:
+    raise ValueError("No models found for es_logreg_model")
+latest_model = max(models, key=lambda m: int(m.version))
+
 deployment = ManagedOnlineDeployment(
     name="blue",
     endpoint_name=endpoint_name,
-    model="es_logreg_model:1",
+    model=latest_model,
     code_configuration=CodeConfiguration(
         code="endpoints/es_model",
         scoring_script="score.py",
