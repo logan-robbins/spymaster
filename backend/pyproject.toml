@@ -13,6 +13,7 @@ dependencies = [
     "faiss-cpu>=1.13.2",
     "fastapi[standard]>=0.124.4",
     "leidenalg>=0.11.0",
+    "matplotlib>=3.10.8",
     "mlflow>=3.8.0",
     "nats-py>=2.12.0",
     "numba>=0.60.0",
