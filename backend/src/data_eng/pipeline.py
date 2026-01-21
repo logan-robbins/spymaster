@@ -46,20 +46,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             ]
 
     elif product_type == "future_option":
-        from .stages.silver.future_option.convert_utc_to_est import SilverConvertUtcToEst
-        from .stages.gold.future_option.filter_first3h import GoldFilterFirst3Hours
-
-        if layer == "bronze":
-            raise ValueError("Bronze not implemented for future_option")
-        elif layer == "silver":
-            return [SilverConvertUtcToEst()]
-        elif layer == "gold":
-            return [GoldFilterFirst3Hours()]
-        elif layer == "all":
-            return [
-                SilverConvertUtcToEst(),
-                GoldFilterFirst3Hours(),
-            ]
+        pass
 
     elif product_type == "future_mbo":
         from .stages.bronze.future_mbo.ingest_preview import BronzeIngestMboPreview

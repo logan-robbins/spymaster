@@ -450,8 +450,17 @@ infra/README.md
 - You MUST follow all rules in DEV.md
 
 <your_task>
-You  must carefully analyze and implement the tasks outlined in FINISH.md and implement the code. We are moving from local dev to databricks. Moving forward we will ONLY be using databricks clusters to run the code, not running locally anymore. It may be easier to update the backend/src/data_eng code for pyspark then to try to faithfully recreate it. All connection info you need is in infra/README.md 
-**Important**
-You the code in infra/databricks has been tested end to end just for connections/infra purposes. The actual pipeline code is similar, but ours in backend/ is the source of truth you are trying to run. But, you must follow the libraries/conventions in the working databricks/ samples. 
+**Implement future_option_mbo Pipeline**
+
+Follow the implementation plan in `.azure/PLAN_future_option_mbo.md` to add GEX (Gamma Exposure) features from ES future options MBO data.
+
+**Raw data location:** `backend/lake/raw/source=databento/product_type=future_option/symbol=ES/table=market_by_order_dbn/`
+
+**Implementation order:**
+1. Bronze: `BronzeIngestFutureOptionMboPreview` - parse option symbols, write per-underlying partitions
+2. Silver: `SilverComputeOptionGex5s` - compute Greeks, aggregate GEX by strike bucket (5s windows aligned with vacuum)
+3. Gold: Extend `GoldBuildMboTriggerVectors` to join GEX features with vacuum features
+
+**Key constraint:** GEX 5s windows MUST align exactly with vacuum 5s windows for proper join.
 </your_task>
 
