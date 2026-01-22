@@ -1,0 +1,31 @@
+{
+  "namespace": "com.marketdata.gold",
+  "type": "record",
+  "name": "PhysicsNormCalibration",
+  "fields": [
+    {
+      "name": "metric_name",
+      "type": "string"
+    },
+    {
+      "name": "q05",
+      "type": "double"
+    },
+    {
+      "name": "q95",
+      "type": "double"
+    },
+    {
+      "name": "lookback_sessions",
+      "type": "int"
+    },
+    {
+      "name": "session_window",
+      "type": "string"
+    },
+    {
+      "name": "asof_dt",
+      "type": "string"
+    }
+  ]
+}

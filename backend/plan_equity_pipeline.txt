@@ -1,0 +1,4 @@
+1. Add equity datasets and contracts, add equity calibration contract. [done]
+2. Build equity stages for bronze and silver, add equity calibration stage. [doing]
+3. Wire pipeline and runner entries for equity product types. [todo]
+4. Add sample data generator and run a short check. [todo]

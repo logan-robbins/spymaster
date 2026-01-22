@@ -263,29 +263,11 @@ datasets:
     contract: src/data_eng/contracts/gold/future_mbo/mbo_pressure_stream.avsc
 
   # Gold - Equity MBO
-  gold.equity_mbo.mbo_trigger_vectors:
-    path: gold/product_type=equity_mbo/symbol={symbol}/table=mbo_trigger_vectors
+  gold.equity_mbo.physics_norm_calibration:
+    path: gold/product_type=equity_mbo/symbol={symbol}/table=physics_norm_calibration
     format: parquet
     partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/gold/equity_mbo/mbo_trigger_vectors.avsc
-
-  gold.equity_mbo.mbo_trigger_vector_features:
-    path: gold/product_type=equity_mbo/symbol={symbol}/table=mbo_trigger_vector_features
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/gold/equity_mbo/mbo_trigger_vector_features.avsc
-
-  gold.equity_mbo.mbo_trigger_signals:
-    path: gold/product_type=equity_mbo/symbol={symbol}/table=mbo_trigger_signals
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/gold/equity_mbo/mbo_trigger_signals.avsc
-
-  gold.equity_mbo.mbo_pressure_stream:
-    path: gold/product_type=equity_mbo/symbol={symbol}/table=mbo_pressure_stream
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/gold/equity_mbo/mbo_pressure_stream.avsc
+    contract: src/data_eng/contracts/gold/equity_mbo/physics_norm_calibration.avsc
 
   # Gold - Future Option MBO
   gold.future_option_mbo.gex_enriched_trigger_vectors:

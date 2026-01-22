@@ -9,7 +9,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     """Return the ordered list of stages for the given product_type and layer.
 
     Args:
-        product_type: One of 'future_mbo', 'future_option_mbo', 'hud'
+        product_type: One of 'future_mbo', 'future_option_mbo', 'equity_mbo', 'equity_option_cmbp_1', 'hud'
         layer: One of 'bronze', 'silver', 'gold', 'all'
 
     Returns:
@@ -64,6 +64,47 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         elif layer == "gold":
             return []
 
+    elif product_type == "equity_mbo":
+        from .stages.bronze.equity_mbo.ingest import BronzeIngestEquityMbo
+        from .stages.silver.equity_mbo.compute_snapshot_and_wall_1s import SilverComputeEquitySnapshotAndWall1s
+        from .stages.silver.equity_mbo.compute_vacuum_surface_1s import SilverComputeEquityVacuumSurface1s
+        from .stages.silver.equity_mbo.compute_radar_vacuum_1s import SilverComputeEquityRadarVacuum1s
+        from .stages.silver.equity_mbo.compute_physics_bands_1s import SilverComputeEquityPhysicsBands1s
+        from .stages.gold.equity_mbo.build_physics_norm_calibration import GoldBuildEquityPhysicsNormCalibration
+
+        if layer == "bronze":
+            return [BronzeIngestEquityMbo()]
+        elif layer == "silver":
+            return [
+                SilverComputeEquitySnapshotAndWall1s(),
+                SilverComputeEquityVacuumSurface1s(),
+                SilverComputeEquityRadarVacuum1s(),
+                SilverComputeEquityPhysicsBands1s(),
+            ]
+        elif layer == "gold":
+            return [GoldBuildEquityPhysicsNormCalibration()]
+        elif layer == "all":
+            return [
+                BronzeIngestEquityMbo(),
+                SilverComputeEquitySnapshotAndWall1s(),
+                GoldBuildEquityPhysicsNormCalibration(),
+                SilverComputeEquityVacuumSurface1s(),
+                SilverComputeEquityRadarVacuum1s(),
+                SilverComputeEquityPhysicsBands1s(),
+            ]
+
+    elif product_type == "equity_option_cmbp_1":
+        from .stages.bronze.equity_option_cmbp_1.ingest import BronzeIngestEquityOptionCmbp1
+
+        if layer == "bronze":
+            return [BronzeIngestEquityOptionCmbp1()]
+        elif layer == "silver":
+            return []
+        elif layer == "gold":
+            return []
+        elif layer == "all":
+            return [BronzeIngestEquityOptionCmbp1()]
+
     elif product_type == "hud":
         from .stages.gold.hud.build_physics_norm_calibration import GoldBuildHudPhysicsNormCalibration
 
@@ -74,5 +115,5 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
 
     raise ValueError(
         f"Unknown product_type: {product_type}. "
-        f"Must be one of: future_mbo, future_option_mbo, hud"
+        f"Must be one of: future_mbo, future_option_mbo, equity_mbo, equity_option_cmbp_1, hud"
     )

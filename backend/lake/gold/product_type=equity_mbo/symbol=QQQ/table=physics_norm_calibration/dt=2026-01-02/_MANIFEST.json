@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/equity_mbo/physics_norm_calibration.avsc",
+  "contract_sha256": "e022afa5bf12ed48e8123f76296bb4c6f1b493c47359395e0b608e7f19d87678",
+  "dataset": "gold.equity_mbo.physics_norm_calibration",
+  "dt": "2026-01-02",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.equity_mbo.wall_surface_1s",
+      "dt": "2026-01-01",
+      "manifest_sha256": "115705b69be7c6bf63aa3635c8330f806d3d89ab8c0b2afe98672be22a004542"
+    },
+    {
+      "dataset": "silver.equity_mbo.wall_surface_1s",
+      "dt": "2026-01-02",
+      "manifest_sha256": "b84ed51ad917a7907afa3d1b90165e813407e53f9b6c7944ae909ebadfa4e1fb"
+    }
+  ],
+  "row_count": 5,
+  "stage": "gold_build_equity_physics_norm_calibration"
+}
