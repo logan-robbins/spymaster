@@ -1,0 +1,26 @@
+{
+  "namespace": "com.marketdata.bronze",
+  "type": "record",
+  "name": "FutureOptionMboEvent",
+  "fields": [
+    {"name": "ts_recv", "type": "long"},
+    {"name": "size", "type": "long"},
+    {"name": "ts_event", "type": "long"},
+    {"name": "channel_id", "type": "long"},
+    {"name": "rtype", "type": "long"},
+    {"name": "order_id", "type": "long"},
+    {"name": "publisher_id", "type": "long"},
+    {"name": "flags", "type": "long"},
+    {"name": "instrument_id", "type": "long"},
+    {"name": "ts_in_delta", "type": "long"},
+    {"name": "action", "type": "string"},
+    {"name": "sequence", "type": "long"},
+    {"name": "side", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "price", "type": "long"},
+    {"name": "underlying", "type": "string"},
+    {"name": "right", "type": "string"},
+    {"name": "strike", "type": "long"},
+    {"name": "expiration", "type": "string"}
+  ]
+}

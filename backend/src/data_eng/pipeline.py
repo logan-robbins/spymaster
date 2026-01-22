@@ -45,6 +45,19 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 GoldExtractSetupVectors(),
             ]
 
+    elif product_type == "future_option_mbo":
+        from .stages.bronze.future_option_mbo.ingest import BronzeIngestFutureOptionMbo
+        from .stages.silver.future_option_mbo.compute_gex_5s import SilverComputeGex5s
+
+        if layer == "bronze":
+            return [BronzeIngestFutureOptionMbo()]
+        elif layer == "silver":
+            return [SilverComputeGex5s()]
+        elif layer == "gold":
+            return []
+        elif layer == "all":
+            return [BronzeIngestFutureOptionMbo(), SilverComputeGex5s()]
+
     elif product_type == "future_option":
         pass
 
