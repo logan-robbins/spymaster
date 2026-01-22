@@ -408,7 +408,7 @@ df = enforce_contract(df, contract)
 
 ## Feature Reference
 
-All features are defined in:
+All features are defined in (evolving list):
 - `backend/src/data_eng/VECTOR_INDEX_FEATURES.md`
 
 ## TESTING
@@ -428,13 +428,9 @@ cd backend
 uv run pytest tests/path/to_test.py -k "pattern"
 ```
 
-infra/azure-resources.json
 
 </readme>
 
-<infra_readme>
-infra/README.md
-</infra_readme>
 
 **IMPORTANT** 
 - YOU ONLY work in the spymaster/ workspace. 
@@ -445,9 +441,4 @@ infra/README.md
 - YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 2 minutes so you can exit it something is not working. 
 
 **NEVER delete raw data dbn dbn.zst files or any data in the raw/ data layer.**
-
-**MOST IMPORTANT - DO NOT FORGET**
-- You MUST follow all rules in DEV.md
-
-
 
