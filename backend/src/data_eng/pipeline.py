@@ -48,15 +48,22 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     elif product_type == "future_option_mbo":
         from .stages.bronze.future_option_mbo.ingest import BronzeIngestFutureOptionMbo
         from .stages.silver.future_option_mbo.compute_gex_5s import SilverComputeGex5s
+        from .stages.gold.future_option_mbo.build_gex_enriched_trigger_vectors import (
+            GoldBuildGexEnrichedTriggerVectors,
+        )
 
         if layer == "bronze":
             return [BronzeIngestFutureOptionMbo()]
         elif layer == "silver":
             return [SilverComputeGex5s()]
         elif layer == "gold":
-            return []
+            return [GoldBuildGexEnrichedTriggerVectors()]
         elif layer == "all":
-            return [BronzeIngestFutureOptionMbo(), SilverComputeGex5s()]
+            return [
+                BronzeIngestFutureOptionMbo(),
+                SilverComputeGex5s(),
+                GoldBuildGexEnrichedTriggerVectors(),
+            ]
 
     elif product_type == "future_option":
         pass

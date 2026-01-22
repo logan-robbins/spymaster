@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from ...base import Stage, StageIO
 from ....config import AppConfig
@@ -29,6 +31,9 @@ TRADE_ACTION = "T"
 CONTRACT_MULTIPLIER = 50
 NUM_STRIKES_EACH_SIDE = 5
 STRIKE_STEP = 5
+MAX_DTE_DAYS = 90
+RISK_FREE_RATE = 0.05
+DEFAULT_IV = 0.20
 
 BASE_GEX_FEATURES = [
     "gex_call_above_1",
@@ -103,6 +108,7 @@ class OptionOrderState:
     strike: int
     right: str
     bucket_enter_ts: int
+    expiration: str
 
 
 class SilverComputeGex5s(Stage):
@@ -164,10 +170,44 @@ class SilverComputeGex5s(Stage):
         if len(df) == 0:
             return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-        return compute_gex_5s(df)
+        df = _filter_by_dte(df, dt)
+        if len(df) == 0:
+            return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+        return compute_gex_5s(df, dt)
 
 
-def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
+def _filter_by_dte(df: pd.DataFrame, dt: str) -> pd.DataFrame:
+    session_date = datetime.strptime(dt, "%Y-%m-%d").date()
+
+    def calc_dte(exp_str: str) -> int:
+        try:
+            exp_date = datetime.strptime(exp_str, "%Y-%m-%d").date()
+            return (exp_date - session_date).days
+        except (ValueError, TypeError):
+            return 999
+
+    df = df.copy()
+    df["_dte"] = df["expiration"].apply(calc_dte)
+    df = df.loc[(df["_dte"] > 0) & (df["_dte"] <= MAX_DTE_DAYS)]
+    df = df.drop(columns=["_dte"])
+    return df
+
+
+def _compute_dte_map(df: pd.DataFrame, dt: str) -> Dict[str, float]:
+    session_date = datetime.strptime(dt, "%Y-%m-%d").date()
+    dte_map = {}
+    for exp_str in df["expiration"].unique():
+        try:
+            exp_date = datetime.strptime(exp_str, "%Y-%m-%d").date()
+            dte_days = (exp_date - session_date).days
+            dte_map[exp_str] = max(dte_days / 365.0, 1.0 / 365.0)
+        except (ValueError, TypeError):
+            dte_map[exp_str] = 30.0 / 365.0
+    return dte_map
+
+
+def compute_gex_5s(df: pd.DataFrame, dt: str = "2026-01-06") -> pd.DataFrame:
     required_cols = {
         "ts_event",
         "action",
@@ -178,6 +218,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
         "sequence",
         "strike",
         "right",
+        "expiration",
     }
     missing = required_cols - set(df.columns)
     if missing:
@@ -186,6 +227,8 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
     df = df.loc[df["action"] != "N"].copy()
     if len(df) == 0:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    dte_map = _compute_dte_map(df, dt)
 
     df = df.sort_values(["ts_event", "sequence"], ascending=[True, True])
     df["ts_event"] = df["ts_event"].astype("int64")
@@ -196,7 +239,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
     df["strike"] = df["strike"].astype("int64")
 
     orders: dict[int, OptionOrderState] = {}
-    strike_depth: dict[tuple[int, str], float] = {}
+    strike_depth: dict[tuple[int, str, str], float] = {}
     accum = _new_accumulators()
     rows = []
     current_window_id = None
@@ -223,7 +266,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
                     ref_price, sorted_strikes
                 )
                 gex_features = _compute_gex_features(
-                    strike_depth, ref_price, strikes_above, strikes_below
+                    strike_depth, ref_price, strikes_above, strikes_below, dte_map
                 )
                 flow_features = _compute_flow_features(accum, strikes_above, strikes_below)
                 rows.append(
@@ -262,6 +305,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
         order_id = int(row.order_id)
         strike = int(row.strike)
         right = str(row.right)
+        expiration = str(row.expiration)
         old = orders.get(order_id)
 
         if old is None and action in {"C", "M", "F", "T"}:
@@ -273,12 +317,14 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
             old_strike = old.strike
             old_right = old.right
             old_bucket_enter_ts = old.bucket_enter_ts
+            old_expiration = old.expiration
         else:
             old_side = ""
             old_qty = 0
             old_strike = 0
             old_right = ""
             old_bucket_enter_ts = 0
+            old_expiration = ""
 
         new_order = None
         new_side = old_side
@@ -294,6 +340,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
                 strike=strike,
                 right=right,
                 bucket_enter_ts=ts_event,
+                expiration=expiration,
             )
         elif action == "C":
             new_order = None
@@ -306,6 +353,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
                 strike=old_strike,
                 right=old_right,
                 bucket_enter_ts=old_bucket_enter_ts,
+                expiration=old_expiration,
             )
         elif action == "F":
             new_qty = old_qty - int(row.size)
@@ -317,6 +365,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
                     strike=old_strike,
                     right=old_right,
                     bucket_enter_ts=old_bucket_enter_ts,
+                    expiration=old_expiration,
                 )
         elif action == "T":
             new_order = old
@@ -324,12 +373,12 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
         q_old = old_qty if old_side == "B" else old_qty
         q_new = new_order.qty if new_order is not None else 0
 
-        if old_strike > 0 and old_right:
-            key = (old_strike, old_right)
+        if old_strike > 0 and old_right and old_expiration:
+            key = (old_strike, old_right, old_expiration)
             strike_depth[key] = strike_depth.get(key, 0.0) - float(q_old)
 
         if new_order is not None:
-            key = (new_order.strike, new_order.right)
+            key = (new_order.strike, new_order.right, new_order.expiration)
             strike_depth[key] = strike_depth.get(key, 0.0) + float(q_new)
 
         delta = q_new - q_old
@@ -356,7 +405,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
         ref_price = _compute_ref_price(strike_depth, sorted_strikes)
         strikes_above, strikes_below = _get_strike_buckets(ref_price, sorted_strikes)
         gex_features = _compute_gex_features(
-            strike_depth, ref_price, strikes_above, strikes_below
+            strike_depth, ref_price, strikes_above, strikes_below, dte_map
         )
         flow_features = _compute_flow_features(accum, strikes_above, strikes_below)
         rows.append(
@@ -388,7 +437,7 @@ def compute_gex_5s(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_ref_price(
-    strike_depth: dict[tuple[int, str], float], sorted_strikes: list[int]
+    strike_depth: dict[tuple[int, str, str], float], sorted_strikes: list[int]
 ) -> float:
     if not strike_depth:
         if sorted_strikes:
@@ -397,7 +446,7 @@ def _compute_ref_price(
 
     total_weight = 0.0
     weighted_sum = 0.0
-    for (strike, _), depth in strike_depth.items():
+    for (strike, _, _), depth in strike_depth.items():
         if depth > 0:
             total_weight += depth
             weighted_sum += float(strike) * depth
@@ -429,39 +478,58 @@ def _get_strike_buckets(
     return strikes_above, strikes_below
 
 
-def _gamma_approx(strike: int, ref_price: float) -> float:
-    if ref_price <= 0:
+def _gamma_bs(strike: int, ref_price: float, T: float, sigma: float = DEFAULT_IV) -> float:
+    if ref_price <= 0 or T <= 0 or sigma <= 0:
         return 0.0
-    moneyness = abs(float(strike) - ref_price) / ref_price
-    gamma = math.exp(-0.5 * (moneyness / 0.05) ** 2)
+    S = ref_price
+    K = float(strike)
+    r = RISK_FREE_RATE
+
+    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    n_prime_d1 = math.exp(-0.5 * d1 ** 2) / math.sqrt(2 * math.pi)
+    gamma = n_prime_d1 / (S * sigma * math.sqrt(T))
     return gamma
 
 
+def _aggregate_depth_by_strike_right(
+    strike_depth: dict[tuple[int, str, str], float],
+    dte_map: Dict[str, float],
+    ref_price: float,
+) -> dict[tuple[int, str], float]:
+    aggregated: dict[tuple[int, str], float] = {}
+    for (strike, right, expiration), depth in strike_depth.items():
+        if depth <= 0:
+            continue
+        T = dte_map.get(expiration, 30.0 / 365.0)
+        gamma = _gamma_bs(strike, ref_price, T)
+        gex_contribution = depth * gamma * CONTRACT_MULTIPLIER
+        key = (strike, right)
+        aggregated[key] = aggregated.get(key, 0.0) + gex_contribution
+    return aggregated
+
+
 def _compute_gex_features(
-    strike_depth: dict[tuple[int, str], float],
+    strike_depth: dict[tuple[int, str, str], float],
     ref_price: float,
     strikes_above: list[int],
     strikes_below: list[int],
+    dte_map: Dict[str, float],
 ) -> dict:
     features = {}
 
+    gex_by_strike_right = _aggregate_depth_by_strike_right(strike_depth, dte_map, ref_price)
+
     for i, strike in enumerate(strikes_above[:NUM_STRIKES_EACH_SIDE], 1):
-        call_depth = strike_depth.get((strike, "C"), 0.0)
-        put_depth = strike_depth.get((strike, "P"), 0.0)
-        gamma = _gamma_approx(strike, ref_price)
-        features[f"gex_call_above_{i}"] = float(call_depth * gamma * CONTRACT_MULTIPLIER)
-        features[f"gex_put_above_{i}"] = float(put_depth * gamma * CONTRACT_MULTIPLIER)
+        features[f"gex_call_above_{i}"] = float(gex_by_strike_right.get((strike, "C"), 0.0))
+        features[f"gex_put_above_{i}"] = float(gex_by_strike_right.get((strike, "P"), 0.0))
 
     for i in range(len(strikes_above) + 1, NUM_STRIKES_EACH_SIDE + 1):
         features[f"gex_call_above_{i}"] = 0.0
         features[f"gex_put_above_{i}"] = 0.0
 
     for i, strike in enumerate(strikes_below[:NUM_STRIKES_EACH_SIDE], 1):
-        call_depth = strike_depth.get((strike, "C"), 0.0)
-        put_depth = strike_depth.get((strike, "P"), 0.0)
-        gamma = _gamma_approx(strike, ref_price)
-        features[f"gex_call_below_{i}"] = float(call_depth * gamma * CONTRACT_MULTIPLIER)
-        features[f"gex_put_below_{i}"] = float(put_depth * gamma * CONTRACT_MULTIPLIER)
+        features[f"gex_call_below_{i}"] = float(gex_by_strike_right.get((strike, "C"), 0.0))
+        features[f"gex_put_below_{i}"] = float(gex_by_strike_right.get((strike, "P"), 0.0))
 
     for i in range(len(strikes_below) + 1, NUM_STRIKES_EACH_SIDE + 1):
         features[f"gex_call_below_{i}"] = 0.0

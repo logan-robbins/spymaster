@@ -449,18 +449,5 @@ infra/README.md
 **MOST IMPORTANT - DO NOT FORGET**
 - You MUST follow all rules in DEV.md
 
-<your_task>
-**Implement future_option_mbo Pipeline**
 
-Follow the implementation plan in `.azure/PLAN_future_option_mbo.md` to add GEX (Gamma Exposure) features from ES future options MBO data.
-
-**Raw data location:** `backend/lake/raw/source=databento/product_type=future_option/symbol=ES/table=market_by_order_dbn/`
-
-**Implementation order:**
-1. Bronze: `BronzeIngestFutureOptionMboPreview` - parse option symbols, write per-underlying partitions
-2. Silver: `SilverComputeOptionGex5s` - compute Greeks, aggregate GEX by strike bucket (5s windows aligned with vacuum)
-3. Gold: Extend `GoldBuildMboTriggerVectors` to join GEX features with vacuum features
-
-**Key constraint:** GEX 5s windows MUST align exactly with vacuum 5s windows for proper join.
-</your_task>
 

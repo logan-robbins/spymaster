@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_option_mbo/gex_5s.avsc",
+  "contract_sha256": "9d4acc5179f9aa4cc6c3bee55791e034be1a3c8971f9696c6fca0c76a982aad6",
+  "dataset": "silver.future_option_mbo.gex_5s",
+  "dt": "2026-01-15",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.future_option_mbo.mbo",
+      "dt": "2026-01-15",
+      "manifest_sha256": "e92cc473a70c7c71e5d439796283968e55599f55d3306f1e8599f29aa8f99539"
+    }
+  ],
+  "row_count": 7919,
+  "stage": "silver_compute_gex_5s"
+}

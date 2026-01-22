@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_option_mbo/gex_enriched_trigger_vectors.avsc",
+  "contract_sha256": "b0c0264e37723c7907739d1699c75b3df3ee47378e13a4c59d80b9d4d7a6280d",
+  "dataset": "gold.future_option_mbo.gex_enriched_trigger_vectors",
+  "dt": "2026-01-19",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "gold.future_mbo.mbo_trigger_vectors",
+      "dt": "2026-01-19",
+      "manifest_sha256": "fffb83242470613d3ee9abf55cf19f1573389f297d4a6e7ae5a1c81c575b18f1"
+    },
+    {
+      "dataset": "silver.future_option_mbo.gex_5s",
+      "dt": "2026-01-19",
+      "manifest_sha256": "5173f6eb582aee43335bb186f3405a1edbef612118b104c158776fee07343b17"
+    }
+  ],
+  "row_count": 601,
+  "stage": "gold_build_gex_enriched_trigger_vectors"
+}

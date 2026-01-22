@@ -156,6 +156,13 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_mbo/mbo_pressure_stream.avsc
 
+  # Gold - Future Option MBO
+  gold.future_option_mbo.gex_enriched_trigger_vectors:
+    path: gold/product_type=future_option_mbo/symbol={symbol}/table=gex_enriched_trigger_vectors
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future_option_mbo/gex_enriched_trigger_vectors.avsc
+
   # Gold - Future Options
   gold.future_option.trades_first3h:
     path: gold/product_type=future_option/symbol={symbol}/table=trades_first3h
