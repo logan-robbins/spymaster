@@ -5,6 +5,6 @@
   "dt": "2026-01-01",
   "hour": null,
   "inputs": [],
-  "row_count": 6,
+  "row_count": 7,
   "stage": "generate_sample_equity_pipeline"
 }

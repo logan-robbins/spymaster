@@ -8,9 +8,9 @@
     {
       "dataset": "bronze.equity_mbo.mbo",
       "dt": "2026-01-02",
-      "manifest_sha256": "d7072d3a62546ae835fcf1ecace414d2075eb0acd1db514c5a1359cfd789c1a5"
+      "manifest_sha256": "c37f3972673aa382001bf66d241d36cc739be3926ef5c36675dbcee87f063ffe"
     }
   ],
-  "row_count": 1,
+  "row_count": 3,
   "stage": "silver_compute_equity_snapshot_and_wall_1s"
 }

@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/equity_mbo/radar_vacuum_1s.avsc",
+  "contract_sha256": "f3d83884cd834de40e29848bfe7e7216151fb94a9d376a91297b4e90a43b3b66",
+  "dataset": "silver.equity_mbo.radar_vacuum_1s",
+  "dt": "2026-01-02",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.equity_mbo.mbo",
+      "dt": "2026-01-02",
+      "manifest_sha256": "c37f3972673aa382001bf66d241d36cc739be3926ef5c36675dbcee87f063ffe"
+    },
+    {
+      "dataset": "silver.equity_mbo.book_snapshot_1s",
+      "dt": "2026-01-02",
+      "manifest_sha256": "d500d1df38bd711ca896bb1970bf6045cc3bcda1b03375e31052b198484c06df"
+    }
+  ],
+  "row_count": 3,
+  "stage": "silver_compute_equity_radar_vacuum_1s"
+}

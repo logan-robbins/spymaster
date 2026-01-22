@@ -12,7 +12,9 @@ sys.path.insert(0, str(backend_dir))
 
 from src.data_eng.config import load_config
 from src.data_eng.contracts import enforce_contract, load_avro_contract
-from src.data_eng.io import write_partition
+import shutil
+
+from src.data_eng.io import partition_ref, write_partition
 from src.data_eng.utils import session_window_ns
 from src.data_eng.stages.silver.equity_mbo.compute_snapshot_and_wall_1s import (
     SilverComputeEquitySnapshotAndWall1s,
@@ -56,11 +58,12 @@ def _price_int(price: float) -> int:
 def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
     base = _ts_ns(dt, "06:00:00")
     day_shift = int(pd.Timestamp(dt).dayofyear % 3)
-    day_parity = int(pd.Timestamp(dt).dayofyear % 2)
     size_shift = 20 * day_shift
     bid_px = _price_int(399.98 + 0.01 * day_shift)
     ask_px = _price_int(400.02 + 0.01 * day_shift)
-    trade_px = _price_int(400.00)
+    trade_px = _price_int(400.00 + 0.01 * day_shift)
+    bid_size = 180 + size_shift
+    ask_size = 200 + size_shift
 
     rows = [
         {
@@ -82,7 +85,7 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
         },
         {
             "ts_recv": base + 200_000_100,
-            "size": 200 + size_shift,
+            "size": ask_size,
             "ts_event": base + 200_000_000,
             "channel_id": 0,
             "rtype": RTYPE_MBO,
@@ -99,7 +102,7 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
         },
         {
             "ts_recv": base + 300_000_100,
-            "size": 180 + size_shift,
+            "size": bid_size,
             "ts_event": base + 300_000_000,
             "channel_id": 0,
             "rtype": RTYPE_MBO,
@@ -132,26 +135,9 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
             "price": trade_px,
         },
         {
-            "ts_recv": base + 500_000_100,
-            "size": 150 + size_shift,
-            "ts_event": base + 500_000_000,
-            "channel_id": 0,
-            "rtype": RTYPE_MBO,
-            "order_id": 10,
-            "publisher_id": 1,
-            "flags": 0,
-            "instrument_id": 1001,
-            "ts_in_delta": 0,
-            "action": "M",
-            "sequence": 5,
-            "side": "A",
-            "symbol": symbol,
-            "price": ask_px + _price_int(0.01),
-        },
-        {
-            "ts_recv": base + (850_000_100 if day_parity else 450_000_100),
-            "size": 0,
-            "ts_event": base + (850_000_000 if day_parity else 450_000_000),
+            "ts_recv": base + 1_200_000_100,
+            "size": bid_size - 60,
+            "ts_event": base + 1_200_000_000,
             "channel_id": 0,
             "rtype": RTYPE_MBO,
             "order_id": 11,
@@ -159,8 +145,42 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
             "flags": 0,
             "instrument_id": 1001,
             "ts_in_delta": 0,
-            "action": "C",
+            "action": "M",
+            "sequence": 5,
+            "side": "B",
+            "symbol": symbol,
+            "price": bid_px,
+        },
+        {
+            "ts_recv": base + 1_400_000_100,
+            "size": 60,
+            "ts_event": base + 1_400_000_000,
+            "channel_id": 0,
+            "rtype": RTYPE_MBO,
+            "order_id": 0,
+            "publisher_id": 1,
+            "flags": 0,
+            "instrument_id": 1001,
+            "ts_in_delta": 0,
+            "action": "T",
             "sequence": 6,
+            "side": "A",
+            "symbol": symbol,
+            "price": trade_px + _price_int(0.01),
+        },
+        {
+            "ts_recv": base + 2_200_000_100,
+            "size": bid_size + 40,
+            "ts_event": base + 2_200_000_000,
+            "channel_id": 0,
+            "rtype": RTYPE_MBO,
+            "order_id": 11,
+            "publisher_id": 1,
+            "flags": 0,
+            "instrument_id": 1001,
+            "ts_in_delta": 0,
+            "action": "M",
+            "sequence": 7,
             "side": "B",
             "symbol": symbol,
             "price": bid_px,
@@ -257,6 +277,13 @@ def main() -> int:
             stage="generate_sample_equity_pipeline",
         )
 
+        _clear_partition(cfg, "silver.equity_mbo.book_snapshot_1s", args.symbol, dt)
+        _clear_partition(cfg, "silver.equity_mbo.wall_surface_1s", args.symbol, dt)
+        _clear_partition(cfg, "silver.equity_mbo.vacuum_surface_1s", args.symbol, dt)
+        _clear_partition(cfg, "silver.equity_mbo.radar_vacuum_1s", args.symbol, dt)
+        _clear_partition(cfg, "silver.equity_mbo.physics_bands_1s", args.symbol, dt)
+        _clear_partition(cfg, "gold.equity_mbo.physics_norm_calibration", args.symbol, dt)
+
     stage_snap = SilverComputeEquitySnapshotAndWall1s()
     stage_cal = GoldBuildEquityPhysicsNormCalibration()
     stage_vac = SilverComputeEquityVacuumSurface1s()
@@ -277,6 +304,12 @@ def main() -> int:
 
     print(f"Sample equity pipeline complete for {args.symbol} {dates[-1]}")
     return 0
+
+
+def _clear_partition(cfg, dataset_key: str, symbol: str, dt: str) -> None:
+    ref = partition_ref(cfg, dataset_key, symbol, dt)
+    if ref.dir.exists():
+        shutil.rmtree(ref.dir)
 
 
 if __name__ == "__main__":

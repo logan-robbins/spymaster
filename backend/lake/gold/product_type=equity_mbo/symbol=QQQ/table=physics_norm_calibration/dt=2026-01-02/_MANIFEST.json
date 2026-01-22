@@ -8,12 +8,12 @@
     {
       "dataset": "silver.equity_mbo.wall_surface_1s",
       "dt": "2026-01-01",
-      "manifest_sha256": "115705b69be7c6bf63aa3635c8330f806d3d89ab8c0b2afe98672be22a004542"
+      "manifest_sha256": "cc2163e09cf38a8f8182be5c454cc851b92863789117b6e47c67f9d6880ad2ba"
     },
     {
       "dataset": "silver.equity_mbo.wall_surface_1s",
       "dt": "2026-01-02",
-      "manifest_sha256": "b84ed51ad917a7907afa3d1b90165e813407e53f9b6c7944ae909ebadfa4e1fb"
+      "manifest_sha256": "10c40ff5c4fd50c096fc60d0cc255036efeb72ecca34de8b42ed6ef633c8dc5f"
     }
   ],
   "row_count": 5,
