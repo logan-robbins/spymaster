@@ -1,6 +1,13 @@
 lake_root: lake
 
 datasets:
+  # Shared
+  bronze.shared.instrument_definitions:
+    path: bronze/source=databento/shared/table=instrument_definitions
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/shared/instrument_definitions.avsc
+
   # Bronze - Futures
   bronze.future.market_by_price_10:
     path: bronze/source=databento/product_type=future/symbol={symbol}/table=market_by_price_10
@@ -48,6 +55,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option_mbo/gex_5s.avsc
 
+  silver.future_option_mbo.gex_surface_1s:
+    path: silver/product_type=future_option_mbo/symbol={symbol}/table=gex_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_option_mbo/gex_surface_1s.avsc
+
   # Silver - Futures
   silver.future.market_by_price_10:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10
@@ -79,6 +92,18 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/mbo_level_vacuum_5s.avsc
+
+  silver.future_mbo.book_snapshot_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=book_snapshot_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc
+
+  silver.future_mbo.wall_surface_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=wall_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/wall_surface_1s.avsc
 
   # Silver - Futures - 2-minute candle level approach (one per level type)
   silver.future.market_by_price_10_pm_high_approach2m:
@@ -118,6 +143,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option/nbbo_clean.avsc
 
+  silver.future_option.statistics_clean:
+    path: silver/product_type=future_option/symbol={symbol}/table=statistics_clean
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_option/statistics_clean.avsc
+  
   silver.future_option.statistics_clean:
     path: silver/product_type=future_option/symbol={symbol}/table=statistics_clean
     format: parquet

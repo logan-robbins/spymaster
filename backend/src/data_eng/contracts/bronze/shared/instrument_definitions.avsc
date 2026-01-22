@@ -1,0 +1,47 @@
+{
+  "namespace": "com.marketdata.bronze.shared",
+  "type": "record",
+  "name": "InstrumentDefinition",
+  "fields": [
+    {
+      "name": "ts_event",
+      "type": "long"
+    },
+    {
+      "name": "instrument_id",
+      "type": "int"
+    },
+    {
+      "name": "security_update_action",
+      "type": "string"
+    },
+    {
+      "name": "security_type",
+      "type": "string"
+    },
+    {
+      "name": "underlying_id",
+      "type": "int"
+    },
+    {
+      "name": "underlying",
+      "type": "string"
+    },
+    {
+      "name": "expiration",
+      "type": "long"
+    },
+    {
+      "name": "strike_price",
+      "type": "long"
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "raw_symbol",
+      "type": "string"
+    }
+  ]
+}

@@ -9,14 +9,22 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     """Return the ordered list of stages for the given product_type and layer.
 
     Args:
-        product_type: One of 'future', 'future_option', 'equity', 'equity_option'
+        product_type: One of 'future', 'future_option', 'equity', 'equity_option', 'shared'
         layer: One of 'bronze', 'silver', 'gold', 'all'
 
     Returns:
         List of Stage instances to execute in order
     """
 
-    if product_type == "future":
+    if product_type == "shared":
+        from .stages.bronze.shared.ingest_instrument_definitions import BronzeIngestInstrumentDefinitions
+        
+        if layer == "bronze":
+            return [BronzeIngestInstrumentDefinitions()]
+        elif layer == "all":
+            return [BronzeIngestInstrumentDefinitions()]
+
+    elif product_type == "future":
         from .stages.bronze.future.process_dbn import BronzeProcessDBN
         from .stages.silver.future.add_session_levels import SilverAddSessionLevels
         from .stages.silver.future.filter_first4h import SilverFilterFirst4Hours
@@ -47,7 +55,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
 
     elif product_type == "future_option_mbo":
         from .stages.bronze.future_option_mbo.ingest import BronzeIngestFutureOptionMbo
-        from .stages.silver.future_option_mbo.compute_gex_5s import SilverComputeGex5s
+        from .stages.silver.future_option_mbo.compute_gex_surface_1s import SilverComputeGexSurface1s
         from .stages.gold.future_option_mbo.build_gex_enriched_trigger_vectors import (
             GoldBuildGexEnrichedTriggerVectors,
         )
@@ -55,24 +63,34 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         if layer == "bronze":
             return [BronzeIngestFutureOptionMbo()]
         elif layer == "silver":
-            return [SilverComputeGex5s()]
+            # Replaced GEX 5s with GEX Surface 1s
+            return [SilverComputeGexSurface1s()]
         elif layer == "gold":
             return [GoldBuildGexEnrichedTriggerVectors()]
         elif layer == "all":
             return [
                 BronzeIngestFutureOptionMbo(),
-                SilverComputeGex5s(),
+                SilverComputeGexSurface1s(),
                 GoldBuildGexEnrichedTriggerVectors(),
             ]
 
     elif product_type == "future_option":
-        pass
+        from .stages.bronze.future_option.ingest_statistics import BronzeIngestFutureOptionStatistics
+        from .stages.silver.future_option.compute_statistics_clean import SilverComputeStatisticsClean
+        
+        if layer == "bronze":
+            return [BronzeIngestFutureOptionStatistics()]
+        elif layer == "silver":
+            return [SilverComputeStatisticsClean()]
+        elif layer == "all":
+            return [BronzeIngestFutureOptionStatistics(), SilverComputeStatisticsClean()]
 
     elif product_type == "future_mbo":
         from .stages.bronze.future_mbo.ingest_preview import BronzeIngestMboPreview
         from .stages.silver.future_mbo.compute_level_vacuum_5s import (
             SilverComputeMboLevelVacuum5s,
         )
+        from .stages.silver.future_mbo.compute_snapshot_and_wall_1s import SilverComputeSnapshotAndWall1s
         from .stages.gold.future_mbo.build_trigger_vectors import (
             GoldBuildMboTriggerVectors,
         )
@@ -86,7 +104,11 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         if layer == "bronze":
             return [BronzeIngestMboPreview()]
         elif layer == "silver":
-            return [SilverComputeMboLevelVacuum5s()]
+            # Keeping legacy 5s vacuum for now, adding 1s snapshot/wall
+            return [
+                SilverComputeMboLevelVacuum5s(),
+                SilverComputeSnapshotAndWall1s()
+            ]
         elif layer == "gold":
             return [
                 GoldBuildMboTriggerVectors(),
@@ -97,6 +119,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             return [
                 BronzeIngestMboPreview(),
                 SilverComputeMboLevelVacuum5s(),
+                SilverComputeSnapshotAndWall1s(),
                 GoldBuildMboTriggerVectors(),
                 GoldBuildMboTriggerSignals(),
                 GoldBuildMboPressureStream(),
@@ -104,5 +127,5 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
 
     raise ValueError(
         f"Unknown product_type: {product_type}. "
-        f"Must be one of: future, future_option, future_mbo, equity, equity_option"
+        f"Must be one of: future, future_option, future_mbo, equity, equity_option, shared"
     )

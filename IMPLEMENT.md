@@ -56,11 +56,11 @@ This is **not** a Bookmap clone. We will use **our physics** (vacuum / slope / l
 ---
 
 ## Execution Plan (Living, Pipeline-Aligned)
-1) Define dataset entries and Avro contracts for `book_snapshot_5s`, `wall_surface_5s`, `vacuum_surface_5s`, `radar_vacuum_5s`, `physics_bands_5s`, `gex_surface_5s`, plus a **normalization calibration artifact** (`gold.hud.physics_norm_calibration`). Status: todo.
-2) Add silver stages in `future_mbo` to build book snapshot + wall surface from a single book reconstruction pass, and to derive `vacuum_surface_5s`, `radar_vacuum_5s`, `physics_bands_5s`. Status: todo.
-3) Replace `silver.future_option_mbo.gex_5s` with `silver.future_option_mbo.gex_surface_5s` built from options MBO + OI stats + futures spot, with a **fixed signed convention** (defined below). Status: todo.
+1) Define dataset entries and Avro contracts for `book_snapshot_1s`, `wall_surface_1s`, `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`, `gex_surface_1s`, plus a **normalization calibration artifact** (`gold.hud.physics_norm_calibration`). Status: **DONE** (Phase 1 Contracts Created).
+2) Add silver stages in `future_mbo` to build book snapshot + wall surface from a single book reconstruction pass, and to derive `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`. Status: **DONE** (Snapshot & Wall Implemented & Verified).
+3) Replace `silver.future_option_mbo.gex_5s` with `silver.future_option_mbo.gex_surface_1s` built from options MBO + OI stats + futures spot, with a **fixed signed convention** (defined below). Status: **CODE COMPLETE** (Pending Verification).
 4) Add the **Serving Layer** (API + WebSocket) that streams a rolling 30-minute HUD window with bounded surfaces and fixed quantization. Status: todo.
-5) Register stages in `pipeline.py` and ensure cross-product inputs are built before dependent stages. Status: todo.
+5) Register stages in `pipeline.py` and ensure cross-product inputs are built before dependent stages. Status: **DONE** (Registered).
 6) Run the verification checks in this document (including normalization + bounded texture limits). Status: todo.
 
 ---
@@ -111,18 +111,18 @@ This is required to correctly resolve **option expiration + strike** (and, event
 - Any feature computed for session date `dt` must use the instrument definition state as-of the session window start for `dt` (no lookahead).
 
 ### A) Futures Book Snapshot (derived from futures MBO)
-**Dataset key**: `silver.future_mbo.book_snapshot_5s`
+**Dataset key**: `silver.future_mbo.book_snapshot_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_mbo/symbol={symbol}/table=book_snapshot_5s`
-- contract: `src/data_eng/contracts/silver/future_mbo/book_snapshot_5s.avsc`
+- path: `silver/product_type=future_mbo/symbol={symbol}/table=book_snapshot_1s`
+- contract: `src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc`
 
 **Stage**:
-- `SilverComputeBookSnapshot5s` in `backend/src/data_eng/stages/silver/future_mbo/compute_book_snapshot_5s.py`
+- `SilverComputeBookSnapshot1s` in `backend/src/data_eng/stages/silver/future_mbo/compute_book_snapshot_1s.py`
 
 **Purpose**: deterministic spot reference and basic integrity signals.
 
-**Required fields** (per 5s window):
+**Required fields** (per 1s window):
 - `window_start_ts_ns`, `window_end_ts_ns`
 - `best_bid_price_int`, `best_bid_qty`
 - `best_ask_price_int`, `best_ask_qty`
@@ -139,27 +139,27 @@ This is required to correctly resolve **option expiration + strike** (and, event
 ---
 
 ### B) Futures Wall Surface (derived from futures MBO)
-**Dataset key**: `silver.future_mbo.wall_surface_5s`
+**Dataset key**: `silver.future_mbo.wall_surface_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_mbo/symbol={symbol}/table=wall_surface_5s`
-- contract: `src/data_eng/contracts/silver/future_mbo/wall_surface_5s.avsc`
+- path: `silver/product_type=future_mbo/symbol={symbol}/table=wall_surface_1s`
+- contract: `src/data_eng/contracts/silver/future_mbo/wall_surface_1s.avsc`
 
 **Stage**:
-- `SilverComputeWallSurface5s` in `backend/src/data_eng/stages/silver/future_mbo/compute_wall_surface_5s.py`
+- `SilverComputeWallSurface1s` in `backend/src/data_eng/stages/silver/future_mbo/compute_wall_surface_1s.py`
 
 **Row grain**: one row per \((window_end_ts_ns, price_int, side)\)
 - `side` ∈ {`B`, `A`}
 
 **Hard bounds (to make a real-time HUD feasible)**:
 - Define `HUD_MAX_TICKS = 600` (150 ES points).
-- For each window, compute `spot_ref_price_int` (from `book_snapshot_5s` at the same `window_end_ts_ns`).
+- For each window, compute `spot_ref_price_int` (from `book_snapshot_1s` at the same `window_end_ts_ns`).
 - Emit rows **only** for price levels in:
   - `price_int ∈ [spot_ref_price_int - HUD_MAX_TICKS*TICK_INT, spot_ref_price_int + HUD_MAX_TICKS*TICK_INT]`
 - Also emit `rel_ticks = (price_int - spot_ref_price_int) / TICK_INT` as an **integer** in \([-HUD_MAX_TICKS, +HUD_MAX_TICKS]\).
 
 **Required identity fields** (per row):
-- `spot_ref_price_int` (int64; copied from `book_snapshot_5s`)
+- `spot_ref_price_int` (int64; copied from `book_snapshot_1s`)
 - `rel_ticks` (int32)
 
 **Required measures** (per row):
@@ -178,24 +178,24 @@ This is required to correctly resolve **option expiration + strike** (and, event
 ---
 
 ### C) Futures Vacuum Surface (our physics, paintable)
-**Dataset key**: `silver.future_mbo.vacuum_surface_5s`
+**Dataset key**: `silver.future_mbo.vacuum_surface_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_mbo/symbol={symbol}/table=vacuum_surface_5s`
-- contract: `src/data_eng/contracts/silver/future_mbo/vacuum_surface_5s.avsc`
+- path: `silver/product_type=future_mbo/symbol={symbol}/table=vacuum_surface_1s`
+- contract: `src/data_eng/contracts/silver/future_mbo/vacuum_surface_1s.avsc`
 
 **Stage**:
-- `SilverComputeVacuumSurface5s` in `backend/src/data_eng/stages/silver/future_mbo/compute_vacuum_surface_5s.py`
+- `SilverComputeVacuumSurface1s` in `backend/src/data_eng/stages/silver/future_mbo/compute_vacuum_surface_1s.py`
 
 **Row grain**: one row per \((window_end_ts_ns, price_int, side)\).
 
-**Hard bounds**: identical to `wall_surface_5s` (same `HUD_MAX_TICKS`, same `spot_ref_price_int`, same `rel_ticks`).
+**Hard bounds**: identical to `wall_surface_1s` (same `HUD_MAX_TICKS`, same `spot_ref_price_int`, same `rel_ticks`).
 
 **Required identity fields** (per row):
 - `spot_ref_price_int` (int64)
 - `rel_ticks` (int32)
 
-**Required measures** (derived from wall_surface_5s):
+**Required measures** (derived from wall_surface_1s):
 - `pull_intensity_rest = pull_qty_rest / (depth_qty_start + ε)`
 - `pull_add_log = log((pull_qty_rest + ε) / (add_qty + ε))`
 - `d1_pull_add_log`, `d2_pull_add_log`, `d3_pull_add_log`
@@ -232,14 +232,14 @@ This makes `vacuum_score` comparable across days and stable for WebGL color mapp
 ---
 
 ### D) Futures Spot-Anchored Vacuum Features (reuse our existing feature family, but continuous)
-**Dataset key**: `silver.future_mbo.radar_vacuum_5s`
+**Dataset key**: `silver.future_mbo.radar_vacuum_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_mbo/symbol={symbol}/table=radar_vacuum_5s`
-- contract: `src/data_eng/contracts/silver/future_mbo/radar_vacuum_5s.avsc`
+- path: `silver/product_type=future_mbo/symbol={symbol}/table=radar_vacuum_1s`
+- contract: `src/data_eng/contracts/silver/future_mbo/radar_vacuum_1s.avsc`
 
 **Stage**:
-- `SilverComputeRadarVacuum5s` in `backend/src/data_eng/stages/silver/future_mbo/compute_radar_vacuum_5s.py`
+- `SilverComputeRadarVacuum1s` in `backend/src/data_eng/stages/silver/future_mbo/compute_radar_vacuum_1s.py`
 
 **Purpose**: keep the existing vacuum vocabulary (COM displacement, slopes, pull shares, repricing shares, etc.) but compute it continuously around spot (not around PM high).
 
@@ -247,27 +247,27 @@ This makes `vacuum_score` comparable across days and stable for WebGL color mapp
 - `window_start_ts_ns`, `window_end_ts_ns`
 - `spot_ref_price` (double) and `spot_ref_price_int`
 - `approach_dir` (derived from MBO trade prints / trend; must not be used to null the output)
-- The full feature set currently produced by `mbo_level_vacuum_5s` (f*, u*, and their d1/d2/d3), with one change:
+- The full feature set currently produced by `mbo_level_vacuum_5s`, with one change:
   - **Replace** `P_ref`/`P_REF_INT` with `spot_ref_price`/`spot_ref_price_int`.
 
 **Critical rule (do not implement incorrectly)**:
 - Do **not** persist per-order “bucket” labels across windows in a moving spot reference frame.
-- Instead, for each 5s window:
-  - pick a deterministic `spot_ref_price_int` for that window (from book_snapshot_5s),
+- Instead, for each 1s window:
+  - pick a deterministic `spot_ref_price_int` for that window (from book_snapshot_1s),
   - compute start/end snapshots and within-window accumulators relative to that same spot_ref.
 This preserves feature meaning and prevents “reference-motion artifacts.”
 
 ---
 
 ### E) Options OI-Based GEX Surface (derived from options MBO + OI statistics)
-**Dataset key**: `silver.future_option_mbo.gex_surface_5s`
+**Dataset key**: `silver.future_option_mbo.gex_surface_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_option_mbo/symbol={symbol}/table=gex_surface_5s`
-- contract: `src/data_eng/contracts/silver/future_option_mbo/gex_surface_5s.avsc`
+- path: `silver/product_type=future_option_mbo/symbol={symbol}/table=gex_surface_1s`
+- contract: `src/data_eng/contracts/silver/future_option_mbo/gex_surface_1s.avsc`
 
 **Stage**:
-- `SilverComputeGexSurface5s` in `backend/src/data_eng/stages/silver/future_option_mbo/compute_gex_surface_5s.py`
+- `SilverComputeGexSurface1s` in `backend/src/data_eng/stages/silver/future_option_mbo/compute_gex_surface_1s.py`
 
 **Row grain**: one row per \((window_end_ts_ns, underlying, strike_price_int)\).
 
@@ -276,13 +276,13 @@ This preserves feature meaning and prevents “reference-motion artifacts.”
 - Define `GEX_MAX_STRIKE_OFFSETS = 30` (±150 points around spot; aligns to the futures HUD price axis).
 - Define `GEX_MAX_DTE_DAYS = 45` (only include expirations with \(0 < DTE \le 45\) days).
 - For each window:
-  - compute `underlying_spot_ref` (from `book_snapshot_5s`)
+  - compute `underlying_spot_ref` (from `book_snapshot_1s`)
   - define `strike_ref_points = round(underlying_spot_ref / 5) * 5`
   - emit strikes `strike_points = strike_ref_points + i*GEX_STRIKE_STEP_POINTS` for `i ∈ [-GEX_MAX_STRIKE_OFFSETS, +GEX_MAX_STRIKE_OFFSETS]`
   - convert to fixed-point `strike_price_int = int(round(strike_points / 1e-9))`
 
 **Required inputs**:
-- Underlying spot per window (from `silver.future_mbo.book_snapshot_5s`).
+- Underlying spot per window (from `silver.future_mbo.book_snapshot_1s`).
 - Option mid premium per window (derived by reconstructing option best bid/ask from **options MBO**).
 - Open interest from `silver.future_option.statistics_clean` (statistics feed joined by option identity and time).
 - **Instrument Definitions** (hard requirement): use `bronze.shared.instrument_definitions` keyed by `instrument_id` to obtain:
@@ -322,14 +322,14 @@ This unit is stable, interpretable at the level granularity we care about (ES po
 ---
 
 ### F) Above/Below Summary Bands (derived from futures surfaces)
-**Dataset key**: `silver.future_mbo.physics_bands_5s`
+**Dataset key**: `silver.future_mbo.physics_bands_1s`
 
 **Dataset entry** (datasets.yaml; parquet; partition_keys: symbol, dt):
-- path: `silver/product_type=future_mbo/symbol={symbol}/table=physics_bands_5s`
-- contract: `src/data_eng/contracts/silver/future_mbo/physics_bands_5s.avsc`
+- path: `silver/product_type=future_mbo/symbol={symbol}/table=physics_bands_1s`
+- contract: `src/data_eng/contracts/silver/future_mbo/physics_bands_1s.avsc`
 
 **Stage**:
-- `SilverComputePhysicsBands5s` in `backend/src/data_eng/stages/silver/future_mbo/compute_physics_bands_5s.py`
+- `SilverComputePhysicsBands1s` in `backend/src/data_eng/stages/silver/future_mbo/compute_physics_bands_1s.py`
 
 **One row per window**, including:
 - `mid_price`
@@ -403,25 +403,25 @@ We define “above” as asks in positive `rel_ticks` and “below” as bids in
   - `gex_abs`
 
 **Hard rule**:
-- `vacuum_surface_5s`, `physics_bands_5s`, and HUD serving must **fail fast** if `gold.hud.physics_norm_calibration` is missing for the symbol.
+- `vacuum_surface_1s`, `physics_bands_1s`, and HUD serving must **fail fast** if `gold.hud.physics_norm_calibration` is missing for the symbol.
 
 ---
 
 ## Pipeline Alignment (Stage Map and Dependencies)
 
 ### Futures (`future_mbo`) silver stages
-- Build `book_snapshot_5s` and `wall_surface_5s` from a single MBO pass. Use one stage that writes both outputs to keep book state identical and to avoid drift between datasets.
-- `SilverComputeVacuumSurface5s` uses `silver.future_mbo.wall_surface_5s` **and** `gold.hud.physics_norm_calibration` (for the hard 0..1 normalization) and emits `silver.future_mbo.vacuum_surface_5s`.
-- `SilverComputeRadarVacuum5s` uses `bronze.future_mbo.mbo` plus `silver.future_mbo.book_snapshot_5s` so each window has a deterministic spot reference.
-- `SilverComputePhysicsBands5s` uses `silver.future_mbo.book_snapshot_5s`, `silver.future_mbo.wall_surface_5s`, `silver.future_mbo.vacuum_surface_5s`, and `gold.hud.physics_norm_calibration`.
+- Build `book_snapshot_1s` and `wall_surface_1s` from a single MBO pass. Use one stage that writes both outputs to keep book state identical and to avoid drift between datasets.
+- `SilverComputeVacuumSurface1s` uses `silver.future_mbo.wall_surface_1s` **and** `gold.hud.physics_norm_calibration` (for the hard 0..1 normalization) and emits `silver.future_mbo.vacuum_surface_1s`.
+- `SilverComputeRadarVacuum1s` uses `bronze.future_mbo.mbo` plus `silver.future_mbo.book_snapshot_1s` so each window has a deterministic spot reference.
+- `SilverComputePhysicsBands1s` uses `silver.future_mbo.book_snapshot_1s`, `silver.future_mbo.wall_surface_1s`, `silver.future_mbo.vacuum_surface_1s`, and `gold.hud.physics_norm_calibration`.
 
 ### Options (`future_option_mbo`) silver stages
-- `SilverComputeGexSurface5s` uses `bronze.future_option_mbo.mbo`, `bronze.shared.instrument_definitions`, `silver.future_option.statistics_clean`, and `silver.future_mbo.book_snapshot_5s`. Output is `silver.future_option_mbo.gex_surface_5s`.
-- `GoldBuildGexEnrichedTriggerVectors` must read `gex_surface_5s` to keep gold features consistent with the new OI-based surface.
+- `SilverComputeGexSurface1s` uses `bronze.future_option_mbo.mbo`, `bronze.shared.instrument_definitions`, `silver.future_option.statistics_clean`, and `silver.future_mbo.book_snapshot_1s`. Output is `silver.future_option_mbo.gex_surface_1s`.
+- `GoldBuildGexEnrichedTriggerVectors` must read `gex_surface_1s` to keep gold features consistent with the new OI-based surface.
 
 ### Pipeline registration
 - In `pipeline.py`, list the new silver stages for `future_mbo` in dependency order.
-- In `pipeline.py`, replace `SilverComputeGex5s` with `SilverComputeGexSurface5s` for `future_option_mbo`.
+- In `pipeline.py`, replace `SilverComputeGex5s` with `SilverComputeGexSurface1s` for `future_option_mbo`.
 
 ---
 
@@ -430,7 +430,7 @@ We define “above” as asks in positive `rel_ticks` and “below” as bids in
 ### 0) Stage and dataset pattern (match current pipeline)
 - Follow the StageIO pattern in `compute_level_vacuum_5s.py` and `compute_gex_5s.py`: idempotency via `_SUCCESS`, contract enforcement, and manifest lineage via `read_manifest_hash`.
 - New datasets are parquet partitions keyed by `symbol, dt` with Avro contracts under `backend/src/data_eng/contracts/silver/{product_type}/`.
-- Stage naming should follow the `silver_compute_*_5s` convention so the CLI runner and logs stay consistent.
+- Stage naming should follow the `silver_compute_*_1s` convention so the CLI runner and logs stay consistent.
 
 **Why**: keeps the new work consistent with the current pipeline and the existing runner expectations.
 
@@ -449,17 +449,17 @@ Process MBO actions:
 - `R`: clear book (reset).
   - If `flags` indicate `F_SNAPSHOT`, this `R` is the start of a Databento snapshot stream. Keep ingesting snapshot `A` records until the snapshot completes at a record with `F_LAST`.
   - `book_valid=false` from the snapshot start until `F_LAST` is observed.
-  - Any 5s window that overlaps an incomplete snapshot is `window_valid=false`.
+  - Any 1s window that overlaps an incomplete snapshot is `window_valid=false`.
 - `N`: no-op record; ignore for state.
 
 **Why**: this produces NBBO, mid, and the heatmap substrate directly from MBO (no external tables).
 
 ### 2) Windowing + Snapshot Discipline
-- Keep 5-second windows consistent with the rest of the pipeline unless explicitly changed.
+- Keep 1-second windows consistent with the rest of the pipeline unless explicitly changed.
 - For each window:
   - snapshot depth at window start and end
   - accumulate add/pull/fill flow by price/side within the window
-  - emit `book_snapshot_5s` and `wall_surface_5s`
+  - emit `book_snapshot_1s` and `wall_surface_1s`
 
 **Why**: it makes d1/d2 meaningful and prevents reference-frame artifacts.
 
@@ -490,7 +490,7 @@ Process MBO actions:
 
 ## What To Remove From Prior Plans (Incorrect)
 - Do not implement “continuous vacuum” by simply setting `p_ref_int = current_mid_price` while keeping per-order bucket state. That creates incorrect “bucket-enter time” semantics and reference-motion artifacts.
-- Do not treat the current `future_option_mbo.gex_5s` output as OI-based GEX; it is a proxy and must be replaced by `gex_surface_5s`.
+- Do not treat the current `future_option_mbo.gex_5s` output as OI-based GEX; it is a proxy and must be replaced by `gex_surface_1s`.
 - Do not use `gold.future_mbo.mbo_pressure_stream` as an overlay input; it nulls pressure outside `approach_dir` and hides continuous structure.
 
 ---
@@ -538,35 +538,35 @@ The HUD must be able to render a rolling 30-minute window at interactive FPS wit
 ### 0) API surface (hard spec)
 - **Bootstrap (HTTP)**: `GET /v1/hud/bootstrap?symbol={symbol}&dt={dt}&end_ts_ns={now}`
   - returns Arrow IPC (single batch) containing the last 30 minutes of:
-    - `book_snapshot_5s`
+    - `book_snapshot_1s`
     - pre-quantized HUD texture columns (see below)
 - **Live stream (WebSocket)**: `WS /v1/hud/stream?symbol={symbol}`
-  - streams one Arrow IPC record batch every 5 seconds (one new column)
+  - streams one Arrow IPC record batch every 1 second (one new column)
 
 ### 1) Transport (2025 best practice)
 - **Binary columnar payloads**: Apache Arrow IPC is the canonical transport for:
   - bootstrapping a 30-minute window
-  - streaming incremental 5-second updates
+  - streaming incremental 1-second updates
 - Payloads are compressed (zstd) and decoded into TypedArrays on the client for direct WebGL texture upload.
 
 ### 2) Query engine (lake → HUD)
 - The server queries parquet directly from the lake using DuckDB with predicate pushdown on:
   - `symbol`, `dt`, and `window_end_ts_ns` range
 - The server emits:
-  - `book_snapshot_5s` for the same time range
-  - `wall_surface_5s` + `vacuum_surface_5s` converted into dense, bounded textures in `rel_ticks` space
-  - `gex_surface_5s` mapped into the **same 1201-height price-axis texture** (strikes land on integer tick rows; values are 0 elsewhere)
+  - `book_snapshot_1s` for the same time range
+  - `wall_surface_1s` + `vacuum_surface_1s` converted into dense, bounded textures in `rel_ticks` space
+  - `gex_surface_1s` mapped into the **same 1201-height price-axis texture** (strikes land on integer tick rows; values are 0 elsewhere)
 
 ### 3) HUD tile shape (fixed; guarantees WebGL feasibility)
 - **Time axis**:
-  - history: last 30 minutes = 360 columns at 5s cadence
-  - future void: 5 minutes = 60 columns (rendered empty client-side)
+  - history: last 30 minutes = 1800 columns at 1s cadence
+  - future void: 5 minutes = 300 columns (rendered empty client-side)
 - **Price axis**:
   - `HUD_MAX_TICKS = 600` ⇒ height = `2*HUD_MAX_TICKS + 1 = 1201`
 - This fits within common `MAX_TEXTURE_SIZE` constraints and avoids unbounded growth.
 
 ### 4) Streaming cadence
-- The server pushes **one new column every 5 seconds** (the new window).
+- The server pushes **one new column every 1 second** (the new window).
 - Each update includes:
   - `window_end_ts_ns`
   - `spot_ref_price_int`
