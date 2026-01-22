@@ -22,9 +22,6 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.bronze.future_option.ingest_statistics import BronzeIngestFutureOptionStatistics
         from .stages.silver.future_option.compute_statistics_clean import SilverComputeStatisticsClean
         from .stages.silver.future_option_mbo.compute_gex_surface_1s import SilverComputeGexSurface1s
-        from .stages.gold.future_option_mbo.build_gex_enriched_trigger_vectors import (
-            GoldBuildGexEnrichedTriggerVectors,
-        )
 
         if layer == "bronze":
             return [
@@ -38,7 +35,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 SilverComputeGexSurface1s(),
             ]
         elif layer == "gold":
-            return [GoldBuildGexEnrichedTriggerVectors()]
+            return []
         elif layer == "all":
             return [
                 BronzeIngestInstrumentDefinitions(),
@@ -46,7 +43,6 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 BronzeIngestFutureOptionMbo(),
                 SilverComputeStatisticsClean(),
                 SilverComputeGexSurface1s(),
-                GoldBuildGexEnrichedTriggerVectors(),
             ]
 
     elif product_type == "future_mbo":
@@ -55,15 +51,6 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future_mbo.compute_vacuum_surface_1s import SilverComputeVacuumSurface1s
         from .stages.silver.future_mbo.compute_radar_vacuum_1s import SilverComputeRadarVacuum1s
         from .stages.silver.future_mbo.compute_physics_bands_1s import SilverComputePhysicsBands1s
-        from .stages.gold.future_mbo.build_trigger_vectors import (
-            GoldBuildMboTriggerVectors,
-        )
-        from .stages.gold.future_mbo.build_trigger_signals import (
-            GoldBuildMboTriggerSignals,
-        )
-        from .stages.gold.future_mbo.build_pressure_stream import (
-            GoldBuildMboPressureStream,
-        )
 
         if layer == "bronze":
             return [BronzeIngestMboPreview()]
@@ -75,22 +62,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 SilverComputePhysicsBands1s(),
             ]
         elif layer == "gold":
-            return [
-                GoldBuildMboTriggerVectors(),
-                GoldBuildMboTriggerSignals(),
-                GoldBuildMboPressureStream(),
-            ]
-        elif layer == "all":
-            return [
-                BronzeIngestMboPreview(),
-                SilverComputeSnapshotAndWall1s(),
-                SilverComputeVacuumSurface1s(),
-                SilverComputeRadarVacuum1s(),
-                SilverComputePhysicsBands1s(),
-                GoldBuildMboTriggerVectors(),
-                GoldBuildMboTriggerSignals(),
-                GoldBuildMboPressureStream(),
-            ]
+            return []
 
     elif product_type == "hud":
         from .stages.gold.hud.build_physics_norm_calibration import GoldBuildHudPhysicsNormCalibration

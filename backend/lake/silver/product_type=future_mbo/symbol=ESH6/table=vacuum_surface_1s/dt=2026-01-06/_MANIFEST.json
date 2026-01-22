@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/vacuum_surface_1s.avsc",
+  "contract_sha256": "08697a465abeb59ec8dbb836ba65ca8c4b48af6acdf613e794ee91f441776f67",
+  "dataset": "silver.future_mbo.vacuum_surface_1s",
+  "dt": "2026-01-06",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "silver.future_mbo.wall_surface_1s",
+      "dt": "2026-01-06",
+      "manifest_sha256": "5fb40b33a93311f1c9f71332e6a150bb68700db1bc7ba9b91a36d3aad82d612e"
+    },
+    {
+      "dataset": "gold.hud.physics_norm_calibration",
+      "dt": "2026-01-06",
+      "manifest_sha256": "2662c2b73bbdcfe2f695dfc83450ae214f97857f5975b5e6730e340449ac01d0"
+    }
+  ],
+  "row_count": 21863786,
+  "stage": "silver_compute_vacuum_surface_1s"
+}

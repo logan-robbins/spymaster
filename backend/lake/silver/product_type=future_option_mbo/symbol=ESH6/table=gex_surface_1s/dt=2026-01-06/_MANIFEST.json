@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_option_mbo/gex_surface_1s.avsc",
+  "contract_sha256": "8fb4b99629788def7e10e8031437d3729c99965fa54606bb6cf1a7c46334b3dc",
+  "dataset": "silver.future_option_mbo.gex_surface_1s",
+  "dt": "2026-01-06",
+  "hour": null,
+  "inputs": [],
+  "row_count": 15000,
+  "stage": "generate_sample_gex"
+}

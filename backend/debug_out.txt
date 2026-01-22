@@ -1,0 +1,68 @@
+Found 1 definition files.
+Loading lake/raw/source=databento/dataset=definition/glbx-mdp3-20260106.definition.dbn
+Total definition rows: 8586
+Option definitions: 5390
+Sample expirations (raw):
+0    1813239000000000000
+1    1813239000000000000
+2    1813239000000000000
+3    1813239000000000000
+4    1797604200000000000
+Name: expiration, dtype: uint64
+
+Sample expirations (UTC):
+0   2027-06-17 13:30:00+00:00
+1   2027-06-17 13:30:00+00:00
+2   2027-06-17 13:30:00+00:00
+3   2027-06-17 13:30:00+00:00
+4   2026-12-18 14:30:00+00:00
+Name: expiration, dtype: datetime64[ns, UTC]
+
+Sample expirations (Etc/GMT+5):
+0   2027-06-17 08:30:00-05:00
+1   2027-06-17 08:30:00-05:00
+2   2027-06-17 08:30:00-05:00
+3   2027-06-17 08:30:00-05:00
+4   2026-12-18 09:30:00-05:00
+Name: expiration, dtype: datetime64[ns, Etc/GMT+5]
+
+Unique Expiration Dates (Local):
+2026-01-30
+2026-02-27
+2026-03-20
+2026-03-31
+2026-04-30
+2026-05-29
+2026-06-18
+2026-06-30
+2026-09-18
+2026-09-30
+2026-12-18
+2026-12-31
+2027-03-19
+2027-03-31
+2027-06-17
+2027-06-30
+2027-09-17
+2027-12-17
+2028-12-15
+2029-12-21
+2030-12-20
+
+Found 1 statistics files.
+Loading lake/raw/source=databento/product_type=future_option_mbo/symbol=ES/table=statistics/glbx-mdp3-20260106.statistics.dbn
+Stats Columns: ['ts_event', 'rtype', 'publisher_id', 'instrument_id', 'raw_symbol', 'security_update_action', 'instrument_class', 'min_price_increment', 'display_factor', 'expiration', 'activation', 'high_limit_price', 'low_limit_price', 'max_price_variation', 'trading_reference_price', 'unit_of_measure_qty', 'min_price_increment_amount', 'price_ratio', 'inst_attrib_value', 'underlying_id', 'raw_instrument_id', 'market_depth_implied', 'market_depth', 'market_segment_id', 'max_trade_vol', 'min_lot_size', 'min_lot_size_block', 'min_lot_size_round_lot', 'min_trade_vol', 'contract_multiplier', 'decay_quantity', 'original_contract_size', 'trading_reference_date', 'appl_id', 'maturity_year', 'decay_start_date', 'channel_id', 'currency', 'settl_currency', 'secsubtype', 'group', 'exchange', 'asset', 'cfi', 'security_type', 'unit_of_measure', 'underlying', 'strike_price_currency', 'strike_price', 'match_algorithm', 'md_security_trading_status', 'main_fraction', 'price_display_format', 'settl_price_type', 'sub_fraction', 'underlying_product', 'maturity_month', 'maturity_day', 'maturity_week', 'user_defined_instrument', 'contract_multiplier_unit', 'flow_schedule_type', 'tick_rule', 'symbol']
+Traceback (most recent call last):
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/../debug_0dte_filter.py", line 120, in <module>
+    debug_definitions(lake_root, "20260106")
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/../debug_0dte_filter.py", line 66, in debug_definitions
+    df_stats = df_stats[["instrument_id", "stat_type", "symbol"]]
+               ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4119, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 6212, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+  File "/Users/loganrobbins/research/qmachina/spymaster/backend/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 6264, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['stat_type'] not in index"

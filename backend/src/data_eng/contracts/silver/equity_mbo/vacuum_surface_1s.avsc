@@ -1,0 +1,67 @@
+{
+  "namespace": "com.marketdata.silver",
+  "type": "record",
+  "name": "VacuumSurface1s",
+  "fields": [
+    {
+      "name": "window_start_ts_ns",
+      "type": "long"
+    },
+    {
+      "name": "window_end_ts_ns",
+      "type": "long"
+    },
+    {
+      "name": "price_int",
+      "type": "long"
+    },
+    {
+      "name": "side",
+      "type": "string"
+    },
+    {
+      "name": "spot_ref_price_int",
+      "type": "long"
+    },
+    {
+      "name": "rel_ticks",
+      "type": "int"
+    },
+    {
+      "name": "pull_intensity_rest",
+      "type": "double"
+    },
+    {
+      "name": "pull_add_log",
+      "type": "double"
+    },
+    {
+      "name": "d1_pull_add_log",
+      "type": "double"
+    },
+    {
+      "name": "d2_pull_add_log",
+      "type": "double"
+    },
+    {
+      "name": "d3_pull_add_log",
+      "type": "double"
+    },
+    {
+      "name": "wall_strength_log",
+      "type": "double"
+    },
+    {
+      "name": "wall_erosion",
+      "type": "double"
+    },
+    {
+      "name": "vacuum_score",
+      "type": "double"
+    },
+    {
+      "name": "window_valid",
+      "type": "boolean"
+    }
+  ]
+}

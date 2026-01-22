@@ -113,23 +113,18 @@ Phases:
 
 ## Architecture Overview
 
+**NOTE: The pipeline has transitioned from level-anchored (hardcoded P_ref like PM_HIGH) to spot-anchored (continuous stream relative to spot price). See IMPLEMENT.md for the current architecture specification.**
+
 Data flow:
 - Raw DBN: `backend/lake/raw/source=databento/product_type=future/symbol={root}/table=market_by_order_dbn`
 - Bronze: per‑contract MBO partitions written under `backend/lake/bronze/source=databento/product_type=future_mbo/symbol={contract}/table=mbo/dt=YYYY-MM-DD`
-- Silver: 5‑second level vacuum features per contract/day
-- Gold: trigger vectors, trigger signals, and pressure stream
-- Indices: pooled FAISS indices by `level_id` and `approach_dir`
+- Silver: spot-anchored surfaces (book_snapshot_1s, wall_surface_1s, vacuum_surface_1s, radar_vacuum_1s, physics_bands_1s)
+- Gold: HUD normalization calibration (physics_norm_calibration)
 
 Contract‑day selection:
 - Selection map: `backend/lake/selection/mbo_contract_day_selection.parquet`
 - Built by `backend/src/data_eng/retrieval/mbo_contract_day_selector.py`
 - Uses RTH 09:30–12:30 NY, dominance threshold, run trimming, liquidity floor
-
-Indexing:
-- Indices built by `backend/src/data_eng/retrieval/index_builder.py`
-- Output dir: `backend/lake/indexes/{level_id}` (current rebuild: `backend/lake/indexes/mbo_pm_high`)
-- Input seed stats: `norm_stats_seed.json` (median/MAD) generated from trigger vectors
-- Index artifacts: `feature_list.json`, `norm_stats.json`, FAISS indices, metadata, manifests
 
 ## Zone Definitions and Feature Schema
 
@@ -276,28 +271,9 @@ Stages execute sequentially. Each stage output becomes available for subsequent 
 
 ## CLI Usage
 
-### Default Rebuild Workflow (future_mbo pm_high)
+### Current Rebuild Workflow (Spot-Anchored Architecture)
 
-Order of operations:
-1) Silver rebuild (parallel workers)
-2) Trigger vectors rebuild (single process)
-3) Seed stats rebuild (median/MAD from vectors)
-4) Index rebuild (single process)
-5) Trigger signals + pressure stream rebuild (parallel workers)
-
-Default rebuild script (runs the full sequence above):
-```bash
-nohup bash backend/scripts/rebuild_future_mbo_all_pmhigh.sh > backend/logs/rebuild_future_mbo_all_pmhigh_$(date +%Y%m%d_%H%M%S).out 2>&1 &
-```
-
-Notes:
-- Silver and gold use base symbol `ES` with the selection map to route dates to contracts.
-- The selection map is read from `backend/lake/selection/mbo_contract_day_selection.parquet`.
-- Silver is the only parallel stage in the rebuild sequence.
-- The rebuild script clears `backend/lake/silver/product_type=future_mbo`, `backend/lake/gold/product_type=future_mbo`, and `backend/lake/indexes/mbo_pm_high` before it starts.
-
-### Direct Commands
-
+**Silver layer (futures MBO)**:
 ```bash
 uv run python -m src.data_eng.runner \
   --product-type future_mbo \
@@ -306,27 +282,37 @@ uv run python -m src.data_eng.runner \
   --dates 2025-10-01:2026-01-08 \
   --workers 8 \
   --overwrite
+```
 
-LEVEL_ID=pm_high MBO_INDEX_DIR=backend/lake/indexes/mbo_pm_high uv run python -m src.data_eng.runner \
-  --product-type future_mbo \
+**Silver layer (options MBO)**:
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type future_option_mbo \
+  --layer silver \
+  --symbol ES \
+  --dates 2025-10-01:2026-01-08 \
+  --workers 8 \
+  --overwrite
+```
+
+**Gold layer (HUD normalization)**:
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type hud \
   --layer gold \
   --symbol ES \
   --dates 2025-10-01:2026-01-08 \
-  --workers 8
+  --workers 1
 ```
-
-Gold requires a fresh index build. Use the rebuild script for a full clean run.
 
 Date options:
 - `--dates 2025-10-01:2026-01-08` — Range (colon‑separated, inclusive)
 - `--start-date` + `--end-date` — Explicit range
 - `--workers N` — Parallel execution across dates
 
-## Gold Environment Variables
+## Environment Variables (Current)
 
 - `MBO_SELECTION_PATH`: selection map parquet path. If unset, defaults to `backend/lake/selection/mbo_contract_day_selection.parquet`.
-- `LEVEL_ID`: level identifier used by trigger vectors (current: `pm_high`)
-- `MBO_INDEX_DIR`: index directory for retrieval (current: `backend/lake/indexes/mbo_pm_high`)
 
 ## Adding a New Stage
 
@@ -384,15 +370,11 @@ df = enforce_contract(df, contract)
 
 ### Gold
 
-- Builds trigger vectors and labels per contract/day, then trigger signals and pressure stream.
-- Files:
-  - `backend/src/data_eng/stages/gold/future_mbo/build_trigger_vectors.py`
-    - Inputs: silver vacuum + bronze MBO
-    - Outputs: `gold.future_mbo.mbo_trigger_vectors`
-    - Uses `MBO_SELECTION_PATH` and `LEVEL_ID`
-  - `backend/src/data_eng/stages/gold/future_mbo/build_trigger_signals.py`
-    - Uses `MBO_INDEX_DIR` for retrieval
-  - `backend/src/data_eng/stages/gold/future_mbo/build_pressure_stream.py`
+- Builds HUD normalization calibration for spot-anchored physics surfaces.
+- File: `backend/src/data_eng/stages/gold/hud/build_physics_norm_calibration.py`
+  - Inputs: `silver.future_mbo.wall_surface_1s`, `silver.future_mbo.vacuum_surface_1s`
+  - Outputs: `gold.hud.physics_norm_calibration`
+  - Computes Q05/Q95 bounds for vacuum score normalization across recent sessions
 
 ### Contract‑Day Selection
 

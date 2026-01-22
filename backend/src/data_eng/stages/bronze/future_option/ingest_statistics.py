@@ -75,11 +75,17 @@ class BronzeIngestFutureOptionStatistics(Stage):
             if df_all.empty:
                 raise ValueError(f"No open interest statistics for {dt}")
 
+            # Filter to only instruments in our 0DTE metadata map
+            df_all = df_all.loc[df_all["instrument_id"].isin(meta_map.keys())].copy()
+            if df_all.empty:
+                raise ValueError(f"No 0DTE open interest statistics for {dt}")
+
             meta_df = pd.DataFrame.from_dict(meta_map, orient="index")
             meta_df.index.name = "instrument_id"
             meta_df = meta_df.reset_index()
 
             df_all = df_all.merge(meta_df, on="instrument_id", how="left")
+            # All rows should now have metadata because we pre-filtered by keys
             missing = (
                 df_all["underlying"].isna()
                 | df_all["right"].isna()
@@ -87,7 +93,8 @@ class BronzeIngestFutureOptionStatistics(Stage):
                 | df_all["expiration"].isna()
             )
             if missing.any():
-                raise ValueError("Missing instrument definitions for statistics rows")
+                # This should be impossible if we filtered correctly, but good sanity check
+                raise ValueError("Missing definitions for filtered rows (unexpected)")
 
             df_out = pd.DataFrame(
                 {
