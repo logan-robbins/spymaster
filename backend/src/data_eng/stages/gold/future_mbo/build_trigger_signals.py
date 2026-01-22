@@ -63,7 +63,7 @@ class GoldBuildMboTriggerSignals(Stage):
             name="gold_build_mbo_trigger_signals",
             io=StageIO(
                 inputs=[
-                    "silver.future_mbo.mbo_level_vacuum_5s",
+                    "silver.future_mbo.radar_vacuum_1s",
                     "gold.future_mbo.mbo_trigger_vectors",
                 ],
                 output="gold.future_mbo.mbo_trigger_signals",
@@ -75,7 +75,7 @@ class GoldBuildMboTriggerSignals(Stage):
         if is_partition_complete(out_ref):
             return
 
-        vacuum_key = "silver.future_mbo.mbo_level_vacuum_5s"
+        vacuum_key = "silver.future_mbo.radar_vacuum_1s"
         trigger_key = "gold.future_mbo.mbo_trigger_vectors"
 
         vacuum_ref = partition_ref(cfg, vacuum_key, symbol, dt)

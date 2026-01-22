@@ -56,12 +56,18 @@ This is **not** a Bookmap clone. We will use **our physics** (vacuum / slope / l
 ---
 
 ## Execution Plan (Living, Pipeline-Aligned)
-1) Define dataset entries and Avro contracts for `book_snapshot_1s`, `wall_surface_1s`, `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`, `gex_surface_1s`, plus a **normalization calibration artifact** (`gold.hud.physics_norm_calibration`). Status: **DONE** (Phase 1 Contracts Created).
-2) Add silver stages in `future_mbo` to build book snapshot + wall surface from a single book reconstruction pass, and to derive `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`. Status: **DONE** (Snapshot & Wall Implemented & Verified).
-3) Replace `silver.future_option_mbo.gex_5s` with `silver.future_option_mbo.gex_surface_1s` built from options MBO + OI stats + futures spot, with a **fixed signed convention** (defined below). Status: **CODE COMPLETE** (Pending Verification).
-4) Add the **Serving Layer** (API + WebSocket) that streams a rolling 30-minute HUD window with bounded surfaces and fixed quantization. Status: todo.
-5) Register stages in `pipeline.py` and ensure cross-product inputs are built before dependent stages. Status: **DONE** (Registered).
-6) Run the verification checks in this document (including normalization + bounded texture limits). Status: todo.
+1) Define dataset entries and Avro contracts for `book_snapshot_1s`, `wall_surface_1s`, `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`, `gex_surface_1s`, plus a **normalization calibration artifact** (`gold.hud.physics_norm_calibration`). Status: **IN PROGRESS** (book_snapshot_1s, wall_surface_1s, gex_surface_1s, vacuum_surface_1s, physics_bands_1s, physics_norm_calibration, instrument_definitions done; radar_vacuum_1s missing).
+2) Add silver stages in `future_mbo` to build book snapshot + wall surface from a single book reconstruction pass, and to derive `vacuum_surface_1s`, `radar_vacuum_1s`, `physics_bands_1s`. Status: **IN PROGRESS** (snapshot + wall + vacuum_surface_1s + physics_bands_1s implemented; radar_vacuum_1s missing).
+3) Replace `silver.future_option_mbo.gex_5s` with `silver.future_option_mbo.gex_surface_1s` built from options MBO + OI stats + futures spot, with a **fixed signed convention** (defined below). Status: **IN PROGRESS** (0DTE enforced; verification pending).
+4) Add the **Serving Layer** (API + WebSocket) that streams a rolling 30-minute HUD window with bounded surfaces and fixed quantization. Status: **TODO**.
+5) Register stages in `pipeline.py` and ensure cross-product inputs are built before dependent stages. Status: **IN PROGRESS** (snapshot/wall/vacuum/physics wired; 5s vacuum removed; gex surface still needs rewrite and radar_vacuum_1s still missing).
+6) Run the verification checks in this document (including normalization + bounded texture limits). Status: **TODO**.
+
+## Implementation Tracker (Current Task)
+1) Add bronze cache datasets and checkpoint writes for 0DTE option MBO + statistics. Status: **IN PROGRESS**.
+2) Align session window to 06:00–16:00 UTC-5 wherever session window is enforced. Status: **DONE**.
+3) Enforce 0DTE-only GEX aggregation in `gex_surface_1s`. Status: **DONE**.
+4) Run minimal `uv` checks for the bronze option stages and confirm checkpoint reuse. Status: **TODO**.
 
 ---
 
@@ -218,7 +224,7 @@ We define a **fixed 0..1 mapping** so the HUD color scale is stable across dates
 
 **Normalization calibration (required artifact)**:
 - Maintain `gold.hud.physics_norm_calibration` per symbol with robust bounds for each \(x_k\):
-  - \(lo_k = Q_{05}(x_k)\), \(hi_k = Q_{95}(x_k)\) computed over the **first 3 trading hours** across the **most recent 20 sessions**.
+- \(lo_k = Q_{05}(x_k)\), \(hi_k = Q_{95}(x_k)\) computed over **06:00–16:00 (UTC-5)** across the **most recent 2 sessions**.
 - This calibration is refreshed **daily** and is the **single source of truth** for HUD color mapping.
 
 **Per-row normalized components**:
@@ -274,7 +280,6 @@ This preserves feature meaning and prevents “reference-motion artifacts.”
 **Hard bounds (to make a real-time HUD feasible)**:
 - Define `GEX_STRIKE_STEP_POINTS = 5` (ES option strikes are on a 5-point grid for the contracts we visualize).
 - Define `GEX_MAX_STRIKE_OFFSETS = 30` (±150 points around spot; aligns to the futures HUD price axis).
-- Define `GEX_MAX_DTE_DAYS = 45` (only include expirations with \(0 < DTE \le 45\) days).
 - For each window:
   - compute `underlying_spot_ref` (from `book_snapshot_1s`)
   - define `strike_ref_points = round(underlying_spot_ref / 5) * 5`
@@ -306,7 +311,7 @@ This preserves feature meaning and prevents “reference-motion artifacts.”
 
 **Signed convention (hard spec; no ambiguity)**:
 - We do **not** label `gex` as “dealer-signed gamma.” We define the sign to match the trader-facing “call/long vs put/short” narrative:
-  - Compute `gex_call_abs` and `gex_put_abs` as **positive magnitudes** per strike (summing across expirations within `GEX_MAX_DTE_DAYS`).
+  - Compute `gex_call_abs` and `gex_put_abs` as **positive magnitudes** per strike (summing across 0DTE expirations only).
   - Define the signed field as **call-minus-put**:
     - `gex = gex_call_abs - gex_put_abs`
 - Additionally, the surface must expose a **barrier magnitude** field used for obstacle visualization:
@@ -318,6 +323,9 @@ This preserves feature meaning and prevents “reference-motion artifacts.”
   - `gex_put_abs  = Σ_exp ( gamma(exp, strike) * open_interest(exp, strike, P) * FUTURES_MULTIPLIER )`
   - where `FUTURES_MULTIPLIER = 50` for ES.
 This unit is stable, interpretable at the level granularity we care about (ES points), and directly supports a strike heatmap.
+
+**0DTE filter (hard spec)**:
+- Only include option contracts whose expiration date (from instrument definitions) equals the session date **in UTC-5**.
 
 ---
 
@@ -388,8 +396,8 @@ We define “above” as asks in positive `rel_ticks` and “below” as bids in
 - `metric_name` (string)
 - `q05` (double)
 - `q95` (double)
-- `lookback_sessions` (int; always 20)
-- `session_window` (string; always “first_3h”)
+- `lookback_sessions` (int; always 2)
+- `session_window` (string; always “06:00-16:00_ETC_GMT+5”)
 - `asof_dt` (string; the dt when the calibration was computed)
 
 **Required metrics**:
@@ -481,7 +489,7 @@ Process MBO actions:
 - Derive option mid premiums from options MBO (best bid/ask) and resolve `expiration` + `strike_price` from Instrument Definitions keyed by `instrument_id`.
 - Join open interest from statistics (`silver.future_option.statistics_clean`) using the same option identity (underlying/right/strike/exp).
 - Compute IV + gamma per option contract (Black-76), then aggregate to the bounded strike grid:
-  - sum `gex_call_abs` and `gex_put_abs` across expirations with \(0 < DTE \le GEX_MAX_DTE_DAYS\)
+  - sum `gex_call_abs` and `gex_put_abs` across 0DTE expirations only
   - emit `gex_abs`, `gex`, and `gex_imbalance_ratio` per strike, plus d1/d2/d3 for the same strike over time.
 
 **Why**: strike obstacles move continuously as spot moves; this surface directly overlays above/below price.

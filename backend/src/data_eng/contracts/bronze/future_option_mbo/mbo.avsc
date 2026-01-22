@@ -21,6 +21,6 @@
     {"name": "underlying", "type": "string"},
     {"name": "right", "type": "string"},
     {"name": "strike", "type": "long"},
-    {"name": "expiration", "type": "string"}
+    {"name": "expiration", "type": "long"}
   ]
 }

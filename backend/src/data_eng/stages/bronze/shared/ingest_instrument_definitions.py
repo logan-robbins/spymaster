@@ -62,23 +62,26 @@ class BronzeIngestInstrumentDefinitions(Stage):
         contract_path = repo_root / cfg.dataset(self.io.output).contract
         contract = load_avro_contract(contract_path)
         
-        if "symbol" in df_all.columns:
-            syms = df_all["symbol"].unique()
-            for s in syms:
-                if not isinstance(s, str): continue
-                
-                out_ref = partition_ref(cfg, self.io.output, s, dt)
-                if is_partition_complete(out_ref): continue
-                
-                df_s = df_all[df_all["symbol"] == s].copy()
-                df_s = enforce_contract(df_s, contract)
-                
+        if "underlying" in df_all.columns:
+            underlyings = df_all["underlying"].dropna().unique()
+            for underlying in underlyings:
+                if not isinstance(underlying, str):
+                    continue
+
+                out_ref = partition_ref(cfg, self.io.output, underlying, dt)
+                if is_partition_complete(out_ref):
+                    continue
+
+                df_u = df_all[df_all["underlying"] == underlying].copy()
+                df_u = df_u.loc[:, contract.fields]
+                df_u = enforce_contract(df_u, contract)
+
                 write_partition(
                     cfg=cfg,
                     dataset_key=self.io.output,
-                    symbol=s,
+                    symbol=underlying,
                     dt=dt,
-                    df=df_s,
+                    df=df_u,
                     contract_path=contract_path,
                     inputs=[],
                     stage=self.name

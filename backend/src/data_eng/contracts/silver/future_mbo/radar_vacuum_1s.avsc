@@ -1,7 +1,7 @@
 {
   "namespace": "com.marketdata.silver",
   "type": "record",
-  "name": "MboLevelVacuum5s",
+  "name": "MboRadarVacuum1s",
   "fields": [
     {
       "name": "window_start_ts_ns",
@@ -12,11 +12,11 @@
       "type": "long"
     },
     {
-      "name": "P_ref",
+      "name": "spot_ref_price",
       "type": "double"
     },
     {
-      "name": "P_REF_INT",
+      "name": "spot_ref_price_int",
       "type": "long"
     },
     {
@@ -785,26 +785,6 @@
     },
     {
       "name": "d3_u14_bid_far_pull_share_rest",
-      "type": "double"
-    },
-    {
-      "name": "d3_u15_up_expansion_log",
-      "type": "double"
-    },
-    {
-      "name": "d3_u16_up_flow_log",
-      "type": "double"
-    },
-    {
-      "name": "d3_u17_up_total_log",
-      "type": "double"
-    },
-    {
-      "name": "d3_u18_ask_bbo_dist_ticks",
-      "type": "double"
-    },
-    {
-      "name": "d3_u19_bid_bbo_dist_ticks",
       "type": "double"
     }
   ]

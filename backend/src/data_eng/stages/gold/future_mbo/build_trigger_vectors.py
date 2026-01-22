@@ -19,7 +19,7 @@ from ....io import (
     write_partition,
 )
 from ....retrieval.mbo_contract_day_selector import load_selection
-from ...silver.future_mbo.compute_level_vacuum_5s import TICK_INT
+from ...silver.future_mbo.compute_radar_vacuum_1s import TICK_INT
 from ....utils import session_window_ns
 from ....vector_schema import VECTOR_BLOCKS, VECTOR_DIM, X_COLUMNS, vector_feature_rows
 
@@ -97,7 +97,7 @@ class GoldBuildMboTriggerVectors(Stage):
             name="gold_build_mbo_trigger_vectors",
             io=StageIO(
                 inputs=[
-                    "silver.future_mbo.mbo_level_vacuum_5s",
+                    "silver.future_mbo.radar_vacuum_1s",
                     "bronze.future_mbo.mbo",
                 ],
                 output="gold.future_mbo.mbo_trigger_vectors",
@@ -122,7 +122,7 @@ class GoldBuildMboTriggerVectors(Stage):
             _write_empty_output(cfg, repo_root, self.io.output, symbol, dt, self.name)
             return
 
-        vacuum_key = "silver.future_mbo.mbo_level_vacuum_5s"
+        vacuum_key = "silver.future_mbo.radar_vacuum_1s"
         mbo_key = "bronze.future_mbo.mbo"
 
         vacuum_ref = partition_ref(cfg, vacuum_key, symbol, dt)
@@ -261,8 +261,8 @@ def _build_trigger_vectors(
     level_id = _load_level_id()
 
     df_vacuum = df_vacuum.sort_values("window_end_ts_ns").reset_index(drop=True)
-    p_ref = float(df_vacuum["P_ref"].iloc[0])
-    p_ref_int = int(df_vacuum["P_REF_INT"].iloc[0])
+    p_ref = float(df_vacuum["spot_ref_price"].iloc[0])
+    p_ref_int = int(df_vacuum["spot_ref_price_int"].iloc[0])
 
     x_matrix = _build_x_matrix(df_vacuum)
     if x_matrix.shape[0] < LOOKBACK_WINDOWS:

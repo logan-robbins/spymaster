@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--product-type",
         required=True,
-        choices=["future", "future_option", "future_mbo", "future_option_mbo", "equity", "equity_option"],
+        choices=["future_mbo", "future_option_mbo", "hud"],
         help="Product type",
     )
     p.add_argument(
@@ -80,6 +80,19 @@ def _load_mbo_selection_path(repo_root: Path) -> Path:
     return path
 
 
+def _discover_future_option_mbo_contracts(bronze_root: Path) -> set[str]:
+    base = bronze_root / "source=databento" / "product_type=future_option_mbo"
+    if not base.exists():
+        raise FileNotFoundError(f"Missing bronze root: {base}")
+    symbols = []
+    for path in base.glob("symbol=*"):
+        symbol = path.name.split("symbol=")[-1]
+        if "-" in symbol:
+            continue
+        symbols.append(symbol)
+    return set(symbols)
+
+
 def _build_tasks(
     product_type: str,
     layer: str,
@@ -118,6 +131,41 @@ def _build_tasks(
             raise ValueError(f"Selection map includes contracts missing in bronze: {missing_contracts}")
 
         return [(selection_map[d], d) for d in dates]
+
+    if product_type == "future_option_mbo" and layer in {"silver", "gold"} and symbol == "ES":
+        selection_path = _load_mbo_selection_path(repo_root)
+        selection_df = load_selection(selection_path)
+        selection_df = selection_df.loc[selection_df["selected_symbol"] != ""].copy()
+        selection_df["session_date"] = selection_df["session_date"].astype(str)
+        selection_df["selected_symbol"] = selection_df["selected_symbol"].astype(str)
+
+        if selection_df["session_date"].duplicated().any():
+            dupes = selection_df.loc[
+                selection_df["session_date"].duplicated(), "session_date"
+            ].astype(str)
+            raise ValueError(f"Selection map has duplicate session_date values: {sorted(set(dupes))}")
+
+        selection_map = {
+            row.session_date: row.selected_symbol for row in selection_df.itertuples(index=False)
+        }
+        missing_dates = [d for d in dates if d not in selection_map]
+        if missing_dates:
+            print(f"Skipping {len(missing_dates)} dates not in selection map")
+        dates = [d for d in dates if d in selection_map]
+        if not dates:
+            raise ValueError("No dates in selection map for requested range")
+
+        bronze_root = repo_root / "lake" / "bronze"
+        contracts = _discover_future_option_mbo_contracts(bronze_root)
+        selected_symbols = {selection_map[d] for d in dates}
+        missing_contracts = sorted(selected_symbols - contracts)
+        if missing_contracts:
+            raise ValueError(f"Selection map includes contracts missing in bronze: {missing_contracts}")
+
+        return [(selection_map[d], d) for d in dates]
+
+    if product_type == "future_option_mbo" and layer == "all" and symbol == "ES":
+        raise ValueError("Base symbol ES with layer all is not supported; run bronze then silver/gold")
 
     if product_type == "future_mbo" and layer == "all" and symbol == "ES":
         raise ValueError("Base symbol ES with layer all is not supported; run bronze then silver/gold")

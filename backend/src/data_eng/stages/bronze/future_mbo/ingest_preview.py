@@ -34,7 +34,7 @@ class BronzeIngestMboPreview(Stage):
             cfg.lake_root
             / "raw"
             / "source=databento"
-            / "product_type=future"
+            / "product_type=future_mbo"
             / f"symbol={symbol}"
             / "table=market_by_order_dbn"
         )

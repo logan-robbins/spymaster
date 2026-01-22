@@ -3,7 +3,7 @@ lake_root: lake
 datasets:
   # Shared
   bronze.shared.instrument_definitions:
-    path: bronze/source=databento/shared/table=instrument_definitions
+    path: bronze/source=databento/shared/symbol={symbol}/table=instrument_definitions
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/shared/instrument_definitions.avsc
@@ -29,7 +29,13 @@ datasets:
     contract: src/data_eng/contracts/bronze/future_option/nbbo.avsc
 
   bronze.future_option.statistics:
-    path: bronze/source=databento/product_type=future_option/symbol={symbol}/table=statistics
+    path: bronze/source=databento/product_type=future_option_mbo/symbol={symbol}/table=statistics
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/future_option/statistics.avsc
+
+  bronze_cache.future_option.statistics_0dte:
+    path: bronze_cache/product_type=future_option_mbo/symbol={symbol}/table=statistics_0dte
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_option/statistics.avsc
@@ -44,6 +50,12 @@ datasets:
   # Bronze - Future Option MBO
   bronze.future_option_mbo.mbo:
     path: bronze/source=databento/product_type=future_option_mbo/symbol={symbol}/table=mbo
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/future_option_mbo/mbo.avsc
+
+  bronze_cache.future_option_mbo.mbo_0dte:
+    path: bronze_cache/product_type=future_option_mbo/symbol={symbol}/table=mbo_0dte
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_option_mbo/mbo.avsc
@@ -87,12 +99,6 @@ datasets:
     contract: src/data_eng/contracts/silver/future/market_by_price_10_bar5s.avsc
 
   # Silver - Future MBO
-  silver.future_mbo.mbo_level_vacuum_5s:
-    path: silver/product_type=future_mbo/symbol={symbol}/table=mbo_level_vacuum_5s
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future_mbo/mbo_level_vacuum_5s.avsc
-
   silver.future_mbo.book_snapshot_1s:
     path: silver/product_type=future_mbo/symbol={symbol}/table=book_snapshot_1s
     format: parquet
@@ -104,6 +110,18 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/wall_surface_1s.avsc
+
+  silver.future_mbo.vacuum_surface_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=vacuum_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/vacuum_surface_1s.avsc
+
+  silver.future_mbo.physics_bands_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=physics_bands_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/physics_bands_1s.avsc
 
   # Silver - Futures - 2-minute candle level approach (one per level type)
   silver.future.market_by_price_10_pm_high_approach2m:
@@ -144,7 +162,7 @@ datasets:
     contract: src/data_eng/contracts/silver/future_option/nbbo_clean.avsc
 
   silver.future_option.statistics_clean:
-    path: silver/product_type=future_option/symbol={symbol}/table=statistics_clean
+    path: silver/product_type=future_option_mbo/symbol={symbol}/table=statistics_clean
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option/statistics_clean.avsc
@@ -161,6 +179,12 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future/setup_vectors.avsc
+
+  gold.hud.physics_norm_calibration:
+    path: gold/hud/symbol={symbol}/table=physics_norm_calibration
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/hud/physics_norm_calibration.avsc
 
   # Gold - Future MBO
   gold.future_mbo.mbo_trigger_vectors:
