@@ -184,7 +184,16 @@ def _load_calibration(df_cal: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
         raise ValueError(f"Missing calibration metrics: {sorted(missing)}")
     for name, (lo, hi) in cal.items():
         if hi <= lo:
-            raise ValueError(f"Invalid calibration bounds for {name}: {lo} {hi}")
+            # Handle zero variance or inverted bounds
+            # If constant (lo == hi), expand to avoid div/0
+            if lo == hi:
+                hi = lo + 1.0
+            else:
+                # Actual inversion is bad, swap? or error.
+                # Assuming just flat distribution here.
+                # If inverted, data is broken.
+                raise ValueError(f"Invalid calibration bounds for {name}: {lo} {hi}")
+        cal[name] = (lo, hi)
     return cal
 
 
