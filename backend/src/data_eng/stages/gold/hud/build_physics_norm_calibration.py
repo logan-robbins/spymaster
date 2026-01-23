@@ -17,8 +17,8 @@ from ....io import (
     write_partition,
 )
 
-LOOKBACK_SESSIONS = 2
-SESSION_WINDOW = "06:00-16:00_ETC_GMT+5"
+LOOKBACK_SESSIONS = 1
+SESSION_WINDOW = "08:30-09:30_ETC_GMT+5"
 EPS_QTY = 1.0
 
 
@@ -151,8 +151,8 @@ def _list_dates(cfg: AppConfig, dataset_key: str, symbol: str) -> List[str]:
 
 
 def _rth_window_ns(session_date: str) -> Tuple[int, int]:
-    start = pd.Timestamp(f"{session_date} 06:00:00", tz="Etc/GMT+5")
-    end = pd.Timestamp(f"{session_date} 16:00:00", tz="Etc/GMT+5")
+    start = pd.Timestamp(f"{session_date} 08:30:00", tz="Etc/GMT+5")
+    end = pd.Timestamp(f"{session_date} 09:30:00", tz="Etc/GMT+5")
     return int(start.tz_convert("UTC").value), int(end.tz_convert("UTC").value)
 
 

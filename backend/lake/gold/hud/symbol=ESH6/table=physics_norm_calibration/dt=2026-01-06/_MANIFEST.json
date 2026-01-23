@@ -4,7 +4,18 @@
   "dataset": "gold.hud.physics_norm_calibration",
   "dt": "2026-01-06",
   "hour": null,
-  "inputs": [],
+  "inputs": [
+    {
+      "dataset": "silver.future_mbo.wall_surface_1s",
+      "dt": "2026-01-06",
+      "manifest_sha256": "5fb40b33a93311f1c9f71332e6a150bb68700db1bc7ba9b91a36d3aad82d612e"
+    },
+    {
+      "dataset": "silver.future_option_mbo.gex_surface_1s",
+      "dt": "2026-01-06",
+      "manifest_sha256": "04b4cd59642cbcc7953ebd1bf846ee97fad4f3943e48931483ecf27c852ef0e0"
+    }
+  ],
   "row_count": 6,
-  "stage": "bootstrap_calibration"
+  "stage": "gold_build_hud_physics_norm_calibration"
 }

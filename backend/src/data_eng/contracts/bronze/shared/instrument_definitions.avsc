@@ -12,6 +12,10 @@
       "type": "int"
     },
     {
+      "name": "instrument_class",
+      "type": "string"
+    },
+    {
       "name": "security_update_action",
       "type": "string"
     },

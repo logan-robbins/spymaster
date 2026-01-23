@@ -96,13 +96,16 @@ class BronzeIngestFutureOptionStatistics(Stage):
                 # This should be impossible if we filtered correctly, but good sanity check
                 raise ValueError("Missing definitions for filtered rows (unexpected)")
 
+            if df_all["raw_symbol"].isna().any():
+                raise ValueError("Missing raw_symbol in definition metadata for statistics rows")
+
             df_out = pd.DataFrame(
                 {
                     "ts_event_ns": df_all["ts_event"].astype("int64"),
                     "ts_recv_ns": df_all["ts_recv"].astype("int64"),
                     "source": "DATABENTO",
                     "underlying": df_all["underlying"].astype(str),
-                    "option_symbol": df_all["symbol"].astype(str),
+                    "option_symbol": df_all["raw_symbol"].astype(str),
                     "exp_date": pd.to_datetime(df_all["expiration"].astype("int64"), utc=True).dt.date.astype(str),
                     "strike": df_all["strike"].astype("int64") * 1e-9,
                     "right": df_all["right"].astype(str),
@@ -166,7 +169,7 @@ def _load_definitions(files: List[Path], session_date: str) -> Dict[int, Dict[st
     if not dfs:
         raise FileNotFoundError("Instrument definitions empty")
     df_all = pd.concat(dfs, ignore_index=True)
-    required = {"instrument_id", "instrument_class", "underlying", "strike_price", "expiration"}
+    required = {"instrument_id", "instrument_class", "underlying", "strike_price", "expiration", "raw_symbol"}
     missing = required.difference(df_all.columns)
     if missing:
         raise ValueError(f"Missing definition columns: {sorted(missing)}")
@@ -185,5 +188,6 @@ def _load_definitions(files: List[Path], session_date: str) -> Dict[int, Dict[st
             "right": str(row.instrument_class),
             "strike": int(row.strike_price),
             "expiration": int(row.expiration),
+            "raw_symbol": str(row.raw_symbol),
         }
     return meta

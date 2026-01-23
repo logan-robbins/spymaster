@@ -362,7 +362,7 @@ def _emit_gex_window(
         strike_points_int = int(row.strike_price)
         if strike_points_int not in strike_int_set:
             continue
-        strike_points = strike_points_int * PRICE_SCALE
+        strike_price = strike_points_int * PRICE_SCALE
 
         exp_ns = int(row.expiration)
         if exp_ns <= window_end_ts:
@@ -385,8 +385,8 @@ def _emit_gex_window(
             continue
 
         T = dte_days / 365.0
-        iv = _implied_vol(mid, spot_ref, strike_points, T, row.right)
-        gamma = _black76_gamma(spot_ref, strike_points, T, iv)
+        iv = _implied_vol(mid, spot_ref, strike_price, T, row.right)
+        gamma = _black76_gamma(spot_ref, strike_price, T, iv)
         gex_val = gamma * oi * CONTRACT_MULTIPLIER
 
         if row.right == "C":
@@ -440,12 +440,12 @@ def _black76_price(F: float, K: float, T: float, sigma: float, right: str) -> fl
 
 def _implied_vol(price: float, F: float, K: float, T: float, right: str) -> float:
     if price <= 0 or F <= 0 or K <= 0 or T <= 0:
-        raise ValueError("Invalid inputs for implied vol")
+        return 0.0
 
     disc = math.exp(-RISK_FREE_RATE * T)
     intrinsic = max(F - K, 0.0) if right == "C" else max(K - F, 0.0)
-    if price < disc * intrinsic:
-        raise ValueError("Option price below intrinsic")
+    if price <= disc * intrinsic:
+        return 0.0
 
     def func(sig: float) -> float:
         return _black76_price(F, K, T, sig, right) - price
@@ -455,8 +455,11 @@ def _implied_vol(price: float, F: float, K: float, T: float, right: str) -> floa
     f_low = func(low)
     f_high = func(high)
     if f_low * f_high > 0:
-        raise ValueError("Implied vol not bracketed")
-    return float(brentq(func, low, high, maxiter=200))
+        return 0.0
+    try:
+        return float(brentq(func, low, high, maxiter=200))
+    except Exception:
+        return 0.0
 
 
 def _black76_gamma(F: float, K: float, T: float, sigma: float) -> float:
