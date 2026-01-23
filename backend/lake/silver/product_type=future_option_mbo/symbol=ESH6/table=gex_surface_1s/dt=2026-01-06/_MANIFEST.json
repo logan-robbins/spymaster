@@ -13,7 +13,7 @@
     {
       "dataset": "silver.future_mbo.book_snapshot_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "e97a94493a3fc5d85c6480101264a1cb458865f5109746828d56b35fd66d61e5"
+      "manifest_sha256": "5491b63782fccedc7053ee820db712c8afa4afd5c35092489a0f72d81652684a"
     },
     {
       "dataset": "silver.future_option.statistics_clean",
@@ -26,6 +26,6 @@
       "manifest_sha256": "e87df077cb622d738ac7cffdf174bec13b23bf93bba2bcfb420f9c157ea59ccc"
     }
   ],
-  "row_count": 878275,
+  "row_count": 90000,
   "stage": "silver_compute_gex_surface_1s"
 }

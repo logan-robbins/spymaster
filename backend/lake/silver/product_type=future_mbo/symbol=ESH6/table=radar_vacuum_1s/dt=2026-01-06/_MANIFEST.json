@@ -1,7 +1,7 @@
 {
-  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc",
-  "contract_sha256": "7f92ae0365638bf5cdb23f302398e2f858d5fba84b5528b1951fb67bde8b4cef",
-  "dataset": "silver.future_mbo.book_snapshot_1s",
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/radar_vacuum_1s.avsc",
+  "contract_sha256": "f3d83884cd834de40e29848bfe7e7216151fb94a9d376a91297b4e90a43b3b66",
+  "dataset": "silver.future_mbo.radar_vacuum_1s",
   "dt": "2026-01-06",
   "hour": null,
   "inputs": [

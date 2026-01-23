@@ -250,7 +250,11 @@ def _load_calibration(df_cal: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
         raise ValueError(f"Missing calibration metrics: {sorted(missing)}")
     for name, (lo, hi) in cal.items():
         if hi <= lo:
-            raise ValueError(f"Invalid calibration bounds for {name}: {lo} {hi}")
+            if lo == hi:
+                hi = lo + 1.0
+            else:
+                raise ValueError(f"Invalid calibration bounds for {name}: {lo} {hi}")
+        cal[name] = (lo, hi)
     return cal
 
 

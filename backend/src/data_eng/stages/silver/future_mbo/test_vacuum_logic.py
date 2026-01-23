@@ -3,8 +3,8 @@ import pytest
 import math
 import pandas as pd
 from dataclasses import dataclass
-from .compute_radar_vacuum_1s import (
-    _snapshot,
+from .book_engine import (
+    snapshot_from_orders,
     _bucket_for,
     _compute_base_features,
     OrderState,
@@ -20,14 +20,6 @@ from .compute_radar_vacuum_1s import (
     DELTA_TICKS,
     BUCKET_OUT
 )
-
-# Mock OrderState for testing - needs to match the class in compute_radar_vacuum_1s
-# @dataclass
-# class OrderState:
-#     side: str
-#     price_int: int
-#     qty: int
-#     ts_enter_price: int
 
 def test_bucket_logic():
     spot = 5000000000 # 5.0
@@ -61,7 +53,7 @@ def test_snapshot_empty_book_fix_behavior():
     p_ref = 5000.0
     p_ref_int = int(round(p_ref / PRICE_SCALE))
 
-    snapshot = _snapshot(orders, p_ref_int)
+    snapshot = snapshot_from_orders(orders, p_ref_int)
 
     # Improved logic should return DELTA_TICKS (20.0) or similar for empty book
     # In compute_radar_vacuum_1s.py:
@@ -88,7 +80,7 @@ def test_snapshot_bbo_tracking():
         2: OrderState("A", ask_far_price, 100, 0)
     }
     
-    snapshot = _snapshot(orders, p_ref_int)
+    snapshot = snapshot_from_orders(orders, p_ref_int)
     
     # COM should be pulled heavily towards the far order (qty 100 vs 1)
     # COM price ~= (1*100.25 + 100*102.50)/101 ~= 102.47

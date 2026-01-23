@@ -22,12 +22,12 @@ from src.data_eng.stages.silver.future_option_mbo.compute_gex_surface_1s import 
 
 
 SILVER_GOLD_KEYS = [
-#    "silver.future_mbo.book_snapshot_1s",
-#    "silver.future_mbo.wall_surface_1s",
+    "silver.future_mbo.book_snapshot_1s",
+    "silver.future_mbo.wall_surface_1s",
     "silver.future_mbo.vacuum_surface_1s",
     "silver.future_mbo.radar_vacuum_1s",
     "silver.future_mbo.physics_bands_1s",
-#    "silver.future_option.statistics_clean",
+    "silver.future_option.statistics_clean",
     "silver.future_option_mbo.gex_surface_1s",
     "gold.hud.physics_norm_calibration",
 ]

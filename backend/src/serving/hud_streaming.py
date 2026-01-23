@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from collections import deque
+from typing import Dict, Iterable, List, Tuple
+
+import pandas as pd
+
+from src.data_eng.config import load_config
+from src.data_eng.contracts import enforce_contract, load_avro_contract
+from src.data_eng.io import is_partition_complete, partition_ref, read_partition
+from src.data_eng.stages.silver.future_mbo.book_engine import (
+    RADAR_COLUMNS,
+    SNAP_COLUMNS,
+    WALL_COLUMNS,
+    compute_futures_surfaces_1s_from_batches,
+)
+from src.data_eng.stages.silver.future_mbo.mbo_batches import iter_mbo_batches
+from src.data_eng.stages.silver.future_mbo.compute_vacuum_surface_1s import SilverComputeVacuumSurface1s
+from src.data_eng.stages.silver.future_mbo.compute_physics_bands_1s import SilverComputePhysicsBands1s
+
+WINDOW_NS = 1_000_000_000
+HUD_HISTORY_WINDOWS = 1800
+
+
+@dataclass
+class HudStreamCache:
+    snap: pd.DataFrame
+    wall: pd.DataFrame
+    vacuum: pd.DataFrame
+    radar: pd.DataFrame
+    physics: pd.DataFrame
+    gex: pd.DataFrame
+    window_ids: List[int]
+    groups: Dict[str, Dict[int, pd.DataFrame]]
+    columns: Dict[str, List[str]]
+
+
+class HudRingBuffer:
+    def __init__(self, max_windows: int, columns: Dict[str, List[str]]) -> None:
+        self.max_windows = max_windows
+        self.columns = columns
+        self.snap = deque(maxlen=max_windows)
+        self.wall = deque(maxlen=max_windows)
+        self.vacuum = deque(maxlen=max_windows)
+        self.radar = deque(maxlen=max_windows)
+        self.physics = deque(maxlen=max_windows)
+        self.gex = deque(maxlen=max_windows)
+
+    def append(self, snap: pd.DataFrame, wall: pd.DataFrame, vacuum: pd.DataFrame, radar: pd.DataFrame, physics: pd.DataFrame, gex: pd.DataFrame) -> None:
+        self.snap.append(_ensure_columns(snap, self.columns["snap"]))
+        self.wall.append(_ensure_columns(wall, self.columns["wall"]))
+        self.vacuum.append(_ensure_columns(vacuum, self.columns["vacuum"]))
+        self.radar.append(_ensure_columns(radar, self.columns["radar"]))
+        self.physics.append(_ensure_columns(physics, self.columns["physics"]))
+        self.gex.append(_ensure_columns(gex, self.columns["gex"]))
+
+    def frames(self) -> Dict[str, pd.DataFrame]:
+        return {
+            "snap": _concat(self.snap, self.columns["snap"]),
+            "wall": _concat(self.wall, self.columns["wall"]),
+            "vacuum": _concat(self.vacuum, self.columns["vacuum"]),
+            "radar": _concat(self.radar, self.columns["radar"]),
+            "physics": _concat(self.physics, self.columns["physics"]),
+            "gex": _concat(self.gex, self.columns["gex"]),
+        }
+
+
+class HudStreamService:
+    def __init__(self) -> None:
+        self.cache: Dict[Tuple[str, str], HudStreamCache] = {}
+        self.repo_root = Path(__file__).resolve().parents[2]
+        self.cfg = load_config(self.repo_root, self.repo_root / "src" / "data_eng" / "config" / "datasets.yaml")
+
+    def load_cache(self, symbol: str, dt: str) -> HudStreamCache:
+        key = (symbol, dt)
+        if key in self.cache:
+            return self.cache[key]
+
+        mbo_key = "bronze.future_mbo.mbo"
+        cal_key = "gold.hud.physics_norm_calibration"
+        gex_key = "silver.future_option_mbo.gex_surface_1s"
+
+        mbo_ref = partition_ref(self.cfg, mbo_key, symbol, dt)
+        if not is_partition_complete(mbo_ref):
+            raise FileNotFoundError(f"Input not ready: {mbo_key} dt={dt}")
+
+        cal_ref = partition_ref(self.cfg, cal_key, symbol, dt)
+        if not is_partition_complete(cal_ref):
+            raise FileNotFoundError(f"Input not ready: {cal_key} dt={dt}")
+
+        gex_ref = partition_ref(self.cfg, gex_key, symbol, dt)
+        if not is_partition_complete(gex_ref):
+            raise FileNotFoundError(f"Input not ready: {gex_key} dt={dt}")
+
+        df_snap, df_wall, df_radar = compute_futures_surfaces_1s_from_batches(
+            iter_mbo_batches(self.cfg, self.repo_root, symbol, dt)
+        )
+
+        cal_contract = load_avro_contract(self.repo_root / self.cfg.dataset(cal_key).contract)
+        df_cal = enforce_contract(read_partition(cal_ref), cal_contract)
+
+        vacuum_builder = SilverComputeVacuumSurface1s()
+        df_vacuum = vacuum_builder.transform_multi(df_wall, df_cal)
+
+        physics_builder = SilverComputePhysicsBands1s()
+        df_physics = physics_builder.transform_multi(df_snap, df_wall, df_vacuum, df_cal)
+
+        gex_contract = load_avro_contract(self.repo_root / self.cfg.dataset(gex_key).contract)
+        df_gex = enforce_contract(read_partition(gex_ref), gex_contract)
+
+        window_ids = df_snap["window_end_ts_ns"].astype(int).tolist() if not df_snap.empty else []
+
+        groups = {
+            "snap": _group_by_window(df_snap),
+            "wall": _group_by_window(df_wall),
+            "vacuum": _group_by_window(df_vacuum),
+            "radar": _group_by_window(df_radar),
+            "physics": _group_by_window(df_physics),
+            "gex": _group_by_window(df_gex),
+        }
+
+        columns = {
+            "snap": SNAP_COLUMNS,
+            "wall": WALL_COLUMNS,
+            "vacuum": _columns_for(self.repo_root, self.cfg, "silver.future_mbo.vacuum_surface_1s"),
+            "radar": RADAR_COLUMNS,
+            "physics": _columns_for(self.repo_root, self.cfg, "silver.future_mbo.physics_bands_1s"),
+            "gex": _columns_for(self.repo_root, self.cfg, "silver.future_option_mbo.gex_surface_1s"),
+        }
+
+        cache = HudStreamCache(
+            snap=df_snap,
+            wall=df_wall,
+            vacuum=df_vacuum,
+            radar=df_radar,
+            physics=df_physics,
+            gex=df_gex,
+            window_ids=window_ids,
+            groups=groups,
+            columns=columns,
+        )
+        self.cache[key] = cache
+        return cache
+
+    def bootstrap_frames(self, symbol: str, dt: str, end_ts_ns: int | None = None) -> Dict[str, pd.DataFrame]:
+        cache = self.load_cache(symbol, dt)
+        if cache.snap.empty:
+            return {
+                "snap": pd.DataFrame(columns=cache.columns["snap"]),
+                "wall": pd.DataFrame(columns=cache.columns["wall"]),
+                "vacuum": pd.DataFrame(columns=cache.columns["vacuum"]),
+                "radar": pd.DataFrame(columns=cache.columns["radar"]),
+                "physics": pd.DataFrame(columns=cache.columns["physics"]),
+                "gex": pd.DataFrame(columns=cache.columns["gex"]),
+            }
+
+        window_ids = cache.window_ids
+        if not window_ids:
+            return {
+                "snap": pd.DataFrame(columns=cache.columns["snap"]),
+                "wall": pd.DataFrame(columns=cache.columns["wall"]),
+                "vacuum": pd.DataFrame(columns=cache.columns["vacuum"]),
+                "radar": pd.DataFrame(columns=cache.columns["radar"]),
+                "physics": pd.DataFrame(columns=cache.columns["physics"]),
+                "gex": pd.DataFrame(columns=cache.columns["gex"]),
+            }
+
+        if end_ts_ns is None:
+            end_ts_ns = window_ids[-1]
+        start_ts_ns = end_ts_ns - HUD_HISTORY_WINDOWS * WINDOW_NS
+
+        ring = HudRingBuffer(HUD_HISTORY_WINDOWS, cache.columns)
+        for window_id in window_ids:
+            if window_id < start_ts_ns or window_id > end_ts_ns:
+                continue
+            ring.append(
+                cache.groups["snap"].get(window_id, pd.DataFrame(columns=cache.columns["snap"])),
+                cache.groups["wall"].get(window_id, pd.DataFrame(columns=cache.columns["wall"])),
+                cache.groups["vacuum"].get(window_id, pd.DataFrame(columns=cache.columns["vacuum"])),
+                cache.groups["radar"].get(window_id, pd.DataFrame(columns=cache.columns["radar"])),
+                cache.groups["physics"].get(window_id, pd.DataFrame(columns=cache.columns["physics"])),
+                cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"])),
+            )
+
+        return ring.frames()
+
+    def iter_batches(self, symbol: str, dt: str, start_ts_ns: int | None = None) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
+        cache = self.load_cache(symbol, dt)
+        ring = HudRingBuffer(HUD_HISTORY_WINDOWS, cache.columns)
+        for window_id in cache.window_ids:
+            if start_ts_ns is not None and window_id < start_ts_ns:
+                continue
+            snap = cache.groups["snap"].get(window_id, pd.DataFrame(columns=cache.columns["snap"]))
+            wall = cache.groups["wall"].get(window_id, pd.DataFrame(columns=cache.columns["wall"]))
+            vacuum = cache.groups["vacuum"].get(window_id, pd.DataFrame(columns=cache.columns["vacuum"]))
+            radar = cache.groups["radar"].get(window_id, pd.DataFrame(columns=cache.columns["radar"]))
+            physics = cache.groups["physics"].get(window_id, pd.DataFrame(columns=cache.columns["physics"]))
+            gex = cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"]))
+            ring.append(snap, wall, vacuum, radar, physics, gex)
+            yield window_id, {
+                "snap": snap,
+                "wall": wall,
+                "vacuum": vacuum,
+                "radar": radar,
+                "physics": physics,
+                "gex": gex,
+            }
+
+
+def _group_by_window(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
+    if df.empty:
+        return {}
+    grouped = {}
+    for window_id, group in df.groupby("window_end_ts_ns"):
+        grouped[int(window_id)] = group
+    return grouped
+
+
+def _columns_for(repo_root: Path, cfg, dataset_key: str) -> List[str]:
+    contract = load_avro_contract(repo_root / cfg.dataset(dataset_key).contract)
+    return contract.fields
+
+
+def _ensure_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    return df.loc[:, columns]
+
+
+def _concat(items: deque, columns: List[str]) -> pd.DataFrame:
+    if not items:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(list(items), ignore_index=True)
