@@ -3,10 +3,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+from numba import boolean, float64, int64, int8, jit, types
+from numba.typed import Dict as NumbaDict, List as NumbaList
 
 from ...base import Stage, StageIO
 from ....config import AppConfig
@@ -36,22 +38,23 @@ ACTION_TRADE = "T"
 ACTION_FILL = "F"
 ACTION_NONE = "N"
 
-PULL_ACTIONS = {ACTION_CANCEL, ACTION_MODIFY}
+# Mapped constants for Numba
+ACT_ADD = 1
+ACT_CANCEL = 2
+ACT_MODIFY = 3
+ACT_CLEAR = 4
+ACT_FILL = 5
+ACT_TRADE = 6
 
+SIDE_ASK = 0
+SIDE_BID = 1
 
-@dataclass
-class OrderState:
-    side: str
-    price_int: int
-    qty: int
-    ts_enter_price: int  # Timestamp when order entered current price
+F_SNAPSHOT = 128
+F_LAST = 256
 
 
 class SilverComputeSnapshotAndWall1s(Stage):
     def __init__(self) -> None:
-        # We output two datasets, but StageIO expects one 'output' for the default check.
-        # We'll use book_snapshot_1s as the primary to satisfy the base class,
-        # but override run() to handle both.
         super().__init__(
             name="silver_compute_snapshot_and_wall_1s",
             io=StageIO(
@@ -61,47 +64,38 @@ class SilverComputeSnapshotAndWall1s(Stage):
         )
 
     def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
-        # Define output keys
         out_key_snap = "silver.future_mbo.book_snapshot_1s"
         out_key_wall = "silver.future_mbo.wall_surface_1s"
 
         ref_snap = partition_ref(cfg, out_key_snap, symbol, dt)
         ref_wall = partition_ref(cfg, out_key_wall, symbol, dt)
 
-        # Idempotency check: if both complete, return
         if is_partition_complete(ref_snap) and is_partition_complete(ref_wall):
             return
 
-        # Check input
         input_key = self.io.inputs[0]
         in_ref = partition_ref(cfg, input_key, symbol, dt)
         if not is_partition_complete(in_ref):
             raise FileNotFoundError(f"Input not ready: {input_key} dt={dt}")
 
-        # Read Input
         in_contract_path = repo_root / cfg.dataset(input_key).contract
         in_contract = load_avro_contract(in_contract_path)
         df_in = read_partition(in_ref)
         df_in = enforce_contract(df_in, in_contract)
 
-        # Transform
         df_snap, df_wall = self.transform(df_in, dt)
 
-        # Enforce Contracts
         contract_snap_path = repo_root / cfg.dataset(out_key_snap).contract
         contract_wall_path = repo_root / cfg.dataset(out_key_wall).contract
-        
+
         contract_snap = load_avro_contract(contract_snap_path)
         contract_wall = load_avro_contract(contract_wall_path)
 
         df_snap = enforce_contract(df_snap, contract_snap)
         df_wall = enforce_contract(df_wall, contract_wall)
 
-        # Lineage
-        manifest = read_manifest_hash(in_ref)
-        lineage = [{"dataset": in_ref.dataset_key, "dt": dt, "manifest_sha256": manifest}]
+        lineage = [{"dataset": in_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(in_ref)}]
 
-        # Write Outputs
         if not is_partition_complete(ref_snap):
             write_partition(
                 cfg=cfg,
@@ -132,263 +126,50 @@ class SilverComputeSnapshotAndWall1s(Stage):
             raise ValueError(f"Missing required columns: {required_cols - set(df.columns)}")
 
         df = df.sort_values(["ts_event", "sequence"], ascending=[True, True])
+
+        # Prepare for Numba
+        ts_arr = df["ts_event"].to_numpy(dtype=np.int64)
         
-        # Type conversions for speed
-        ts_event = df["ts_event"].to_numpy(dtype=np.int64)
-        action = df["action"].to_numpy(dtype=object)
-        side = df["side"].to_numpy(dtype=object)
-        price = df["price"].to_numpy(dtype=np.int64)
-        size = df["size"].to_numpy(dtype=np.int64)
-        order_id = df["order_id"].to_numpy(dtype=np.int64)
-        flags = df["flags"].to_numpy(dtype=np.int64) if "flags" in df.columns else np.zeros(len(df), dtype=np.int64)
+        act_map = {"A": 1, "C": 2, "M": 3, "R": 4, "F": 5, "T": 6, "N": 0}
+        act_arr = df["action"].map(act_map).fillna(0).to_numpy(dtype=np.int8)
 
-        # State
-        orders: Dict[int, OrderState] = {}
-        # depth: price_int -> qty (separate per side to be safe, though price usually determines side in disjoint books)
-        # Using dict for sparse depth
-        depth_bid: Dict[int, int] = {}
-        depth_ask: Dict[int, int] = {}
+        side_map = {"A": 0, "B": 1, "N": -1}
+        side_arr = df["side"].map(side_map).fillna(-1).to_numpy(dtype=np.int8)
 
-        # Snapshot Logic
-        # Databento snapshots start with R and F_SNAPSHOT (128 according to docs, but we should check constant)
-        # We assume R clears the book.
+        px_arr = df["price"].to_numpy(dtype=np.int64)
+        sz_arr = df["size"].to_numpy(dtype=np.int64)
+        oid_arr = df["order_id"].to_numpy(dtype=np.int64)
+        flags_arr = df["flags"].to_numpy(dtype=np.int64) if "flags" in df.columns else np.zeros(len(df), dtype=np.int64)
+
+        # Free memory
+        del df
+
+        # Numba Execution
+        snap_rows, wall_rows = _numba_compute_snapshot_wall(
+            ts_arr, act_arr, side_arr, px_arr, sz_arr, oid_arr, flags_arr, WINDOW_NS, TICK_INT, HUD_MAX_TICKS, REST_NS
+        )
+
+        # Construct DF Snap
+        df_snap_out = pd.DataFrame(snap_rows, columns=[
+            "window_start_ts_ns", "window_end_ts_ns", "best_bid_price_int", "best_bid_qty",
+            "best_ask_price_int", "best_ask_qty", "mid_price", "mid_price_int",
+            "last_trade_price_int", "spot_ref_price_int", "book_valid"
+        ])
+
+        # Construct DF Wall
+        df_wall_out = pd.DataFrame(wall_rows, columns=[
+            "window_start_ts_ns", "window_end_ts_ns", "price_int", "side", "spot_ref_price_int",
+            "rel_ticks", "depth_qty_start", "depth_qty_end", "add_qty", "pull_qty_total",
+            "depth_qty_rest", "pull_qty_rest", "fill_qty", "window_valid"
+        ])
         
-        # Accumulators for current window
-        # wall_accum[(price, side)] = {add, pull, fill, etc}
-        wall_accum: Dict[Tuple[int, str], Dict[str, float]] = {}
+        # Side mapping for output
+        df_wall_out["side"] = df_wall_out["side"].map({1: "B", 0: "A"})
         
-        rows_snap = []
-        rows_wall = []
-
-        curr_window_id = None
-        window_start_ts = 0
-        window_end_ts = 0
-        
-        book_valid = False
-        last_trade_price = 0
-        best_bid = 0
-        best_ask = 0
-        
-        # Constants for flags
-        F_SNAPSHOT = 128
-        F_LAST = 256 # Assuming standard Databento flags, need to verify if accessible.
-        # Actually F_LAST is often 0x80 (128) if F_SNAPSHOT is also set? 
-        # "Snapshot records are marked with F_SNAPSHOT... followed by... F_LAST"
-        # Let's rely on logic: if R -> clear. If we are in snapshot mode, we wait for F_LAST?
-        # IMPLEMENT.md: "Snapshot records are marked with F_SNAPSHOT... until... F_LAST"
-        # We will track if we are inside a snapshot loading phase.
-
-        in_snapshot_load = False
-
-        for i in range(len(df)):
-            ts = ts_event[i]
-            act = action[i]
-            oid = order_id[i]
-            px = price[i]
-            sz = size[i]
-            sd = side[i]
-            flg = flags[i]
-
-            w_id = ts // WINDOW_NS
-
-            # Window Boundary Check
-            if curr_window_id is None:
-                curr_window_id = w_id
-                window_start_ts = w_id * WINDOW_NS
-                window_end_ts = window_start_ts + WINDOW_NS
-
-            if w_id != curr_window_id:
-                # Close Window
-                # Emit Snapshot
-                # We need best bid/ask
-                bb_p, bb_q = _get_best(depth_bid, is_bid=True)
-                ba_p, ba_q = _get_best(depth_ask, is_bid=False)
-                
-                mid = 0.0
-                mid_int = 0
-                if bb_p > 0 and ba_p > 0:
-                    mid = (bb_p + ba_p) / 2.0 * PRICE_SCALE
-                    mid_int = int(round((bb_p + ba_p) / 2.0))
-                
-                # Spot Ref Logic: Last Trade > Best Bid (if valid) > 0
-                spot_ref = last_trade_price
-                if spot_ref == 0:
-                    if book_valid and bb_p > 0:
-                        spot_ref = bb_p
-                
-                rows_snap.append({
-                    "window_start_ts_ns": window_start_ts,
-                    "window_end_ts_ns": window_end_ts,
-                    "best_bid_price_int": bb_p,
-                    "best_bid_qty": bb_q,
-                    "best_ask_price_int": ba_p,
-                    "best_ask_qty": ba_q,
-                    "mid_price": mid,
-                    "mid_price_int": mid_int,
-                    "last_trade_price_int": last_trade_price,
-                    "spot_ref_price_int": spot_ref,
-                    "book_valid": book_valid
-                })
-
-                # Emit Wall Surface
-                if spot_ref > 0:
-                    _emit_wall_rows(
-                        rows_wall, wall_accum, 
-                        depth_bid, depth_ask, 
-                        window_start_ts, window_end_ts, 
-                        spot_ref, book_valid, ts, orders
-                    )
-
-                # Reset
-                wall_accum.clear()
-                curr_window_id = w_id
-                window_start_ts = w_id * WINDOW_NS
-                window_end_ts = window_start_ts + WINDOW_NS
-
-            # Process Action
-            if act == ACTION_CLEAR:
-                orders.clear()
-                depth_bid.clear()
-                depth_ask.clear()
-                # Check flags for snapshot start
-                if flg & F_SNAPSHOT:
-                    in_snapshot_load = True
-                    book_valid = False
-                else:
-                    # Regular clear (unlikely in MBO without snapshot, but possible)
-                    # We treat it as valid empty book? Or invalid?
-                    # "R: clear book (reset)... book_valid=false from start until F_LAST"
-                    in_snapshot_load = True # Assume any R starts a rebuild
-                    book_valid = False
-                continue
-
-            if in_snapshot_load:
-                # We are loading a snapshot
-                # Check for F_LAST
-                if flg & F_LAST:
-                    in_snapshot_load = False
-                    book_valid = True
-                # Even if F_LAST is set, this record itself is part of the snapshot (A record)
-            
-            # Update Logic
-            if act == ACTION_ADD:
-                orders[oid] = OrderState(side=sd, price_int=px, qty=sz, ts_enter_price=ts)
-                _update_depth(depth_bid, depth_ask, sd, px, sz)
-                _accum_wall(wall_accum, px, sd, "add_qty", sz)
-            
-            elif act == ACTION_MODIFY:
-                old = orders.get(oid)
-                # If modified order not found (and not snapshot loading), ignore
-                if old:
-                    # Remove old depth
-                    _update_depth(depth_bid, depth_ask, old.side, old.price_int, -old.qty)
-                    # Add new depth
-                    # New params
-                    new_px = px # Price in M record is the new price
-                    new_sz = sz # Size in M record is new size
-                    # Side usually doesn't change
-                    orders[oid] = OrderState(side=old.side, price_int=new_px, qty=new_sz, ts_enter_price=ts) 
-                    # Note: ts_enter_price updates on modify if price changes? 
-                    # "ts_enter_price updates when the order changes price (or is newly added)"
-                    # converting logic: if new_px == old.price_int, maybe keep old ts? 
-                    # IMPLEMENT.md says "updates when the order changes price".
-                    if new_px == old.price_int:
-                        orders[oid].ts_enter_price = old.ts_enter_price # Revert to old ts if price same
-                    
-                    _update_depth(depth_bid, depth_ask, old.side, new_px, new_sz)
-                    
-                    # Accumulate logic
-                    # "pull_qty_total (cancels/mods reducing size)"
-                    # If size reduced: delta = old.qty - new_sz
-                    # If price changed: full remove old, full add new? 
-                    # Usually M is treated as:
-                    # - cancellation of old (pull)
-                    # - addition of new (add)?
-                    # IMPLEMENT.md: "pull_qty_total... reducing size... within window at this price/side"
-                    # If price changes, it's a pull at old price, add at new price?
-                    if new_px != old.price_int:
-                        # Pull full at old
-                        delta_pull = old.qty
-                        _accum_pull(wall_accum, old.price_int, old.side, delta_pull, ts, old.ts_enter_price)
-                        # Add full at new
-                        _accum_wall(wall_accum, new_px, old.side, "add_qty", new_sz)
-                    else:
-                        # Price same, size change
-                        if new_sz < old.qty:
-                            delta = old.qty - new_sz
-                            _accum_pull(wall_accum, new_px, old.side, delta, ts, old.ts_enter_price)
-                        elif new_sz > old.qty:
-                             delta = new_sz - old.qty
-                             _accum_wall(wall_accum, new_px, old.side, "add_qty", delta)
-
-            elif act == ACTION_CANCEL:
-                old = orders.get(oid)
-                if old:
-                    _update_depth(depth_bid, depth_ask, old.side, old.price_int, -old.qty)
-                    _accum_pull(wall_accum, old.price_int, old.side, old.qty, ts, old.ts_enter_price)
-                    del orders[oid]
-
-            elif act == ACTION_FILL:
-                old = orders.get(oid)
-                if old:
-                    # Fill reduces qty
-                    fill_sz = sz # F record size is filled amount
-                    rem_sz = old.qty - fill_sz
-                    
-                    # Update depth (remove fill amount)
-                    _update_depth(depth_bid, depth_ask, old.side, old.price_int, -fill_sz)
-                    
-                    # Accumulate Fill
-                    _accum_wall(wall_accum, old.price_int, old.side, "fill_qty", fill_sz)
-                    
-                    if rem_sz <= 0:
-                        del orders[oid]
-                    else:
-                        old.qty = rem_sz # Update in place
-            
-            elif act == ACTION_TRADE:
-                # T record. Update last trade
-                # T record often has price/size
-                if px > 0:
-                    last_trade_price = px
-
-        # End of Loop - Flush last window
-        if curr_window_id is not None:
-             # Lookahead/Flush logic identical to above
-             # Copied for neatness, normally would refactor
-             bb_p, bb_q = _get_best(depth_bid, is_bid=True)
-             ba_p, ba_q = _get_best(depth_ask, is_bid=False)
-             mid = (bb_p + ba_p) * 0.5 * PRICE_SCALE if (bb_p and ba_p) else 0.0
-             mid_int = int((bb_p + ba_p) * 0.5) if (bb_p and ba_p) else 0
-             spot_ref = last_trade_price if last_trade_price else (bb_p if (book_valid and bb_p) else 0)
-             
-             rows_snap.append({
-                    "window_start_ts_ns": window_start_ts,
-                    "window_end_ts_ns": window_end_ts,
-                    "best_bid_price_int": bb_p,
-                    "best_bid_qty": bb_q,
-                    "best_ask_price_int": ba_p,
-                    "best_ask_qty": ba_q,
-                    "mid_price": mid,
-                    "mid_price_int": mid_int,
-                    "last_trade_price_int": last_trade_price,
-                    "spot_ref_price_int": spot_ref,
-                    "book_valid": book_valid
-             })
-             if spot_ref > 0:
-                 _emit_wall_rows(rows_wall, wall_accum, depth_bid, depth_ask, window_start_ts, window_end_ts, spot_ref, book_valid, ts_event[-1], orders)
-
-        # Build dataframes
-        df_snap_out = pd.DataFrame(rows_snap)
-        df_wall_out = pd.DataFrame(rows_wall)
-        
-        # Derivatives for Wall Surface (D1/D2/D3)
-        # We need to sort by price/side/time?
-        # IMPLEMENT.md: "computed over time for the same (price_int, side)"
+        # Derivatives
         if not df_wall_out.empty:
             df_wall_out = _calc_derivatives(df_wall_out)
         else:
-            # Ensure columns exist even if empty
             cols = ["window_start_ts_ns", "window_end_ts_ns", "price_int", "side", "spot_ref_price_int", "rel_ticks", 
                     "depth_qty_start", "depth_qty_end", "add_qty", "pull_qty_total", "depth_qty_rest", "pull_qty_rest", 
                     "fill_qty", "d1_depth_qty", "d2_depth_qty", "d3_depth_qty", "window_valid"]
@@ -396,123 +177,629 @@ class SilverComputeSnapshotAndWall1s(Stage):
 
         return df_snap_out, df_wall_out
 
-# Helpers
 
-def _update_depth(bid_book, ask_book, side, price, delta):
-    if side == "B":
-        bid_book[price] = bid_book.get(price, 0) + delta
-        if bid_book[price] <= 0:
-            del bid_book[price]
-    elif side == "A":
-        ask_book[price] = ask_book.get(price, 0) + delta
-        if ask_book[price] <= 0:
-            del ask_book[price]
+@jit(nopython=True)
+def _numba_compute_snapshot_wall(ts_arr, act_arr, side_arr, px_arr, sz_arr, oid_arr, flags_arr, window_ns, tick_int, hud_max_ticks, rest_ns):
+    # Output Lists (Flat)
+    # Snap
+    s_start = NumbaList.empty_list(int64)
+    s_end = NumbaList.empty_list(int64)
+    s_bb_p = NumbaList.empty_list(int64)
+    s_bb_q = NumbaList.empty_list(int64)
+    s_ba_p = NumbaList.empty_list(int64)
+    s_ba_q = NumbaList.empty_list(int64)
+    s_mid = NumbaList.empty_list(float64)
+    s_mid_i = NumbaList.empty_list(int64)
+    s_last = NumbaList.empty_list(int64)
+    s_spot = NumbaList.empty_list(int64)
+    s_valid = NumbaList.empty_list(boolean)
 
-def _get_best(book, is_bid):
-    if not book:
-        return 0, 0
-    if is_bid:
-        p = max(book.keys())
-    else:
-        p = min(book.keys())
-    return p, book[p]
-
-def _accum_wall(accum, price, side, field, value):
-    key = (price, side)
-    if key not in accum:
-        accum[key] = {"add_qty": 0.0, "pull_qty_total": 0.0, "pull_qty_rest": 0.0, "fill_qty": 0.0}
-    accum[key][field] += float(value)
-
-def _accum_pull(accum, price, side, qty, curr_ts, enter_ts):
-    _accum_wall(accum, price, side, "pull_qty_total", qty)
-    if (curr_ts - enter_ts) >= REST_NS:
-         _accum_wall(accum, price, side, "pull_qty_rest", qty)
-
-def _emit_wall_rows(rows, accum, depth_bid, depth_ask, start_ts, end_ts, spot_ref, valid, curr_ts, orders):
-    # Iterate ticks around spot
-    min_p = spot_ref - HUD_MAX_TICKS * TICK_INT
-    max_p = spot_ref + HUD_MAX_TICKS * TICK_INT
+    # Wall
+    w_start = NumbaList.empty_list(int64)
+    w_end = NumbaList.empty_list(int64)
+    w_px = NumbaList.empty_list(int64)
+    w_side = NumbaList.empty_list(int64)
+    w_spot = NumbaList.empty_list(int64)
+    w_rel = NumbaList.empty_list(int64)
+    w_d_start = NumbaList.empty_list(float64)
+    w_d_end = NumbaList.empty_list(float64)
+    w_add = NumbaList.empty_list(float64)
+    w_pull = NumbaList.empty_list(float64)
+    w_rest = NumbaList.empty_list(float64)
+    w_p_rest = NumbaList.empty_list(float64)
+    w_fill = NumbaList.empty_list(float64)
+    w_valid = NumbaList.empty_list(boolean)
     
-    # We need to emit rows for every price that has activity OR depth?
-    # IMPLEMENT.md: "Emit rows only for price levels in [range]" (implies dense? or sparse?)
-    # "Wall Surface... Shows what is sitting there" -> Should probably be sparse where depth exists, or dense?
-    # "Converted into dense, bounded textures" -> implies pipeline can be sparse, HUD query makes it dense.
-    # But for "erosion" d1/d2, we need continuity. 
-    # Let's iterate over ALL prices in the map + accum that are in range.
+    # State
+    ord_side = NumbaDict.empty(int64, int8)
+    ord_px = NumbaDict.empty(int64, int64)
+    ord_qty = NumbaDict.empty(int64, int64)
+    ord_ts = NumbaDict.empty(int64, int64)
     
-    active_prices = set()
-    for p in depth_bid.keys():
-        if min_p <= p <= max_p: active_prices.add((p, "B"))
-    for p in depth_ask.keys():
-        if min_p <= p <= max_p: active_prices.add((p, "A"))
-    for (p, s) in accum.keys():
-        if min_p <= p <= max_p: active_prices.add((p, s))
+    # Depth: Price -> Qty
+    depth_b = NumbaDict.empty(int64, int64)
+    depth_a = NumbaDict.empty(int64, int64)
+    
+    # Accumulators: Price -> Value (Separate Bid/Ask)
+    # Using separate dicts avoids mixed keys
+    acc_add_b = NumbaDict.empty(int64, float64)
+    acc_add_a = NumbaDict.empty(int64, float64)
+    
+    acc_pull_b = NumbaDict.empty(int64, float64)
+    acc_pull_a = NumbaDict.empty(int64, float64)
+    
+    acc_prest_b = NumbaDict.empty(int64, float64)
+    acc_prest_a = NumbaDict.empty(int64, float64)
+    
+    acc_fill_b = NumbaDict.empty(int64, float64)
+    acc_fill_a = NumbaDict.empty(int64, float64)
+    
+    curr_window = -1
+    window_start = 0
+    window_end = 0
+    
+    last_trade_price = 0
+    book_valid = False
+    in_snapshot_load = False
+    
+    n = len(ts_arr)
+    for i in range(n):
+        ts = ts_arr[i]
+        w_id = ts // window_ns
+        
+        if curr_window == -1:
+            curr_window = w_id
+            window_start = w_id * window_ns
+            window_end = window_start + window_ns
+            
+        if w_id != curr_window:
+            # Emit
+            # Best Bid
+            bb_p = 0
+            bb_q = 0
+            if len(depth_b) > 0:
+                max_p = -1
+                for k in depth_b:
+                     if max_p == -1 or k > max_p: max_p = k
+                if max_p != -1:
+                    bb_p = max_p
+                    bb_q = depth_b[max_p]
+            
+            # Best Ask
+            ba_p = 0
+            ba_q = 0
+            if len(depth_a) > 0:
+                min_p = -1
+                for k in depth_a:
+                    if min_p == -1 or k < min_p: min_p = k
+                if min_p != -1:
+                    ba_p = min_p
+                    ba_q = depth_a[min_p]
+            
+            mid = 0.0
+            mid_i = 0
+            if bb_p > 0 and ba_p > 0:
+                mid = (bb_p + ba_p) * 0.5 * 1e-9
+                mid_i = int(round((bb_p + ba_p) * 0.5))
+            
+            spot_ref = last_trade_price
+            if spot_ref == 0:
+                if book_valid and bb_p > 0:
+                    spot_ref = bb_p
+            
+            # Snap Output
+            s_start.append(window_start)
+            s_end.append(window_end)
+            s_bb_p.append(bb_p)
+            s_bb_q.append(bb_q)
+            s_ba_p.append(ba_p)
+            s_ba_q.append(ba_q)
+            s_mid.append(mid)
+            s_mid_i.append(mid_i)
+            s_last.append(last_trade_price)
+            s_spot.append(spot_ref)
+            s_valid.append(book_valid)
+            
+            # Wall Output
+            if spot_ref > 0:
+                min_p = spot_ref - hud_max_ticks * tick_int
+                max_p = spot_ref + hud_max_ticks * tick_int
+                
+                # Collect Keys
+                unique_b = NumbaList.empty_list(int64)
+                unique_a = NumbaList.empty_list(int64)
+                
+                # Bids
+                for k in depth_b:
+                    if k >= min_p and k <= max_p: unique_b.append(k)
+                for k in acc_add_b:
+                    if k >= min_p and k <= max_p: unique_b.append(k)
+                
+                # Asks
+                for k in depth_a:
+                    if k >= min_p and k <= max_p: unique_a.append(k)
+                for k in acc_add_a:
+                    if k >= min_p and k <= max_p: unique_a.append(k)
+                
+                # Unique logic via temporary dict?
+                # Or just iterate? Duplicates ok? 
+                # If duplicates, we get multiple rows for same price/side.
+                # Must dedupe.
+                # Numba has no set() easily. Use Dict(int64, bool)
+                
+                seen_b = NumbaDict.empty(int64, boolean)
+                seen_a = NumbaDict.empty(int64, boolean)
+                
+                for k in unique_b: seen_b[k] = True
+                for k in unique_a: seen_a[k] = True
 
-    # Calculate depth_qty_rest specific to CURRENT STATE (end of window)
-    # This requires iterating orders. This is expensive.
-    # Optimization: "depth_qty_rest" is subset of depth_qty_end.
-    # We can iterate orders ONCE per window output?
-    # Or maintain a "resting depth" structure? Maintaining is hard because time flows.
-    # Iterating valid orders in range is safer.
-    
-    # Reset buckets
-    res_depth = {} # (p,s) -> rest_qty
-    
-    for o in orders.values():
-        if min_p <= o.price_int <= max_p:
-            if (curr_ts - o.ts_enter_price) >= REST_NS:
-                k = (o.price_int, o.side)
-                res_depth[k] = res_depth.get(k, 0.0) + o.qty
+                # Rest Depth Calc
+                res_depth_b = NumbaDict.empty(int64, float64)
+                res_depth_a = NumbaDict.empty(int64, float64)
+                
+                for oid_k in ord_px:
+                     opx = ord_px[oid_k]
+                     if opx >= min_p and opx <= max_p:
+                         ots = ord_ts[oid_k]
+                         if (window_end - ots) >= rest_ns:
+                             osd = ord_side[oid_k]
+                             oqt = ord_qty[oid_k]
+                             if osd == 1:
+                                 if opx in res_depth_b: res_depth_b[opx] += oqt
+                                 else: res_depth_b[opx] = oqt
+                             else:
+                                 if opx in res_depth_a: res_depth_a[opx] += oqt
+                                 else: res_depth_a[opx] = oqt
 
-    for (p, s) in active_prices:
-        acc = accum.get((p, s), {"add_qty": 0.0, "pull_qty_total": 0.0, "pull_qty_rest": 0.0, "fill_qty": 0.0})
+                # Emit Bids
+                for px in seen_b:
+                    sd = 1
+                    d_end = 0.0
+                    if px in depth_b: d_end = float(depth_b[px])
+                    
+                    add_q = 0.0
+                    if px in acc_add_b: add_q = acc_add_b[px]
+                    pull_q = 0.0
+                    if px in acc_pull_b: pull_q = acc_pull_b[px]
+                    fill_q = 0.0
+                    if px in acc_fill_b: fill_q = acc_fill_b[px]
+                    prest_q = 0.0
+                    if px in acc_prest_b: prest_q = acc_prest_b[px]
+                    
+                    d_start = d_end - add_q + pull_q + fill_q
+                    if d_start < 0: d_start = 0.0
+                    rel = int(round((px - spot_ref) / tick_int))
+                    d_rest = 0.0
+                    if px in res_depth_b: d_rest = res_depth_b[px]
+                    
+                    w_start.append(window_start)
+                    w_end.append(window_end)
+                    w_px.append(px)
+                    w_side.append(sd)
+                    # ... append rest
+                    w_spot.append(spot_ref)
+                    w_rel.append(rel)
+                    w_d_start.append(d_start)
+                    w_d_end.append(d_end)
+                    w_add.append(add_q)
+                    w_pull.append(pull_q)
+                    w_rest.append(d_rest)
+                    w_p_rest.append(prest_q)
+                    w_fill.append(fill_q)
+                    w_valid.append(book_valid)
+                    
+                # Emit Asks
+                for px in seen_a:
+                    sd = 0
+                    d_end = 0.0
+                    if px in depth_a: d_end = float(depth_a[px])
+                    
+                    add_q = 0.0
+                    if px in acc_add_a: add_q = acc_add_a[px]
+                    pull_q = 0.0
+                    if px in acc_pull_a: pull_q = acc_pull_a[px]
+                    fill_q = 0.0
+                    if px in acc_fill_a: fill_q = acc_fill_a[px]
+                    prest_q = 0.0
+                    if px in acc_prest_a: prest_q = acc_prest_a[px]
+                    
+                    d_start = d_end - add_q + pull_q + fill_q
+                    if d_start < 0: d_start = 0.0
+                    rel = int(round((px - spot_ref) / tick_int))
+                    d_rest = 0.0
+                    if px in res_depth_a: d_rest = res_depth_a[px]
+                    
+                    w_start.append(window_start)
+                    w_end.append(window_end)
+                    w_px.append(px)
+                    w_side.append(sd)
+                    w_spot.append(spot_ref)
+                    w_rel.append(rel)
+                    w_d_start.append(d_start)
+                    w_d_end.append(d_end)
+                    w_add.append(add_q)
+                    w_pull.append(pull_q)
+                    w_rest.append(d_rest)
+                    w_p_rest.append(prest_q)
+                    w_fill.append(fill_q)
+                    w_valid.append(book_valid)
+
+            # Reset Accumulators
+            acc_add_b = NumbaDict.empty(int64, float64)
+            acc_add_a = NumbaDict.empty(int64, float64)
+            acc_pull_b = NumbaDict.empty(int64, float64)
+            acc_pull_a = NumbaDict.empty(int64, float64)
+            acc_prest_b = NumbaDict.empty(int64, float64)
+            acc_prest_a = NumbaDict.empty(int64, float64)
+            acc_fill_b = NumbaDict.empty(int64, float64)
+            acc_fill_a = NumbaDict.empty(int64, float64)
+            
+            curr_window = w_id
+            window_start = curr_window * window_ns
+            window_end = window_start + window_ns
+            
+        # Process Actions
+        act = act_arr[i]
+        oid = oid_arr[i]
+        flg = flags_arr[i]
         
-        d_end = 0.0
-        if s == "B": d_end = float(depth_bid.get(p, 0))
-        else: d_end = float(depth_ask.get(p, 0))
+        if act == ACT_CLEAR:
+             ord_side = NumbaDict.empty(int64, int8)
+             ord_px = NumbaDict.empty(int64, int64)
+             ord_qty = NumbaDict.empty(int64, int64)
+             ord_ts = NumbaDict.empty(int64, int64)
+             depth_b = NumbaDict.empty(int64, int64)
+             depth_a = NumbaDict.empty(int64, int64)
+             
+             if (flg & F_SNAPSHOT) > 0:
+                 in_snapshot_load = True
+                 book_valid = False
+             else:
+                 in_snapshot_load = True
+                 book_valid = False
+             continue
+             
+        if in_snapshot_load:
+            if (flg & F_LAST) > 0:
+                in_snapshot_load = False
+                book_valid = True
         
-        # depth_start = depth_end - adds + pulls + fills ??
-        # Conservation: End = Start + Add - Pull - Fill
-        # Start = End - Add + Pull + Fill
-        d_start = d_end - acc["add_qty"] + acc["pull_qty_total"] + acc["fill_qty"]
-        # Clamp to 0 just in case floating point drift
-        d_start = max(0.0, d_start)
+        if act == ACT_ADD:
+            sd = side_arr[i]
+            px = px_arr[i]
+            sz = sz_arr[i]
+            
+            ord_side[oid] = sd
+            ord_px[oid] = px
+            ord_qty[oid] = sz
+            ord_ts[oid] = ts
+            
+            if sd == 1:
+                if px in depth_b: depth_b[px] += sz
+                else: depth_b[px] = sz
+                if px in acc_add_b: acc_add_b[px] += sz
+                else: acc_add_b[px] = sz
+            else:
+                if px in depth_a: depth_a[px] += sz
+                else: depth_a[px] = sz
+                if px in acc_add_a: acc_add_a[px] += sz
+                else: acc_add_a[px] = sz
+            
+        elif act == ACT_MODIFY:
+             if oid in ord_px:
+                 o_sd = ord_side[oid]
+                 o_px = ord_px[oid]
+                 o_qt = ord_qty[oid]
+                 o_ts = ord_ts[oid]
+                 
+                 n_px = px_arr[i]
+                 n_sz = sz_arr[i]
+                 
+                 # Remove Old
+                 if o_sd == 1:
+                     if o_px in depth_b:
+                         depth_b[o_px] -= o_qt
+                         if depth_b[o_px] <= 0: del depth_b[o_px]
+                 else:
+                     if o_px in depth_a:
+                         depth_a[o_px] -= o_qt
+                         if depth_a[o_px] <= 0: del depth_a[o_px]
+                 
+                 # Add New
+                 if o_sd == 1:
+                     if n_px in depth_b: depth_b[n_px] += n_sz
+                     else: depth_b[n_px] = n_sz
+                 else:
+                     if n_px in depth_a: depth_a[n_px] += n_sz
+                     else: depth_a[n_px] = n_sz
+                     
+                 # Update Order
+                 ord_px[oid] = n_px
+                 ord_qty[oid] = n_sz
+                 if n_px == o_px: ord_ts[oid] = o_ts
+                 else: ord_ts[oid] = ts
+                 
+                 # Accums
+                 if n_px != o_px:
+                      # Pull Full Old
+                      if o_sd == 1:
+                          if o_px in acc_pull_b: acc_pull_b[o_px] += o_qt
+                          else: acc_pull_b[o_px] = o_qt
+                          if (ts - o_ts) >= rest_ns:
+                              if o_px in acc_prest_b: acc_prest_b[o_px] += o_qt
+                              else: acc_prest_b[o_px] = o_qt
+                          # Add Full New
+                          if n_px in acc_add_b: acc_add_b[n_px] += n_sz
+                          else: acc_add_b[n_px] = n_sz
+                      else:
+                          if o_px in acc_pull_a: acc_pull_a[o_px] += o_qt
+                          else: acc_pull_a[o_px] = o_qt
+                          if (ts - o_ts) >= rest_ns:
+                              if o_px in acc_prest_a: acc_prest_a[o_px] += o_qt
+                              else: acc_prest_a[o_px] = o_qt
+                          if n_px in acc_add_a: acc_add_a[n_px] += n_sz
+                          else: acc_add_a[n_px] = n_sz
+                 else:
+                      # Size change
+                      if n_sz < o_qt:
+                          delta = o_qt - n_sz
+                          if o_sd == 1:
+                              if o_px in acc_pull_b: acc_pull_b[o_px] += delta
+                              else: acc_pull_b[o_px] = delta
+                              if (ts - o_ts) >= rest_ns:
+                                  if o_px in acc_prest_b: acc_prest_b[o_px] += delta
+                                  else: acc_prest_b[o_px] = delta
+                          else:
+                              if o_px in acc_pull_a: acc_pull_a[o_px] += delta
+                              else: acc_pull_a[o_px] = delta
+                              if (ts - o_ts) >= rest_ns:
+                                  if o_px in acc_prest_a: acc_prest_a[o_px] += delta
+                                  else: acc_prest_a[o_px] = delta
+                      elif n_sz > o_qt:
+                          delta = n_sz - o_qt
+                          if o_sd == 1:
+                              if o_px in acc_add_b: acc_add_b[o_px] += delta
+                              else: acc_add_b[o_px] = delta
+                          else:
+                              if o_px in acc_add_a: acc_add_a[o_px] += delta
+                              else: acc_add_a[o_px] = delta
+                          
+        elif act == ACT_CANCEL:
+             if oid in ord_px:
+                 o_sd = ord_side[oid]
+                 o_px = ord_px[oid]
+                 o_qt = ord_qty[oid]
+                 o_ts = ord_ts[oid]
+                 
+                 if o_sd == 1:
+                     if o_px in depth_b:
+                         depth_b[o_px] -= o_qt
+                         if depth_b[o_px] <= 0: del depth_b[o_px]
+                     # Accum
+                     if o_px in acc_pull_b: acc_pull_b[o_px] += o_qt
+                     else: acc_pull_b[o_px] = o_qt
+                     if (ts - o_ts) >= rest_ns:
+                          if o_px in acc_prest_b: acc_prest_b[o_px] += o_qt
+                          else: acc_prest_b[o_px] = o_qt
+                 else:
+                     if o_px in depth_a:
+                         depth_a[o_px] -= o_qt
+                         if depth_a[o_px] <= 0: del depth_a[o_px]
+                     # Accum
+                     if o_px in acc_pull_a: acc_pull_a[o_px] += o_qt
+                     else: acc_pull_a[o_px] = o_qt
+                     if (ts - o_ts) >= rest_ns:
+                          if o_px in acc_prest_a: acc_prest_a[o_px] += o_qt
+                          else: acc_prest_a[o_px] = o_qt
+                 
+                 del ord_px[oid]
+                 del ord_side[oid]
+                 del ord_qty[oid]
+                 del ord_ts[oid]
         
-        rel = int(round((p - spot_ref) / TICK_INT))
+        elif act == ACT_FILL:
+             if oid in ord_px:
+                 o_sd = ord_side[oid]
+                 o_px = ord_px[oid]
+                 o_qt = ord_qty[oid]
+                 
+                 f_sz = sz_arr[i]
+                 rem_sz = o_qt - f_sz
+                 
+                 if o_sd == 1:
+                     if o_px in depth_b:
+                         depth_b[o_px] -= f_sz
+                         if depth_b[o_px] <= 0: del depth_b[o_px]
+                     # Accum
+                     if o_px in acc_fill_b: acc_fill_b[o_px] += f_sz
+                     else: acc_fill_b[o_px] = f_sz
+                 else:
+                     if o_px in depth_a:
+                         depth_a[o_px] -= f_sz
+                         if depth_a[o_px] <= 0: del depth_a[o_px]
+                     # Accum
+                     if o_px in acc_fill_a: acc_fill_a[o_px] += f_sz
+                     else: acc_fill_a[o_px] = f_sz
+                 
+                 if rem_sz <= 0:
+                     del ord_px[oid]
+                     del ord_side[oid]
+                     del ord_qty[oid]
+                     del ord_ts[oid]
+                 else:
+                     ord_qty[oid] = rem_sz
+                     
+        elif act == ACT_TRADE:
+             px = px_arr[i]
+             if px > 0:
+                 last_trade_price = px
+                 
+    # Last Flush logic
+    if curr_window != -1:
+         # Best Bid
+            bb_p = 0
+            bb_q = 0
+            if len(depth_b) > 0:
+                max_p = -1
+                for k in depth_b:
+                     if max_p == -1 or k > max_p: max_p = k
+                if max_p != -1:
+                    bb_p = max_p
+                    bb_q = depth_b[max_p]
+            
+            # Best Ask
+            ba_p = 0
+            ba_q = 0
+            if len(depth_a) > 0:
+                min_p = -1
+                for k in depth_a:
+                    if min_p == -1 or k < min_p: min_p = k
+                if min_p != -1:
+                    ba_p = min_p
+                    ba_q = depth_a[min_p]
+            
+            mid = 0.0
+            mid_i = 0
+            if bb_p > 0 and ba_p > 0:
+                mid = (bb_p + ba_p) * 0.5 * 1e-9
+                mid_i = int(round((bb_p + ba_p) * 0.5))
+            
+            spot_ref = last_trade_price
+            if spot_ref == 0:
+                if book_valid and bb_p > 0:
+                    spot_ref = bb_p
+            
+            s_start.append(window_start)
+            s_end.append(window_end)
+            s_bb_p.append(bb_p)
+            s_bb_q.append(bb_q)
+            s_ba_p.append(ba_p)
+            s_ba_q.append(ba_q)
+            s_mid.append(mid)
+            s_mid_i.append(mid_i)
+            s_last.append(last_trade_price)
+            s_spot.append(spot_ref)
+            s_valid.append(book_valid)
+            
+            if spot_ref > 0:
+                min_p = spot_ref - hud_max_ticks * tick_int
+                max_p = spot_ref + hud_max_ticks * tick_int
+                
+                unique_b = NumbaList.empty_list(int64)
+                unique_a = NumbaList.empty_list(int64)
+                for k in depth_b:
+                    if k >= min_p and k <= max_p: unique_b.append(k)
+                for k in acc_add_b:
+                    if k >= min_p and k <= max_p: unique_b.append(k)
+                for k in depth_a:
+                    if k >= min_p and k <= max_p: unique_a.append(k)
+                for k in acc_add_a:
+                    if k >= min_p and k <= max_p: unique_a.append(k)
+                
+                seen_b = NumbaDict.empty(int64, boolean)
+                seen_a = NumbaDict.empty(int64, boolean)
+                for k in unique_b: seen_b[k] = True
+                for k in unique_a: seen_a[k] = True
+
+                res_depth_b = NumbaDict.empty(int64, float64)
+                res_depth_a = NumbaDict.empty(int64, float64)
+                for oid_k in ord_px:
+                     opx = ord_px[oid_k]
+                     if opx >= min_p and opx <= max_p:
+                         ots = ord_ts[oid_k]
+                         if (window_end - ots) >= rest_ns:
+                             osd = ord_side[oid_k]
+                             oqt = ord_qty[oid_k]
+                             if osd == 1:
+                                 if opx in res_depth_b: res_depth_b[opx] += oqt
+                                 else: res_depth_b[opx] = oqt
+                             else:
+                                 if opx in res_depth_a: res_depth_a[opx] += oqt
+                                 else: res_depth_a[opx] = oqt
+
+                # Emit Bids
+                for px in seen_b:
+                    sd = 1
+                    d_end = 0.0
+                    if px in depth_b: d_end = float(depth_b[px])
+                    add_q = 0.0
+                    if px in acc_add_b: add_q = acc_add_b[px]
+                    pull_q = 0.0
+                    if px in acc_pull_b: pull_q = acc_pull_b[px]
+                    fill_q = 0.0
+                    if px in acc_fill_b: fill_q = acc_fill_b[px]
+                    prest_q = 0.0
+                    if px in acc_prest_b: prest_q = acc_prest_b[px]
+                    
+                    d_start = d_end - add_q + pull_q + fill_q
+                    if d_start < 0: d_start = 0.0
+                    rel = int(round((px - spot_ref) / tick_int))
+                    d_rest = 0.0
+                    if px in res_depth_b: d_rest = res_depth_b[px]
+                    
+                    w_start.append(window_start)
+                    w_end.append(window_end)
+                    w_px.append(px)
+                    w_side.append(sd)
+                    w_spot.append(spot_ref)
+                    w_rel.append(rel)
+                    w_d_start.append(d_start)
+                    w_d_end.append(d_end)
+                    w_add.append(add_q)
+                    w_pull.append(pull_q)
+                    w_rest.append(d_rest)
+                    w_p_rest.append(prest_q)
+                    w_fill.append(fill_q)
+                    w_valid.append(book_valid)
+                    
+                # Emit Asks
+                for px in seen_a:
+                    sd = 0
+                    d_end = 0.0
+                    if px in depth_a: d_end = float(depth_a[px])
+                    add_q = 0.0
+                    if px in acc_add_a: add_q = acc_add_a[px]
+                    pull_q = 0.0
+                    if px in acc_pull_a: pull_q = acc_pull_a[px]
+                    fill_q = 0.0
+                    if px in acc_fill_a: fill_q = acc_fill_a[px]
+                    prest_q = 0.0
+                    if px in acc_prest_a: prest_q = acc_prest_a[px]
+                    d_start = d_end - add_q + pull_q + fill_q
+                    if d_start < 0: d_start = 0.0
+                    rel = int(round((px - spot_ref) / tick_int))
+                    d_rest = 0.0
+                    if px in res_depth_a: d_rest = res_depth_a[px]
+                    w_start.append(window_start)
+                    w_end.append(window_end)
+                    w_px.append(px)
+                    w_side.append(sd)
+                    w_spot.append(spot_ref)
+                    w_rel.append(rel)
+                    w_d_start.append(d_start)
+                    w_d_end.append(d_end)
+                    w_add.append(add_q)
+                    w_pull.append(pull_q)
+                    w_rest.append(d_rest)
+                    w_p_rest.append(prest_q)
+                    w_fill.append(fill_q)
+                    w_valid.append(book_valid)
+
+    snap_rows = []
+    for i in range(len(s_start)):
+        snap_rows.append((s_start[i], s_end[i], s_bb_p[i], s_bb_q[i], s_ba_p[i], s_ba_q[i], s_mid[i], s_mid_i[i], s_last[i], s_spot[i], s_valid[i]))
         
-        rows.append({
-            "window_start_ts_ns": start_ts,
-            "window_end_ts_ns": end_ts,
-            "price_int": p,
-            "side": s,
-            "spot_ref_price_int": spot_ref,
-            "rel_ticks": rel,
-            "depth_qty_start": d_start,
-            "depth_qty_end": d_end,
-            "add_qty": acc["add_qty"],
-            "pull_qty_total": acc["pull_qty_total"],
-            "depth_qty_rest": float(res_depth.get((p, s), 0.0)),
-            "pull_qty_rest": acc["pull_qty_rest"],
-            "fill_qty": acc["fill_qty"],
-            "d1_depth_qty": 0.0, # Placeholder, computed later
-            "d2_depth_qty": 0.0,
-            "d3_depth_qty": 0.0,
-            "window_valid": valid
-        })
+    wall_rows = []
+    for i in range(len(w_start)):
+        wall_rows.append((w_start[i], w_end[i], w_px[i], w_side[i], w_spot[i], w_rel[i], w_d_start[i], w_d_end[i], w_add[i], w_pull[i], w_rest[i], w_p_rest[i], w_fill[i], w_valid[i]))
+
+    return snap_rows, wall_rows
+
 
 def _calc_derivatives(df):
-    # Sort by side, price, time
     df = df.sort_values(["side", "price_int", "window_end_ts_ns"])
-    
-    # Group by side, price
-    # We want diff of depth_qty_end
-    # Using shift
-    # Need to handle gaps? Assuming consecutive windows for now or 0.
-    
     groups = df.groupby(["side", "price_int"])["depth_qty_end"]
-    
     df["d1_depth_qty"] = groups.diff().fillna(0.0)
     df["d2_depth_qty"] = df.groupby(["side", "price_int"])["d1_depth_qty"].diff().fillna(0.0)
     df["d3_depth_qty"] = df.groupby(["side", "price_int"])["d2_depth_qty"].diff().fillna(0.0)
-    
     return df

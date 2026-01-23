@@ -26,6 +26,6 @@
       "manifest_sha256": "e87df077cb622d738ac7cffdf174bec13b23bf93bba2bcfb420f9c157ea59ccc"
     }
   ],
-  "row_count": 873175,
+  "row_count": 878275,
   "stage": "silver_compute_gex_surface_1s"
 }
