@@ -257,6 +257,20 @@ class FuturesBookEngine:
         self.flush_final()
 
     def apply_event(self, ts: int, action: str, side: str, price: int, size: int, order_id: int, flags: int) -> None:
+        is_snapshot_msg = (flags & F_SNAPSHOT) != 0
+
+        # Implicit snapshot start: if we see a snapshot message and we aren't in snapshot mode,
+        # it means a new snapshot has started. We must clear the book and enter snapshot mode.
+        if is_snapshot_msg and not self.snapshot_in_progress:
+            self._clear_book(flags)
+            # _clear_book sets snapshot_in_progress=True if flags has F_SNAPSHOT, which it does.
+
+        # Detect end of snapshot by transition: if we were in snapshot, and receive a non-snapshot message, 
+        # the snapshot is complete and the book is valid starting now.
+        if self.snapshot_in_progress and not is_snapshot_msg:
+            self.snapshot_in_progress = False
+            self.book_valid = True
+
         window_id = ts // self.window_ns
         if self.curr_window_id is None:
             self._start_window(window_id)
@@ -273,9 +287,6 @@ class FuturesBookEngine:
         if action == ACTION_TRADE:
             if price > 0:
                 self.last_trade_price_int = price
-            if self.snapshot_in_progress and (flags & F_LAST):
-                self.snapshot_in_progress = False
-                self.book_valid = True
             return
 
         if action == ACTION_ADD:
@@ -287,9 +298,7 @@ class FuturesBookEngine:
         elif action == ACTION_FILL:
             self._fill_order(order_id, size)
 
-        if self.snapshot_in_progress and (flags & F_LAST):
-            self.snapshot_in_progress = False
-            self.book_valid = True
+
 
     def flush_final(self) -> None:
         if self.curr_window_id is None:

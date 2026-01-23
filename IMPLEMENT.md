@@ -117,11 +117,6 @@ Databento order book example: EXAMPLE.py
 - vacuum_score is normalized using gold.hud.physics_norm_calibration.
 
 ## Immediate Tasks (living list)
-1) Build the canonical futures Book Engine and use it for all futures outputs. Status: NOW.
-2) Implement window accumulators and emit book_snapshot_1s and wall_surface_1s in the same pass. Status: NOW.
-3) Rework radar_vacuum_1s to consume the shared book state and window accumulators; remove the second reconstruction path. Status: NOW.
-4) Ensure vacuum_surface_1s and physics_bands_1s read shared outputs and enforce calibration presence. Status: NOW.
-5) Build the streaming service that applies MBO once, emits 1s Arrow batches, and maintains the ring buffer with HUD bounds. Status: NOW.
-6) Align gex_surface_1s to streaming: options book mid, OI join, instrument definitions, futures spot_ref. Status: NOW.
-7) Add streaming integrity tests for snapshot handling, window_valid, bounds, and cross-output consistency. Status: NOW.
-8) Retire prior duplicate futures book reconstruction paths. Status: NOW.
+4) Ensure vacuum_surface_1s and physics_bands_1s read shared outputs and enforce calibration presence. Status: DONE.
+5) Build the streaming service that applies MBO once, emits 1s Arrow batches, and maintains the ring buffer with HUD bounds. Status: DONE.
+6) Align gex_surface_1s to streaming: options book mid, OI join, instrument definitions, futures spot_ref. Status: DONE.

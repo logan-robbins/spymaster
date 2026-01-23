@@ -50,6 +50,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.silver.future_mbo.compute_snapshot_and_wall_1s import SilverComputeSnapshotAndWall1s
         from .stages.silver.future_mbo.compute_vacuum_surface_1s import SilverComputeVacuumSurface1s
         from .stages.silver.future_mbo.compute_physics_bands_1s import SilverComputePhysicsBands1s
+        from .stages.silver.future_mbo.compute_radar_vacuum_1s import SilverComputeRadarVacuum1s
 
         if layer == "bronze":
             return [BronzeIngestMboPreview()]
@@ -57,6 +58,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             return [
                 SilverComputeSnapshotAndWall1s(),
                 SilverComputeVacuumSurface1s(),
+                SilverComputeRadarVacuum1s(),
                 SilverComputePhysicsBands1s(),
             ]
         elif layer == "gold":

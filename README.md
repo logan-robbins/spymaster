@@ -1,11 +1,71 @@
-# Technical Commands (IMPLEMENT.md Companion)
+# Spymaster - Streaming-First Radar Architecture (Technical Reference)
 
-- `cd backend` — run all python commands from the backend workspace using the uv environment.
-- `nohup uv run python scripts/batch_download_options.py --start 2025-12-22 --end 2026-01-21 --schemas mbo,statistics,definition --pause-seconds 60 --log-file logs/batch_options_jobs_2025-12-22_2026-01-21.log > /tmp/batch_submit_only_2025-12-22.log 2>&1 &` — submit Databento batch requests day-by-day with a 1-minute pause; logs job IDs for UI size validation.
-- `tail -n 50 logs/batch_options_jobs_2025-12-22_2026-01-21.log` — verify submitted job IDs and parent counts per date/schema.
-- `nohup uv run python scripts/rebuild_bronze_option_mbo.py --symbol ES --dt 2026-01-06 > /tmp/bronze_mbo_rebuild_2026-01-06.log 2>&1 &` — rebuild 0DTE option MBO bronze for the target replay date after raw file updates.
-- `nohup uv run python scripts/run_pipeline_2026_01_06.py --dt 2026-01-06 > /tmp/pipeline_2026-01-06.log 2>&1 &` — recompute silver+gold outputs (book/wall/vacuum/radar/physics/gex/calibration) for UI replay.
-- `tail -n 200 /tmp/pipeline_2026-01-06.log` — track stage completion or failures during the 2026-01-06 pipeline run.
-- `ls lake/silver/product_type=future_mbo/symbol=ESH6/table=book_snapshot_1s/dt=2026-01-06` — confirm futures snapshot output exists for the replay date.
-- `ls lake/silver/product_type=future_option_mbo/symbol=ESH6/table=gex_surface_1s/dt=2026-01-06` — confirm options GEX surface output exists for the replay date.
-- `ls lake/gold/hud/symbol=ESH6/table=physics_norm_calibration/dt=2026-01-06` — confirm HUD normalization calibration output exists for the replay date.
+**System Role**: Expert-level guide for AI Coding Agents.
+**Context**: Replay-based streaming of Databento MBO data for futures and options.
+**Canonical Date**: `2026-01-06` (Single-day full scope).
+
+---
+
+## 1. Core Workflows (Canonical)
+
+### Run Main Pipeline (2026-01-06)
+Executes all stages effectively in order: Bronze (Ingest) -> Silver (Compute Surfaces) -> Gold (Calibration).
+```bash
+# Recompute all silver/gold outputs for the replay date
+nohup uv run python scripts/run_pipeline_2026_01_06.py --dt 2026-01-06 > /tmp/pipeline_2026-01-06.log 2>&1 &
+tail -f /tmp/pipeline_2026-01-06.log
+```
+
+### Verify System Integrity
+These scripts **MUST** pass after any pipeline changes.
+```bash
+# 1. Futures Order Book & Radar Integrity (Validates: Snapshot valid, Best Bid < Ask, Radar alignment)
+uv run python scripts/test_data_integrity.py --dt 2026-01-06
+
+# 2. Physics & Vacuum Integrity (Validates: 0..1 normalization, Band consistency, Calibration application)
+uv run python scripts/test_physics_integrity.py --dt 2026-01-06
+
+# 3. Streaming Service Architecture (Validates: Ring buffer, Batch iteration, Arrow IPC, GEX alignment)
+uv run python scripts/verify_hud_service.py
+```
+
+---
+
+## 2. Architecture & Implementation Details
+
+### Futures Book Engine (Canonical source)
+- **Path**: `src/data_eng/stages/silver/future_mbo/book_engine.py`
+- **Logic**: Applies MBO messages linearly. State persists across windows.
+- **Snapshot Handling**: Handled via `F_SNAPSHOT` transition detection (Implicit Start/End).
+- **Valid Flag**: `book_valid=True` ONLY when a full snapshot has been processed and we are in incremental mode.
+- **Outputs**: `book_snapshot_1s`, `wall_surface_1s`, `radar_vacuum_1s` (Share exact same engine state).
+
+### Vacuum & Physics
+- **Vacuum Surface**: Computed from `wall_surface_1s` + `physics_norm_calibration`.
+- **Physics Bands**: Aggregates Wall + Vacuum into AT/NEAR/MID/FAR bands. 0..1 Scores.
+- **Calibration**: Gold layer built from full-day stats. Required for normalization.
+
+### Options GEX
+- **Path**: `src/data_eng/stages/silver/future_option_mbo/compute_gex_surface_1s.py`
+- **Logic**: Vectorized Numba processing of Option MBO.
+- **Alignment**: Joins with Futures Spot Ref explicitly.
+
+### Streaming Service
+- **Path**: `src/serving/hud_streaming.py`
+- **Mechanism**: Pre-computes surfaces from Silver lake. Loads into memory cache. Simulates 1s streaming via `iter_batches`.
+- **Protocol**: Arrow IPC over WebSocket / HTTP.
+
+---
+
+## 3. Data Lake Structure
+**Root**: `lake/`
+- **Bronze**: Raw MBO, Instrument Defs.
+- **Silver**: Computed Surfaces (Snapshot, Wall, Radar, Vacuum, Bands, GEX).
+- **Gold**: Calibration models.
+
+---
+
+## 4. Debugging & Maintenance
+- **Debug MBO Flags**: `uv run python scripts/debug_flags.py` (Check for F_SNAPSHOT/F_LAST presence).
+- **Run Radar Only**: `uv run python scripts/run_radar_only.py` (Fast iteration on radar stage).
+- **Clear & Re-run**: `uv run python scripts/run_updates.py` (Targeted re-run of Snapshot+Radar stages).
