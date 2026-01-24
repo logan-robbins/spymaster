@@ -12,9 +12,6 @@
 import * as THREE from 'three';
 import { HUDState } from './state';
 
-// Chart constants
-const TICK_SIZE = 0.25;           // ES tick size
-const DOLLAR_TICK = 1.0;          // Bold grid every $1
 const FUTURE_VOID_PERCENT = 0.15; // 15% of right side for predictions
 const DEFAULT_PRICE_RANGE = 20;   // Default visible price range in points
 
@@ -139,46 +136,137 @@ export class HUDRenderer {
         }
     }
 
+    private updateOverlay(): void {
+        const priceAxis = document.getElementById('price-axis');
+        const timeAxis = document.getElementById('time-axis');
+        if (!priceAxis || !timeAxis) return;
+
+        // Clear existing labels
+        priceAxis.innerHTML = '';
+        timeAxis.innerHTML = '';
+
+        const { min: minPrice, max: maxPrice } = this.priceRange;
+        const viewHeight = this.camera.top - this.camera.bottom;
+
+        // Determine tick interval based on zoom/visible range
+        let tickInterval = 5.0;
+        if (viewHeight <= 10) tickInterval = 0.25;
+        else if (viewHeight <= 30) tickInterval = 1.0;
+
+        // --- Price Labels ---
+        const startPrice = Math.floor(minPrice / tickInterval) * tickInterval;
+        const endPrice = Math.ceil(maxPrice / tickInterval) * tickInterval;
+
+        for (let price = startPrice; price <= endPrice; price += tickInterval) {
+            // Only show if within view
+            if (price < minPrice || price > maxPrice) continue;
+
+            const y = this.priceToY(price);
+            // Convert Y world coord to CSS % (relative to container height)
+            // Camera top is +viewHeight/2, bottom is -viewHeight/2 (if center y=0)
+            // But center y moves with priceToY logic? 
+            // this.priceToY maps price -> world Y relative to viewCenter.y logic?
+            // Actually priceToY: return price - midPrice; 
+            // Camera top = viewHeight/2 + center.y
+            // Camera bottom = -viewHeight/2 + center.y
+
+            const normalizedY = (y - (this.camera.bottom)) / (this.camera.top - this.camera.bottom);
+            const topPct = (1 - normalizedY) * 100; // CSS top is from top
+
+            if (topPct < -5 || topPct > 105) continue;
+
+            const el = document.createElement('div');
+            el.className = 'price-label';
+            // Highlight current price (approximate)
+            if (Math.abs(price - this.state.getSpotRef()) < tickInterval / 2) {
+                el.className += ' current';
+            }
+            el.textContent = price.toFixed(2);
+            el.style.top = `${topPct}%`;
+            el.style.position = 'absolute';
+            // el.style.transform = 'translateY(-50%)'; // handled by CSS usually or add here
+            el.style.transform = 'translateY(-50%)';
+            priceAxis.appendChild(el);
+        }
+
+        // --- Time Labels ---
+        const windows = this.state.getTimeWindows();
+        const numWindows = windows.length;
+        if (numWindows < 2) return;
+
+        // Show ~5-8 time labels
+        const timeStep = Math.max(1, Math.floor(numWindows / 6));
+
+        for (let i = 0; i < numWindows; i += timeStep) {
+            const x = this.timeToX(i, numWindows);
+            const normalizedX = (x - this.camera.left) / (this.camera.right - this.camera.left);
+            const leftPct = normalizedX * 100;
+
+            if (leftPct < -5 || leftPct > 105) continue;
+
+            const ts = windows[i];
+            const date = new Date(Number(ts) / 1e6); // ns -> ms
+            // EST 12-hour format
+            const timeStr = date.toLocaleTimeString('en-US', {
+                timeZone: 'America/New_York',
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit', // optional
+                hour12: true
+            });
+
+            const el = document.createElement('div');
+            el.className = 'time-label';
+            el.textContent = timeStr;
+            el.style.left = `${leftPct}%`;
+            timeAxis.appendChild(el);
+        }
+    }
+
     private createPriceGrid(): void {
         this.clearGroup(this.gridGroup);
 
         const { min: minPrice, max: maxPrice } = this.priceRange;
         if (minPrice === maxPrice) return;
 
+        const viewHeight = this.camera.top - this.camera.bottom;
+
+        // Determine tick interval
+        let tickInterval = 5.0;
+        if (viewHeight <= 10) tickInterval = 0.25;
+        else if (viewHeight <= 30) tickInterval = 1.0;
+
         const viewWidth = (this.camera.right - this.camera.left);
         const chartWidth = viewWidth * (1 - FUTURE_VOID_PERCENT);
         const leftEdge = this.camera.left;
         const rightEdge = leftEdge + chartWidth;
 
-        // $0.25 tick lines (thin, subtle)
-        const tickMaterial = new THREE.LineBasicMaterial({
-            color: 0x1a1a2e,
-            transparent: true,
-            opacity: 0.3
-        });
+        // Grid lines
+        const materials = {
+            0.25: new THREE.LineBasicMaterial({ color: 0x1a1a2e, transparent: true, opacity: 0.3 }),
+            1.0: new THREE.LineBasicMaterial({ color: 0x2a2a4e, transparent: true, opacity: 0.5 }),
+            5.0: new THREE.LineBasicMaterial({ color: 0x3a3a5e, transparent: true, opacity: 0.7 })
+        };
 
-        // $1.00 tick lines (bolder)
-        const dollarMaterial = new THREE.LineBasicMaterial({
-            color: 0x2a2a4e,
-            transparent: true,
-            opacity: 0.6
-        });
+        // Optimization: Only draw lines that match current zoom?
+        // User asked for scalable increments.
+        // Let's draw current interval lines (e.g. at $1 zoom, only draw $1 lines?)
+        // Or draw finer lines faintly?
+        // Let's draw the chosen interval.
 
-        // Draw price grid lines
-        const startPrice = Math.floor(minPrice / TICK_SIZE) * TICK_SIZE;
-        const endPrice = Math.ceil(maxPrice / TICK_SIZE) * TICK_SIZE;
+        const drawStart = Math.floor(minPrice / tickInterval) * tickInterval;
+        const drawEnd = Math.ceil(maxPrice / tickInterval) * tickInterval;
 
-        for (let price = startPrice; price <= endPrice; price += TICK_SIZE) {
+        const mat = materials[tickInterval as keyof typeof materials] || materials[5.0];
+
+        for (let price = drawStart; price <= drawEnd; price += tickInterval) {
             const y = this.priceToY(price);
-            const isDollarLine = Math.abs(price % DOLLAR_TICK) < 0.001;
-            const material = isDollarLine ? dollarMaterial : tickMaterial;
-
             const points = [
                 new THREE.Vector3(leftEdge, y, -1),
                 new THREE.Vector3(rightEdge, y, -1)
             ];
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const line = new THREE.Line(geometry, material);
+            const line = new THREE.Line(geometry, mat);
             this.gridGroup.add(line);
         }
 
@@ -189,8 +277,8 @@ export class HUDRenderer {
             opacity: 0.3
         });
         const voidPoints = [
-            new THREE.Vector3(rightEdge, minPrice - 10, 0),
-            new THREE.Vector3(rightEdge, maxPrice + 10, 0)
+            new THREE.Vector3(rightEdge, this.camera.bottom, 0),
+            new THREE.Vector3(rightEdge, this.camera.top, 0)
         ];
         const voidGeometry = new THREE.BufferGeometry().setFromPoints(voidPoints);
         const voidLine = new THREE.Line(voidGeometry, voidMaterial);
@@ -215,25 +303,21 @@ export class HUDRenderer {
 
     updateVisualization(): void {
         const gexData = this.state.getGexData();
-        if (gexData.length === 0) return;
+        const spotData = this.state.getSpotData();
+
+        if (gexData.length === 0 && spotData.length === 0) return;
 
         // Calculate ranges from data
         const allWindows = this.state.getTimeWindows();
         const MAX_WINDOWS = 60;
         const windows = allWindows.slice(-MAX_WINDOWS);
 
-        // Get spot prices and calculate price range
-        const spotByWindow = new Map<bigint, number>();
-        for (const row of gexData) {
-            if (!spotByWindow.has(row.window_end_ts_ns)) {
-                spotByWindow.set(row.window_end_ts_ns, Number(row.underlying_spot_ref));
-            }
-        }
-
+        // Get spot prices
+        const spotByWindow = this.state.getSpotsByTime();
         const spots: number[] = [];
         for (const w of windows) {
             const spot = spotByWindow.get(w);
-            if (spot) spots.push(spot);
+            if (spot !== undefined) spots.push(spot);
         }
 
         if (spots.length === 0) return;
@@ -252,8 +336,13 @@ export class HUDRenderer {
 
         // Rebuild visualizations
         this.createPriceGrid();
-        this.createHeatmap(gexData, windows);
+        if (gexData.length > 0) {
+            this.createHeatmap(gexData, windows);
+        } else {
+            this.clearGroup(this.heatmapGroup);
+        }
         this.createPriceLine(spots, windows.length);
+        this.updateOverlay();
     }
 
     private createHeatmap(gexData: { window_end_ts_ns: bigint; strike_points: number; gex_abs: number; gex_imbalance_ratio: number }[], windows: bigint[]): void {
@@ -344,7 +433,7 @@ export class HUDRenderer {
 
         if (spots.length < 2) return;
 
-        // Create the dynamic price line
+        // Create smoothed path using CatmullRomCurve3
         const points: THREE.Vector3[] = [];
         for (let i = 0; i < spots.length; i++) {
             const x = this.timeToX(i, numWindows);
@@ -352,36 +441,53 @@ export class HUDRenderer {
             points.push(new THREE.Vector3(x, y, 1));
         }
 
+        const curve = new THREE.CatmullRomCurve3(points);
+        const curvePoints = curve.getPoints(spots.length * 5); // 5x resolution for smoothness
+        const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+
         const lineMaterial = new THREE.LineBasicMaterial({
             color: 0x00ffff,
             linewidth: 2
         });
-        const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
-        const priceLine = new THREE.Line(lineGeometry, lineMaterial);
+
+        const priceLine = new THREE.Line(geometry, lineMaterial);
         this.priceLineGroup.add(priceLine);
 
-        // Add current price marker
-        const lastX = this.timeToX(spots.length - 1, numWindows);
-        const lastY = this.priceToY(spots[spots.length - 1]);
+        // Add current price marker (Worm head)
+        const lastPt = points[points.length - 1];
 
-        const markerGeom = new THREE.CircleGeometry(0.3 / this.zoomLevel, 16);
+        // 3-4px dot. In ortho view, size is constant in world units? 
+        // No, in ortho, world units size = screen size * zoom?
+        // Actually MeshBasicMaterial size is in world units.
+        // We need it to be 3-4px screen size.
+        // viewHeight corresponds to canvas height.
+        // worldUnitPerPixel = viewHeight / canvasHeight.
+        const canvasHeight = this.renderer.domElement.clientHeight;
+        const pixelSize = (this.camera.top - this.camera.bottom) / canvasHeight;
+        const dotWorldSize = 4 * pixelSize; // 4 pixels
+
+        const markerGeom = new THREE.CircleGeometry(dotWorldSize, 16);
         const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
         const marker = new THREE.Mesh(markerGeom, markerMat);
-        marker.position.set(lastX, lastY, 2);
+        marker.position.copy(lastPt);
+        marker.position.z = 2;
         this.priceLineGroup.add(marker);
 
         // Add horizontal price level line at current price
-        const priceLineMaterial = new THREE.LineBasicMaterial({
+        const priceLineMaterial = new THREE.LineDashedMaterial({
             color: 0x00ffff,
             transparent: true,
-            opacity: 0.5
+            opacity: 0.5,
+            dashSize: 0.5,
+            gapSize: 0.5
         });
         const priceLevelPoints = [
-            new THREE.Vector3(this.camera.left, lastY, 1),
-            new THREE.Vector3(this.camera.right, lastY, 1)
+            new THREE.Vector3(this.camera.left, lastPt.y, 1),
+            new THREE.Vector3(this.camera.right, lastPt.y, 1)
         ];
         const priceLevelGeometry = new THREE.BufferGeometry().setFromPoints(priceLevelPoints);
         const priceLevelLine = new THREE.Line(priceLevelGeometry, priceLineMaterial);
+        priceLevelLine.computeLineDistances();
         this.priceLineGroup.add(priceLevelLine);
     }
 
@@ -393,9 +499,20 @@ export class HUDRenderer {
     }
 
     render(): void {
-        if (this.state.getGexData().length > 0 && this.heatmapGroup.children.length === 0) {
-            this.updateVisualization();
+        // Continually update for smooth animations if we add them, 
+        // but efficiently only if needed. 
+        // For now, overlay update needs to happen on render to track camera changes/zoom
+        if (this.state.getGexData().length > 0 || this.state.getSpotData().length > 0) {
+            this.updateOverlay();
         }
+
         this.renderer.render(this.scene, this.camera);
+    }
+    dispose(): void {
+        this.renderer.dispose();
+        this.gridGroup.clear();
+        this.heatmapGroup.clear();
+        this.priceLineGroup.clear();
+        this.overlayGroup.clear();
     }
 }

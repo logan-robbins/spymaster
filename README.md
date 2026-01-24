@@ -128,8 +128,11 @@ Messages typically arrive in batches:
 2. **Frontend**:
    ```bash
    cd frontend
+   cd frontend
    npm run dev
    ```
+
+   **See [DOCS_FRONTEND.md](DOCS_FRONTEND.md) for expert-level guide on Frontend Architecture, Debugging, and Data Flow.**
 
 ## 4. Verification & Testing
 

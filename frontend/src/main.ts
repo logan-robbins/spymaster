@@ -7,7 +7,7 @@
  */
 
 import { HUDRenderer } from './hud/renderer';
-import { DataLoader } from './hud/data-loader';
+import { DataLoader, type GexRow, type SnapshotRow } from './hud/data-loader';
 import { HUDState } from './hud/state';
 
 // Configuration
@@ -28,7 +28,6 @@ const loader = new DataLoader(API_BASE);
 // UI Elements
 const statusEl = document.getElementById('connection-status')!;
 const spotEl = document.getElementById('metric-spot')!;
-const windowsEl = document.getElementById('metric-windows')!;
 
 // Stream Connection
 const connect = () => {
@@ -36,25 +35,36 @@ const connect = () => {
   statusEl.className = 'status';
 
   loader.connectStream(SYMBOL, DT, (batch) => {
-    // Process batch
-    // batch is Record<surface, rows[]>
+    console.log(`[Main] Batch received. Keys: ${Object.keys(batch).join(', ')}`);
+
+    // Update Snapshot/Spot state if available
+    if (batch.snap && batch.snap.length > 0) {
+      state.setSpotData(batch.snap as SnapshotRow[]);
+      const latest = batch.snap[batch.snap.length - 1];
+      if (latest && latest.price) {
+        spotEl.textContent = Number(latest.price).toFixed(2);
+      }
+    }
+
+    // Update Physics state if available
+    if (batch.physics && batch.physics.length > 0) {
+      state.setPhysicsData(batch.physics);
+    }
 
     // Update GEX state if available
     if (batch.gex && batch.gex.length > 0) {
-      state.setGexData(batch.gex);
+      state.setGexData(batch.gex as GexRow[]);
+    }
 
-      const latest = batch.gex[batch.gex.length - 1];
+    // Fallback if snap missing but GEX has spot ref
+    const gexData = state.getGexData();
+    if ((!batch.snap || batch.snap.length === 0) && gexData.length > 0) {
+      const latest = gexData[gexData.length - 1];
       const spot = latest.underlying_spot_ref || latest.spot_ref_price;
-      // Note: radar uses spot_ref_price, gex uses underlying_spot_ref.
-      // We need to handle schema diffs.
-
       if (spot) {
         spotEl.textContent = Number(spot).toFixed(2);
       }
     }
-
-    // We should also update Radar/Vacuum state in state.ts if implemented.
-    // For now, we just triggering render.
 
     renderer.render();
 
@@ -65,8 +75,6 @@ const connect = () => {
 
 document.getElementById('btn-load')?.addEventListener('click', connect);
 
-// Auto-connect for dev convenience?
-// connect();
 // Center button handler
 document.getElementById('btn-center')?.addEventListener('click', () => {
   renderer.centerView();
@@ -84,11 +92,21 @@ document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
 });
 
 // Animation loop
+let animationId: number;
 function animate() {
-  requestAnimationFrame(animate);
+  animationId = requestAnimationFrame(animate);
   renderer.render();
 }
 
 animate();
 
 console.log('SpyMaster HUD initialized');
+
+// HMR Handling
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    console.log('[Main] Disposing HMR...');
+    cancelAnimationFrame(animationId);
+    renderer.dispose();
+  });
+}
