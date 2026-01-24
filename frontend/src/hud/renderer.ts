@@ -26,6 +26,7 @@ export class HUDRenderer {
     // Layers
     private wallLayer: GridLayer;
     private vacuumLayer: GridLayer;
+    private physicsLayer: GridLayer;
 
     // Groups
     private gridGroup: THREE.Group;
@@ -70,6 +71,7 @@ export class HUDRenderer {
         const LAYER_HEIGHT = 800;
         this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
         this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
+        this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
 
         // Groups
         this.gridGroup = new THREE.Group();
@@ -80,7 +82,10 @@ export class HUDRenderer {
         // Add to scene (Order handled by Z-position)
         this.scene.add(this.gridGroup);
 
-        // Add GridLayers
+        // Add GridLayers (back to front: physics -> vacuum -> wall)
+        const physicsMesh = this.physicsLayer.getMesh();
+        this.scene.add(physicsMesh);
+
         const vacuumMesh = this.vacuumLayer.getMesh();
         this.scene.add(vacuumMesh);
 
@@ -102,6 +107,7 @@ export class HUDRenderer {
     advanceLayers(): void {
         this.wallLayer.advance();
         this.vacuumLayer.advance();
+        this.physicsLayer.advance();
     }
 
     updateWall(data: any[]): void {
@@ -137,6 +143,44 @@ export class HUDRenderer {
 
             const alpha = Math.floor(score * 128);
             this.vacuumLayer.write(row.rel_ticks, [0, 0, 0, alpha]);
+        }
+    }
+
+    updatePhysics(data: any[]): void {
+        if (!data || data.length === 0) return;
+
+        // Physics is aggregate (1 row per window) with above_score and below_score
+        const latest = data[data.length - 1];
+        const aboveScore = Number(latest.above_score || 0);
+        const belowScore = Number(latest.below_score || 0);
+
+        // Paint pressure gradient:
+        // Above spot (positive ticks): green tint based on above_score (ease of upward movement)
+        // Below spot (negative ticks): red tint based on below_score (ease of downward movement)
+
+        const maxTicks = 100; // Cover reasonable range
+
+        // Above spot - green gradient (bullish pressure / easy to move up)
+        for (let tick = 1; tick <= maxTicks; tick++) {
+            // Fade intensity with distance from spot
+            const distanceFade = Math.max(0, 1 - tick / maxTicks);
+            const intensity = aboveScore * distanceFade;
+
+            if (intensity > 0.02) {
+                const alpha = Math.floor(intensity * 60); // Subtle translucency
+                this.physicsLayer.write(tick, [20, 180, 80, alpha]); // Green
+            }
+        }
+
+        // Below spot - red gradient (bearish pressure / easy to move down)
+        for (let tick = 1; tick <= maxTicks; tick++) {
+            const distanceFade = Math.max(0, 1 - tick / maxTicks);
+            const intensity = belowScore * distanceFade;
+
+            if (intensity > 0.02) {
+                const alpha = Math.floor(intensity * 60); // Subtle translucency
+                this.physicsLayer.write(-tick, [180, 40, 40, alpha]); // Red
+            }
         }
     }
 
@@ -183,12 +227,19 @@ export class HUDRenderer {
         const meshW = width;
         const meshH = height;
 
+        // Update Physics (backmost layer - directional pressure gradient)
+        const pMesh = this.physicsLayer.getMesh();
+        pMesh.scale.set(meshW, meshH, 1);
+        pMesh.position.x = -meshW / 2;
+        pMesh.position.y = 0;
+        pMesh.position.z = -0.02; // Backmost
+
         // Update Vacuum
         const vMesh = this.vacuumLayer.getMesh();
         vMesh.scale.set(meshW, meshH, 1);
         vMesh.position.x = -meshW / 2;
         vMesh.position.y = 0;
-        vMesh.position.z = -0.01; // Bottom
+        vMesh.position.z = -0.01; // Behind wall
 
         // Update Wall
         const wMesh = this.wallLayer.getMesh();

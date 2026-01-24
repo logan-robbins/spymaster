@@ -50,14 +50,15 @@ const connect = () => {
       if (batch.snap && batch.snap.length > 0) {
         state.setSpotData(batch.snap as SnapshotRow[]);
         const latest = batch.snap[batch.snap.length - 1];
-        if (latest && latest.price) {
-          spotEl.textContent = Number(latest.price).toFixed(2);
+        if (latest && latest.mid_price) {
+          spotEl.textContent = Number(latest.mid_price).toFixed(2);
         }
       }
 
-      // Update Physics state if available
+      // Update Physics state and visualization if available
       if (batch.physics && batch.physics.length > 0) {
         state.setPhysicsData(batch.physics);
+        (renderer as any).updatePhysics(batch.physics);
       }
 
       // Update Wall Surface

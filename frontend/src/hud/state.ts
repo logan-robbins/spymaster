@@ -52,16 +52,13 @@ export class HUDState {
         // Collect from Spot
         for (const r of this.spotData) {
             timestamps.push(r.window_end_ts_ns);
-            if (r.price) spots.push(Number(r.price));
-            else if (r.close) spots.push(Number(r.close)); // Fallback if schema differs
+            if (r.mid_price) spots.push(Number(r.mid_price));
         }
 
         // Collect from Physics
         for (const r of this.physicsData) {
             timestamps.push(r.window_end_ts_ns);
-            if (r.spot_price) spots.push(Number(r.spot_price));
-            else if (r.underlying_spot_ref) spots.push(Number(r.underlying_spot_ref));
-            else if (r.price) spots.push(Number(r.price));
+            if (r.mid_price) spots.push(Number(r.mid_price));
         }
 
         if (timestamps.length > 0) {
@@ -147,9 +144,9 @@ export class HUDState {
     getSpotsByTime(): Map<bigint, number> {
         const map = new Map<bigint, number>();
 
-        // 1. Physics (high freq?)
+        // 1. Physics
         for (const r of this.physicsData) {
-            const p = Number(r.spot_price || r.underlying_spot_ref || r.price);
+            const p = Number(r.mid_price);
             if (!isNaN(p)) map.set(r.window_end_ts_ns, p);
         }
 
@@ -160,8 +157,7 @@ export class HUDState {
 
         // 3. Snap (authoritative)
         for (const r of this.spotData) {
-            // Overwrite with Snap
-            const p = Number(r.price || r.close);
+            const p = Number(r.mid_price);
             if (!isNaN(p)) map.set(r.window_end_ts_ns, p);
         }
         return map;

@@ -1,69 +1,85 @@
-# Spymaster Frontend: AI Expert Guide
+# Frontend - AI Agent Reference
 
-This document is for AI agents to instantly understand how to run, modify, and debug the Spymaster frontend.
-
-## 1. Quick Start
-
-### Launch Terminals
-**Terminal 1 (Backend - Stream Source)**
-```bash
-# Must be running for frontend data
-cd backend
-uv run python -m src.serving.main
-```
-
-**Terminal 2 (Frontend - Visualization)**
+## Launch
 ```bash
 cd frontend
 npm run dev
-# Open http://localhost:5173
+# Requires backend running: uv run python -m src.serving.main
 ```
 
-## 2. Architecture & Key Files
+## Architecture
 
-The frontend is a **Vite + Three.js** application using **WebSocket** for real-time Arrow IPC data.
+```
+WebSocket (Arrow IPC) → data-loader.ts → state.ts → renderer.ts (WebGL)
+```
 
-### Critical Files
-| File | Purpose | Key Learnings/Gotchas |
-|------|---------|-----------------------|
-| `src/main.ts` | Entry point, HMR, Loop | **MUST** implement HMR disposal (`import.meta.hot.dispose`) to prevent WebGL context loss. Handles `physics` and `gex` data ingestion. |
-| `src/hud/data-loader.ts` | WebSocket & Arrow Parsing | **CRITICAL**: Uses a **Message Queue** to prevent race conditions between JSON headers and Binary blobs. Do not remove the `await` queue logic. |
-| `src/hud/state.ts` | State & History | Uses `MAX_HISTORY` ring buffer. **MUST** append data (`[...old, ...new]`), not replace, to allow drawing lines via `CatmullRomCurve3`. Handles `physics` vs `gex` vs `snap` spot price sources. |
-| `src/hud/renderer.ts` | Three.js Visuals | Draws Spot Line (Cyan), Heatmap (GEX/Wall), and Axes. **MUST** have `dispose()` method to clean up geometries/materials on reload. |
+## Files
 
-## 3. Data Flow (The "Stream")
+| File | Modify When |
+|------|-------------|
+| `src/main.ts` | Connection logic, batch handling, HMR disposal |
+| `src/hud/data-loader.ts` | WebSocket parsing, Arrow IPC decoding |
+| `src/hud/state.ts` | Data history, spot price extraction |
+| `src/hud/renderer.ts` | WebGL layers, heatmaps, spot line |
+| `src/hud/grid-layer.ts` | Scrolling texture for wall/vacuum/physics |
 
-1.  **Transport**: WebSocket `ws://localhost:8000/v1/hud/stream`
-2.  **Protocol**: Mixed JSON/Binary.
-    *   `{"type": "surface_header", "surface": "..."}` -> Sets context.
-    *   `[Binary Blob]` -> Arrow IPC table.
-3.  **Surfaces**:
-    *   `physics`: **Primary Spot Source**. Contains `spot_price`.
-    *   `gex`: Gamma Exposure. Optional for spot, critical for heatmap.
-    *   `snap`: Fallback for spot.
-    *   `wall`, `vacuum`, `radar`: High-density surfaces.
+## Streams Received
 
-## 4. Debugging Playbook
+| Stream | Rows/Window | Key Fields | Renderer Method |
+|--------|-------------|------------|-----------------|
+| `snap` | 1 | `mid_price`, `book_valid` | state.setSpotData |
+| `wall` | ~40-80 | `rel_ticks`, `side`, `depth_qty_rest` | renderer.updateWall |
+| `vacuum` | ~40-80 | `rel_ticks`, `vacuum_score` | renderer.updateVacuum |
+| `physics` | 1 | `mid_price`, `above_score`, `below_score` | renderer.updatePhysics |
+| `gex` | 25 | `strike_points`, `gex_abs`, `gex_imbalance_ratio` | renderer.createHeatmap |
+| `radar` | 1 | ~200 ML features | **IGNORED** (future ML inference) |
 
-### Symptom: "Connecting..." Forever
-*   **Cause**: WebSocket connected but no data parsing.
-*   **Fix**: Check `data-loader.ts`. Ensure `onmessage` isn't blocked. Use console logs to confirm `Parsed [surface]`.
+## Grid Layer
 
-### Symptom: Black Screen / No Chart
-*   **Cause 1**: data is empty/null.
-*   **Fix**: Check backend stream. `src/hud/state.ts` might have 0 ranges.
-*   **Cause 2**: WebGL Crash.
-*   **Fix**: Check console for "Context lost". Verify `renderer.dispose()` is called in `main.ts`.
+```
+GridLayer(width, height)
+- width = seconds of history (1800 = 30 min)
+- height = ticks from center (800 = ±400 ticks = ±$100)
+- write(relTicks, [r,g,b,a]) → paint cell at current time column
+- advance() → scroll time forward 1 second
+```
 
-### Symptom: No Spot Line ("Worm")
-*   **Cause**: `HUDState` overwriting data instead of appending. Line needs >= 2 points.
-*   **Fix**: Ensure `state.ts` uses `this.spotData = [...this.spotData, ...newData]`.
+## Renderer Methods
 
-### Symptom: Missing Axis Labels
-*   **Cause**: Zoom level too high/low or DOM overlay hidden.
-*   **Fix**: Check `renderer.ts` `updateOverlay()`. Labels are HTML `<div>` elements in `#price-axis` / `#time-axis`.
+```typescript
+updateWall(data: any[])     // Blue asks (side='A'), red bids (side='B')
+updateVacuum(data: any[])   // Black overlay, alpha = vacuum_score * 128
+updatePhysics(data: any[])  // Green above spot (above_score), red below (below_score)
+createHeatmap(gexData, windows)  // GEX texture, green=calls, red=puts
+createPriceLine(spots, numWindows)  // Cyan spot line + marker
+```
 
-## 5. Implementation Rules
-1.  **Partial Batches**: Emit data via `onBatch` immediately after parsing a surface. Do not wait for "full batch".
-2.  **Relaxed Types**: Use `any` for incoming row types if schemas shift (e.g. `gex` vs `physics` fields).
-3.  **Strict Context**: Always check `!this.renderer` or context loss before render.
+## Layer Z-Order
+
+```
+-0.02  physicsLayer   (directional gradient)
+-0.01  vacuumLayer    (erosion overlay)
+ 0.00  wallLayer      (liquidity)
+ 0.01  heatmapGroup   (GEX)
+ 1.00  priceLineGroup (spot line)
+```
+
+## Debugging
+
+| Symptom | Check |
+|---------|-------|
+| "Connecting..." forever | data-loader.ts onmessage, backend running |
+| Black screen | state.ts ranges, WebGL context lost |
+| No spot line | state.ts append vs replace, need ≥2 points |
+| No physics gradient | main.ts calling renderer.updatePhysics |
+
+## HMR Requirement
+
+```typescript
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    cancelAnimationFrame(animationId);
+    renderer.dispose();
+  });
+}
+```

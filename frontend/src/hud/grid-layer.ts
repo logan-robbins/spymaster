@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 export class GridLayer {
-    private width: number;
-    private height: number;
+    private width: number;   // columns = seconds of history
+    private height: number;  // rows = ticks (1 tick = $0.25)
     private head: number = 0;
     private texture: THREE.DataTexture;
     private data: Uint8Array;
@@ -10,8 +10,8 @@ export class GridLayer {
     private material: THREE.ShaderMaterial;
 
     constructor(width: number, height: number) {
-        this.width = width;
-        this.height = height;
+        this.width = width;   // 1 column = 1 second
+        this.height = height; // 1 row = 1 tick ($0.25)
 
         // Initialize Ref Count / ID Buffer? No, simple accumulation.
         // RGBA: B=Intensity, G=Alpha/Type? 
@@ -110,13 +110,13 @@ export class GridLayer {
     }
 
     /**
-     * Write a cell
-     * @param relTicks - Relative ticks from spot (0 is center)
+     * Write a cell at the current time column
+     * @param relTicks - Relative ticks from spot (0 is center, +N above, -N below)
      * @param color - [r, g, b, a] 0-255
      */
     write(relTicks: number, color: [number, number, number, number]): void {
         // Map relTicks to Y index
-        // Center of texture is height/2
+        // Center of texture is height/2 (spot price line)
         const centerY = Math.floor(this.height / 2);
         const y = centerY + relTicks;
 
@@ -126,7 +126,7 @@ export class GridLayer {
         this.data[idx] = color[0];
         this.data[idx + 1] = color[1];
         this.data[idx + 2] = color[2];
-        this.data[idx + 3] = color[3]; // Max opacity
+        this.data[idx + 3] = color[3];
 
         this.texture.needsUpdate = true;
     }

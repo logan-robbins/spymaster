@@ -1,234 +1,96 @@
 {
-    "description": "Schema definitions for real-time Spymaster HUD data streams",
+    "description": "Streaming schema for Spymaster HUD. Defines EXACTLY what backend streams to frontend for visualization.",
+    "protocol": {
+        "transport": "WebSocket",
+        "endpoint": "ws://localhost:8000/v1/hud/stream",
+        "format": "Arrow IPC",
+        "cadence": "1 second windows"
+    },
     "streams": {
         "snap": {
-            "description": "1-second snapshot of the Top-of-Book and Spot Reference prices. Used as the anchor for all spatial surfaces.",
-            "granularity": "1s",
+            "description": "Top-of-Book snapshot. Provides spot price anchor for visualization.",
+            "rows_per_window": 1,
             "fields": [
-                {
-                    "name": "window_start_ts_ns",
-                    "type": "long",
-                    "desc": "Window start timestamp (nanoseconds)"
-                },
-                {
-                    "name": "window_end_ts_ns",
-                    "type": "long",
-                    "desc": "Window end timestamp (nanoseconds)"
-                },
-                {
-                    "name": "best_bid_price_int",
-                    "type": "long",
-                    "desc": "Best Bid Price (Integer, scaled)"
-                },
-                {
-                    "name": "best_bid_qty",
-                    "type": "long",
-                    "desc": "Quantity at Best Bid"
-                },
-                {
-                    "name": "best_ask_price_int",
-                    "type": "long",
-                    "desc": "Best Ask Price (Integer, scaled)"
-                },
-                {
-                    "name": "best_ask_qty",
-                    "type": "long",
-                    "desc": "Quantity at Best Ask"
-                },
-                {
-                    "name": "mid_price",
-                    "type": "double",
-                    "desc": "Mid Price ( (Bid+Ask)/2 )"
-                },
-                {
-                    "name": "spot_ref_price_int",
-                    "type": "long",
-                    "desc": "The 'Spot' anchor price for this window. All spatial metrics (rel_ticks) are relative to this."
-                },
-                {
-                    "name": "book_valid",
-                    "type": "boolean",
-                    "desc": "Data validity flag"
-                }
-            ]
+                {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window end timestamp (ns)"},
+                {"name": "mid_price", "type": "double", "required": true, "desc": "Mid price for spot line. Frontend uses this for price axis."},
+                {"name": "book_valid", "type": "boolean", "required": true, "desc": "False during snapshot recovery"}
+            ],
+            "frontend_usage": {
+                "component": "state.ts:setSpotData, main.ts:spotEl",
+                "purpose": "Draws cyan spot price line, updates spot metric display"
+            }
         },
         "wall": {
-            "description": "Liquidity Wall Surface. Describes the resting limit order sizes and cancellations at price levels around the spot.",
-            "granularity": "1s",
+            "description": "Liquidity Wall. Resting order depth per price level.",
+            "rows_per_window": "~40-80 (one per active price level within ±20 ticks)",
             "spatial": true,
             "fields": [
-                {
-                    "name": "price_int",
-                    "type": "long",
-                    "desc": "Absolute Price Level"
-                },
-                {
-                    "name": "side",
-                    "type": "string",
-                    "desc": "Bid ('B') or Ask ('A')"
-                },
-                {
-                    "name": "rel_ticks",
-                    "type": "int",
-                    "desc": "Distance from Spot Price in ticks. (e.g. +5, -10)"
-                },
-                {
-                    "name": "depth_qty_start",
-                    "type": "double",
-                    "desc": "Liquidity quantity at start of window"
-                },
-                {
-                    "name": "depth_qty_end",
-                    "type": "double",
-                    "desc": "Liquidity quantity at end of window"
-                },
-                {
-                    "name": "add_qty",
-                    "type": "double",
-                    "desc": "New liquidity added during window"
-                },
-                {
-                    "name": "pull_qty_total",
-                    "type": "double",
-                    "desc": "Total liquidity cancelled/pulled"
-                },
-                {
-                    "name": "fill_qty",
-                    "type": "double",
-                    "desc": "Liquidity consumed by trades (fills)"
-                },
-                {
-                    "name": "d1_depth_qty",
-                    "type": "double",
-                    "desc": "1st Derivative of Depth (Velocity)"
-                },
-                {
-                    "name": "d2_depth_qty",
-                    "type": "double",
-                    "desc": "2nd Derivative of Depth (Acceleration)"
-                }
-            ]
+                {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
+                {"name": "rel_ticks", "type": "int", "required": true, "desc": "Ticks from spot. +N = above, -N = below"},
+                {"name": "side", "type": "string", "required": true, "desc": "'A' (ask/blue) or 'B' (bid/red)"},
+                {"name": "depth_qty_rest", "type": "double", "required": true, "desc": "Resting depth (orders >500ms old). Used for intensity."}
+            ],
+            "frontend_usage": {
+                "component": "renderer.ts:updateWall",
+                "purpose": "Blue/red liquidity heatmap. Intensity = log1p(depth_qty_rest)."
+            }
         },
         "vacuum": {
-            "description": "Vacuum Physics Surface. Measures the 'pull' forces where liquidity is eroding rapidly, creating a vacuum for price to move into.",
-            "granularity": "1s",
+            "description": "Vacuum Physics. Normalized pull forces indicating liquidity erosion.",
+            "rows_per_window": "~40-80 (one per active price level)",
             "spatial": true,
             "fields": [
-                {
-                    "name": "pull_add_log",
-                    "type": "double",
-                    "desc": "Log-ratio of Pulls vs Adds. Positive = Net Pulling (Vacuum)."
-                },
-                {
-                    "name": "wall_strength_log",
-                    "type": "double",
-                    "desc": "Log-strength of the wall at this level."
-                },
-                {
-                    "name": "wall_erosion",
-                    "type": "double",
-                    "desc": "Rate of wall decay."
-                },
-                {
-                    "name": "vacuum_score",
-                    "type": "double",
-                    "desc": "Normalized 0-1 score indicating vacuum severity. 1.0 = Total Vacuum."
-                },
-                {
-                    "name": "d1_pull_add_log",
-                    "type": "double",
-                    "desc": "Velocity of Pull/Add ratio changes."
-                }
-            ]
+                {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
+                {"name": "rel_ticks", "type": "int", "required": true, "desc": "Ticks from spot"},
+                {"name": "vacuum_score", "type": "double", "required": true, "desc": "Normalized 0-1. Higher = more vacuum (liquidity eroding)."}
+            ],
+            "frontend_usage": {
+                "component": "renderer.ts:updateVacuum",
+                "purpose": "Black overlay on wall. Alpha = vacuum_score * 128."
+            }
         },
         "physics": {
-            "description": "Aggregated Spatial Physics Bands. Summarizes Wall/Vacuum forces into spatial bands (At, Near, Mid, Far) relative to spot.",
-            "granularity": "1s",
+            "description": "Aggregated physics bands. Directional pressure indicators.",
+            "rows_per_window": 1,
             "fields": [
-                {
-                    "name": "above_score",
-                    "type": "double",
-                    "desc": "Aggregate Vacuum score for all levels ABOVE spot. High = Price likely to rise."
-                },
-                {
-                    "name": "below_score",
-                    "type": "double",
-                    "desc": "Aggregate Vacuum score for all levels BELOW spot. High = Price likely to fall."
-                },
-                {
-                    "name": "above_near_vacuum_norm",
-                    "type": "double",
-                    "desc": "Normalized vacuum in the 'Near' band above spot."
-                },
-                {
-                    "name": "below_near_wall_strength_norm",
-                    "type": "double",
-                    "desc": "Normalized wall strength in the 'Near' band below spot."
-                }
-            ]
-        },
-        "radar": {
-            "description": "High-dimensional Radar features for ML models. Contains ~200 micro-structure features capturing complex order book dynamics.",
-            "granularity": "1s",
-            "fields": [
-                {
-                    "name": "f1_ask_com_disp_log",
-                    "type": "double",
-                    "desc": "Center of Mass Displacement (Ask Side) in log space."
-                },
-                {
-                    "name": "f1_ask_slope_convex_log",
-                    "type": "double",
-                    "desc": "Convexity of the Order Book Slope (Ask Side)."
-                },
-                {
-                    "name": "f5_vacuum_expansion_log",
-                    "type": "double",
-                    "desc": "Rate of vacuum zone expansion."
-                },
-                {
-                    "name": "f6_vacuum_decay_log",
-                    "type": "double",
-                    "desc": "Rate of vacuum decay (refill)."
-                },
-                {
-                    "name": "d1_*",
-                    "type": "double",
-                    "desc": "1st Derivative (Velocity) for all base features."
-                },
-                {
-                    "name": "d2_*",
-                    "type": "double",
-                    "desc": "2nd Derivative (Acceleration) for all base features."
-                }
-            ]
+                {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
+                {"name": "mid_price", "type": "double", "required": true, "desc": "Spot price (backup if snap missing)"},
+                {"name": "above_score", "type": "double", "required": true, "desc": "Ease-of-movement up. 0-1. High = bullish."},
+                {"name": "below_score", "type": "double", "required": true, "desc": "Ease-of-movement down. 0-1. High = bearish."}
+            ],
+            "frontend_usage": {
+                "component": "renderer.ts:updatePhysics, state.ts:setPhysicsData",
+                "purpose": "Directional pressure gradient layer. Green above spot = easy to move up. Red below spot = easy to move down. Also backup spot source."
+            }
         },
         "gex": {
-            "description": "Gamma Exposure (GEX) Surface. derived from Options MBO data.",
-            "granularity": "1s",
+            "description": "Gamma Exposure surface from 0DTE options.",
+            "rows_per_window": 25,
             "spatial": true,
+            "grid": "±60 points from spot in 5-point steps",
             "fields": [
-                {
-                    "name": "strike_points",
-                    "type": "double",
-                    "desc": "Strike Price"
-                },
-                {
-                    "name": "gex_abs",
-                    "type": "double",
-                    "desc": "Absolute Gamma Exposure at this strike."
-                },
-                {
-                    "name": "gex_imbalance_ratio",
-                    "type": "double",
-                    "desc": "Ratio of Call GEX vs Put GEX. >0 = Call Heavy, <0 = Put Heavy."
-                },
-                {
-                    "name": "d1_gex_abs",
-                    "type": "double",
-                    "desc": "Velocity of GEX changes."
-                }
-            ]
+                {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
+                {"name": "strike_points", "type": "double", "required": true, "desc": "Strike price for Y-axis"},
+                {"name": "underlying_spot_ref", "type": "double", "required": true, "desc": "Futures spot. Used if snap missing."},
+                {"name": "gex_abs", "type": "double", "required": true, "desc": "Absolute GEX. Used for intensity."},
+                {"name": "gex_imbalance_ratio", "type": "double", "required": true, "desc": "-1 to +1. Positive=call-heavy (green), negative=put-heavy (red)."}
+            ],
+            "frontend_usage": {
+                "component": "renderer.ts:createHeatmap, state.ts:setGexData",
+                "purpose": "GEX heatmap overlay. Green=calls, red=puts."
+            }
         }
+    },
+    "unused_by_frontend": {
+        "radar": {
+            "note": "Backend streams radar but frontend ignores it. ~200 ML features not needed for visualization.",
+            "storage": "silver.future_mbo.radar_vacuum_1s",
+            "optimization": "Could remove from stream to reduce bandwidth"
+        }
+    },
+    "constants": {
+        "PRICE_SCALE": 1e-9,
+        "TICK_SIZE": 0.25,
+        "WINDOW_NS": 1000000000
     }
 }

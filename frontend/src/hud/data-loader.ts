@@ -21,7 +21,8 @@ export interface GexRow {
 
 export interface SnapshotRow {
     window_end_ts_ns: bigint;
-    price: number;
+    mid_price: number;
+    book_valid: boolean;
     [key: string]: any;
 }
 
