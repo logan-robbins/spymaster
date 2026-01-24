@@ -6,15 +6,122 @@
 
 ---
 
+## Stage Pattern
+
+### Base Class (`backend/src/data_eng/stages/base.py`)
+
+All stages extend `Stage` with:
+- `name: str` — Stage identifier
+- `io: StageIO` — Declares inputs (list of dataset keys) and output (single dataset key)
+- `run(cfg, repo_root, symbol, dt)` — Entry point, handles idempotency
+- `transform(df, dt)` — Override for simple single-input/single-output transformations
+
+### Adding a New Stage
+
+1. Create stage file in `backend/src/data_eng/stages/{layer}/{product_type}/`
+2. Define StageIO with input dataset keys and output dataset key
+3. Add dataset entry to `backend/src/data_eng/config/datasets.yaml`
+4. Create contract in `backend/src/data_eng/contracts/{layer}/{product_type}/` as Avro schema
+5. Register in `backend/src/data_eng/pipeline.py`
+6. Test independently:
+
+```python
+from src.data_eng.stages.{layer}.{product_type}.{module} import {StageClass}
+stage = StageClass()
+stage.run(cfg=cfg, repo_root=repo_root, symbol="ESZ5", dt="2025-10-01")
+```
+
 ## 1. Core Workflows (Canonical)
 
 ### Run Main Pipeline (2026-01-06)
 Executes all stages effectively in order: Bronze (Ingest) -> Silver (Compute Surfaces) -> Gold (Calibration).
+
 ```bash
 # Recompute all silver/gold outputs for the replay date
 nohup uv run python scripts/run_pipeline_2026_01_06.py --dt 2026-01-06 > /tmp/pipeline_2026-01-06.log 2>&1 &
 tail -f /tmp/pipeline_2026-01-06.log
 ```
+
+### Current Workflow (Spot-Anchored Architecture)
+
+**Silver layer (futures MBO)**:
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type future_mbo \
+  --layer silver \
+  --symbol ES \
+  --dates 2025-10-01:2026-01-08 \
+  --workers 8 \
+  --overwrite
+```
+
+**Silver layer (options MBO)**:
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type future_option_mbo \
+  --layer silver \
+  --symbol ES \
+  --dates 2025-10-01:2026-01-08 \
+  --workers 8 \
+  --overwrite
+```
+
+**Gold layer (HUD normalization)**:
+```bash
+uv run python -m src.data_eng.runner \
+  --product-type hud \
+  --layer gold \
+  --symbol ES \
+  --dates 2025-10-01:2026-01-08 \
+  --workers 1
+```
+
+Date options:
+- `--dates 2025-10-01:2026-01-08` — Range (colon‑separated, inclusive)
+- `--start-date` + `--end-date` — Explicit range
+- `--workers N` — Parallel execution across dates
+
+### Idempotency
+
+Stages check for `_SUCCESS` marker in output partitions before running.
+
+To reprocess, remove partition directories:
+```bash
+rm -rf backend/lake/{layer}/.../dt=YYYY-MM-DD/
+```
+**IMPORTANT**
+- DO NOT remove anything from backend/lake/raw/*
+
+
+### Dataset Configuration
+
+`backend/src/data_eng/config/datasets.yaml` defines:
+```yaml
+dataset.key.name:
+  path: layer/product_type=X/symbol={symbol}/table=name
+  format: parquet
+  partition_keys: [symbol, dt]
+  contract: src/data_eng/contracts/layer/product/schema.avsc
+```
+
+Dataset keys follow pattern: `{layer}.{product_type}.{table_name}`.
+
+### Contract Enforcement
+
+Avro schemas in `backend/src/data_eng/contracts/` define:
+- Field names and order
+- Field types (long, double, string, boolean, nullable unions)
+
+`enforce_contract(df, contract)` ensures DataFrame matches schema exactly.
+Nullable fields use union type: `{"null", "double"}`.
+
+## I/O Utilities (`backend/src/data_eng/io.py`)
+
+Key functions:
+- `partition_ref(cfg, dataset_key, symbol, dt)` — Build PartitionRef for a partition
+- `is_partition_complete(ref)` — Check if `_SUCCESS` exists
+- `read_partition(ref)` — Read parquet from partition
+- `write_partition(cfg, dataset_key, symbol, dt, df, contract_path, inputs, stage)` — Atomic write with manifest
 
 ### Verify System Integrity
 These scripts **MUST** pass after any pipeline changes.

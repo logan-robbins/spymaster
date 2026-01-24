@@ -99,11 +99,6 @@ I am only interested in identifying these signatures between the time they happe
 
 I posit there exists a function/algorithm (hybrid or ensemble likely) that describes the market state required and triggers the automated/institutional or human TA algorithms to execute. For example, the TA community may see a break above the 15‑minute opening range level, a slight move back down toward the level (but not through it), and at that moment decide "It broke and retested the opening range → it’s going to run higher." That is a simple algorithm not informed by what is actually happening with items 1–4 above. When TA traders see failure, they may flip to "fake test" and sell. These inefficiencies are what we aim to expose or exploit.
 
-Phases:
-- Phase 1: Feature definition (priority) — mathematically rigorous features that represent the physics of price movement.
-- Phase 2: Retrieval strategy — vector embeddings to find historical nearest neighbors to current setups.
-- Phase 3: Modeling — Transformers with multi‑head attention to learn temporal importance.
-- Phase 4: Visualization schema — data interface to visualize pressure above and below levels.
 
 ## Environment and Workflow
 
@@ -113,7 +108,7 @@ Phases:
 
 ## Architecture Overview
 
-**NOTE: The pipeline has transitioned from level-anchored (hardcoded P_ref like PM_HIGH) to spot-anchored (continuous stream relative to spot price). See IMPLEMENT.md for the current architecture specification.**
+**NOTE: The pipeline has transitioned from level-anchored (hardcoded P_ref like PM_HIGH) to spot-anchored (continuous stream relative to spot price for live streaming/real-time cacluation/visualization.)**
 
 Data flow:
 - Raw DBN: `backend/lake/raw/source=databento/product_type=future/symbol={root}/table=market_by_order_dbn`
@@ -160,181 +155,6 @@ backend/src/data_eng/
 ├── config.py               # Config loading (AppConfig)
 ├── contracts.py            # Contract enforcement utilities
 └── io.py                   # Partition read/write utilities
-```
-
-## Key Discovery Commands
-
-**Find all registered stages:**
-```bash
-rg -n "class.*Stage.*:" backend/src/data_eng/stages -g "*.py"
-```
-
-**Find pipeline composition:**
-```python
-from src.data_eng.pipeline import build_pipeline
-stages = build_pipeline("future_mbo", "silver")  # Ordered stage list
-```
-
-**Find all datasets:**
-```bash
-cat backend/src/data_eng/config/datasets.yaml
-```
-
-**Find all contracts:**
-```bash
-ls backend/src/data_eng/contracts/{bronze,silver,gold}/*/*.avsc
-```
-
-**Check existing lake data:**
-```bash
-ls backend/lake/{bronze,silver,gold}/*/symbol=*/table=*/
-```
-
-## Stage Pattern
-
-### Base Class (`backend/src/data_eng/stages/base.py`)
-
-All stages extend `Stage` with:
-- `name: str` — Stage identifier
-- `io: StageIO` — Declares inputs (list of dataset keys) and output (single dataset key)
-- `run(cfg, repo_root, symbol, dt)` — Entry point, handles idempotency
-- `transform(df, dt)` — Override for simple single-input/single-output transformations
-
-### StageIO Contract
-
-```python
-StageIO(
-    inputs=["silver.future_mbo.table_a", "silver.future_mbo.table_b"],
-    output="silver.future_mbo.table_c"
-)
-```
-
-### Idempotency
-
-Stages check for `_SUCCESS` marker in output partitions before running.
-To reprocess, remove partition directories:
-```bash
-rm -rf backend/lake/{layer}/.../dt=YYYY-MM-DD/
-```
-Do not remove raw data.
-
-### Multi‑Output Stages
-
-Stages that emit multiple outputs should override `run()` and write each output partition directly.
-
-## Dataset Configuration
-
-`backend/src/data_eng/config/datasets.yaml` defines:
-```yaml
-dataset.key.name:
-  path: layer/product_type=X/symbol={symbol}/table=name
-  format: parquet
-  partition_keys: [symbol, dt]
-  contract: src/data_eng/contracts/layer/product/schema.avsc
-```
-
-Dataset keys follow pattern: `{layer}.{product_type}.{table_name}`.
-
-## Contract Enforcement
-
-Avro schemas in `backend/src/data_eng/contracts/` define:
-- Field names and order
-- Field types (long, double, string, boolean, nullable unions)
-
-`enforce_contract(df, contract)` ensures DataFrame matches schema exactly.
-Nullable fields use union type: `{"null", "double"}`.
-
-## I/O Utilities (`backend/src/data_eng/io.py`)
-
-Key functions:
-- `partition_ref(cfg, dataset_key, symbol, dt)` — Build PartitionRef for a partition
-- `is_partition_complete(ref)` — Check if `_SUCCESS` exists
-- `read_partition(ref)` — Read parquet from partition
-- `write_partition(cfg, dataset_key, symbol, dt, df, contract_path, inputs, stage)` — Atomic write with manifest
-
-## Pipeline Composition (`backend/src/data_eng/pipeline.py`)
-
-`build_pipeline(product_type, layer)` returns ordered list of Stage instances.
-
-Layers: `bronze`, `silver`, `gold`, `all`
-Product types: `future_mbo`
-
-Stages execute sequentially. Each stage output becomes available for subsequent stages, while the pipeline runs in parallel across dates.
-
-## CLI Usage
-
-### Current Rebuild Workflow (Spot-Anchored Architecture)
-
-**Silver layer (futures MBO)**:
-```bash
-uv run python -m src.data_eng.runner \
-  --product-type future_mbo \
-  --layer silver \
-  --symbol ES \
-  --dates 2025-10-01:2026-01-08 \
-  --workers 8 \
-  --overwrite
-```
-
-**Silver layer (options MBO)**:
-```bash
-uv run python -m src.data_eng.runner \
-  --product-type future_option_mbo \
-  --layer silver \
-  --symbol ES \
-  --dates 2025-10-01:2026-01-08 \
-  --workers 8 \
-  --overwrite
-```
-
-**Gold layer (HUD normalization)**:
-```bash
-uv run python -m src.data_eng.runner \
-  --product-type hud \
-  --layer gold \
-  --symbol ES \
-  --dates 2025-10-01:2026-01-08 \
-  --workers 1
-```
-
-Date options:
-- `--dates 2025-10-01:2026-01-08` — Range (colon‑separated, inclusive)
-- `--start-date` + `--end-date` — Explicit range
-- `--workers N` — Parallel execution across dates
-
-## Environment Variables (Current)
-
-- `MBO_SELECTION_PATH`: selection map parquet path. If unset, defaults to `backend/lake/selection/mbo_contract_day_selection.parquet`.
-
-## Adding a New Stage
-
-1. Create stage file in `backend/src/data_eng/stages/{layer}/{product_type}/`
-2. Define StageIO with input dataset keys and output dataset key
-3. Add dataset entry to `backend/src/data_eng/config/datasets.yaml`
-4. Create contract in `backend/src/data_eng/contracts/{layer}/{product_type}/` as Avro schema
-5. Register in `backend/src/data_eng/pipeline.py`
-6. Test independently:
-   ```python
-   from src.data_eng.stages.{layer}.{product_type}.{module} import {StageClass}
-   stage = StageClass()
-   stage.run(cfg=cfg, repo_root=repo_root, symbol="ESZ5", dt="2025-10-01")
-   ```
-
-## TESTING
-
-Backend code: `backend/src/`  
-Backend tests: `backend/tests/`
-
-Run all backend tests:
-```bash
-cd backend
-uv run pytest
-```
-
-Run a single test module or subset:
-```bash
-cd backend
-uv run pytest tests/path/to_test.py -k "pattern"
 ```
 
 
