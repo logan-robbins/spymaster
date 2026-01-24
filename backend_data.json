@@ -1,0 +1,506 @@
+{
+    "description": "Schema definitions for Spymaster backend Silver layer datasets. For LLM/AI consumption.",
+    "pipeline": {
+        "source": "Databento MBO (Market By Order) data in DBN format",
+        "granularity": "1 second windows",
+        "tick_size": 0.25,
+        "price_scale": 1e-9,
+        "execution_order": [
+            "SilverComputeSnapshotAndWall1s",
+            "SilverComputeVacuumSurface1s",
+            "SilverComputeRadarVacuum1s",
+            "SilverComputePhysicsBands1s"
+        ]
+    },
+    "stream_mapping": {
+        "snap": "silver.future_mbo.book_snapshot_1s",
+        "wall": "silver.future_mbo.wall_surface_1s",
+        "vacuum": "silver.future_mbo.vacuum_surface_1s",
+        "radar": "silver.future_mbo.radar_vacuum_1s",
+        "physics": "silver.future_mbo.physics_bands_1s",
+        "gex": "silver.future_option_mbo.gex_surface_1s"
+    },
+    "datasets": {
+        "silver.future_mbo.book_snapshot_1s": {
+            "frontend_stream": "snap",
+            "description": "1-second Top-of-Book snapshot. Primary spot anchor for all spatial surfaces.",
+            "stage": "SilverComputeSnapshotAndWall1s",
+            "inputs": ["bronze.future_mbo.mbo"],
+            "fields": {
+                "window_start_ts_ns": {"type": "long", "desc": "Window start (nanoseconds)"},
+                "window_end_ts_ns": {"type": "long", "desc": "Window end (nanoseconds)"},
+                "best_bid_price_int": {"type": "long", "desc": "Best Bid (scaled int, *1e-9 for real)"},
+                "best_bid_qty": {"type": "long", "desc": "Quantity at Best Bid"},
+                "best_ask_price_int": {"type": "long", "desc": "Best Ask (scaled int)"},
+                "best_ask_qty": {"type": "long", "desc": "Quantity at Best Ask"},
+                "mid_price": {"type": "double", "desc": "Mid Price in real units"},
+                "mid_price_int": {"type": "long", "desc": "Mid Price (scaled int)"},
+                "last_trade_price_int": {"type": "long", "desc": "Last Trade Price (scaled int)"},
+                "spot_ref_price_int": {"type": "long", "desc": "Spot anchor. All rel_ticks relative to this."},
+                "book_valid": {"type": "boolean", "desc": "True if book state is valid"}
+            },
+            "transformations": [
+                {"field": "mid_price", "formula": "(best_bid_price_int + best_ask_price_int) * 0.5 * PRICE_SCALE"},
+                {"field": "mid_price_int", "formula": "round((best_bid_price_int + best_ask_price_int) * 0.5)"},
+                {"field": "spot_ref_price_int", "formula": "last_trade_price_int if last_trade_price_int > 0 else best_bid_price_int"}
+            ]
+        },
+        "silver.future_mbo.wall_surface_1s": {
+            "frontend_stream": "wall",
+            "description": "Liquidity Wall Surface. Per-price-level order book dynamics.",
+            "stage": "SilverComputeSnapshotAndWall1s",
+            "inputs": ["bronze.future_mbo.mbo"],
+            "spatial": true,
+            "fields": {
+                "window_start_ts_ns": {"type": "long"},
+                "window_end_ts_ns": {"type": "long"},
+                "price_int": {"type": "long", "desc": "Price level (scaled int)"},
+                "side": {"type": "string", "desc": "'B' (Bid) or 'A' (Ask)"},
+                "spot_ref_price_int": {"type": "long"},
+                "rel_ticks": {"type": "int", "desc": "(price_int - spot_ref_price_int) / TICK_INT"},
+                "depth_qty_start": {"type": "double", "desc": "Depth at window start"},
+                "depth_qty_end": {"type": "double", "desc": "Depth at window end"},
+                "add_qty": {"type": "double", "desc": "New orders added"},
+                "pull_qty_total": {"type": "double", "desc": "Total cancellations"},
+                "depth_qty_rest": {"type": "double", "desc": "Resting depth (orders aged >REST_NS)"},
+                "pull_qty_rest": {"type": "double", "desc": "Cancellations of rested orders"},
+                "fill_qty": {"type": "double", "desc": "Quantity filled by trades"},
+                "d1_depth_qty": {"type": "double", "desc": "depth_qty_end[t] - depth_qty_end[t-1]"},
+                "d2_depth_qty": {"type": "double", "desc": "d1[t] - d1[t-1]"},
+                "d3_depth_qty": {"type": "double", "desc": "d2[t] - d2[t-1]"},
+                "window_valid": {"type": "boolean"}
+            },
+            "transformations": [
+                {"field": "rel_ticks", "formula": "round((price_int - spot_ref_price_int) / TICK_INT)"},
+                {"field": "depth_qty_start", "formula": "depth_qty_end - add_qty + pull_qty_total + fill_qty"},
+                {"field": "d1_depth_qty", "formula": "depth_end[t] - depth_end[t-1] (per price level)"},
+                {"field": "d2_depth_qty", "formula": "d1[t] - d1[t-1]"},
+                {"field": "d3_depth_qty", "formula": "d2[t] - d2[t-1]"}
+            ]
+        },
+        "silver.future_mbo.vacuum_surface_1s": {
+            "frontend_stream": "vacuum",
+            "description": "Vacuum Physics Surface. Measures 'pull' forces creating vacuum for price movement.",
+            "stage": "SilverComputeVacuumSurface1s",
+            "inputs": ["silver.future_mbo.wall_surface_1s", "gold.hud.physics_norm_calibration"],
+            "spatial": true,
+            "fields": {
+                "window_start_ts_ns": {"type": "long"},
+                "window_end_ts_ns": {"type": "long"},
+                "price_int": {"type": "long"},
+                "side": {"type": "string"},
+                "spot_ref_price_int": {"type": "long"},
+                "rel_ticks": {"type": "int"},
+                "pull_intensity_rest": {"type": "double", "desc": "Fraction of resting depth pulled"},
+                "pull_add_log": {"type": "double", "desc": "Log ratio of pulls to adds. Positive = net pulling"},
+                "d1_pull_add_log": {"type": "double"},
+                "d2_pull_add_log": {"type": "double"},
+                "d3_pull_add_log": {"type": "double"},
+                "wall_strength_log": {"type": "double", "desc": "Log size of resting wall"},
+                "wall_erosion": {"type": "double", "desc": "Rate of wall decay"},
+                "vacuum_score": {"type": "double", "desc": "Normalized 0-1 composite. 1.0 = extreme vacuum"},
+                "window_valid": {"type": "boolean"}
+            },
+            "transformations": [
+                {
+                    "step": 1,
+                    "field": "pull_intensity_rest",
+                    "formula": "pull_qty_rest / (depth_qty_start + EPS_QTY)",
+                    "source": "wall_surface_1s"
+                },
+                {
+                    "step": 2,
+                    "field": "pull_add_log",
+                    "formula": "log((pull_qty_rest + EPS_QTY) / (add_qty + EPS_QTY))",
+                    "source": "wall_surface_1s"
+                },
+                {
+                    "step": 3,
+                    "field": "wall_erosion",
+                    "formula": "max(-d1_depth_qty, 0)",
+                    "source": "wall_surface_1s"
+                },
+                {
+                    "step": 4,
+                    "field": "wall_strength_log",
+                    "formula": "log(depth_qty_rest + 1)",
+                    "source": "wall_surface_1s"
+                },
+                {
+                    "step": 5,
+                    "field": "d1_pull_add_log",
+                    "formula": "diff(pull_add_log) grouped by (side, price_int)"
+                },
+                {
+                    "step": 6,
+                    "field": "d2_pull_add_log",
+                    "formula": "diff(d1_pull_add_log)"
+                },
+                {
+                    "step": 7,
+                    "field": "d3_pull_add_log",
+                    "formula": "diff(d2_pull_add_log)"
+                },
+                {
+                    "step": 8,
+                    "field": "vacuum_score",
+                    "formula": "(n1 + n2 + n3 + n4) / 4.0",
+                    "components": {
+                        "n1": "norm(pull_add_log, calibration['pull_add_log'])",
+                        "n2": "norm(log1p(pull_intensity_rest), calibration['log1p_pull_intensity_rest'])",
+                        "n3": "norm(log1p(wall_erosion / (depth_qty_start + EPS)), calibration['log1p_erosion_norm'])",
+                        "n4": "norm(d2_pull_add_log, calibration['d2_pull_add_log'])"
+                    },
+                    "norm_function": "clip((value - q05) / (q95 - q05), 0, 1)"
+                }
+            ]
+        },
+        "silver.future_mbo.radar_vacuum_1s": {
+            "frontend_stream": "radar",
+            "description": "High-dimensional Radar features (~200). ML feature set for order book microstructure.",
+            "stage": "SilverComputeSnapshotAndWall1s",
+            "inputs": ["bronze.future_mbo.mbo"],
+            "feature_count": 196,
+            "fields": {
+                "window_start_ts_ns": {"type": "long"},
+                "window_end_ts_ns": {"type": "long"},
+                "spot_ref_price": {"type": "double", "desc": "Spot in real units"},
+                "spot_ref_price_int": {"type": "long"},
+                "approach_dir": {"type": "string", "desc": "'approach_up'|'approach_down'|'approach_none'"}
+            },
+            "feature_groups": {
+                "base_features": {
+                    "prefix": "f",
+                    "count": 25,
+                    "spatial_buckets": {
+                        "at": "0-2 ticks from spot",
+                        "near": "3-5 ticks",
+                        "mid": "6-14 ticks",
+                        "far": "15-20 ticks"
+                    },
+                    "features": [
+                        {
+                            "name": "f1_ask_com_disp_log",
+                            "formula": "log((d_ask_ticks_end + EPS) / (d_ask_ticks_start + EPS))",
+                            "desc": "Ask center-of-mass displacement. Positive = COM moving away"
+                        },
+                        {
+                            "name": "f1_ask_slope_convex_log",
+                            "formula": "log((ask_depth_far + EPS) / (ask_depth_near + EPS))",
+                            "desc": "Ask book shape convexity"
+                        },
+                        {
+                            "name": "f1_ask_slope_inner_log",
+                            "formula": "log((ask_depth_near + EPS) / (ask_depth_at + EPS))",
+                            "desc": "Inner ask slope"
+                        },
+                        {
+                            "name": "f1_ask_at_share_delta",
+                            "formula": "at_share_end - at_share_start",
+                            "desc": "Change in 'at' bucket share"
+                        },
+                        {
+                            "name": "f2_ask_pull_add_log_rest",
+                            "formula": "log((ask_pull_rest_qty + EPS) / (ask_add_qty + EPS))",
+                            "desc": "Ask pull/add for rested orders"
+                        },
+                        {
+                            "name": "f2_ask_pull_intensity_log_rest",
+                            "formula": "log1p(ask_pull_rest_qty / (ask_depth_start_total + EPS))",
+                            "desc": "Ask pull intensity"
+                        },
+                        {
+                            "name": "f5_vacuum_expansion_log",
+                            "formula": "f1_ask_com_disp_log + f3_bid_com_disp_log",
+                            "desc": "Combined COM displacement"
+                        },
+                        {
+                            "name": "f6_vacuum_decay_log",
+                            "formula": "f2_ask_pull_add_log_rest + f4_bid_pull_add_log_rest",
+                            "desc": "Combined pull/add"
+                        },
+                        {
+                            "name": "f7_vacuum_total_log",
+                            "formula": "f5_vacuum_expansion_log + f6_vacuum_decay_log",
+                            "desc": "Overall vacuum signal"
+                        }
+                    ]
+                },
+                "up_features": {
+                    "prefix": "u",
+                    "count": 24,
+                    "desc": "Directional features optimized for detecting upward price movement",
+                    "features": [
+                        {"name": "u1_ask_com_disp_log", "formula": "= f1_ask_com_disp_log"},
+                        {"name": "u8_bid_com_approach_log", "formula": "= -f3_bid_com_disp_log", "desc": "Positive = bullish"},
+                        {"name": "u12_bid_add_pull_log_rest", "formula": "= -f4_bid_pull_add_log_rest", "desc": "Positive = bid adding"},
+                        {"name": "u15_up_expansion_log", "formula": "u1 + u8"},
+                        {"name": "u16_up_flow_log", "formula": "u5_ask_pull_add_log_rest + u12_bid_add_pull_log_rest"},
+                        {"name": "u17_up_total_log", "formula": "u15 + u16", "desc": "Overall up-move signal"}
+                    ]
+                },
+                "derivatives": {
+                    "pattern": "d{1,2,3}_{feature_name}",
+                    "formula": "d1 = value[t] - value[t-1], d2 = d1[t] - d1[t-1], d3 = d2[t] - d2[t-1]",
+                    "applied_to": "all base and up features"
+                }
+            },
+            "transformations": [
+                {"step": 1, "action": "Compute depth aggregates per bucket (at/near/mid/far) from order book"},
+                {"step": 2, "action": "Compute center-of-mass distance for ask and bid sides"},
+                {"step": 3, "action": "Compute all base features (f1-f9) from aggregates"},
+                {"step": 4, "action": "Derive up features (u1-u19) from base features"},
+                {"step": 5, "action": "Compute d1/d2/d3 derivatives for all features"},
+                {"step": 6, "action": "Compute approach_dir from 3-bar spot trend"}
+            ]
+        },
+        "silver.future_mbo.physics_bands_1s": {
+            "frontend_stream": "physics",
+            "description": "Aggregated Spatial Physics Bands. Summarizes wall/vacuum into bands above/below spot.",
+            "stage": "SilverComputePhysicsBands1s",
+            "inputs": [
+                "silver.future_mbo.book_snapshot_1s",
+                "silver.future_mbo.wall_surface_1s",
+                "silver.future_mbo.vacuum_surface_1s",
+                "gold.hud.physics_norm_calibration"
+            ],
+            "spatial_bands": {
+                "at": {"range": "0-2 ticks"},
+                "near": {"range": "3-5 ticks"},
+                "mid": {"range": "6-14 ticks"},
+                "far": {"range": "15-20 ticks"}
+            },
+            "directions": ["above", "below"],
+            "fields": {
+                "window_start_ts_ns": {"type": "long"},
+                "window_end_ts_ns": {"type": "long"},
+                "spot_ref_price_int": {"type": "long"},
+                "mid_price": {"type": "double"},
+                "mid_price_int": {"type": "long"},
+                "{dir}_{band}_wall_strength_norm": {"type": "double", "desc": "Normalized wall strength 0-1"},
+                "{dir}_{band}_wall_erosion_norm": {"type": "double", "desc": "Normalized erosion rate 0-1"},
+                "{dir}_{band}_vacuum_norm": {"type": "double", "desc": "Normalized vacuum score 0-1"},
+                "above_score": {"type": "double", "desc": "Ease-of-movement above spot"},
+                "below_score": {"type": "double", "desc": "Ease-of-movement below spot"},
+                "vacuum_total_score": {"type": "double", "desc": "Overall vacuum intensity"}
+            },
+            "transformations": [
+                {
+                    "step": 1,
+                    "action": "Filter wall_surface rows where rel_ticks in valid bands",
+                    "bands": {"at": [0,2], "near": [3,5], "mid": [6,14], "far": [15,20]}
+                },
+                {
+                    "step": 2,
+                    "action": "Assign direction: 'above' if side='A' and rel_ticks>0, 'below' if side='B' and rel_ticks<0"
+                },
+                {
+                    "step": 3,
+                    "action": "Compute wall_strength_log = log(depth_qty_rest + 1) from wall_surface"
+                },
+                {
+                    "step": 4,
+                    "action": "Compute log1p_erosion_norm = log1p(max(-d1_depth_qty, 0) / (depth_qty_start + EPS))"
+                },
+                {
+                    "step": 5,
+                    "action": "Aggregate by (window_end, direction, band): mean(wall_strength_log), mean(log1p_erosion_norm)"
+                },
+                {
+                    "step": 6,
+                    "action": "Join vacuum_surface, aggregate vacuum_score by (window_end, direction, band)"
+                },
+                {
+                    "step": 7,
+                    "field": "wall_strength_norm",
+                    "formula": "clip((wall_strength_log - q05) / (q95 - q05), 0, 1)"
+                },
+                {
+                    "step": 8,
+                    "field": "wall_erosion_norm",
+                    "formula": "clip((log1p_erosion_norm - q05) / (q95 - q05), 0, 1)"
+                },
+                {
+                    "step": 9,
+                    "field": "{dir}_{band}_ease",
+                    "formula": "0.50 * vacuum_norm + 0.35 * wall_erosion_norm + 0.15 * (1.0 - wall_strength_norm)",
+                    "desc": "Hidden intermediate - not in output"
+                },
+                {
+                    "step": 10,
+                    "field": "above_score",
+                    "formula": "0.60 * above_at_ease + 0.40 * above_near_ease"
+                },
+                {
+                    "step": 11,
+                    "field": "below_score",
+                    "formula": "0.60 * below_at_ease + 0.40 * below_near_ease"
+                },
+                {
+                    "step": 12,
+                    "field": "vacuum_total_score",
+                    "formula": "(above_score + below_score) / 2.0"
+                }
+            ]
+        },
+        "silver.future_option_mbo.gex_surface_1s": {
+            "frontend_stream": "gex",
+            "description": "Gamma Exposure Surface from 0DTE options MBO data.",
+            "stage": "SilverComputeGexSurface1s",
+            "inputs": [
+                "bronze.future_option_mbo.mbo",
+                "silver.future_mbo.book_snapshot_1s",
+                "silver.future_option.statistics_clean",
+                "bronze.shared.instrument_definitions"
+            ],
+            "spatial": true,
+            "grid": {
+                "step_points": 5,
+                "offsets": 12,
+                "range": "±60 points around spot"
+            },
+            "fields": {
+                "window_start_ts_ns": {"type": "long"},
+                "window_end_ts_ns": {"type": "long"},
+                "underlying": {"type": "string"},
+                "strike_price_int": {"type": "long"},
+                "underlying_spot_ref": {"type": "double"},
+                "strike_points": {"type": "double"},
+                "gex_call_abs": {"type": "double"},
+                "gex_put_abs": {"type": "double"},
+                "gex_abs": {"type": "double"},
+                "gex": {"type": "double"},
+                "gex_imbalance_ratio": {"type": "double"},
+                "d1_gex_abs": {"type": "double"},
+                "d2_gex_abs": {"type": "double"},
+                "d3_gex_abs": {"type": "double"},
+                "d1_gex": {"type": "double"},
+                "d2_gex": {"type": "double"},
+                "d3_gex": {"type": "double"},
+                "d1_gex_imbalance_ratio": {"type": "double"},
+                "d2_gex_imbalance_ratio": {"type": "double"},
+                "d3_gex_imbalance_ratio": {"type": "double"}
+            },
+            "transformations": [
+                {
+                    "step": 1,
+                    "action": "Filter instrument_definitions to 0DTE options (expiration == session date)"
+                },
+                {
+                    "step": 2,
+                    "action": "Filter to options with open_interest > 0 from statistics_clean"
+                },
+                {
+                    "step": 3,
+                    "action": "Process options MBO to compute mid_price per (window, instrument_id)"
+                },
+                {
+                    "step": 4,
+                    "action": "Join with futures spot_ref_price_int from book_snapshot_1s"
+                },
+                {
+                    "step": 5,
+                    "field": "T",
+                    "formula": "(expiration_ns - window_end_ts_ns) / 1e9 / 86400 / 365",
+                    "desc": "Time to expiry in years"
+                },
+                {
+                    "step": 6,
+                    "field": "iv",
+                    "formula": "Newton-Raphson IV solver (3 iterations)",
+                    "desc": "Implied volatility from option mid price"
+                },
+                {
+                    "step": 7,
+                    "field": "d1",
+                    "formula": "(log(F/K) + 0.5 * iv^2 * T) / (iv * sqrt(T))"
+                },
+                {
+                    "step": 8,
+                    "field": "gamma",
+                    "formula": "exp(-r * T) * N'(d1) / (F * iv * sqrt(T))",
+                    "desc": "Black-Scholes gamma"
+                },
+                {
+                    "step": 9,
+                    "field": "gex_per_contract",
+                    "formula": "gamma * open_interest * CONTRACT_MULTIPLIER",
+                    "constants": {"CONTRACT_MULTIPLIER": 50, "r": 0.05}
+                },
+                {
+                    "step": 10,
+                    "action": "Build strike grid: round(spot/5)*5 ± 12*5 points"
+                },
+                {
+                    "step": 11,
+                    "action": "Aggregate GEX by (window, strike, is_call)"
+                },
+                {
+                    "step": 12,
+                    "field": "gex_abs",
+                    "formula": "gex_call_abs + gex_put_abs"
+                },
+                {
+                    "step": 13,
+                    "field": "gex",
+                    "formula": "gex_call_abs - gex_put_abs"
+                },
+                {
+                    "step": 14,
+                    "field": "gex_imbalance_ratio",
+                    "formula": "gex / (gex_abs + EPS)"
+                },
+                {
+                    "step": 15,
+                    "action": "Compute d1/d2/d3 derivatives grouped by strike_price_int"
+                }
+            ]
+        },
+        "silver.future_option.statistics_clean": {
+            "description": "Cleaned Options Statistics. Deduped open interest.",
+            "stage": "SilverComputeStatisticsClean",
+            "inputs": ["bronze.future_option.statistics"],
+            "fields": {
+                "ts_event_ns": {"type": "long"},
+                "ts_event_est": {"type": "string"},
+                "ts_recv_ns": {"type": "long"},
+                "source": {"type": "string"},
+                "underlying": {"type": "string"},
+                "option_symbol": {"type": "string"},
+                "exp_date": {"type": "string"},
+                "strike": {"type": "double"},
+                "right": {"type": "string"},
+                "open_interest": {"type": "double"}
+            },
+            "transformations": [
+                {"step": 1, "action": "Sort by ts_event_ns"},
+                {"step": 2, "action": "Group by option_symbol, take last record"}
+            ]
+        }
+    },
+    "calibration": {
+        "dataset": "gold.hud.physics_norm_calibration",
+        "description": "Pre-computed q05/q95 percentile bounds for normalization",
+        "norm_function": "clip((value - q05) / (q95 - q05), 0, 1)",
+        "metrics": {
+            "pull_add_log": {"used_by": ["vacuum_surface_1s"]},
+            "log1p_pull_intensity_rest": {"used_by": ["vacuum_surface_1s"]},
+            "log1p_erosion_norm": {"used_by": ["vacuum_surface_1s", "physics_bands_1s"]},
+            "d2_pull_add_log": {"used_by": ["vacuum_surface_1s"]},
+            "wall_strength_log": {"used_by": ["physics_bands_1s"]}
+        }
+    },
+    "constants": {
+        "WINDOW_NS": {"value": 1000000000, "desc": "1 second in nanoseconds"},
+        "REST_NS": {"value": 500000000, "desc": "500ms resting threshold"},
+        "TICK_SIZE": {"value": 0.25, "desc": "ES futures tick size"},
+        "TICK_INT": {"value": 250000000, "desc": "Tick size in scaled integer"},
+        "PRICE_SCALE": {"value": 1e-9, "desc": "Multiply int prices by this for real"},
+        "EPS_QTY": {"value": 1.0, "desc": "Epsilon for quantity ratios"},
+        "HUD_MAX_TICKS": {"value": 600, "desc": "Max ticks from spot to track"},
+        "GEX_STRIKE_STEP_POINTS": {"value": 5, "desc": "Strike grid step"},
+        "GEX_MAX_STRIKE_OFFSETS": {"value": 12, "desc": "±12 steps from spot"},
+        "CONTRACT_MULTIPLIER": {"value": 50, "desc": "ES options multiplier"},
+        "RISK_FREE_RATE": {"value": 0.05, "desc": "For Black-Scholes"}
+    }
+}

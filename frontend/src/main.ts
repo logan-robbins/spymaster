@@ -34,44 +34,64 @@ const connect = () => {
   statusEl.textContent = 'Connecting...';
   statusEl.className = 'status';
 
-  loader.connectStream(SYMBOL, DT, (batch) => {
-    console.log(`[Main] Batch received. Keys: ${Object.keys(batch).join(', ')}`);
+  loader.connectStream(
+    SYMBOL,
+    DT,
+    // onTick
+    () => {
+      // Advance the grid
+      renderer.advanceLayers();
+    },
+    // onBatch
+    (batch) => {
+      // console.log(`[Main] Batch received. Keys: ${Object.keys(batch).join(', ')}`);
 
-    // Update Snapshot/Spot state if available
-    if (batch.snap && batch.snap.length > 0) {
-      state.setSpotData(batch.snap as SnapshotRow[]);
-      const latest = batch.snap[batch.snap.length - 1];
-      if (latest && latest.price) {
-        spotEl.textContent = Number(latest.price).toFixed(2);
+      // Update Snapshot/Spot state if available
+      if (batch.snap && batch.snap.length > 0) {
+        state.setSpotData(batch.snap as SnapshotRow[]);
+        const latest = batch.snap[batch.snap.length - 1];
+        if (latest && latest.price) {
+          spotEl.textContent = Number(latest.price).toFixed(2);
+        }
       }
-    }
 
-    // Update Physics state if available
-    if (batch.physics && batch.physics.length > 0) {
-      state.setPhysicsData(batch.physics);
-    }
-
-    // Update GEX state if available
-    if (batch.gex && batch.gex.length > 0) {
-      state.setGexData(batch.gex as GexRow[]);
-    }
-
-    // Fallback if snap missing but GEX has spot ref
-    const gexData = state.getGexData();
-    if ((!batch.snap || batch.snap.length === 0) && gexData.length > 0) {
-      const latest = gexData[gexData.length - 1];
-      const spot = latest.underlying_spot_ref || latest.spot_ref_price;
-      if (spot) {
-        spotEl.textContent = Number(spot).toFixed(2);
+      // Update Physics state if available
+      if (batch.physics && batch.physics.length > 0) {
+        state.setPhysicsData(batch.physics);
       }
-    }
 
-    renderer.render();
+      // Update Wall Surface
+      if (batch.wall && batch.wall.length > 0) {
+        (renderer as any).updateWall(batch.wall);
+      }
 
-    statusEl.textContent = 'Streaming';
-    statusEl.className = 'status connected';
-  });
+      // Update Vacuum Surface
+      if (batch.vacuum && batch.vacuum.length > 0) {
+        (renderer as any).updateVacuum(batch.vacuum);
+      }
+
+      // Update GEX state if available
+      if (batch.gex && batch.gex.length > 0) {
+        state.setGexData(batch.gex as GexRow[]);
+      }
+
+      // Fallback if snap missing but GEX has spot ref
+      const gexData = state.getGexData();
+      if ((!batch.snap || batch.snap.length === 0) && gexData.length > 0) {
+        const latest = gexData[gexData.length - 1];
+        const spot = latest.underlying_spot_ref || latest.spot_ref_price;
+        if (spot) {
+          spotEl.textContent = Number(spot).toFixed(2);
+        }
+      }
+
+      renderer.render();
+
+      statusEl.textContent = 'Streaming';
+      statusEl.className = 'status connected';
+    });
 };
+
 
 document.getElementById('btn-load')?.addEventListener('click', connect);
 

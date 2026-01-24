@@ -49,6 +49,7 @@ export class DataLoader {
     connectStream(
         symbol: string,
         dt: string,
+        onTick: (ts: bigint) => void,
         onBatch: (surfaces: Record<string, any[]>) => void
     ): void {
         const wsUrl = `ws://localhost:8000/v1/hud/stream?symbol=${symbol}&dt=${dt}`;
@@ -73,6 +74,9 @@ export class DataLoader {
                         const msg = JSON.parse(event.data);
 
                         if (msg.type === 'batch_start') {
+                            // Tick!
+                            const ts = BigInt(msg.window_end_ts_ns);
+                            onTick(ts);
                             currentBatch = {};
                         } else if (msg.type === 'surface_header') {
                             // Store surface context for next binary
@@ -85,7 +89,7 @@ export class DataLoader {
                             const buffer = await event.data.arrayBuffer();
                             const table = tableFromIPC(buffer);
                             const rows = this.tableToRows(table);
-                            console.log(`[DataLoader] Parsed ${surface}: ${rows.length} rows`);
+                            // console.log(`[DataLoader] Parsed ${surface}: ${rows.length} rows`);
 
                             currentBatch[surface] = rows;
                             (this as any)._pendingSurface = null;

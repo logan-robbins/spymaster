@@ -74,3 +74,5 @@ No code in summaries. Skip summaries for simple questions.
 - We are ONLY working the first hour of RTH (0930AM EST - 1030AM EST) so limit ALL data loads and data engineering to that for speed/efficiency. 
 - Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
 - Always follow the workflow backward from the entry point to find the most current implementation.
+
+Read @README.md and @DOCS_FRONTEND.md in their entirety, do not skip or chunk. 
