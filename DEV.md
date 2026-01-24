@@ -41,9 +41,6 @@ Follow this sequence always:
 - Search first: Before creating any new file, search for existing patterns and utilities
 - Single implementation: Create one canonical solution without fallback or optional code paths
 - Fail fast: Return clear errors when prerequisites are missing
-**WE IGNORE / OVERWRITE ALL EXISTING CODE COMMENTS**
-**WE NEVER WRITE "optional", "legacy", "update", "fallback" code OR comments**
-**WE NEVER WRITE "versions" of code or schemas unless directly requested-- all changes are BREAKING**
 </code_principles>
 
 <output_constraints>
@@ -65,15 +62,14 @@ Summary:
 No code in summaries. Skip summaries for simple questions.
 </response_format>
 
-**IMPORTANT** 
+**CRITICAL INSTRUCTIONS** 
 - YOU ONLY work in the spymaster/ workspace. 
 - YOU DO NOT NEED TO READ ANY MD DOCUMENTS unless instructed
-- ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/EXTEND TO ACCOMPLISTH YOUR TASK
+- ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/DELETE/EXTEND TO ACCOMPLISTH YOUR TASK
 - You have full power to regenerate data when you need to except for raw
 - YOU MUST use nohup and VERBOSE logging for long running commands (not short commands) and remember to check in increments of 30 seconds so you can exit it something is not working. 
-
-**NEVER delete raw dbn or dbn.zst files.**
-**CRITICAL**
+- NEVER delete raw dbn or dbn.zst files
+- We do not create versions of functions, classes, or files or allude to updates-- we make changes directly in line and delete old comments/outdated functions and files
 - We are ONLY working on 2026-01-06 (we have full MBO data for that date) 
 - We are ONLY working the first hour of RTH (0930AM EST - 1030AM EST) so limit ALL data loads and data engineering to that for speed/efficiency. 
 - Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
