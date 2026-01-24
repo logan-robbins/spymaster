@@ -136,82 +136,115 @@ export class HUDRenderer {
         }
     }
 
+    // --- Alignment Helpers ---
+
+    /**
+     * Converts a price value to a normalized screen Y coordinate (0 to 1, bottom to top).
+     * This ensures strict alignment between WebGL and DOM overlay.
+     */
+    private priceToNormalizedY(price: number): number {
+        // Camera View: [bottom, top]
+        // Normalized Y = (price - bottom) / (top - bottom)
+
+        // Note: this.priceToY returns World Y relative to view center.
+        // But our camera is orthographic.
+        // Camera Bottom (World) = center.y - viewHeight/2
+        // Camera Top (World) = center.y + viewHeight/2
+
+        const worldY = this.priceToY(price);
+        const viewHeight = this.camera.top - this.camera.bottom;
+        const cameraBottomWorld = this.camera.bottom;
+
+        return (worldY - cameraBottomWorld) / viewHeight;
+    }
+
     private updateOverlay(): void {
         const priceAxis = document.getElementById('price-axis');
         const timeAxis = document.getElementById('time-axis');
         if (!priceAxis || !timeAxis) return;
 
-        // Clear existing labels
         priceAxis.innerHTML = '';
         timeAxis.innerHTML = '';
 
-        const { min: minPrice, max: maxPrice } = this.priceRange;
         const viewHeight = this.camera.top - this.camera.bottom;
+        const canvasHeight = this.renderer.domElement.clientHeight;
 
-        // Determine tick interval based on zoom/visible range
-        let tickInterval = 5.0;
-        if (viewHeight <= 10) tickInterval = 0.25;
-        else if (viewHeight <= 30) tickInterval = 1.0;
+        // 1. Price Axis
+        // Goal: Labels every ~50px
+        const targetPixelsPerTick = 50;
+        const priceRangePerPixel = viewHeight / canvasHeight;
+        const targetPriceStep = targetPixelsPerTick * priceRangePerPixel;
 
-        // --- Price Labels ---
-        const startPrice = Math.floor(minPrice / tickInterval) * tickInterval;
-        const endPrice = Math.ceil(maxPrice / tickInterval) * tickInterval;
+        // Supported steps: 0.25, 0.50, 1.00, 2.50, 5.00, 10.0, 25.0, ...
+        const step = this.getNiceStep(targetPriceStep);
 
-        for (let price = startPrice; price <= endPrice; price += tickInterval) {
-            // Only show if within view
-            if (price < minPrice || price > maxPrice) continue;
+        const { min: minPrice, max: maxPrice } = this.priceRange;
+        // Extend slightly beyond view to catch edge labels
+        const startPrice = Math.floor((minPrice - step) / step) * step;
+        const endPrice = Math.ceil((maxPrice + step) / step) * step;
 
-            const y = this.priceToY(price);
-            // Convert Y world coord to CSS % (relative to container height)
-            // Camera top is +viewHeight/2, bottom is -viewHeight/2 (if center y=0)
-            // But center y moves with priceToY logic? 
-            // this.priceToY maps price -> world Y relative to viewCenter.y logic?
-            // Actually priceToY: return price - midPrice; 
-            // Camera top = viewHeight/2 + center.y
-            // Camera bottom = -viewHeight/2 + center.y
+        for (let price = startPrice; price <= endPrice; price += step) {
+            const normY = this.priceToNormalizedY(price);
 
-            const normalizedY = (y - (this.camera.bottom)) / (this.camera.top - this.camera.bottom);
-            const topPct = (1 - normalizedY) * 100; // CSS top is from top
+            // CSS 'bottom' % 
+            const bottomPct = normY * 100;
 
-            if (topPct < -5 || topPct > 105) continue;
+            if (bottomPct < -5 || bottomPct > 105) continue;
 
             const el = document.createElement('div');
             el.className = 'price-label';
-            // Highlight current price (approximate)
-            if (Math.abs(price - this.state.getSpotRef()) < tickInterval / 2) {
+
+            // Highlight spot
+            if (Math.abs(price - this.state.getSpotRef()) < step / 2) {
                 el.className += ' current';
             }
+
             el.textContent = price.toFixed(2);
-            el.style.top = `${topPct}%`;
+            el.style.bottom = `${bottomPct}%`;
             el.style.position = 'absolute';
-            // el.style.transform = 'translateY(-50%)'; // handled by CSS usually or add here
-            el.style.transform = 'translateY(-50%)';
+            el.style.transform = 'translateY(50%)'; // Center visually on the tick
             priceAxis.appendChild(el);
         }
 
-        // --- Time Labels ---
+        // 2. Time Axis
         const windows = this.state.getTimeWindows();
         const numWindows = windows.length;
         if (numWindows < 2) return;
 
-        // Show ~5-8 time labels
-        const timeStep = Math.max(1, Math.floor(numWindows / 6));
+        // Calculate visible time range
+        // X = 0 is left edge of data? No, timeToX maps index -> x
+        // We need to find which indices are visible in camera
+        const viewWidth = this.camera.right - this.camera.left;
+        const chartWidth = viewWidth * (1 - FUTURE_VOID_PERCENT); // The width of the actual data area
+        const leftEdge = this.camera.left;
 
-        for (let i = 0; i < numWindows; i += timeStep) {
-            const x = this.timeToX(i, numWindows);
-            const normalizedX = (x - this.camera.left) / (this.camera.right - this.camera.left);
-            const leftPct = normalizedX * 100;
+        // Helper to get X for index
+        const getX = (i: number) => {
+            return leftEdge + (i / Math.max(1, numWindows - 1)) * chartWidth;
+        };
 
-            if (leftPct < -5 || leftPct > 105) continue;
+        // Determine step based on label width (~80px)
+        const canvasWidth = this.renderer.domElement.clientWidth;
+        const pixelsPerWindow = (canvasWidth * (1 - FUTURE_VOID_PERCENT)) / numWindows;
+        const targetLabelWidth = 100; // px
+        const windowStep = Math.ceil(targetLabelWidth / pixelsPerWindow); // e.g., every 5th window
+
+        for (let i = 0; i < numWindows; i += windowStep) {
+            const x = getX(i);
+
+            // Normalize X to screen [0, 1]
+            const normX = (x - this.camera.left) / viewWidth;
+            const leftPct = normX * 100;
+
+            if (leftPct < -5 || leftPct > 100) continue;
 
             const ts = windows[i];
             const date = new Date(Number(ts) / 1e6); // ns -> ms
-            // EST 12-hour format
             const timeStr = date.toLocaleTimeString('en-US', {
                 timeZone: 'America/New_York',
                 hour: 'numeric',
                 minute: '2-digit',
-                second: '2-digit', // optional
+                second: '2-digit',
                 hour12: true
             });
 
@@ -223,6 +256,34 @@ export class HUDRenderer {
         }
     }
 
+    /**
+     * Returns a "nice" step size >= target.
+     * Allowed: 0.25, 0.5, 1, 2.5, 5, 10, ...
+     */
+    private getNiceStep(target: number): number {
+        const base = Math.pow(10, Math.floor(Math.log10(target)));
+        const fraction = target / base; // 1.0 to 9.99...
+
+        let niceFraction;
+        if (fraction <= 1.0) niceFraction = 1.0;
+        else if (fraction <= 2.5) niceFraction = 2.5; // Special 0.25 support via base/10 logic or explicit check
+        else if (fraction <= 5.0) niceFraction = 5.0;
+        else niceFraction = 10.0;
+
+        let step = niceFraction * base;
+
+        // Enforce implicit 0.25 minimum for this app (unless very zoomed in, but user requirement said 0.25)
+        if (step < 0.25) return 0.25;
+
+        // Special case: if target is 0.2 (fraction 2.0, base 0.1) -> step = 2.5 * 0.1 = 0.25
+        // Ideally we want 0.25, 0.50, 1.00
+
+        // Allow 0.25 specifically
+        if (step === 0.25 || step === 0.5 || step >= 1.0) return step;
+
+        return step;
+    }
+
     private createPriceGrid(): void {
         this.clearGroup(this.gridGroup);
 
@@ -230,44 +291,44 @@ export class HUDRenderer {
         if (minPrice === maxPrice) return;
 
         const viewHeight = this.camera.top - this.camera.bottom;
+        const canvasHeight = this.renderer.domElement.clientHeight;
 
-        // Determine tick interval
-        let tickInterval = 5.0;
-        if (viewHeight <= 10) tickInterval = 0.25;
-        else if (viewHeight <= 30) tickInterval = 1.0;
+        // Same logic as overlay to match lines
+        const targetPixelsPerTick = 50;
+        const priceRangePerPixel = viewHeight / canvasHeight;
+        const targetPriceStep = targetPixelsPerTick * priceRangePerPixel;
+        const step = this.getNiceStep(targetPriceStep);
 
         const viewWidth = (this.camera.right - this.camera.left);
         const chartWidth = viewWidth * (1 - FUTURE_VOID_PERCENT);
         const leftEdge = this.camera.left;
         const rightEdge = leftEdge + chartWidth;
 
-        // Grid lines
-        const materials = {
-            0.25: new THREE.LineBasicMaterial({ color: 0x1a1a2e, transparent: true, opacity: 0.3 }),
-            1.0: new THREE.LineBasicMaterial({ color: 0x2a2a4e, transparent: true, opacity: 0.5 }),
-            5.0: new THREE.LineBasicMaterial({ color: 0x3a3a5e, transparent: true, opacity: 0.7 })
-        };
+        // Faint grid material
+        const gridMat = new THREE.LineBasicMaterial({
+            color: 0x3a3a5e,
+            transparent: true,
+            opacity: 0.2
+        });
 
-        // Optimization: Only draw lines that match current zoom?
-        // User asked for scalable increments.
-        // Let's draw current interval lines (e.g. at $1 zoom, only draw $1 lines?)
-        // Or draw finer lines faintly?
-        // Let's draw the chosen interval.
+        // Bold line for integers if step < 1 ?
+        // Or just uniform faint lines as per "faint grid lines" requirement
 
-        const drawStart = Math.floor(minPrice / tickInterval) * tickInterval;
-        const drawEnd = Math.ceil(maxPrice / tickInterval) * tickInterval;
+        const startPrice = Math.floor(minPrice / step) * step;
+        const endPrice = Math.ceil(maxPrice / step) * step;
 
-        const mat = materials[tickInterval as keyof typeof materials] || materials[5.0];
-
-        for (let price = drawStart; price <= drawEnd; price += tickInterval) {
+        const points: THREE.Vector3[] = [];
+        for (let price = startPrice; price <= endPrice; price += step) {
             const y = this.priceToY(price);
-            const points = [
-                new THREE.Vector3(leftEdge, y, -1),
-                new THREE.Vector3(rightEdge, y, -1)
-            ];
+            // Horizontal line
+            points.push(new THREE.Vector3(leftEdge, y, -1));
+            points.push(new THREE.Vector3(rightEdge, y, -1));
+        }
+
+        if (points.length > 0) {
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const line = new THREE.Line(geometry, mat);
-            this.gridGroup.add(line);
+            const lines = new THREE.LineSegments(geometry, gridMat);
+            this.gridGroup.add(lines);
         }
 
         // Draw future void separator
