@@ -23,8 +23,8 @@ MBO_COLUMNS = [
 
 
 def first_hour_window_ns(session_date: str) -> Tuple[int, int]:
-    start = pd.Timestamp(f"{session_date} 08:30:00", tz="Etc/GMT+5")
-    end = pd.Timestamp(f"{session_date} 09:30:00", tz="Etc/GMT+5")
+    start = pd.Timestamp(f"{session_date} 09:30:00", tz="US/Eastern")
+    end = pd.Timestamp(f"{session_date} 10:30:00", tz="US/Eastern")
     return int(start.tz_convert("UTC").value), int(end.tz_convert("UTC").value)
 
 

@@ -13,12 +13,12 @@
     {
       "dataset": "silver.future_mbo.wall_surface_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "a4d5d3c2c5e22ed8a03b69217ef85f07b3779f47af8ed2676777a0310c5ba207"
+      "manifest_sha256": "d034a5401c42d7ebebb0300b22eee3a32ead7d33ff4155ad2715d11ad35780bf"
     },
     {
       "dataset": "silver.future_mbo.vacuum_surface_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "890f5566df6d0c87457b5603aed73522d8715000772910e7f1b69b8f2aa33e2a"
+      "manifest_sha256": "8b5c11dfbdd4029a0f5308d224c222b75625eb8e85808172b49b31e07ce57997"
     },
     {
       "dataset": "gold.hud.physics_norm_calibration",

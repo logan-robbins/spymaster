@@ -78,39 +78,35 @@ class HudStreamService:
         if key in self.cache:
             return self.cache[key]
 
-        mbo_key = "bronze.future_mbo.mbo"
-        cal_key = "gold.hud.physics_norm_calibration"
+        # Define dataset keys
+        snap_key = "silver.future_mbo.book_snapshot_1s"
+        wall_key = "silver.future_mbo.wall_surface_1s"
+        vacuum_key = "silver.future_mbo.vacuum_surface_1s"
+        radar_key = "silver.future_mbo.radar_vacuum_1s"
+        physics_key = "silver.future_mbo.physics_bands_1s"
         gex_key = "silver.future_option_mbo.gex_surface_1s"
 
-        mbo_ref = partition_ref(self.cfg, mbo_key, symbol, dt)
-        if not is_partition_complete(mbo_ref):
-            raise FileNotFoundError(f"Input not ready: {mbo_key} dt={dt}")
+        # Helper to read and enforce
+        def _load(ds_key: str) -> pd.DataFrame:
+            ref = partition_ref(self.cfg, ds_key, symbol, dt)
+            if not is_partition_complete(ref):
+                # For GEX or others that might be optional in early testing, we could return empty
+                # but for now we expect them to exist if pipeline ran.
+                if ds_key == gex_key:  # Gracefully handle missing GEX for now if not run
+                    print(f"WARN: Missing {ds_key}, returning empty.")
+                    return pd.DataFrame(columns=_columns_for(self.repo_root, self.cfg, ds_key))
+                raise FileNotFoundError(f"Input not ready: {ds_key} dt={dt}")
+            contract = load_avro_contract(self.repo_root / self.cfg.dataset(ds_key).contract)
+            return enforce_contract(read_partition(ref), contract)
 
-        cal_ref = partition_ref(self.cfg, cal_key, symbol, dt)
-        if not is_partition_complete(cal_ref):
-            raise FileNotFoundError(f"Input not ready: {cal_key} dt={dt}")
+        df_snap = _load(snap_key)
+        df_wall = _load(wall_key)
+        df_vacuum = _load(vacuum_key)
+        df_radar = _load(radar_key)
+        df_physics = _load(physics_key)
+        df_gex = _load(gex_key)
 
-        gex_ref = partition_ref(self.cfg, gex_key, symbol, dt)
-        if not is_partition_complete(gex_ref):
-            raise FileNotFoundError(f"Input not ready: {gex_key} dt={dt}")
-
-        df_snap, df_wall, df_radar = compute_futures_surfaces_1s_from_batches(
-            iter_mbo_batches(self.cfg, self.repo_root, symbol, dt)
-        )
-
-        cal_contract = load_avro_contract(self.repo_root / self.cfg.dataset(cal_key).contract)
-        df_cal = enforce_contract(read_partition(cal_ref), cal_contract)
-
-        vacuum_builder = SilverComputeVacuumSurface1s()
-        df_vacuum = vacuum_builder.transform_multi(df_wall, df_cal)
-
-        physics_builder = SilverComputePhysicsBands1s()
-        df_physics = physics_builder.transform_multi(df_snap, df_wall, df_vacuum, df_cal)
-
-        gex_contract = load_avro_contract(self.repo_root / self.cfg.dataset(gex_key).contract)
-        df_gex = enforce_contract(read_partition(gex_ref), gex_contract)
-
-        window_ids = df_snap["window_end_ts_ns"].astype(int).tolist() if not df_snap.empty else []
+        window_ids = df_snap["window_end_ts_ns"].sort_values().unique().astype(int).tolist() if not df_snap.empty else []
 
         groups = {
             "snap": _group_by_window(df_snap),
@@ -122,12 +118,12 @@ class HudStreamService:
         }
 
         columns = {
-            "snap": SNAP_COLUMNS,
-            "wall": WALL_COLUMNS,
-            "vacuum": _columns_for(self.repo_root, self.cfg, "silver.future_mbo.vacuum_surface_1s"),
-            "radar": RADAR_COLUMNS,
-            "physics": _columns_for(self.repo_root, self.cfg, "silver.future_mbo.physics_bands_1s"),
-            "gex": _columns_for(self.repo_root, self.cfg, "silver.future_option_mbo.gex_surface_1s"),
+            "snap": _columns_for(self.repo_root, self.cfg, snap_key),
+            "wall": _columns_for(self.repo_root, self.cfg, wall_key),
+            "vacuum": _columns_for(self.repo_root, self.cfg, vacuum_key),
+            "radar": _columns_for(self.repo_root, self.cfg, radar_key),
+            "physics": _columns_for(self.repo_root, self.cfg, physics_key),
+            "gex": _columns_for(self.repo_root, self.cfg, gex_key),
         }
 
         cache = HudStreamCache(
@@ -143,6 +139,36 @@ class HudStreamService:
         )
         self.cache[key] = cache
         return cache
+
+    def simulate_stream(self, symbol: str, dt: str, start_ts_ns: int | None = None, speed: float = 1.0) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
+        """
+        Yields batches with a simulated delay to mimic real-time cadence.
+        speed: Rate multiplier (1.0 = real time, 2.0 = 2x speed, etc.)
+        """
+        import time
+        
+        # Pre-load cache
+        cache = self.load_cache(symbol, dt)
+        if not cache.window_ids:
+            return
+
+        # Generator that yields frames with simulated delay
+        iterator = self.iter_batches(symbol, dt, start_ts_ns)
+        last_window_ts = None
+        
+        for window_id, batch in iterator:
+            if last_window_ts is not None:
+                # Calculate delta in data time
+                delta_ns = window_id - last_window_ts
+                delta_sec = delta_ns / 1_000_000_000.0
+                
+                # Sleep that amount / speed
+                to_sleep = delta_sec / speed
+                if to_sleep > 0:
+                     time.sleep(to_sleep)
+            
+            last_window_ts = window_id
+            yield window_id, batch
 
     def bootstrap_frames(self, symbol: str, dt: str, end_ts_ns: int | None = None) -> Dict[str, pd.DataFrame]:
         cache = self.load_cache(symbol, dt)

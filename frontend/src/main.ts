@@ -30,48 +30,43 @@ const statusEl = document.getElementById('connection-status')!;
 const spotEl = document.getElementById('metric-spot')!;
 const windowsEl = document.getElementById('metric-windows')!;
 
-// Load button handler
-document.getElementById('btn-load')?.addEventListener('click', async () => {
-  statusEl.textContent = 'Loading...';
+// Stream Connection
+const connect = () => {
+  statusEl.textContent = 'Connecting...';
   statusEl.className = 'status';
 
-  try {
-    // Load GEX surface data
-    const gexData = await loader.loadSurface(SYMBOL, DT, 'gex');
-    console.log('GEX data loaded:', gexData);
+  loader.connectStream(SYMBOL, DT, (batch) => {
+    // Process batch
+    // batch is Record<surface, rows[]>
 
-    if (gexData && gexData.length > 0) {
-      state.setGexData(gexData);
+    // Update GEX state if available
+    if (batch.gex && batch.gex.length > 0) {
+      state.setGexData(batch.gex);
 
-      // Update metrics
-      const latestWindow = gexData[gexData.length - 1];
-      const currentSpot = latestWindow.underlying_spot_ref;
-      spotEl.textContent = currentSpot?.toFixed(2) ?? '--';
-      windowsEl.textContent = String(new Set(gexData.map((r: { window_end_ts_ns: bigint }) => r.window_end_ts_ns)).size);
+      const latest = batch.gex[batch.gex.length - 1];
+      const spot = latest.underlying_spot_ref || latest.spot_ref_price;
+      // Note: radar uses spot_ref_price, gex uses underlying_spot_ref.
+      // We need to handle schema diffs.
 
-      // Update price axis
-      const spots = gexData.map((r: { underlying_spot_ref: number }) => Number(r.underlying_spot_ref));
-      const minSpot = Math.min(...spots);
-      const maxSpot = Math.max(...spots);
-
-      document.getElementById('price-high')!.textContent = maxSpot.toFixed(2);
-      document.getElementById('price-current')!.textContent = currentSpot.toFixed(2);
-      document.getElementById('price-low')!.textContent = minSpot.toFixed(2);
-
-      statusEl.textContent = 'Connected';
-      statusEl.className = 'status connected';
+      if (spot) {
+        spotEl.textContent = Number(spot).toFixed(2);
+      }
     }
 
-    // Request render
+    // We should also update Radar/Vacuum state in state.ts if implemented.
+    // For now, we just triggering render.
+
     renderer.render();
 
-  } catch (err) {
-    console.error('Failed to load data:', err);
-    statusEl.textContent = 'Error';
-    statusEl.className = 'status';
-  }
-});
+    statusEl.textContent = 'Streaming';
+    statusEl.className = 'status connected';
+  });
+};
 
+document.getElementById('btn-load')?.addEventListener('click', connect);
+
+// Auto-connect for dev convenience?
+// connect();
 // Center button handler
 document.getElementById('btn-center')?.addEventListener('click', () => {
   renderer.centerView();

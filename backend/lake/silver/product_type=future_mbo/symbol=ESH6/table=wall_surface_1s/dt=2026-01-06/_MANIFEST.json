@@ -11,6 +11,6 @@
       "manifest_sha256": "4630f60c34bc651dbae7928fc71faeb2bd0dce0831eba5fba4229fc1c9c3dcbf"
     }
   ],
-  "row_count": 33139,
+  "row_count": 92323,
   "stage": "silver_compute_snapshot_and_wall_1s"
 }

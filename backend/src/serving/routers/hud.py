@@ -111,19 +111,47 @@ async def stream(
     symbol: str,
     dt: str,
     start_ts_ns: int | None = None,
+    speed: float = 1.0,
 ):
     await websocket.accept()
     try:
-        for window_id, batch in SERVICE.iter_batches(symbol, dt, start_ts_ns=start_ts_ns):
+        iterator = SERVICE.iter_batches(symbol, dt, start_ts_ns=start_ts_ns)
+        last_window_ts = None
+        
+        for window_id, batch in iterator:
+            if last_window_ts is not None:
+                delta_ns = window_id - last_window_ts
+                delta_sec = delta_ns / 1_000_000_000.0
+                to_sleep = delta_sec / speed
+                if to_sleep > 0:
+                    await asyncio.sleep(to_sleep)
+            
+            last_window_ts = window_id
+
+            # Send batch metadata first
+            await websocket.send_json(
+                {
+                    "type": "batch_start",
+                    "window_end_ts_ns": str(window_id),
+                    "surfaces": list(batch.keys()),
+                }
+            )
+
+            # Send each surface as a separate binary message
             for surface, df in batch.items():
+                # We send a small header frame or just rely on order?
+                # Better: Send metadata FRAME, then BINARY frame.
+                # Client needs to know which binary corresponds to which surface.
+                # Let's send a JSON header for EACH surface immediately followed by its binary.
                 await websocket.send_json(
                     {
-                        "type": "hud_batch",
+                        "type": "surface_header",
                         "surface": surface,
-                        "window_end_ts_ns": window_id,
+                        "window_end_ts_ns": str(window_id),
                     }
                 )
                 await websocket.send_bytes(_df_to_arrow_ipc(df))
-            await asyncio.sleep(1)
+            
+            # Send batch end marker? Not strictly necessary if "batch_start" implies new group.
     except WebSocketDisconnect:
         return
