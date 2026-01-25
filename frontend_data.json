@@ -45,6 +45,12 @@
                     "desc": "Mid price for spot line. Frontend uses this for price axis."
                 },
                 {
+                    "name": "spot_ref_price_int",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Tick-aligned spot anchor (integer)."
+                },
+                {
                     "name": "book_valid",
                     "type": "boolean",
                     "required": true,
@@ -213,6 +219,18 @@
                     "type": "double",
                     "required": true,
                     "desc": "Futures spot. Used if snap missing."
+                },
+                {
+                    "name": "spot_ref_price_int",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Tick-aligned spot anchor (integer)."
+                },
+                {
+                    "name": "rel_ticks",
+                    "type": "int",
+                    "required": true,
+                    "desc": "Ticks relative to spot_ref_price_int."
                 },
                 {
                     "name": "gex_abs",

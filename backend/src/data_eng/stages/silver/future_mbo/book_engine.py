@@ -8,7 +8,9 @@ import pandas as pd
 
 PRICE_SCALE = 1e-9
 TICK_SIZE = 0.25
+TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
+GRID_ALIGN_TICKS = 20  # $5.00 grid for ES
 WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
 HUD_MAX_TICKS = 600
@@ -335,6 +337,11 @@ class FuturesBookEngine:
         spot_ref = self.last_trade_price_int
         if spot_ref == 0 and self.book_valid and best_bid_price > 0:
             spot_ref = best_bid_price
+
+        # Snap ref to grid
+        grid_step = GRID_ALIGN_TICKS * self.tick_int
+        if spot_ref > 0:
+            spot_ref = int(round(spot_ref / grid_step)) * grid_step
 
         self.snap_rows.append(
             {

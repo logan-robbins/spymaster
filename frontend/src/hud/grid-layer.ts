@@ -61,6 +61,7 @@ export class GridLayer {
             uniform float uHeadOffset;
             uniform float uTime;
             uniform float uSpotRef; // Current Spot Price (Center of View)
+            uniform float uWidth;   // Texture Width (History Seconds)
             uniform float uHeight;  // Texture Height (Tick Range)
             varying vec2 vUv;
         `;
@@ -69,40 +70,56 @@ export class GridLayer {
         // Maps Screen UV (Absolute Price) -> Texture UV (Relative Tick)
         const rectifyLogic = `
             vec2 getRectifiedUV() {
+                // 1. Column Addressing (Discrete 1s columns)
+                float rawX = vUv.x + uHeadOffset;
+                
+                // Snap to nearest column center to prevent horizontal interpolation bleeding
+                float colIndex = floor(rawX * uWidth);
+                float x = (colIndex + 0.5) / uWidth; // continuous [0, 1] covering history window.
+                // We want to snap to the exact texture column corresponding to the second.
+                // Texture width = uHistorySeconds.
+                
+                float totalCols = 1800.0; // Fixed history? Or uniform uWidth?
+                // Let's assume vUv.x maps 0..1 to 0..Width.
+                // headOffset shifts the ring buffer.
+                // x_ring = mod(floor(vUv.x * totalCols) + uHeadOffset * totalCols, totalCols) / totalCols
+                
+                // Simplified: The texture wraps.
+                // We just need to snap vUv.x to nearest column center?
+                // No, NearestFilter handles fractional UVs by picking nearest texel.
+                // But specifically for TIME alignment, we want 1 pixel = 1 second.
+                // If we rely on UV, linear interpolation might bleed neighbors.
+                // NearestFilter is set in constructor. So vUv.x is safe if we don't offset by sub-pixels.
+                
                 float x = vUv.x + uHeadOffset;
+
+                // 2. Vertical Rectification (Tick Space)
+                // uSpotRef is now passed as (spot_ref_price_int / TICK_INT).
+                // It is a Float Index of the spot price in "Tick Space".
                 
-                // 1. Get Absolute Price at this Screen Pixel
-                // View assumes vUv.y=0.5 is uSpotRef
-                // View Height covers uHeight ticks?
-                // Actually, the mesh covers the full HISTORY_SECS x LAYER_HEIGHT range
-                // So vUv.y=0 is uSpotRef - Height/2, vUv.y=1 is uSpotRef + Height/2
+                // Historical Spot: The texture stores the integer tick index of spot for that column.
+                float historicalSpotTick = texture2D(uSpotHistory, vec2(x, 0.5)).r;
                 
-                // Let's assume the mesh is positioned such that it represents the "Current View Range"
-                // But texture contains data relative to "Historical Spot".
+                if (historicalSpotTick < 1.0) return vec2(-1.0); // Invalid data
                 
-                // Step A: Get Spot Price at this historical moment (x)
-                // x is in [0, 1] wrapping range.
-                float historicalSpot = texture2D(uSpotHistory, vec2(x, 0.5)).r;
+                // Current View Center (Tick Index) = uSpotRef
+                // The Quad covers Height (uHeight ticks).
+                // vUv.y = 0.5 corresponds to uSpotRef.
+                // pixelTickIndex = uSpotRef + (vUv.y - 0.5) * uHeight
                 
-                if (historicalSpot < 1.0) return vec2(-1.0); // Invalid data
+                float currentTickIndex = uSpotRef + (vUv.y - 0.5) * uHeight;
                 
-                // Step B: Determine Absolute Price of this pixel (vUv.y)
-                // We assume the Mesh represents a fixed absolute window centered on uSpotRef?
-                // Wait, if the camera moves, the mesh moves.
-                // If we draw the mesh as a "Background", it moves with camera.
-                // So vUv.y always corresponds to (uSpotRef - H/2 + y * H)
+                // Relative Tick = PixelTick - HistoricalSpotTick
+                // We want to map this to texture Y [0, 1]
+                // Texture Range: 0..Height corresponds to relative ticks centered?
+                // No, texture is written as: center + relTicks.
+                // center = Height/2.
                 
-                float totalTicks = uHeight;
-                float halfHeight = totalTicks * 0.5;
-                float pixelAbsolutePrice = uSpotRef - halfHeight + (vUv.y * totalTicks);
-                
-                // Step C: Calculate Relative Tick for the stored texture
-                // Texture Row = (AbsolutePrice - HistoricalSpot) + CenterOffset
-                float relTicks = pixelAbsolutePrice - historicalSpot;
-                float textureRow = halfHeight + relTicks;
+                float relTicks = currentTickIndex - historicalSpotTick;
+                float textureRow = (uHeight * 0.5) + relTicks;
                 
                 // Normalize to [0, 1]
-                float v = textureRow / totalTicks;
+                float v = textureRow / uHeight;
                 
                 return vec2(x, v);
             }
@@ -199,6 +216,7 @@ export class GridLayer {
                 uHeadOffset: { value: 0.0 },
                 uTime: { value: 0.0 },
                 uSpotRef: { value: 6000.0 }, // Updated by renderer
+                uWidth: { value: width },
                 uHeight: { value: height }
             },
             vertexShader,

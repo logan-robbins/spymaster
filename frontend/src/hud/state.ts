@@ -9,6 +9,7 @@ export class HUDState {
     private spotData: SnapshotRow[] = [];
     private physicsData: any[] = [];
     private spotRef: number = 6000;
+    private spotRefInt: bigint = 0n;
     private timeRange: { start: bigint; end: bigint } = { start: 0n, end: 0n };
     private priceRange: { min: number; max: number } = { min: 5900, max: 6100 };
     private readonly MAX_HISTORY = 2000; // Keep ~30 mins of history
@@ -91,6 +92,14 @@ export class HUDState {
                 max: maxPrice + 10,
             };
         }
+
+        // Update Int Ref
+        if (this.spotData.length > 0) {
+            const latest = this.spotData[this.spotData.length - 1];
+            if (latest.spot_ref_price_int) {
+                this.spotRefInt = latest.spot_ref_price_int;
+            }
+        }
     }
 
     getGexData(): GexRow[] {
@@ -103,6 +112,10 @@ export class HUDState {
 
     getSpotRef(): number {
         return this.spotRef;
+    }
+
+    getSpotRefInt(): bigint {
+        return this.spotRefInt;
     }
 
     getTimeRange(): { start: bigint; end: bigint } {

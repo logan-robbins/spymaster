@@ -25,13 +25,15 @@ HUD_HISTORY_WINDOWS = 1800
 HUD_STREAM_MAX_TICKS = 400
 
 STREAM_COLUMNS: Dict[str, List[str]] = {
-    "snap": ["window_end_ts_ns", "mid_price", "book_valid"],
+    "snap": ["window_end_ts_ns", "mid_price", "spot_ref_price_int", "book_valid"],
     "wall": ["window_end_ts_ns", "rel_ticks", "side", "depth_qty_rest"],
     "vacuum": ["window_end_ts_ns", "rel_ticks", "vacuum_score"],
     "physics": ["window_end_ts_ns", "mid_price", "above_score", "below_score"],
     "gex": [
         "window_end_ts_ns",
         "strike_points",
+        "spot_ref_price_int",
+        "rel_ticks",
         "underlying_spot_ref",
         "gex_abs",
         "gex",

@@ -17,6 +17,9 @@ const FUTURE_VOID_PERCENT = 0.15; // 15% of right side for predictions
 const DEFAULT_PRICE_RANGE = 6;    // +/- 12 ticks = +/- 3 points -> Total 6
 const HISTORY_SECONDS = 1800;     // 30 minutes
 const TICK_SIZE = 0.25;
+const PRICE_SCALE = 1e-9;
+const TICK_INT = Math.round(TICK_SIZE / PRICE_SCALE);
+const LAYER_HEIGHT_TICKS = 801; // +/- 400 ticks around spot
 
 export class HUDRenderer {
     private renderer: THREE.WebGLRenderer;
@@ -38,7 +41,6 @@ export class HUDRenderer {
     // View state
     private viewCenter: { x: number; y: number } = { x: 0, y: 0 };
     private zoomLevel: number = 1.0;
-    private priceRange: { min: number; max: number } = { min: 0, max: 0 };
 
     // World Scale Constants
     private readonly SEC_PER_UNIT_X = 0.1;
@@ -76,11 +78,11 @@ export class HUDRenderer {
         this.camera.position.z = 100;
 
         // Initialize Layers
-        const LAYER_HEIGHT = 801;
-        this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'wall');
-        this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'vacuum');
-        this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'physics');
-        this.gexLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'gex');
+        // Height is now strictly in TICKS
+        this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'wall');
+        this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'vacuum');
+        this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'physics');
+        this.gexLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'gex');
 
         // Groups
         this.gridGroup = new THREE.Group();
@@ -112,12 +114,15 @@ export class HUDRenderer {
 
     advanceLayers(): void {
         const t = performance.now() / 1000.0;
-        const currentSpot = this.state.getSpotRef() || 6000;
+        // Pass Spot Tick Index (Float space if sub-tick, but here we snap to grid)
+        // Store int-based spot in texture
+        const currentSpotInt = this.state.getSpotRefInt();
+        const spotTick = Number(currentSpotInt) / TICK_INT;
 
-        this.wallLayer.advance(t, currentSpot);
-        this.vacuumLayer.advance(t, currentSpot);
-        this.physicsLayer.advance(t, currentSpot);
-        this.gexLayer.advance(t, currentSpot);
+        this.wallLayer.advance(t, spotTick);
+        this.vacuumLayer.advance(t, spotTick);
+        this.physicsLayer.advance(t, spotTick);
+        this.gexLayer.advance(t, spotTick);
     }
 
     updateWall(data: any[]): void {
@@ -145,21 +150,23 @@ export class HUDRenderer {
     updateGex(data: any[]): void {
         if (!data || data.length === 0) return;
         const maxAbs = Math.max(...data.map(row => Math.abs(Number(row.gex_abs || 0))), 1);
-        const fallbackSpot = this.state.getSpotRef();
 
         for (const row of data) {
-            const strike = Number(row.strike_points);
-            if (!Number.isFinite(strike)) continue;
-            const spot = Number(row.underlying_spot_ref || row.spot_ref_price || fallbackSpot);
-            if (!Number.isFinite(spot)) continue;
+            // RelTicks is provided directly by backend!
+            if (typeof row.rel_ticks !== 'number') continue;
+            const relTicks = row.rel_ticks;
 
-            const relTicks = Math.round((strike - spot) / TICK_SIZE);
             const gexAbs = Math.abs(Number(row.gex_abs || 0));
             const imbalance = Number(row.gex_imbalance_ratio || 0);
             const norm = Math.min(gexAbs / maxAbs, 1);
             if (norm <= 0) continue;
 
             const density = Math.pow(norm, 0.5);
+            // Height logic: Buckets are 1 tick high in texture space.
+            // Band expansion is visual only? Or do we write multiple rows?
+            // "Enforce few ticks high bands" -> Visual style. 
+            // We can write neighbor rows.
+
             const band = Math.max(1, Math.round(density * 3));
             const alphaBase = Math.min(255, density * 220);
 
@@ -250,7 +257,18 @@ export class HUDRenderer {
 
     private updateLayerTransforms(): void {
         const width = HISTORY_SECONDS * this.SEC_PER_UNIT_X;
-        const height = 200; // Physical vertical size (covers +/- $100 range roughly if Y scale is 1)
+        // Height is now defined by Tick Height in World Units.
+        // If 1.0 World Unit = $1.00 = 4 Ticks.
+        // And Texture covers LAYER_HEIGHT_TICKS (801).
+        // Total Height in World Units = (801 / 4) * 1.0? 
+        // No, SEC_PER_UNIT_X = 0.1 means 10 sec = 1 unit.
+        // UNIT_PER_DOLLAR = 1.0.
+        // TICK_SIZE = 0.25 (dollars).
+        // So 1 Tick = 0.25 World Units.
+        // Texture Height in World Units = 801 * 0.25 = 200.25.
+
+        const tickHeightWorld = TICK_SIZE * this.UNIT_PER_DOLLAR;
+        const height = LAYER_HEIGHT_TICKS * tickHeightWorld;
 
         // Position meshes so X=0 is the Right Edge (Latest)
         // Mesh center at -width/2
@@ -496,10 +514,23 @@ export class HUDRenderer {
         const currentSpot = this.lastValidSpot;
 
         // Update Shaders with this Anchor
-        this.wallLayer.setSpotRef(currentSpot);
-        this.vacuumLayer.setSpotRef(currentSpot);
-        this.physicsLayer.setSpotRef(currentSpot);
-        this.gexLayer.setSpotRef(currentSpot);
+        // Update Shaders with this Anchor
+        // Convert Spot (Float Price) to Tick Index?
+        // Shader expects `uSpotRef` to be comparable to `uSpotHistory` (which is Tick Index).
+        // So we must pass Tick Index here.
+
+        // This visual anchor is used to center the rectified view.
+        // currentSpot (Float e.g. 6000.00) -> Tick Index = 6000.00 / 0.25 = 24000.
+        // wait, uSpotHistory stored `spotRefInt / TICK_INT`.
+
+        // We need consistent basis. 
+        // If we use TICK_INT basis:
+        const currentSpotTick = currentSpot / TICK_SIZE;
+
+        this.wallLayer.setSpotRef(currentSpotTick);
+        this.vacuumLayer.setSpotRef(currentSpotTick);
+        this.physicsLayer.setSpotRef(currentSpotTick);
+        this.gexLayer.setSpotRef(currentSpotTick);
 
         this.createPriceGrid(currentSpot);
         this.createPriceLine(allWindows, spotByWindow, currentSpot);
@@ -537,7 +568,6 @@ export class HUDRenderer {
         if (points.length < 2) return;
 
         // Price Line
-        const curve = new THREE.CatmullRomCurve3(points);
         // Resample for smoothness? actually points are dense (1s). Line is fine.
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 });

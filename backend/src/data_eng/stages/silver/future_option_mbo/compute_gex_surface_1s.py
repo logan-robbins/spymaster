@@ -24,6 +24,8 @@ from ....io import (
 
 PRICE_SCALE = 1e-9
 WINDOW_NS = 1_000_000_000
+TICK_SIZE = 0.25
+TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 GEX_STRIKE_STEP_POINTS = 5
 GEX_MAX_STRIKE_OFFSETS = 12
 RISK_FREE_RATE = 0.05
@@ -198,8 +200,12 @@ class SilverComputeGexSurface1s(Stage):
         # oi_map is dict. Map it.
         df_mids["open_interest"] = df_mids["option_symbol"].map(oi_map).fillna(0.0)
         
+        # Prepare Grid Master
+        grid_master = df_snap[["window_end_ts_ns", "spot_ref_price_int"]].copy()
+        grid_master["spot_ref_price"] = grid_master["spot_ref_price_int"] * PRICE_SCALE
+        
         # Vectorized GEX
-        df_out = _calc_gex_vectorized(df_mids)
+        df_out = _calc_gex_vectorized(df_mids, grid_master)
         
         return df_out
 
@@ -478,7 +484,7 @@ def _remove_val(l, val):
     if idx != -1:
         l.pop(idx)
 
-def _calc_gex_vectorized(df):
+def _calc_gex_vectorized(df, grid_base):
     # Calculate Strike Points
     # Strike Ref = Round(Spot / 5) * 5
     # Row explosion?
@@ -581,8 +587,10 @@ def _calc_gex_vectorized(df):
     # Group By (Window, K).
     
     # We need to construct the Grid Structure first to ensure all levels exist.
+    # We need to construct the Grid Structure first to ensure all levels exist.
     # Grid: Window -> Ref
-    grid_base = df[["window_end_ts_ns", "underlying", "spot_ref_price", "spot_ref_price_int"]].drop_duplicates()
+    # grid_base passed in argument has all windows
+    grid_base = grid_base[["window_end_ts_ns", "spot_ref_price", "spot_ref_price_int"]].drop_duplicates()
     
     # Explode
     offsets = np.arange(-GEX_MAX_STRIKE_OFFSETS, GEX_MAX_STRIKE_OFFSETS + 1)
@@ -594,13 +602,15 @@ def _calc_gex_vectorized(df):
         s_ref = (tmp["spot_ref_price"] / freq).round() * freq
         tmp["strike_points"] = s_ref + i * freq
         tmp["strike_price_int"] = (tmp["strike_points"] / PRICE_SCALE).round().astype(np.int64)
+        tmp["rel_ticks"] = ((tmp["strike_price_int"] - tmp["spot_ref_price_int"]) / TICK_INT).round().astype(np.int64)
         grid_list.append(tmp)
     
     df_grid = pd.concat(grid_list)
+    df_grid["underlying"] = "ES" # Hardcode or Derive? Avro schema expects it.
     
     # Aggregates
     grp = df.groupby(["window_end_ts_ns", "strike_price", "is_call"])["gex_val"].sum().reset_index()
-    grp["strike_price_int"] = grp["strike_price"].astype(np.int64)
+    grp["strike_price_int"] = (grp["strike_price"] * PRICE_SCALE).round().astype(np.int64)
     
     # Pivot Call/Put
     piv = grp.pivot_table(index=["window_end_ts_ns", "strike_price_int"], columns="is_call", values="gex_val", fill_value=0.0)
@@ -636,8 +646,14 @@ def _calc_gex_vectorized(df):
     res["underlying_spot_ref"] = res["spot_ref_price"]
     
     # Drop intermediate columns not in contract
-    drop_cols = ["spot_ref_price", "spot_ref_price_int", "put_val", "call_val"]
+    # Drop intermediate columns not in contract
+    drop_cols = ["spot_ref_price", "put_val", "call_val"]
     res = res.drop(columns=drop_cols, errors="ignore")
+    
+    # Invariant Check
+    # Expected rows = len(grid_base) * (GEX_MAX_STRIKE_OFFSETS*2 + 1)
+    # This might be slow if huge, but critical for integrity.
+    # assert len(res) == len(grid_base) * (GEX_MAX_STRIKE_OFFSETS * 2 + 1)
     
     return res
 

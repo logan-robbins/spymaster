@@ -24,6 +24,14 @@
       "type": "double"
     },
     {
+      "name": "spot_ref_price_int",
+      "type": "long"
+    },
+    {
+      "name": "rel_ticks",
+      "type": "int"
+    },
+    {
       "name": "strike_points",
       "type": "double"
     },

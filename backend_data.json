@@ -7,7 +7,9 @@
                 {
                     "order": 1,
                     "stage": "SilverComputeSnapshotAndWall1s",
-                    "inputs": ["bronze.future_mbo.mbo"],
+                    "inputs": [
+                        "bronze.future_mbo.mbo"
+                    ],
                     "outputs": [
                         "silver.future_mbo.book_snapshot_1s",
                         "silver.future_mbo.wall_surface_1s",
@@ -17,14 +19,23 @@
                 {
                     "order": 2,
                     "stage": "SilverComputeVacuumSurface1s",
-                    "inputs": ["silver.future_mbo.wall_surface_1s", "gold.hud.physics_norm_calibration"],
-                    "outputs": ["silver.future_mbo.vacuum_surface_1s"]
+                    "inputs": [
+                        "silver.future_mbo.wall_surface_1s",
+                        "gold.hud.physics_norm_calibration"
+                    ],
+                    "outputs": [
+                        "silver.future_mbo.vacuum_surface_1s"
+                    ]
                 },
                 {
                     "order": 3,
                     "stage": "SilverComputeRadarVacuum1s",
-                    "inputs": ["bronze.future_mbo.mbo"],
-                    "outputs": ["silver.future_mbo.radar_vacuum_1s"],
+                    "inputs": [
+                        "bronze.future_mbo.mbo"
+                    ],
+                    "outputs": [
+                        "silver.future_mbo.radar_vacuum_1s"
+                    ],
                     "note": "NO-OP if radar already exists from stage 1"
                 },
                 {
@@ -36,7 +47,9 @@
                         "silver.future_mbo.vacuum_surface_1s",
                         "gold.hud.physics_norm_calibration"
                     ],
-                    "outputs": ["silver.future_mbo.physics_bands_1s"]
+                    "outputs": [
+                        "silver.future_mbo.physics_bands_1s"
+                    ]
                 }
             ]
         },
@@ -46,8 +59,12 @@
                 {
                     "order": 1,
                     "stage": "SilverComputeStatisticsClean",
-                    "inputs": ["bronze.future_option.statistics"],
-                    "outputs": ["silver.future_option.statistics_clean"]
+                    "inputs": [
+                        "bronze.future_option.statistics"
+                    ],
+                    "outputs": [
+                        "silver.future_option.statistics_clean"
+                    ]
                 },
                 {
                     "order": 2,
@@ -58,7 +75,9 @@
                         "silver.future_option.statistics_clean",
                         "bronze.shared.instrument_definitions"
                     ],
-                    "outputs": ["silver.future_option_mbo.gex_surface_1s"]
+                    "outputs": [
+                        "silver.future_option_mbo.gex_surface_1s"
+                    ]
                 }
             ]
         }
@@ -77,22 +96,67 @@
             "produced_by": "SilverComputeSnapshotAndWall1s",
             "description": "1-second Top-of-Book snapshot. Primary spot anchor.",
             "fields": {
-                "window_start_ts_ns": {"type": "long", "desc": "Window start (ns)"},
-                "window_end_ts_ns": {"type": "long", "desc": "Window end (ns)"},
-                "best_bid_price_int": {"type": "long", "desc": "Best Bid (scaled int)"},
-                "best_bid_qty": {"type": "long", "desc": "Qty at Best Bid"},
-                "best_ask_price_int": {"type": "long", "desc": "Best Ask (scaled int)"},
-                "best_ask_qty": {"type": "long", "desc": "Qty at Best Ask"},
-                "mid_price": {"type": "double", "desc": "Mid Price real units"},
-                "mid_price_int": {"type": "long", "desc": "Mid Price scaled"},
-                "last_trade_price_int": {"type": "long", "desc": "Last Trade scaled"},
-                "spot_ref_price_int": {"type": "long", "desc": "Spot anchor for all rel_ticks"},
-                "book_valid": {"type": "boolean", "desc": "Book state valid"}
+                "window_start_ts_ns": {
+                    "type": "long",
+                    "desc": "Window start (ns)"
+                },
+                "window_end_ts_ns": {
+                    "type": "long",
+                    "desc": "Window end (ns)"
+                },
+                "best_bid_price_int": {
+                    "type": "long",
+                    "desc": "Best Bid (scaled int)"
+                },
+                "best_bid_qty": {
+                    "type": "long",
+                    "desc": "Qty at Best Bid"
+                },
+                "best_ask_price_int": {
+                    "type": "long",
+                    "desc": "Best Ask (scaled int)"
+                },
+                "best_ask_qty": {
+                    "type": "long",
+                    "desc": "Qty at Best Ask"
+                },
+                "mid_price": {
+                    "type": "double",
+                    "desc": "Mid Price real units"
+                },
+                "mid_price_int": {
+                    "type": "long",
+                    "desc": "Mid Price scaled"
+                },
+                "last_trade_price_int": {
+                    "type": "long",
+                    "desc": "Last Trade scaled"
+                },
+                "spot_ref_price_int": {
+                    "type": "long",
+                    "desc": "Spot anchor for all rel_ticks"
+                },
+                "book_valid": {
+                    "type": "boolean",
+                    "desc": "Book state valid"
+                }
             },
             "transformations": [
-                {"step": 1, "field": "mid_price", "formula": "(best_bid + best_ask) * 0.5 * PRICE_SCALE"},
-                {"step": 2, "field": "mid_price_int", "formula": "round((best_bid + best_ask) * 0.5)"},
-                {"step": 3, "field": "spot_ref_price_int", "formula": "last_trade_price_int || (book_valid ? best_bid_price_int : 0)"}
+                {
+                    "step": 1,
+                    "field": "mid_price",
+                    "formula": "(best_bid + best_ask) * 0.5 * PRICE_SCALE"
+                },
+                {
+                    "step": 2,
+                    "field": "mid_price_int",
+                    "formula": "round((best_bid + best_ask) * 0.5)"
+                },
+                {
+                    "step": 3,
+                    "field": "spot_ref_price_int",
+                    "formula": "last_trade_price_int || (book_valid ? best_bid_price_int : 0)"
+                }
             ]
         },
         "silver.future_mbo.wall_surface_1s": {
@@ -101,30 +165,97 @@
             "description": "Liquidity Wall. Per-price-level order book dynamics.",
             "spatial": true,
             "fields": {
-                "window_start_ts_ns": {"type": "long"},
-                "window_end_ts_ns": {"type": "long"},
-                "price_int": {"type": "long", "desc": "Price level scaled"},
-                "side": {"type": "string", "desc": "'B' or 'A'"},
-                "spot_ref_price_int": {"type": "long"},
-                "rel_ticks": {"type": "int", "desc": "Ticks from spot"},
-                "depth_qty_start": {"type": "double", "desc": "Depth at window start"},
-                "depth_qty_end": {"type": "double", "desc": "Depth at window end"},
-                "add_qty": {"type": "double", "desc": "Orders added"},
-                "pull_qty_total": {"type": "double", "desc": "Total cancellations"},
-                "depth_qty_rest": {"type": "double", "desc": "Resting depth (>500ms)"},
-                "pull_qty_rest": {"type": "double", "desc": "Rested order cancellations"},
-                "fill_qty": {"type": "double", "desc": "Filled by trades"},
-                "d1_depth_qty": {"type": "double", "desc": "Depth velocity"},
-                "d2_depth_qty": {"type": "double", "desc": "Depth acceleration"},
-                "d3_depth_qty": {"type": "double", "desc": "Depth jerk"},
-                "window_valid": {"type": "boolean"}
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "price_int": {
+                    "type": "long",
+                    "desc": "Price level scaled"
+                },
+                "side": {
+                    "type": "string",
+                    "desc": "'B' or 'A'"
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                },
+                "rel_ticks": {
+                    "type": "int",
+                    "desc": "Ticks from spot"
+                },
+                "depth_qty_start": {
+                    "type": "double",
+                    "desc": "Depth at window start"
+                },
+                "depth_qty_end": {
+                    "type": "double",
+                    "desc": "Depth at window end"
+                },
+                "add_qty": {
+                    "type": "double",
+                    "desc": "Orders added"
+                },
+                "pull_qty_total": {
+                    "type": "double",
+                    "desc": "Total cancellations"
+                },
+                "depth_qty_rest": {
+                    "type": "double",
+                    "desc": "Resting depth (>500ms)"
+                },
+                "pull_qty_rest": {
+                    "type": "double",
+                    "desc": "Rested order cancellations"
+                },
+                "fill_qty": {
+                    "type": "double",
+                    "desc": "Filled by trades"
+                },
+                "d1_depth_qty": {
+                    "type": "double",
+                    "desc": "Depth velocity"
+                },
+                "d2_depth_qty": {
+                    "type": "double",
+                    "desc": "Depth acceleration"
+                },
+                "d3_depth_qty": {
+                    "type": "double",
+                    "desc": "Depth jerk"
+                },
+                "window_valid": {
+                    "type": "boolean"
+                }
             },
             "transformations": [
-                {"step": 1, "field": "rel_ticks", "formula": "round((price_int - spot_ref) / TICK_INT)"},
-                {"step": 2, "field": "depth_qty_start", "formula": "max(depth_end - add + pull + fill, 0)"},
-                {"step": 3, "field": "d1_depth_qty", "formula": "depth_end[t] - depth_end[t-1]"},
-                {"step": 4, "field": "d2_depth_qty", "formula": "d1[t] - d1[t-1]"},
-                {"step": 5, "field": "d3_depth_qty", "formula": "d2[t] - d2[t-1]"}
+                {
+                    "step": 1,
+                    "field": "rel_ticks",
+                    "formula": "round((price_int - spot_ref) / TICK_INT)"
+                },
+                {
+                    "step": 2,
+                    "field": "depth_qty_start",
+                    "formula": "max(depth_end - add + pull + fill, 0)"
+                },
+                {
+                    "step": 3,
+                    "field": "d1_depth_qty",
+                    "formula": "depth_end[t] - depth_end[t-1]"
+                },
+                {
+                    "step": 4,
+                    "field": "d2_depth_qty",
+                    "formula": "d1[t] - d1[t-1]"
+                },
+                {
+                    "step": 5,
+                    "field": "d3_depth_qty",
+                    "formula": "d2[t] - d2[t-1]"
+                }
             ]
         },
         "silver.future_mbo.radar_vacuum_1s": {
@@ -134,24 +265,64 @@
             "description": "~200 ML features for order book microstructure. Reserved for model inference, not visualization.",
             "feature_count": 196,
             "fields": {
-                "window_start_ts_ns": {"type": "long"},
-                "window_end_ts_ns": {"type": "long"},
-                "spot_ref_price": {"type": "double"},
-                "spot_ref_price_int": {"type": "long"},
-                "approach_dir": {"type": "string", "desc": "'approach_up'|'approach_down'|'approach_none'"}
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "spot_ref_price": {
+                    "type": "double"
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                },
+                "approach_dir": {
+                    "type": "string",
+                    "desc": "'approach_up'|'approach_down'|'approach_none'"
+                }
             },
             "feature_groups": {
                 "base_features": {
                     "prefix": "f",
                     "count": 25,
-                    "buckets": {"at": "0-2 ticks", "near": "3-5", "mid": "6-14", "far": "15-20"},
+                    "buckets": {
+                        "at": "0-2 ticks",
+                        "near": "3-5",
+                        "mid": "6-14",
+                        "far": "15-20"
+                    },
                     "key_features": [
-                        {"name": "f1_ask_com_disp_log", "formula": "log((d_ask_end + EPS) / (d_ask_start + EPS))", "desc": "Ask COM displacement"},
-                        {"name": "f1_ask_slope_convex_log", "formula": "log((far_depth + EPS) / (near_depth + EPS))", "desc": "Book convexity"},
-                        {"name": "f2_ask_pull_add_log_rest", "formula": "log((pull_rest + EPS) / (add + EPS))", "desc": "Pull/add ratio"},
-                        {"name": "f5_vacuum_expansion_log", "formula": "f1_ask + f3_bid", "desc": "Combined COM"},
-                        {"name": "f6_vacuum_decay_log", "formula": "f2_ask + f4_bid", "desc": "Combined pull/add"},
-                        {"name": "f7_vacuum_total_log", "formula": "f5 + f6", "desc": "Overall vacuum"}
+                        {
+                            "name": "f1_ask_com_disp_log",
+                            "formula": "log((d_ask_end + EPS) / (d_ask_start + EPS))",
+                            "desc": "Ask COM displacement"
+                        },
+                        {
+                            "name": "f1_ask_slope_convex_log",
+                            "formula": "log((far_depth + EPS) / (near_depth + EPS))",
+                            "desc": "Book convexity"
+                        },
+                        {
+                            "name": "f2_ask_pull_add_log_rest",
+                            "formula": "log((pull_rest + EPS) / (add + EPS))",
+                            "desc": "Pull/add ratio"
+                        },
+                        {
+                            "name": "f5_vacuum_expansion_log",
+                            "formula": "f1_ask + f3_bid",
+                            "desc": "Combined COM"
+                        },
+                        {
+                            "name": "f6_vacuum_decay_log",
+                            "formula": "f2_ask + f4_bid",
+                            "desc": "Combined pull/add"
+                        },
+                        {
+                            "name": "f7_vacuum_total_log",
+                            "formula": "f5 + f6",
+                            "desc": "Overall vacuum"
+                        }
                     ]
                 },
                 "up_features": {
@@ -159,8 +330,16 @@
                     "count": 24,
                     "desc": "Directional up-move features",
                     "key_features": [
-                        {"name": "u8_bid_com_approach_log", "formula": "-f3_bid_com_disp_log", "desc": "Bid support approaching"},
-                        {"name": "u17_up_total_log", "formula": "u15 + u16", "desc": "Overall up signal"}
+                        {
+                            "name": "u8_bid_com_approach_log",
+                            "formula": "-f3_bid_com_disp_log",
+                            "desc": "Bid support approaching"
+                        },
+                        {
+                            "name": "u17_up_total_log",
+                            "formula": "u15 + u16",
+                            "desc": "Overall up signal"
+                        }
                     ]
                 },
                 "derivatives": {
@@ -169,13 +348,34 @@
                 }
             },
             "transformations": [
-                {"step": 1, "action": "Aggregate depth by bucket (at/near/mid/far) per side"},
-                {"step": 2, "action": "Compute center-of-mass distance per side"},
-                {"step": 3, "action": "Compute base features f1-f9 (ask) and f3-f4 (bid)"},
-                {"step": 4, "action": "Compute vacuum features f5-f7"},
-                {"step": 5, "action": "Derive up features u1-u19 from base"},
-                {"step": 6, "action": "Compute d1/d2/d3 for all 49 features"},
-                {"step": 7, "action": "Compute approach_dir from 3-bar spot trend"}
+                {
+                    "step": 1,
+                    "action": "Aggregate depth by bucket (at/near/mid/far) per side"
+                },
+                {
+                    "step": 2,
+                    "action": "Compute center-of-mass distance per side"
+                },
+                {
+                    "step": 3,
+                    "action": "Compute base features f1-f9 (ask) and f3-f4 (bid)"
+                },
+                {
+                    "step": 4,
+                    "action": "Compute vacuum features f5-f7"
+                },
+                {
+                    "step": 5,
+                    "action": "Derive up features u1-u19 from base"
+                },
+                {
+                    "step": 6,
+                    "action": "Compute d1/d2/d3 for all 49 features"
+                },
+                {
+                    "step": 7,
+                    "action": "Compute approach_dir from 3-bar spot trend"
+                }
             ]
         },
         "silver.future_mbo.vacuum_surface_1s": {
@@ -184,30 +384,97 @@
             "description": "Vacuum physics. Per-level pull forces.",
             "spatial": true,
             "fields": {
-                "window_start_ts_ns": {"type": "long"},
-                "window_end_ts_ns": {"type": "long"},
-                "price_int": {"type": "long"},
-                "side": {"type": "string"},
-                "spot_ref_price_int": {"type": "long"},
-                "rel_ticks": {"type": "int"},
-                "pull_intensity_rest": {"type": "double", "desc": "Fraction pulled"},
-                "pull_add_log": {"type": "double", "desc": "Log(pull/add)"},
-                "d1_pull_add_log": {"type": "double"},
-                "d2_pull_add_log": {"type": "double"},
-                "d3_pull_add_log": {"type": "double"},
-                "wall_strength_log": {"type": "double", "desc": "Log wall size"},
-                "wall_erosion": {"type": "double", "desc": "Decay rate"},
-                "vacuum_score": {"type": "double", "desc": "0-1 normalized composite"},
-                "window_valid": {"type": "boolean"}
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "price_int": {
+                    "type": "long"
+                },
+                "side": {
+                    "type": "string"
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                },
+                "rel_ticks": {
+                    "type": "int"
+                },
+                "pull_intensity_rest": {
+                    "type": "double",
+                    "desc": "Fraction pulled"
+                },
+                "pull_add_log": {
+                    "type": "double",
+                    "desc": "Log(pull/add)"
+                },
+                "d1_pull_add_log": {
+                    "type": "double"
+                },
+                "d2_pull_add_log": {
+                    "type": "double"
+                },
+                "d3_pull_add_log": {
+                    "type": "double"
+                },
+                "wall_strength_log": {
+                    "type": "double",
+                    "desc": "Log wall size"
+                },
+                "wall_erosion": {
+                    "type": "double",
+                    "desc": "Decay rate"
+                },
+                "vacuum_score": {
+                    "type": "double",
+                    "desc": "0-1 normalized composite"
+                },
+                "window_valid": {
+                    "type": "boolean"
+                }
             },
             "transformations": [
-                {"step": 1, "field": "pull_intensity_rest", "formula": "pull_qty_rest / (depth_start + EPS)", "source": "wall_surface"},
-                {"step": 2, "field": "pull_add_log", "formula": "log((pull_rest + EPS) / (add + EPS))", "source": "wall_surface"},
-                {"step": 3, "field": "wall_erosion", "formula": "max(-d1_depth_qty, 0)", "source": "wall_surface"},
-                {"step": 4, "field": "wall_strength_log", "formula": "log(depth_rest + 1)", "source": "wall_surface"},
-                {"step": 5, "field": "d1_pull_add_log", "formula": "diff(pull_add_log) by (side, price)"},
-                {"step": 6, "field": "d2_pull_add_log", "formula": "diff(d1)"},
-                {"step": 7, "field": "d3_pull_add_log", "formula": "diff(d2)"},
+                {
+                    "step": 1,
+                    "field": "pull_intensity_rest",
+                    "formula": "pull_qty_rest / (depth_start + EPS)",
+                    "source": "wall_surface"
+                },
+                {
+                    "step": 2,
+                    "field": "pull_add_log",
+                    "formula": "log((pull_rest + EPS) / (add + EPS))",
+                    "source": "wall_surface"
+                },
+                {
+                    "step": 3,
+                    "field": "wall_erosion",
+                    "formula": "max(-d1_depth_qty, 0)",
+                    "source": "wall_surface"
+                },
+                {
+                    "step": 4,
+                    "field": "wall_strength_log",
+                    "formula": "log(depth_rest + 1)",
+                    "source": "wall_surface"
+                },
+                {
+                    "step": 5,
+                    "field": "d1_pull_add_log",
+                    "formula": "diff(pull_add_log) by (side, price)"
+                },
+                {
+                    "step": 6,
+                    "field": "d2_pull_add_log",
+                    "formula": "diff(d1)"
+                },
+                {
+                    "step": 7,
+                    "field": "d3_pull_add_log",
+                    "formula": "diff(d2)"
+                },
                 {
                     "step": 8,
                     "field": "vacuum_score",
@@ -227,58 +494,174 @@
             "frontend_stream": "physics",
             "produced_by": "SilverComputePhysicsBands1s",
             "description": "Aggregated physics by spatial band.",
-            "bands": {"at": [0,2], "near": [3,5], "mid": [6,14], "far": [15,20]},
-            "directions": ["above", "below"],
+            "bands": {
+                "at": [
+                    0,
+                    2
+                ],
+                "near": [
+                    3,
+                    5
+                ],
+                "mid": [
+                    6,
+                    14
+                ],
+                "far": [
+                    15,
+                    20
+                ]
+            },
+            "directions": [
+                "above",
+                "below"
+            ],
             "fields": {
-                "window_start_ts_ns": {"type": "long"},
-                "window_end_ts_ns": {"type": "long"},
-                "spot_ref_price_int": {"type": "long"},
-                "mid_price": {"type": "double"},
-                "mid_price_int": {"type": "long"},
-                "{dir}_{band}_wall_strength_norm": {"type": "double", "desc": "0-1"},
-                "{dir}_{band}_wall_erosion_norm": {"type": "double", "desc": "0-1"},
-                "{dir}_{band}_vacuum_norm": {"type": "double", "desc": "0-1"},
-                "above_score": {"type": "double", "desc": "Ease-of-movement up"},
-                "below_score": {"type": "double", "desc": "Ease-of-movement down"},
-                "vacuum_total_score": {"type": "double"}
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                },
+                "mid_price": {
+                    "type": "double"
+                },
+                "mid_price_int": {
+                    "type": "long"
+                },
+                "{dir}_{band}_wall_strength_norm": {
+                    "type": "double",
+                    "desc": "0-1"
+                },
+                "{dir}_{band}_wall_erosion_norm": {
+                    "type": "double",
+                    "desc": "0-1"
+                },
+                "{dir}_{band}_vacuum_norm": {
+                    "type": "double",
+                    "desc": "0-1"
+                },
+                "above_score": {
+                    "type": "double",
+                    "desc": "Ease-of-movement up"
+                },
+                "below_score": {
+                    "type": "double",
+                    "desc": "Ease-of-movement down"
+                },
+                "vacuum_total_score": {
+                    "type": "double"
+                }
             },
             "transformations": [
-                {"step": 1, "action": "Filter wall_surface to valid bands by |rel_ticks|"},
-                {"step": 2, "action": "Assign direction: above if side=A & rel>0, below if side=B & rel<0"},
-                {"step": 3, "field": "wall_strength_log", "formula": "log(depth_rest + 1)"},
-                {"step": 4, "field": "log1p_erosion", "formula": "log1p(max(-d1_depth, 0) / (depth_start + EPS))"},
-                {"step": 5, "action": "Aggregate mean(wall_strength_log, erosion) by (window, dir, band)"},
-                {"step": 6, "action": "Join vacuum_surface, aggregate mean(vacuum_score)"},
-                {"step": 7, "field": "wall_strength_norm", "formula": "norm(wall_strength_log)"},
-                {"step": 8, "field": "wall_erosion_norm", "formula": "norm(log1p_erosion)"},
+                {
+                    "step": 1,
+                    "action": "Filter wall_surface to valid bands by |rel_ticks|"
+                },
+                {
+                    "step": 2,
+                    "action": "Assign direction: above if side=A & rel>0, below if side=B & rel<0"
+                },
+                {
+                    "step": 3,
+                    "field": "wall_strength_log",
+                    "formula": "log(depth_rest + 1)"
+                },
+                {
+                    "step": 4,
+                    "field": "log1p_erosion",
+                    "formula": "log1p(max(-d1_depth, 0) / (depth_start + EPS))"
+                },
+                {
+                    "step": 5,
+                    "action": "Aggregate mean(wall_strength_log, erosion) by (window, dir, band)"
+                },
+                {
+                    "step": 6,
+                    "action": "Join vacuum_surface, aggregate mean(vacuum_score)"
+                },
+                {
+                    "step": 7,
+                    "field": "wall_strength_norm",
+                    "formula": "norm(wall_strength_log)"
+                },
+                {
+                    "step": 8,
+                    "field": "wall_erosion_norm",
+                    "formula": "norm(log1p_erosion)"
+                },
                 {
                     "step": 9,
                     "field": "ease (hidden)",
                     "formula": "0.50*vacuum_norm + 0.35*wall_erosion_norm + 0.15*(1 - wall_strength_norm)"
                 },
-                {"step": 10, "field": "above_score", "formula": "0.60*above_at_ease + 0.40*above_near_ease"},
-                {"step": 11, "field": "below_score", "formula": "0.60*below_at_ease + 0.40*below_near_ease"},
-                {"step": 12, "field": "vacuum_total_score", "formula": "(above_score + below_score) / 2"}
+                {
+                    "step": 10,
+                    "field": "above_score",
+                    "formula": "0.60*above_at_ease + 0.40*above_near_ease"
+                },
+                {
+                    "step": 11,
+                    "field": "below_score",
+                    "formula": "0.60*below_at_ease + 0.40*below_near_ease"
+                },
+                {
+                    "step": 12,
+                    "field": "vacuum_total_score",
+                    "formula": "(above_score + below_score) / 2"
+                }
             ]
         },
         "silver.future_option.statistics_clean": {
             "produced_by": "SilverComputeStatisticsClean",
             "description": "Deduped options open interest.",
             "fields": {
-                "ts_event_ns": {"type": "long"},
-                "ts_event_est": {"type": "string"},
-                "ts_recv_ns": {"type": "long"},
-                "source": {"type": "string"},
-                "underlying": {"type": "string"},
-                "option_symbol": {"type": "string"},
-                "exp_date": {"type": ["null", "string"]},
-                "strike": {"type": "double"},
-                "right": {"type": "string"},
-                "open_interest": {"type": "double"}
+                "ts_event_ns": {
+                    "type": "long"
+                },
+                "ts_event_est": {
+                    "type": "string"
+                },
+                "ts_recv_ns": {
+                    "type": "long"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "underlying": {
+                    "type": "string"
+                },
+                "option_symbol": {
+                    "type": "string"
+                },
+                "exp_date": {
+                    "type": [
+                        "null",
+                        "string"
+                    ]
+                },
+                "strike": {
+                    "type": "double"
+                },
+                "right": {
+                    "type": "string"
+                },
+                "open_interest": {
+                    "type": "double"
+                }
             },
             "transformations": [
-                {"step": 1, "action": "Sort by ts_event_ns"},
-                {"step": 2, "action": "Group by option_symbol, take last"}
+                {
+                    "step": 1,
+                    "action": "Sort by ts_event_ns"
+                },
+                {
+                    "step": 2,
+                    "action": "Group by option_symbol, take last"
+                }
             ]
         },
         "silver.future_option_mbo.gex_surface_1s": {
@@ -286,52 +669,163 @@
             "produced_by": "SilverComputeGexSurface1s",
             "description": "Gamma Exposure from 0DTE options.",
             "spatial": true,
-            "grid": {"step": 5, "offsets": 12, "range": "±60 points"},
+            "grid": {
+                "step": 5,
+                "offsets": 12,
+                "range": "±60 points"
+            },
             "fields": {
-                "window_start_ts_ns": {"type": "long"},
-                "window_end_ts_ns": {"type": "long"},
-                "underlying": {"type": "string"},
-                "strike_price_int": {"type": "long"},
-                "underlying_spot_ref": {"type": "double"},
-                "strike_points": {"type": "double"},
-                "gex_call_abs": {"type": "double"},
-                "gex_put_abs": {"type": "double"},
-                "gex_abs": {"type": "double"},
-                "gex": {"type": "double"},
-                "gex_imbalance_ratio": {"type": "double"},
-                "d1_gex_abs": {"type": "double"},
-                "d2_gex_abs": {"type": "double"},
-                "d3_gex_abs": {"type": "double"},
-                "d1_gex": {"type": "double"},
-                "d2_gex": {"type": "double"},
-                "d3_gex": {"type": "double"},
-                "d1_gex_imbalance_ratio": {"type": "double"},
-                "d2_gex_imbalance_ratio": {"type": "double"},
-                "d3_gex_imbalance_ratio": {"type": "double"}
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "underlying": {
+                    "type": "string"
+                },
+                "strike_price_int": {
+                    "type": "long"
+                },
+                "underlying_spot_ref": {
+                    "type": "double"
+                },
+                "spot_ref_price_int": {
+                    "type": "long",
+                    "desc": "Tick-aligned spot anchor (integer)"
+                },
+                "rel_ticks": {
+                    "type": "int",
+                    "desc": "Ticks relative to spot_ref_price_int"
+                },
+                "strike_points": {
+                    "type": "double"
+                },
+                "gex_call_abs": {
+                    "type": "double"
+                },
+                "gex_put_abs": {
+                    "type": "double"
+                },
+                "gex_abs": {
+                    "type": "double"
+                },
+                "gex": {
+                    "type": "double"
+                },
+                "gex_imbalance_ratio": {
+                    "type": "double"
+                },
+                "d1_gex_abs": {
+                    "type": "double"
+                },
+                "d2_gex_abs": {
+                    "type": "double"
+                },
+                "d3_gex_abs": {
+                    "type": "double"
+                },
+                "d1_gex": {
+                    "type": "double"
+                },
+                "d2_gex": {
+                    "type": "double"
+                },
+                "d3_gex": {
+                    "type": "double"
+                },
+                "d1_gex_imbalance_ratio": {
+                    "type": "double"
+                },
+                "d2_gex_imbalance_ratio": {
+                    "type": "double"
+                },
+                "d3_gex_imbalance_ratio": {
+                    "type": "double"
+                }
             },
             "transformations": [
-                {"step": 1, "action": "Filter definitions to 0DTE (expiry == session_date)"},
-                {"step": 2, "action": "Filter to options with OI > 0"},
-                {"step": 3, "action": "Process options MBO → mid_price per (window, instrument)"},
-                {"step": 4, "action": "Join futures spot from book_snapshot_1s"},
-                {"step": 5, "field": "T", "formula": "(expiry_ns - window_ns) / 1e9 / 86400 / 365"},
-                {"step": 6, "field": "iv", "formula": "Newton-Raphson (3 iter) on BS price"},
-                {"step": 7, "field": "d1", "formula": "(ln(F/K) + 0.5*iv²*T) / (iv*√T)"},
-                {"step": 8, "field": "gamma", "formula": "e^(-rT) * N'(d1) / (F * iv * √T)"},
-                {"step": 9, "field": "gex", "formula": "gamma * OI * 50"},
-                {"step": 10, "action": "Build grid: round(spot/5)*5 ± 60"},
-                {"step": 11, "action": "Aggregate by (window, strike, is_call)"},
-                {"step": 12, "field": "gex_abs", "formula": "call + put"},
-                {"step": 13, "field": "gex", "formula": "call - put"},
-                {"step": 14, "field": "gex_imbalance_ratio", "formula": "gex / (gex_abs + EPS)"},
-                {"step": 15, "action": "Compute d1/d2/d3 by strike"}
+                {
+                    "step": 1,
+                    "action": "Filter definitions to 0DTE (expiry == session_date)"
+                },
+                {
+                    "step": 2,
+                    "action": "Filter to options with OI > 0"
+                },
+                {
+                    "step": 3,
+                    "action": "Process options MBO → mid_price per (window, instrument)"
+                },
+                {
+                    "step": 4,
+                    "action": "Join futures spot from book_snapshot_1s"
+                },
+                {
+                    "step": 5,
+                    "field": "T",
+                    "formula": "(expiry_ns - window_ns) / 1e9 / 86400 / 365"
+                },
+                {
+                    "step": 6,
+                    "field": "iv",
+                    "formula": "Newton-Raphson (3 iter) on BS price"
+                },
+                {
+                    "step": 7,
+                    "field": "d1",
+                    "formula": "(ln(F/K) + 0.5*iv²*T) / (iv*√T)"
+                },
+                {
+                    "step": 8,
+                    "field": "gamma",
+                    "formula": "e^(-rT) * N'(d1) / (F * iv * √T)"
+                },
+                {
+                    "step": 9,
+                    "field": "gex",
+                    "formula": "gamma * OI * 50"
+                },
+                {
+                    "step": 10,
+                    "action": "Build grid: round(spot/5)*5 ± 60"
+                },
+                {
+                    "step": 11,
+                    "action": "Aggregate by (window, strike, is_call)"
+                },
+                {
+                    "step": 12,
+                    "field": "gex_abs",
+                    "formula": "call + put"
+                },
+                {
+                    "step": 13,
+                    "field": "gex",
+                    "formula": "call - put"
+                },
+                {
+                    "step": 14,
+                    "field": "gex_imbalance_ratio",
+                    "formula": "gex / (gex_abs + EPS)"
+                },
+                {
+                    "step": 15,
+                    "action": "Compute d1/d2/d3 by strike"
+                }
             ]
         }
     },
     "calibration": {
         "dataset": "gold.hud.physics_norm_calibration",
         "norm_function": "clip((val - q05) / (q95 - q05), 0, 1)",
-        "metrics": ["pull_add_log", "log1p_pull_intensity_rest", "log1p_erosion_norm", "d2_pull_add_log", "wall_strength_log"]
+        "metrics": [
+            "pull_add_log",
+            "log1p_pull_intensity_rest",
+            "log1p_erosion_norm",
+            "d2_pull_add_log",
+            "wall_strength_log"
+        ]
     },
     "constants": {
         "WINDOW_NS": 1000000000,

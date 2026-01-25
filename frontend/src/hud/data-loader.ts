@@ -9,6 +9,8 @@ export interface GexRow {
     window_end_ts_ns: bigint;
     underlying: string;
     strike_price_int: bigint;
+    spot_ref_price_int: bigint;
+    rel_ticks: number;
     underlying_spot_ref: number;
     strike_points: number;
     gex_call_abs: number;
@@ -22,6 +24,7 @@ export interface GexRow {
 export interface SnapshotRow {
     window_end_ts_ns: bigint;
     mid_price: number;
+    spot_ref_price_int: bigint;
     book_valid: boolean;
     [key: string]: any;
 }
