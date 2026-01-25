@@ -147,18 +147,20 @@ export class HUDState {
         // 1. Physics
         for (const r of this.physicsData) {
             const p = Number(r.mid_price);
-            if (!isNaN(p)) map.set(r.window_end_ts_ns, p);
+            if (!isNaN(p) && p > 100) map.set(r.window_end_ts_ns, p);
         }
 
         // 2. GEX
         for (const r of this.gexData) {
-            if (r.underlying_spot_ref) map.set(r.window_end_ts_ns, Number(r.underlying_spot_ref));
+            if (r.underlying_spot_ref && Number(r.underlying_spot_ref) > 100) {
+                map.set(r.window_end_ts_ns, Number(r.underlying_spot_ref));
+            }
         }
 
         // 3. Snap (authoritative)
         for (const r of this.spotData) {
             const p = Number(r.mid_price);
-            if (!isNaN(p)) map.set(r.window_end_ts_ns, p);
+            if (!isNaN(p) && p > 100) map.set(r.window_end_ts_ns, p);
         }
         return map;
     }

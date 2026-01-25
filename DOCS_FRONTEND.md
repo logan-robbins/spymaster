@@ -1,86 +1,81 @@
 # Frontend - AI Agent Reference
 
-## Launch
+## Launch Instructions
+**Backend**:
+```bash
+uv run python -m src.serving.main
+```
+**Frontend**:
 ```bash
 cd frontend
 npm run dev
-# Requires backend running: uv run python -m src.serving.main
+# Dashboard available at: http://localhost:5173
 ```
 
-## Architecture
+## Architecture (World Space First)
+The renderer uses a **World Space** coordinate system where:
+- **X-axis (Time)**: 0 = "Now" (Latest Snapshot). Scale: `0.1 units/sec`.
+- **Y-axis (Price)**: 0 = "Spot Price at t=Now". Scale: `1.0 units/$`.
+
+The View uses an Orthographic Camera that pans/zooms over this world space.
+- **Layers** (Physics, Wall, GEX) are static meshes positioned at `Z` depths.
+- **Grid/Axis** are drawn based on **Absolute Price Levels** (e.g., `.00`, `.25`) projected into this relative world space.
 
 ```
 WebSocket (Arrow IPC) → data-loader.ts → state.ts → renderer.ts (WebGL)
 ```
 
-## Files
+## Files & Responsibilities
 
-| File | Modify When |
-|------|-------------|
-| `src/main.ts` | Connection logic, batch handling, HMR disposal |
-| `src/hud/data-loader.ts` | WebSocket parsing, Arrow IPC decoding |
-| `src/hud/state.ts` | Data history, spot price extraction |
-| `src/hud/renderer.ts` | WebGL layers, GEX density, spot line |
-| `src/hud/grid-layer.ts` | Scrolling texture for wall/vacuum/physics/GEX |
+| File | Primary Responsibility |
+|------|------------------------|
+| `src/main.ts` | WebSocket connection, batching, HMR disposal logic. |
+| `src/hud/data-loader.ts` | Arrow IPC decoding, schema parsing. |
+| `src/hud/state.ts` | Data buffer management. **Robustness**: Filters invalid spot prices (<=100). |
+| `src/hud/renderer.ts` | WebGL scene, camera logic, **Absolute Axis Alignment**, Smoothing. |
+| `src/hud/grid-layer.ts` | Ring-buffer textures. **Linear Filtering** enabled for smoothness. |
 
 ## Streams Received
 
 | Stream | Rows/Window | Key Fields | Renderer Method |
 |--------|-------------|------------|-----------------|
-| `snap` | 1 | `mid_price`, `book_valid` | state.setSpotData |
-| `wall` | ~40-80 | `rel_ticks`, `side`, `depth_qty_rest` | renderer.updateWall |
-| `vacuum` | ~40-80 | `rel_ticks`, `vacuum_score` | renderer.updateVacuum |
-| `physics` | 1 | `mid_price`, `above_score`, `below_score` | renderer.updatePhysics |
-| `gex` | 25 | `strike_points`, `gex_abs`, `gex_imbalance_ratio` | renderer.updateGex |
-| `radar` | 1 | ~200 ML features | **IGNORED** (future ML inference) |
+| `snap` | 1 | `mid_price` | `state.updateSpot` |
+| `physics`| 1 | `above_score`, `below_score` | `renderer.updatePhysics` (Applies Convolution) |
+| `wall` | ~40-80 | `rel_ticks`, `side`, `qty` | `renderer.updateWall` |
+| `vacuum` | ~40-80 | `vacuum_score`, `erosion` | `renderer.updateVacuum` |
+| `gex` | ~25 | `strike`, `gex_abs` | `renderer.updateGex` |
 
-## Grid Layer
+## Rendering Logic
 
+### 1. Robustness (Zero-Snapping Fix)
+- `state.ts` rejects any spot price <= 100.
+- `renderer.ts` maintains `lastValidSpot`. If the data stream sends an empty/invalid spot, the renderer holds the last known goodY position to prevent the view from snapping to 0.
+
+### 2. Alignment (Absolute Axis)
+- **Grid Lines**: Drawn at `Math.floor(price / step) * step`.
+- **Labels**: Iterated in **Absolute Price Space** (e.g. `6950.00`, `6950.25`).
+- **Spot Line**: Floats freely between grid lines (e.g. `6950.38`).
+
+### 3. Layer Z-Order
 ```
-GridLayer(width, height)
-- width = seconds of history (1800 = 30 min)
-- height = ticks from center (800 = ±400 ticks = ±$100)
-- write(relTicks, [r,g,b,a]) → paint cell at current time column
-- advance() → scroll time forward 1 second
+-0.02  physicsLayer   (Gradient + Convolution)
+ 0.00  wallLayer      (Liquidity)
+ 0.01  gexLayer       (Gamma Exposure)
+ 0.015 vacuumLayer    (Erosion Overlay)
+ 0.02  gridGroup      (Absolute Grid Lines)
+ 2.00  priceLineGroup (Spot Line & Marker)
 ```
 
-## Renderer Methods
-
-```typescript
-updateWall(data: any[])     // Blue asks (side='A'), red bids (side='B')
-updateVacuum(data: any[])   // Black erosion overlay (vacuum + wall_erosion)
-updatePhysics(data: any[])  // Green above spot (above_score), red below (below_score)
-updateGex(data: any[])      // Tick-aligned density bands (overlap thickens)
-createPriceLine(spots, numWindows)  // Cyan spot line + marker
-```
-
-## Layer Z-Order
-
-```
--0.02  physicsLayer   (directional gradient)
- 0.00  wallLayer      (liquidity)
- 0.01  gexLayer       (tick-aligned density)
- 0.015 vacuumLayer    (erosion overlay)
- 0.02  gridGroup      (price grid lines)
- 1.00  priceLineGroup (spot line)
-```
+## Configuration Constants
+- `DEFAULT_PRICE_RANGE`: **20** (Total vertical units visible).
+- `SEC_PER_UNIT_X`: **0.1** (10 units = 100 seconds).
+- `HISTORY_SECONDS`: **1800** (30 minute buffer).
 
 ## Debugging
 
 | Symptom | Check |
 |---------|-------|
-| "Connecting..." forever | data-loader.ts onmessage, backend running |
-| Black screen | state.ts ranges, WebGL context lost |
-| No spot line | state.ts append vs replace, need ≥2 points |
-| No physics gradient | main.ts calling renderer.updatePhysics |
-
-## HMR Requirement
-
-```typescript
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    cancelAnimationFrame(animationId);
-    renderer.dispose();
-  });
-}
-```
+| "Connecting..." forever | Check backend terminal. Check `data-loader.ts` WebSocket URL. |
+| View snaps to $0 | Check `lastValidSpot` logic in `renderer.ts`. Check stream for 0-price packets. |
+| Grid misalignment | Verify `updateOverlay` loops over `price += step` (Absolute), not `y += step`. |
+| Pixelated Physics | Verify `LinearFilter` is enabled in `grid-layer.ts`. |

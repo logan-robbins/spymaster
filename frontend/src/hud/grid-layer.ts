@@ -25,7 +25,7 @@ export class GridLayer {
         this.texture = new THREE.DataTexture(this.data, width, height);
         this.texture.format = THREE.RGBAFormat;
         this.texture.type = THREE.FloatType;
-        const useLinearFilter = type === 'physics';
+        const useLinearFilter = type === 'physics' || type === 'wall' || type === 'gex';
         this.texture.minFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
         this.texture.magFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
         this.texture.wrapS = THREE.RepeatWrapping;
