@@ -69,23 +69,23 @@
    8.2. If backend emits only `strike_price_int` and `spot_ref_price_int`: compute `rel_ticks_gex = (strike_price_int - spot_ref_price_int)/TICK_INT` (integer).
    8.3. Frontend should hard-assert `rel_ticks_gex % 20 == 0`; if not, snap to nearest 20-tick bucket and increment a counter.
 
-9. **[FRONTEND: TEXTURE FILTERING] Force pixel-perfect buckets (fixes “continuous numbers for buckets”).** 
+9. **[FRONTEND: TEXTURE FILTERING] Force pixel-perfect buckets (fixes “continuous numbers for buckets”). [COMPLETE]** 
    9.1. Use `NearestFilter` for `minFilter` and `magFilter` for ALL physics grids when in “bucketed” mode (at least for wall + gex + per-tick physics).
    9.2. If you want smoothing, do it explicitly (convolution over buckets), not via bilinear texture sampling.
 
-10. **[FRONTEND: COLOR SCALE CONSISTENCY] Normalize wall encoding (currently mixes 0..255 RGB with 0..1 alpha).** 
+10. **[FRONTEND: COLOR SCALE CONSISTENCY] Normalize wall encoding (currently mixes 0..255 RGB with 0..1 alpha). [COMPLETE]** 
     10.1. Choose ONE representation for all layers:
 
 * Option A: store all RGBA as 0..1 floats in texture; shader outputs directly.
 * Option B: store all RGBA as 0..255; shader divides by 255 for every layer.
   10.2. Apply the chosen representation consistently to wall/vacuum/physics/gex so one layer doesn’t clamp to white and mask others.
 
-11. **[FRONTEND: LAYER VISIBILITY] Ensure GEX is not being visually masked by vacuum/physics overlays.** 
+11. **[FRONTEND: LAYER VISIBILITY] Ensure GEX is not being visually masked by vacuum/physics overlays. [COMPLETE]** 
     11.1. Render order fix: ensure gex is drawn AFTER vacuum if vacuum is black-alpha overlay (otherwise it darkens gex).
     11.2. If keeping Z-sorting, set explicit `renderOrder` per layer (don’t rely on z alone with transparent blending).
     11.3. Add a debug toggle: show ONLY gex layer (others hidden) to validate $5 alignment independent of masking.
 
-12. **[FRONTEND: TIME GAP FILL] Maintain “1 column = 1 second” even if the stream skips windows.** 
+12. **[FRONTEND: TIME GAP FILL] Maintain “1 column = 1 second” even if the stream skips windows. [COMPLETE]** 
     12.1. Track last `window_end_ts_ns` advanced.
     12.2. If `Δt_seconds > 1`, advance the ring buffer `Δt_seconds` times inserting empty/carry-forward columns so the x-axis remains true-time aligned.
 
@@ -121,7 +121,7 @@
   16.2. Then apply current-second injections (writes) on top of the decayed field (e.g., max or additive with clamp).
   16.3. Keep `τ` configurable per layer (physics vs wall vs vacuum).
 
-17. **[GEX VISUAL BUCKET HEIGHT] Enforce “few ticks high, not 1 full strike” while still aligning to $5 levels.** 
+17. **[GEX VISUAL BUCKET HEIGHT] Enforce “few ticks high, not 1 full strike” while still aligning to $5 levels. [COMPLETE]** 
     17.1. Compute the strike center row as tick index (multiples of 20).
     17.2. Draw a constant small band height `h_ticks` (e.g., 2–4 ticks) around that strike row (centered), independent of strike spacing.
     17.3. Do NOT scale the band height up to 20 ticks (a full $5 strike block) unless explicitly in “coarse strike mode”.
@@ -143,6 +143,6 @@
   relative to spot (row 0).
   19.2. Display per-tick diagnostics in HUD: current `spot_ref_tick`, current `head`, last window_end_ts, and per-stream row counts for that second.
 
-20. **[REMOVE AMBIGUOUS “MID” ANCHORING] Decide one canonical spot anchor for grid alignment and use it everywhere.**
+20. **[REMOVE AMBIGUOUS “MID” ANCHORING] Decide one canonical spot anchor for grid alignment and use it everywhere. [COMPLETE]**
     20.1. Canonical for bucket visuals: `spot_ref_price_int` (tick-aligned) from `book_snapshot_1s`. 
     20.2. If you still want a smoother visible line, render mid_price as a separate cosmetic line, but DO NOT let it drive tick anchoring / rectification.

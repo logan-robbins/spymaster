@@ -33,10 +33,39 @@ let pendingTickTs: bigint | null = null;
 let advancedTickTs: bigint | null = null;
 
 const maybeAdvanceForTick = () => {
-  if (pendingTickTs === null || advancedTickTs === pendingTickTs) return false;
-  const spotsByTime = state.getSpotsByTime();
-  if (!spotsByTime.has(pendingTickTs)) return false;
-  renderer.advanceLayers();
+  if (pendingTickTs === null) return false;
+
+  // First initialization
+  if (advancedTickTs === null) {
+    advancedTickTs = pendingTickTs;
+    // We don't advance on first frame, just set the anchor? 
+    // Or should we start the first column?
+    // Let's assume the first render loop handles valid state.
+    // But advanceLayers logic pushes a new column.
+    renderer.advanceLayers();
+    return true;
+  }
+
+  if (advancedTickTs === pendingTickTs) return false;
+
+  // Task 12: Time Gap Fill
+  // Calculate seconds elapsed
+  const diffNs = Number(pendingTickTs - advancedTickTs);
+  const diffSec = Math.round(diffNs / 1e9);
+
+  if (diffSec <= 0) {
+    // Out of order or duplicate? Ignore.
+    return false;
+  }
+
+  // If gap > 1s, we must advance multiple times to keep X-axis aligned.
+  // We cap it at, say, 60s to prevent freezing on huge wake-up gaps.
+  const steps = Math.min(diffSec, 60);
+
+  for (let i = 0; i < steps; i++) {
+    renderer.advanceLayers();
+  }
+
   advancedTickTs = pendingTickTs;
   return true;
 };

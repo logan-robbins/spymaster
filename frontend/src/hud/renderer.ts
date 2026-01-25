@@ -179,10 +179,18 @@ export class HUDRenderer {
             g = Math.min(255, g * colorScale);
             b = Math.min(255, b * colorScale);
 
+            // Task 10: Normalize colors to 0..1
+            // r, g, b are roughly 130..255 range.
+            const rNorm = r / 255.0;
+            const gNorm = g / 255.0;
+            const bNorm = b / 255.0;
+            // alpha is density * 220, max 255.
+            const alphaNorm = alphaBase / 255.0;
+
             for (let offset = -band; offset <= band; offset++) {
                 const falloff = 1 - Math.abs(offset) / (band + 1);
-                const alpha = alphaBase * falloff;
-                this.gexLayer.write(relTicks + offset, [r * falloff, g * falloff, b * falloff, alpha]);
+                const a = alphaNorm * falloff;
+                this.gexLayer.write(relTicks + offset, [rNorm * falloff, gNorm * falloff, bNorm * falloff, a]);
             }
         }
     }
@@ -198,16 +206,17 @@ export class HUDRenderer {
             const distanceFade = Math.max(0, 1 - tick / maxTicks);
             const intensity = aboveScore * distanceFade;
             if (intensity > 0.02) {
-                const alpha = intensity * 60;
-                this.physicsLayer.write(tick, [20, 180, 80, alpha]);
+                // Task 10: Normalize [20, 180, 80] to 0..1
+                const alpha = intensity; // Intensity is already 0..1 (roughly)
+                this.physicsLayer.write(tick, [20 / 255, 180 / 255, 80 / 255, alpha]);
             }
         }
         for (let tick = 1; tick <= maxTicks; tick++) {
             const distanceFade = Math.max(0, 1 - tick / maxTicks);
             const intensity = belowScore * distanceFade;
             if (intensity > 0.02) {
-                const alpha = intensity * 60;
-                this.physicsLayer.write(-tick, [180, 40, 40, alpha]);
+                const alpha = intensity;
+                this.physicsLayer.write(-tick, [180 / 255, 40 / 255, 40 / 255, alpha]);
             }
         }
     }
@@ -281,10 +290,11 @@ export class HUDRenderer {
         });
 
         // Set specific Z depths
+        // Set specific Z depths (Task 11: GEX must be on top of Vacuum)
         this.physicsLayer.getMesh().position.z = -0.02;
-        this.vacuumLayer.getMesh().position.z = 0.015;
         this.wallLayer.getMesh().position.z = 0.0;
-        this.gexLayer.getMesh().position.z = 0.01;
+        this.vacuumLayer.getMesh().position.z = 0.015;
+        this.gexLayer.getMesh().position.z = 0.02; // Moved in front of vacuum (was 0.01)
     }
 
     setZoom(level: number): void {
@@ -500,31 +510,31 @@ export class HUDRenderer {
         // This is strictly the latest known spot price.
         // It defines Y=0.
         const snapData = this.state.getSpotData();
-        const gexData = this.state.getGexData();
+        // const gexData = this.state.getGexData();
 
-        let candidateSpot = 0;
-        if (snapData.length > 0) candidateSpot = Number(snapData[snapData.length - 1].mid_price);
-        else if (gexData.length > 0) candidateSpot = Number(gexData[gexData.length - 1].underlying_spot_ref || 0);
+        // Task 20: Canonical Spot Anchoring
+        // We must use spot_ref_price_int (Tick Aligned) for the Grid/Camera anchor.
+        // MidPrice is cosmetic only (drawn as line).
 
-        // Update robust spot
-        if (candidateSpot > 100) {
-            this.lastValidSpot = candidateSpot;
+        const spotRefInt = this.state.getSpotRefInt();
+        let anchorPrice = 6000.0;
+
+        if (spotRefInt > 0n) {
+            anchorPrice = Number(spotRefInt) * PRICE_SCALE;
+        } else {
+            // Fallback if no parsed int yet
+            if (snapData.length > 0) anchorPrice = Number(snapData[snapData.length - 1].mid_price);
         }
 
-        const currentSpot = this.lastValidSpot;
+        // Update robust spot
+        if (anchorPrice > 100) {
+            this.lastValidSpot = anchorPrice;
+        }
+
+        const currentSpot = this.lastValidSpot; // This is now SNAP-ALIGNED PRICE
 
         // Update Shaders with this Anchor
-        // Update Shaders with this Anchor
-        // Convert Spot (Float Price) to Tick Index?
-        // Shader expects `uSpotRef` to be comparable to `uSpotHistory` (which is Tick Index).
-        // So we must pass Tick Index here.
-
-        // This visual anchor is used to center the rectified view.
-        // currentSpot (Float e.g. 6000.00) -> Tick Index = 6000.00 / 0.25 = 24000.
-        // wait, uSpotHistory stored `spotRefInt / TICK_INT`.
-
-        // We need consistent basis. 
-        // If we use TICK_INT basis:
+        // Convert to Tick Index
         const currentSpotTick = currentSpot / TICK_SIZE;
 
         this.wallLayer.setSpotRef(currentSpotTick);

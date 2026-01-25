@@ -25,9 +25,10 @@ export class GridLayer {
         this.texture = new THREE.DataTexture(this.data, width, height);
         this.texture.format = THREE.RGBAFormat;
         this.texture.type = THREE.FloatType;
-        const useLinearFilter = type === 'physics' || type === 'wall' || type === 'gex';
-        this.texture.minFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
-        this.texture.magFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
+        // Task 9: Force NearestFilter for bucketed look
+        // Task 9: Force NearestFilter for bucketed look
+        this.texture.minFilter = THREE.NearestFilter;
+        this.texture.magFilter = THREE.NearestFilter;
         this.texture.wrapS = THREE.RepeatWrapping;
         this.texture.wrapT = THREE.ClampToEdgeWrapping;
         this.texture.needsUpdate = true;
@@ -204,7 +205,7 @@ export class GridLayer {
                    if (uv.y < 0.0 || uv.y > 1.0) discard;
 
                    vec4 data = texture2D(map, uv);
-                   gl_FragColor = data / 255.0; 
+                   gl_FragColor = data; // Task 10: Colors are 0..1 
                 }
             `;
         }
