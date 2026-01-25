@@ -92,7 +92,7 @@
             "transformations": [
                 {"step": 1, "field": "mid_price", "formula": "(best_bid + best_ask) * 0.5 * PRICE_SCALE"},
                 {"step": 2, "field": "mid_price_int", "formula": "round((best_bid + best_ask) * 0.5)"},
-                {"step": 3, "field": "spot_ref_price_int", "formula": "last_trade_price_int || best_bid_price_int"}
+                {"step": 3, "field": "spot_ref_price_int", "formula": "last_trade_price_int || (book_valid ? best_bid_price_int : 0)"}
             ]
         },
         "silver.future_mbo.wall_surface_1s": {
@@ -121,7 +121,7 @@
             },
             "transformations": [
                 {"step": 1, "field": "rel_ticks", "formula": "round((price_int - spot_ref) / TICK_INT)"},
-                {"step": 2, "field": "depth_qty_start", "formula": "depth_end - add + pull + fill"},
+                {"step": 2, "field": "depth_qty_start", "formula": "max(depth_end - add + pull + fill, 0)"},
                 {"step": 3, "field": "d1_depth_qty", "formula": "depth_end[t] - depth_end[t-1]"},
                 {"step": 4, "field": "d2_depth_qty", "formula": "d1[t] - d1[t-1]"},
                 {"step": 5, "field": "d3_depth_qty", "formula": "d2[t] - d2[t-1]"}
@@ -271,7 +271,7 @@
                 "source": {"type": "string"},
                 "underlying": {"type": "string"},
                 "option_symbol": {"type": "string"},
-                "exp_date": {"type": "string"},
+                "exp_date": {"type": ["null", "string"]},
                 "strike": {"type": "double"},
                 "right": {"type": "string"},
                 "open_interest": {"type": "double"}

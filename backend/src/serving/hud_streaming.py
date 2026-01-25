@@ -22,6 +22,22 @@ from src.data_eng.stages.silver.future_mbo.compute_physics_bands_1s import Silve
 
 WINDOW_NS = 1_000_000_000
 HUD_HISTORY_WINDOWS = 1800
+HUD_STREAM_MAX_TICKS = 400
+
+STREAM_COLUMNS: Dict[str, List[str]] = {
+    "snap": ["window_end_ts_ns", "mid_price", "book_valid"],
+    "wall": ["window_end_ts_ns", "rel_ticks", "side", "depth_qty_rest"],
+    "vacuum": ["window_end_ts_ns", "rel_ticks", "vacuum_score"],
+    "physics": ["window_end_ts_ns", "mid_price", "above_score", "below_score"],
+    "gex": [
+        "window_end_ts_ns",
+        "strike_points",
+        "underlying_spot_ref",
+        "gex_abs",
+        "gex",
+        "gex_imbalance_ratio",
+    ],
+}
 
 
 @dataclass
@@ -99,12 +115,13 @@ class HudStreamService:
             contract = load_avro_contract(self.repo_root / self.cfg.dataset(ds_key).contract)
             return enforce_contract(read_partition(ref), contract)
 
-        df_snap = _load(snap_key)
-        df_wall = _load(wall_key)
-        df_vacuum = _load(vacuum_key)
-        df_radar = _load(radar_key)
-        df_physics = _load(physics_key)
-        df_gex = _load(gex_key)
+        df_snap = _stream_view(_load(snap_key), "snap")
+        df_wall = _stream_view(_load(wall_key), "wall")
+        df_vacuum = _stream_view(_load(vacuum_key), "vacuum")
+        # Radar is intentionally not streamed to the HUD frontend.
+        df_radar = pd.DataFrame(columns=_columns_for(self.repo_root, self.cfg, radar_key))
+        df_physics = _stream_view(_load(physics_key), "physics")
+        df_gex = _stream_view(_load(gex_key), "gex")
 
         window_ids = df_snap["window_end_ts_ns"].sort_values().unique().astype(int).tolist() if not df_snap.empty else []
 
@@ -118,12 +135,12 @@ class HudStreamService:
         }
 
         columns = {
-            "snap": _columns_for(self.repo_root, self.cfg, snap_key),
-            "wall": _columns_for(self.repo_root, self.cfg, wall_key),
-            "vacuum": _columns_for(self.repo_root, self.cfg, vacuum_key),
+            "snap": STREAM_COLUMNS["snap"],
+            "wall": STREAM_COLUMNS["wall"],
+            "vacuum": STREAM_COLUMNS["vacuum"],
             "radar": _columns_for(self.repo_root, self.cfg, radar_key),
-            "physics": _columns_for(self.repo_root, self.cfg, physics_key),
-            "gex": _columns_for(self.repo_root, self.cfg, gex_key),
+            "physics": STREAM_COLUMNS["physics"],
+            "gex": STREAM_COLUMNS["gex"],
         }
 
         cache = HudStreamCache(
@@ -210,7 +227,15 @@ class HudStreamService:
                 cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"])),
             )
 
-        return ring.frames()
+        frames = ring.frames()
+        return {
+            "snap": _stream_view(frames["snap"], "snap"),
+            "wall": _stream_view(frames["wall"], "wall"),
+            "vacuum": _stream_view(frames["vacuum"], "vacuum"),
+            "radar": pd.DataFrame(columns=cache.columns["radar"]),
+            "physics": _stream_view(frames["physics"], "physics"),
+            "gex": _stream_view(frames["gex"], "gex"),
+        }
 
     def iter_batches(self, symbol: str, dt: str, start_ts_ns: int | None = None) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
         cache = self.load_cache(symbol, dt)
@@ -218,18 +243,32 @@ class HudStreamService:
         for window_id in cache.window_ids:
             if start_ts_ns is not None and window_id < start_ts_ns:
                 continue
-            snap = cache.groups["snap"].get(window_id, pd.DataFrame(columns=cache.columns["snap"]))
-            wall = cache.groups["wall"].get(window_id, pd.DataFrame(columns=cache.columns["wall"]))
-            vacuum = cache.groups["vacuum"].get(window_id, pd.DataFrame(columns=cache.columns["vacuum"]))
-            radar = cache.groups["radar"].get(window_id, pd.DataFrame(columns=cache.columns["radar"]))
-            physics = cache.groups["physics"].get(window_id, pd.DataFrame(columns=cache.columns["physics"]))
-            gex = cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"]))
+            snap = _stream_view(
+                cache.groups["snap"].get(window_id, pd.DataFrame(columns=cache.columns["snap"])),
+                "snap",
+            )
+            wall = _stream_view(
+                cache.groups["wall"].get(window_id, pd.DataFrame(columns=cache.columns["wall"])),
+                "wall",
+            )
+            vacuum = _stream_view(
+                cache.groups["vacuum"].get(window_id, pd.DataFrame(columns=cache.columns["vacuum"])),
+                "vacuum",
+            )
+            physics = _stream_view(
+                cache.groups["physics"].get(window_id, pd.DataFrame(columns=cache.columns["physics"])),
+                "physics",
+            )
+            gex = _stream_view(
+                cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"])),
+                "gex",
+            )
+            radar = pd.DataFrame(columns=cache.columns["radar"])
             ring.append(snap, wall, vacuum, radar, physics, gex)
             yield window_id, {
                 "snap": snap,
                 "wall": wall,
                 "vacuum": vacuum,
-                "radar": radar,
                 "physics": physics,
                 "gex": gex,
             }
@@ -253,6 +292,21 @@ def _ensure_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=columns)
     return df.loc[:, columns]
+
+
+def _stream_view(df: pd.DataFrame, surface: str) -> pd.DataFrame:
+    columns = STREAM_COLUMNS.get(surface)
+    if columns is None:
+        return pd.DataFrame(columns=[])
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    missing = [c for c in columns if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required stream columns for {surface}: {missing}")
+    df = df.loc[:, columns]
+    if surface in {"wall", "vacuum"} and "rel_ticks" in df.columns:
+        df = df.loc[df["rel_ticks"].between(-HUD_STREAM_MAX_TICKS, HUD_STREAM_MAX_TICKS)]
+    return df
 
 
 def _concat(items: deque, columns: List[str]) -> pd.DataFrame:

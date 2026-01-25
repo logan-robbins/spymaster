@@ -4,7 +4,22 @@
         "transport": "WebSocket",
         "endpoint": "ws://localhost:8000/v1/hud/stream",
         "format": "Arrow IPC",
-        "cadence": "1 second windows"
+        "cadence": "1 second windows",
+        "framing": {
+            "control_frames": [
+                {
+                    "type": "batch_start",
+                    "fields": ["window_end_ts_ns", "surfaces"],
+                    "desc": "Marks new window and lists surfaces included in this batch"
+                },
+                {
+                    "type": "surface_header",
+                    "fields": ["surface", "window_end_ts_ns"],
+                    "desc": "Header immediately preceding the binary Arrow IPC payload for the surface"
+                }
+            ],
+            "binary_frame": "Arrow IPC stream for the surface named in the preceding surface_header"
+        }
     },
     "streams": {
         "snap": {
@@ -22,7 +37,7 @@
         },
         "wall": {
             "description": "Liquidity Wall. Resting order depth per price level.",
-            "rows_per_window": "~40-80 (one per active price level within ±20 ticks)",
+            "rows_per_window": "variable (one per active price level within ±400 ticks)",
             "spatial": true,
             "fields": [
                 {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
@@ -37,7 +52,7 @@
         },
         "vacuum": {
             "description": "Vacuum Physics. Normalized pull forces indicating liquidity erosion.",
-            "rows_per_window": "~40-80 (one per active price level)",
+            "rows_per_window": "variable (one per active price level within ±400 ticks)",
             "spatial": true,
             "fields": [
                 {"name": "window_end_ts_ns", "type": "long", "required": true, "desc": "Window timestamp"},
@@ -73,19 +88,13 @@
                 {"name": "strike_points", "type": "double", "required": true, "desc": "Strike price for Y-axis"},
                 {"name": "underlying_spot_ref", "type": "double", "required": true, "desc": "Futures spot. Used if snap missing."},
                 {"name": "gex_abs", "type": "double", "required": true, "desc": "Absolute GEX. Used for intensity."},
+                {"name": "gex", "type": "double", "required": true, "desc": "Signed GEX. Positive=call-heavy, negative=put-heavy."},
                 {"name": "gex_imbalance_ratio", "type": "double", "required": true, "desc": "-1 to +1. Positive=call-heavy (green), negative=put-heavy (red)."}
             ],
             "frontend_usage": {
                 "component": "renderer.ts:createHeatmap, state.ts:setGexData",
                 "purpose": "GEX heatmap overlay. Green=calls, red=puts."
             }
-        }
-    },
-    "unused_by_frontend": {
-        "radar": {
-            "note": "Backend streams radar but frontend ignores it. ~200 ML features not needed for visualization.",
-            "storage": "silver.future_mbo.radar_vacuum_1s",
-            "optimization": "Could remove from stream to reduce bandwidth"
         }
     },
     "constants": {

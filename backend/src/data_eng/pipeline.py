@@ -63,6 +63,14 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             ]
         elif layer == "gold":
             return []
+        elif layer == "all":
+            return [
+                BronzeIngestMboPreview(),
+                SilverComputeSnapshotAndWall1s(),
+                SilverComputeVacuumSurface1s(),
+                SilverComputeRadarVacuum1s(),
+                SilverComputePhysicsBands1s(),
+            ]
 
     elif product_type == "equity_mbo":
         from .stages.bronze.equity_mbo.ingest import BronzeIngestEquityMbo

@@ -27,7 +27,7 @@ class SilverComputeEquityVacuumSurface1s(Stage):
             io=StageIO(
                 inputs=[
                     "silver.equity_mbo.wall_surface_1s",
-                    "gold.hud.physics_norm_calibration",
+                    "gold.equity_mbo.physics_norm_calibration",
                 ],
                 output="silver.equity_mbo.vacuum_surface_1s",
             ),

@@ -68,7 +68,7 @@ export class HUDRenderer {
         this.camera.position.z = 100;
 
         // Initialize Layers
-        const LAYER_HEIGHT = 800;
+        const LAYER_HEIGHT = 801;
         this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
         this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
         this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
