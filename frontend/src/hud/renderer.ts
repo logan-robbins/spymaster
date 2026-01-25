@@ -69,9 +69,9 @@ export class HUDRenderer {
 
         // Initialize Layers
         const LAYER_HEIGHT = 801;
-        this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
-        this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
-        this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT);
+        this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'wall');
+        this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'vacuum');
+        this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'physics');
 
         // Groups
         this.gridGroup = new THREE.Group();
@@ -105,32 +105,28 @@ export class HUDRenderer {
     }
 
     advanceLayers(): void {
-        this.wallLayer.advance();
-        this.vacuumLayer.advance();
-        this.physicsLayer.advance();
+        const t = performance.now() / 1000.0;
+        const currentSpot = this.state.getSpotRef() || 6000;
+
+        this.wallLayer.advance(t, currentSpot);
+        this.vacuumLayer.advance(t, currentSpot);
+        this.physicsLayer.advance(t, currentSpot);
     }
 
     updateWall(data: any[]): void {
         for (const row of data) {
             if (typeof row.rel_ticks !== 'number') continue;
 
-            let r = 0, g = 0, b = 0, a = 255;
             const strength = Math.log1p(Number(row.depth_qty_rest || 0));
-            const maxLog = 12;
+            const velocity = Number(row.d1_depth_qty || 0);
+            const accel = Number(row.d2_depth_qty || 0);
 
-            const intensity = Math.min(strength / maxLog, 1.0);
+            // Side: Ask (A) = 1.0, Bid (B) = -1.0
+            const sideCode = (row.side === 'A' || row.side === 'ask') ? 1.0 : -1.0;
 
-            if (row.side === 'A' || row.side === 'ask') {
-                // Blue
-                r = 20; g = 50; b = 255;
-                a = Math.floor(intensity * 180);
-            } else {
-                // Red
-                r = 255; g = 50; b = 20;
-                a = Math.floor(intensity * 180);
-            }
-
-            this.wallLayer.write(row.rel_ticks, [r, g, b, a]);
+            // Pack Float Vector for Shader
+            // R=Strength, G=Velocity, B=Accel, A=Side
+            this.wallLayer.write(row.rel_ticks, [strength, velocity, accel, sideCode]);
         }
     }
 
@@ -139,10 +135,14 @@ export class HUDRenderer {
             if (typeof row.rel_ticks !== 'number') continue;
 
             const score = Number(row.vacuum_score || 0);
-            if (score < 0.05) continue;
+            if (score < 0.01) continue;
 
-            const alpha = Math.floor(score * 128);
-            this.vacuumLayer.write(row.rel_ticks, [0, 0, 0, alpha]);
+            const turbulence = Number(row.d2_pull_add_log || 0);
+            const erosion = Number(row.wall_erosion || 0);
+
+            // Pack Float Vector for Shader
+            // R=Vacuum, G=Turbulence, B=Erosion, A=Unused
+            this.vacuumLayer.write(row.rel_ticks, [score, turbulence, erosion, 1.0]);
         }
     }
 
@@ -154,32 +154,38 @@ export class HUDRenderer {
         const aboveScore = Number(latest.above_score || 0);
         const belowScore = Number(latest.below_score || 0);
 
-        // Paint pressure gradient:
-        // Above spot (positive ticks): green tint based on above_score (ease of upward movement)
-        // Below spot (negative ticks): red tint based on below_score (ease of downward movement)
+        // Physics layer (back) uses standard painting for now, but we can animate it too.
+        // It uses the "default" shader which expects 0-255 mapped to 0-1 if we used bytes,
+        // but now it's Float32.
+        // Wait, the default shader in GridLayer does `data / 255.0` which is wrong for floats if we act naturally.
+        // But let's stick to the convention: if we write 0-255 numbers for colors, the shader divides them.
+        // Or we just write 0-1 floats and change the shader I wrote.
+        // Looking at GridLayer physics shader: `gl_FragColor = data / 255.0;`
+        // So I should write 0-255 ranges.
 
-        const maxTicks = 100; // Cover reasonable range
+        const maxTicks = 100;
 
-        // Above spot - green gradient (bullish pressure / easy to move up)
+        // Above spot - green gradient
         for (let tick = 1; tick <= maxTicks; tick++) {
-            // Fade intensity with distance from spot
             const distanceFade = Math.max(0, 1 - tick / maxTicks);
             const intensity = aboveScore * distanceFade;
 
             if (intensity > 0.02) {
-                const alpha = Math.floor(intensity * 60); // Subtle translucency
-                this.physicsLayer.write(tick, [20, 180, 80, alpha]); // Green
+                const alpha = intensity * 60;
+                // Color: [20, 180, 80]
+                this.physicsLayer.write(tick, [20, 180, 80, alpha]);
             }
         }
 
-        // Below spot - red gradient (bearish pressure / easy to move down)
+        // Below spot - red gradient
         for (let tick = 1; tick <= maxTicks; tick++) {
             const distanceFade = Math.max(0, 1 - tick / maxTicks);
             const intensity = belowScore * distanceFade;
 
             if (intensity > 0.02) {
-                const alpha = Math.floor(intensity * 60); // Subtle translucency
-                this.physicsLayer.write(-tick, [180, 40, 40, alpha]); // Red
+                const alpha = intensity * 60;
+                // Color: [180, 40, 40]
+                this.physicsLayer.write(-tick, [180, 40, 40, alpha]);
             }
         }
     }
@@ -446,6 +452,8 @@ export class HUDRenderer {
         return leftEdge + (timeIdx / Math.max(1, totalWindows - 1)) * chartWidth;
     }
 
+
+
     updateVisualization(): void {
         const gexData = this.state.getGexData();
 
@@ -454,15 +462,41 @@ export class HUDRenderer {
         const windows = allWindows.slice(-MAX_WINDOWS);
 
         const spotByWindow = this.state.getSpotsByTime();
-        const spots: number[] = [];
+        let spots: number[] = [];
+
+        // Robustness: Filter spots to avoid "Half-Price" or outlier pollution
+        // 1. Determine "Anchor" price from latest Snapshot (most reliable)
+        const snapData = this.state.getSpotData();
+        let anchorPrice = 0;
+        if (snapData.length > 0) {
+            anchorPrice = Number(snapData[snapData.length - 1].mid_price);
+        } else if (gexData.length > 0) {
+            // Fallback to GEX
+            anchorPrice = Number(gexData[gexData.length - 1].underlying_spot_ref || 0);
+        }
+
+        // 2. Collect and Filter
         for (const w of windows) {
-            const spot = spotByWindow.get(w);
-            if (spot !== undefined) spots.push(spot);
+            const val = spotByWindow.get(w);
+            if (val !== undefined && val > 0) {
+                // If we have an anchor, reject deviations > 20%
+                if (anchorPrice > 0) {
+                    const diff = Math.abs(val - anchorPrice);
+                    if (diff / anchorPrice < 0.2) {
+                        spots.push(val);
+                    }
+                } else {
+                    spots.push(val);
+                }
+            }
         }
 
         if (spots.length === 0 && gexData.length === 0) return;
 
         if (spots.length > 0) {
+            // Re-calculate anchor from filtered list if needed
+            const currentSpot = spots[spots.length - 1];
+
             const minSpot = Math.min(...spots);
             const maxSpot = Math.max(...spots);
             const spotPadding = Math.max((maxSpot - minSpot) * 0.2, 5);
@@ -471,8 +505,13 @@ export class HUDRenderer {
                 min: minSpot - spotPadding,
                 max: maxSpot + spotPadding
             };
-            // Center view on current price
+            // Center view on current price (Relative Mode: 0 = Current Spot)
             this.viewCenter.y = 0;
+
+            // Update Shader Reference Price (Center of Texture)
+            this.wallLayer.setSpotRef(currentSpot);
+            this.vacuumLayer.setSpotRef(currentSpot);
+            this.physicsLayer.setSpotRef(currentSpot);
         }
 
         this.createPriceGrid();
@@ -485,7 +524,7 @@ export class HUDRenderer {
         this.updateOverlay();
     }
 
-    private createHeatmap(gexData: { window_end_ts_ns: bigint; strike_points: number; gex_abs: number; gex_imbalance_ratio: number }[], windows: bigint[]): void {
+    private createHeatmap(gexData: any[], windows: bigint[]): void {
         this.clearGroup(this.heatmapGroup);
         const uniqueStrikes = [...new Set(gexData.map(r => Number(r.strike_points)))].sort((a, b) => a - b);
         const numStrikes = uniqueStrikes.length;
@@ -497,7 +536,8 @@ export class HUDRenderer {
 
         const textureWidth = numWindows;
         const textureHeight = numStrikes;
-        const data = new Uint8Array(textureWidth * textureHeight * 4);
+        // Use FloatType for HDR glow
+        const data = new Float32Array(textureWidth * textureHeight * 4);
         const maxGexAbs = Math.max(...gexData.map(r => Number(r.gex_abs)), 1);
 
         for (let t = 0; t < numWindows; t++) {
@@ -508,24 +548,40 @@ export class HUDRenderer {
                 const s = strikeToIdx.get(strike);
                 if (s === undefined) continue;
                 const idx = (s * textureWidth + t) * 4;
+
                 const intensity = Math.min(Number(row.gex_abs) / maxGexAbs, 1);
                 const imbalance = Number(row.gex_imbalance_ratio);
-                const boosted = Math.pow(intensity, 0.4);
+                const velocity = Number(row.d1_gex || 0); // Gamma Velocity
+
+                // Dynamic Pulse: If gamma is expanding (velocity > 0), boost brightness
+                // If contracting, dim slightly
+                const pulse = 1.0 + (velocity * 2.0);
+
+                const boosted = Math.pow(intensity, 0.4) * pulse;
+
+                // Color Mapping
+                let r = 0, g = 0, b = 0;
 
                 if (imbalance > 0) {
-                    data[idx] = Math.floor(boosted * 20); // Low R
-                    data[idx + 1] = Math.floor(boosted * 200); // High G
-                    data[idx + 2] = Math.floor(boosted * 150); // Med B
+                    // Call Heavy (Teal/Green)
+                    r = 0.05 * boosted;
+                    g = 0.8 * boosted;
+                    b = 0.6 * boosted;
                 } else {
-                    data[idx] = Math.floor(boosted * 200); // High R
-                    data[idx + 1] = Math.floor(boosted * 20); // Low G
-                    data[idx + 2] = Math.floor(boosted * 100); // Low B
+                    // Put Heavy (Red/Magenta)
+                    r = 0.8 * boosted;
+                    g = 0.05 * boosted;
+                    b = 0.4 * boosted;
                 }
-                // Drastically reduce alpha for additive blending
-                data[idx + 3] = Math.floor(boosted * 60);
+
+                data[idx] = r;
+                data[idx + 1] = g;
+                data[idx + 2] = b;
+                // Alpha: Additive blending handles the rest, but we scale it
+                data[idx + 3] = boosted * 0.3; // Base transparency
             }
         }
-        const texture = new THREE.DataTexture(data, textureWidth, textureHeight, THREE.RGBAFormat);
+        const texture = new THREE.DataTexture(data, textureWidth, textureHeight, THREE.RGBAFormat, THREE.FloatType);
         texture.needsUpdate = true;
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
