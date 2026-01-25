@@ -1,5 +1,15 @@
 # Frontend - AI Agent Reference (Tick-Native Architecture)
 
+## Core Philosophy
+**1. The Spot Line is the Foundation.**
+Everything starts with the "Spot Line" (the current price). It must always work perfectly and serves as the immutable anchor (Y=0) for the entire visualization. If the spot line is wrong, everything else is wrong.
+
+**2. Feature Layers are Stacked Overlays.**
+All other datasets—GEX, Wall, Vacuum, Physics—are "Features" that are stacked on top of the base layer.
+- They are **strictly relative** to the spot line.
+- They scale specifically to the chart's coordinate system (Tick Space).
+- They are composable: you can turn them on/off, but they always snap to the same underlying grid defined by the spot anchor.
+
 ## Launch Instructions
 **Backend**:
 ```bash
@@ -65,13 +75,13 @@ float textureRow = (uHeight * 0.5) + relTicks;
 | `gex` | `renderer.updateGex` | `spot_ref_price_int`, `rel_ticks` (Integer, +/- 20, 40...) |
 | `wall` | `renderer.updateWall` | `spot_ref_price_int`, `rel_ticks` (Integer) |
 | `vacuum` | `renderer.updateVacuum` | `rel_ticks` (Integer) |
-| `physics`| `renderer.updatePhysics`| `spot_ref_price_int` (for fallback anchor) |
+| `physics`| `renderer.updatePhysics`| `rel_ticks` (Integer), `physics_score_signed` |
 
 ## Render Layers
 
 | Layer | Z-Depth | Type | Filter | Note |
 |-------|---------|------|--------|------|
-| **Physics** | -0.02 | `GridLayer` | Linear | Background gradient |
+| **Physics** | -0.02 | `GridLayer` | Linear | Per-tick directional ease (Green/Red) |
 | **Wall** | 0.00 | `GridLayer` | Linear | Liquidity heatmap |
 | **GEX** | 0.01 | `GridLayer` | Nearest | **Must align to 20-tick grid exactly** |
 | **Vacuum** | 0.015 | `GridLayer` | Linear | Dark erosion overlay |
@@ -81,7 +91,22 @@ float textureRow = (uHeight * 0.5) + relTicks;
 - `TICK_SIZE`: `0.25`
 - `TICK_INT`: `250,000,000` (ns)
 - `LAYER_HEIGHT_TICKS`: `801` (±400 ticks around spot)
+- `LAYER_HEIGHT_TICKS`: `801` (±400 ticks around spot)
 - `PRICE_SCALE`: `1e-9`
+
+## Dissipation Model
+To visualize pressure "hanging" in the air, layers use a temporal decay model:
+- **Physics**: `τ=5s`. Decays ~18% per second.
+- **Vacuum**: `τ=5s`.
+- **Wall**: `τ=0` (Instant clear).
+- **Logic**: `new_cell = old_cell * exp(-Δt/τ)`. Writes are applied on top.
+
+## Visual Diagnostics
+A debug overlay (top-left) displays real-time alignment data:
+- `SpotRefTick`: Canonical integer spot anchor.
+- `Head`: Current ring buffer column.
+- `Latest TS`: Timestamp of last rendered window.
+- **Grid Lines**: Drawn at every 4 ticks ($1) and 20 ticks ($5) to verify bucket alignment.
 
 ## Debugging Checklist
 1. **Vertical Jitter**: Check if `uSpotRef` is float-price instead of tick-index.

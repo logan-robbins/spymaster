@@ -28,7 +28,7 @@ STREAM_COLUMNS: Dict[str, List[str]] = {
     "snap": ["window_end_ts_ns", "mid_price", "spot_ref_price_int", "book_valid"],
     "wall": ["window_end_ts_ns", "rel_ticks", "side", "depth_qty_rest"],
     "vacuum": ["window_end_ts_ns", "rel_ticks", "vacuum_score"],
-    "physics": ["window_end_ts_ns", "mid_price", "above_score", "below_score"],
+    "physics": ["window_end_ts_ns", "rel_ticks", "physics_score", "physics_score_signed"],
     "gex": [
         "window_end_ts_ns",
         "strike_points",
@@ -101,7 +101,7 @@ class HudStreamService:
         wall_key = "silver.future_mbo.wall_surface_1s"
         vacuum_key = "silver.future_mbo.vacuum_surface_1s"
         radar_key = "silver.future_mbo.radar_vacuum_1s"
-        physics_key = "silver.future_mbo.physics_bands_1s"
+        physics_key = "silver.future_mbo.physics_surface_1s"
         gex_key = "silver.future_option_mbo.gex_surface_1s"
 
         # Helper to read and enforce
@@ -306,7 +306,7 @@ def _stream_view(df: pd.DataFrame, surface: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required stream columns for {surface}: {missing}")
     df = df.loc[:, columns]
-    if surface in {"wall", "vacuum"} and "rel_ticks" in df.columns:
+    if surface in {"wall", "vacuum", "physics"} and "rel_ticks" in df.columns:
         df = df.loc[df["rel_ticks"].between(-HUD_STREAM_MAX_TICKS, HUD_STREAM_MAX_TICKS)]
     return df
 

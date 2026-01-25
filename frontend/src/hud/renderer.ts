@@ -84,6 +84,10 @@ export class HUDRenderer {
         this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'physics');
         this.gexLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'gex');
 
+        // Task 16: Dissipation Model
+        this.physicsLayer.setDecay(5.0); // 5-second half-life
+        this.vacuumLayer.setDecay(5.0);
+
         // Groups
         this.gridGroup = new THREE.Group();
         this.priceLineGroup = new THREE.Group();
@@ -125,35 +129,54 @@ export class HUDRenderer {
         this.gexLayer.advance(t, spotTick);
     }
 
-    updateWall(data: any[]): void {
+    updateWall(data: any[], currentTs: bigint): void {
+        const layer = this.wallLayer;
         for (const row of data) {
             if (typeof row.rel_ticks !== 'number') continue;
+
+            // Task 13: Timestamp Safety
+            const rowTs = BigInt(row.window_end_ts_ns || 0);
+            if (rowTs !== currentTs) continue;
+
             const strength = Math.log1p(Number(row.depth_qty_rest || 0));
             const velocity = Number(row.d1_depth_qty || 0);
             const accel = Number(row.d2_depth_qty || 0);
             const sideCode = (row.side === 'A' || row.side === 'ask') ? 1.0 : -1.0;
-            this.wallLayer.write(row.rel_ticks, [strength, velocity, accel, sideCode]);
+
+            layer.write(row.rel_ticks, [strength, velocity, accel, sideCode]);
         }
     }
 
-    updateVacuum(data: any[]): void {
+    updateVacuum(data: any[], currentTs: bigint): void {
+        const layer = this.vacuumLayer;
+
         for (const row of data) {
             if (typeof row.rel_ticks !== 'number') continue;
+
+            const rowTs = BigInt(row.window_end_ts_ns || 0);
+            if (rowTs !== currentTs) continue;
+
             const score = Number(row.vacuum_score || 0);
             if (score < 0.01) continue;
             const turbulence = Number(row.d2_pull_add_log || 0);
             const erosion = Number(row.wall_erosion || 0);
-            this.vacuumLayer.write(row.rel_ticks, [score, turbulence, erosion, 1.0]);
+
+            layer.write(row.rel_ticks, [score, turbulence, erosion, 1.0]);
         }
     }
 
-    updateGex(data: any[]): void {
+    updateGex(data: any[], currentTs: bigint): void {
         if (!data || data.length === 0) return;
         const maxAbs = Math.max(...data.map(row => Math.abs(Number(row.gex_abs || 0))), 1);
 
+        const layer = this.gexLayer;
+
         for (const row of data) {
-            // RelTicks is provided directly by backend!
             if (typeof row.rel_ticks !== 'number') continue;
+
+            const rowTs = BigInt(row.window_end_ts_ns || 0);
+            if (rowTs !== currentTs) continue;
+
             const relTicks = row.rel_ticks;
 
             const gexAbs = Math.abs(Number(row.gex_abs || 0));
@@ -162,11 +185,6 @@ export class HUDRenderer {
             if (norm <= 0) continue;
 
             const density = Math.pow(norm, 0.5);
-            // Height logic: Buckets are 1 tick high in texture space.
-            // Band expansion is visual only? Or do we write multiple rows?
-            // "Enforce few ticks high bands" -> Visual style. 
-            // We can write neighbor rows.
-
             const band = Math.max(1, Math.round(density * 3));
             const alphaBase = Math.min(255, density * 220);
 
@@ -179,45 +197,50 @@ export class HUDRenderer {
             g = Math.min(255, g * colorScale);
             b = Math.min(255, b * colorScale);
 
-            // Task 10: Normalize colors to 0..1
-            // r, g, b are roughly 130..255 range.
             const rNorm = r / 255.0;
             const gNorm = g / 255.0;
             const bNorm = b / 255.0;
-            // alpha is density * 220, max 255.
             const alphaNorm = alphaBase / 255.0;
 
             for (let offset = -band; offset <= band; offset++) {
                 const falloff = 1 - Math.abs(offset) / (band + 1);
                 const a = alphaNorm * falloff;
-                this.gexLayer.write(relTicks + offset, [rNorm * falloff, gNorm * falloff, bNorm * falloff, a]);
+                layer.write(relTicks + offset, [rNorm * falloff, gNorm * falloff, bNorm * falloff, a]);
             }
         }
     }
 
-    updatePhysics(data: any[]): void {
-        if (!data || data.length === 0) return;
-        const latest = data[data.length - 1];
-        const aboveScore = Number(latest.above_score || 0);
-        const belowScore = Number(latest.below_score || 0);
-        const maxTicks = 100;
+    updatePhysics(data: any[], currentTs: bigint): void {
+        const layer = this.physicsLayer;
 
-        for (let tick = 1; tick <= maxTicks; tick++) {
-            const distanceFade = Math.max(0, 1 - tick / maxTicks);
-            const intensity = aboveScore * distanceFade;
-            if (intensity > 0.02) {
-                // Task 10: Normalize [20, 180, 80] to 0..1
-                const alpha = intensity; // Intensity is already 0..1 (roughly)
-                this.physicsLayer.write(tick, [20 / 255, 180 / 255, 80 / 255, alpha]);
+        for (const row of data) {
+            // Task 13: Timestamp Safety
+            const rowTs = BigInt(row.window_end_ts_ns || 0);
+            if (rowTs !== currentTs) continue;
+
+            if (typeof row.rel_ticks !== 'number') continue;
+
+            // Task 15: Tick-Level Physics Buckets
+            const signedScore = Number(row.physics_score_signed || 0);
+            const intensity = Math.abs(signedScore);
+
+            // Filter noise
+            if (intensity < 0.05) continue;
+
+            const alpha = Math.min(intensity * 1.5, 1.0); // Boost visibility slightly
+
+            // Color Coding: Green (Up/Ease) vs Red (Down/Pressure)
+            // Using same hues as old gradient but discrete ticks
+            let r, g, b;
+            if (signedScore > 0) {
+                // Greenish
+                r = 20; g = 180; b = 80;
+            } else {
+                // Reddish
+                r = 180; g = 40; b = 40;
             }
-        }
-        for (let tick = 1; tick <= maxTicks; tick++) {
-            const distanceFade = Math.max(0, 1 - tick / maxTicks);
-            const intensity = belowScore * distanceFade;
-            if (intensity > 0.02) {
-                const alpha = intensity;
-                this.physicsLayer.write(-tick, [180 / 255, 40 / 255, 40 / 255, alpha]);
-            }
+
+            layer.write(row.rel_ticks, [r / 255.0, g / 255.0, b / 255.0, alpha]);
         }
     }
 
@@ -458,35 +481,67 @@ export class HUDRenderer {
         return step;
     }
 
-    private createPriceGrid(currentSpot: number): void {
+    private createPriceGrid(): void {
         this.clearGroup(this.gridGroup);
 
-        const viewHeight = this.camera.top - this.camera.bottom;
-        const canvasHeight = this.renderer.domElement.clientHeight;
-        const targetPixelsPerTick = 50;
-        const priceRangePerPixel = viewHeight / canvasHeight;
-        const step = this.getNiceStep(targetPixelsPerTick * priceRangePerPixel);
+        const gridMat1 = new THREE.LineBasicMaterial({ color: 0x3a3a5e, transparent: true, opacity: 0.2 });
+        const gridMat5 = new THREE.LineBasicMaterial({ color: 0x5a5a8e, transparent: true, opacity: 0.4 });
 
-        const gridMat = new THREE.LineBasicMaterial({ color: 0x3a3a5e, transparent: true, opacity: 0.2 });
+        // World Bounds (Y=0 is Spot)
+        // 1 unit = $1.00 (4 ticks)
+        const topY = this.camera.top;
+        const bottomY = this.camera.bottom;
 
-        // Absolute Price Bounds
-        const minPrice = currentSpot + this.camera.bottom;
-        const maxPrice = currentSpot + this.camera.top;
-        const startPrice = Math.floor(minPrice / step) * step;
+        // Convert to Ticks (Approximation: 1 unit = 4 ticks)
+        // Y = (Price - Spot) * 1.0
+        // PriceDelta = Y
+        // Ticks = PriceDelta / 0.25 = Y * 4
 
-        const points: THREE.Vector3[] = [];
+        const maxTick = Math.ceil(topY * 4);
+        const minTick = Math.floor(bottomY * 4);
+
+        const points1: THREE.Vector3[] = [];
+        const points5: THREE.Vector3[] = [];
         const left = this.camera.left;
         const right = this.camera.right;
 
-        for (let price = startPrice; price <= maxPrice; price += step) {
-            const y = price - currentSpot;
-            points.push(new THREE.Vector3(left, y, -1));
-            points.push(new THREE.Vector3(right, y, -1));
+        for (let tick = minTick; tick <= maxTick; tick++) {
+            if (tick === 0) continue; // Skip zero (handled by cyan line)
+
+            // Task 19: Grid Lines
+            // Every 20 ticks ($5) -> Strong
+            // Every 4 ticks ($1) -> Weak
+
+            const isStrike = (tick % 20 === 0);
+            const isPoint = (tick % 4 === 0);
+
+            if (!isPoint) continue; // Only draw integer points
+
+            const y = tick * 0.25;
+
+            if (isStrike) {
+                points5.push(new THREE.Vector3(left, y, -1));
+                points5.push(new THREE.Vector3(right, y, -1));
+            } else {
+                points1.push(new THREE.Vector3(left, y, -1));
+                points1.push(new THREE.Vector3(right, y, -1));
+            }
         }
 
-        if (points.length > 0) {
-            const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const lines = new THREE.LineSegments(geometry, gridMat);
+        if (points1.length > 0) {
+            const lines = new THREE.LineSegments(
+                new THREE.BufferGeometry().setFromPoints(points1),
+                gridMat1
+            );
+            lines.position.z = 0.02;
+            this.gridGroup.add(lines);
+        }
+
+        if (points5.length > 0) {
+            const lines = new THREE.LineSegments(
+                new THREE.BufferGeometry().setFromPoints(points5),
+                gridMat5
+            );
             lines.position.z = 0.02;
             this.gridGroup.add(lines);
         }
@@ -496,7 +551,7 @@ export class HUDRenderer {
             new THREE.Vector3(left, 0, 0),
             new THREE.Vector3(right, 0, 0)
         ];
-        const zeroMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.3 });
+        const zeroMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.5 });
         const zeroLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(zeroPoints), zeroMat);
         this.gridGroup.add(zeroLine);
     }
@@ -542,9 +597,39 @@ export class HUDRenderer {
         this.physicsLayer.setSpotRef(currentSpotTick);
         this.gexLayer.setSpotRef(currentSpotTick);
 
-        this.createPriceGrid(currentSpot);
+        this.createPriceGrid();
         this.createPriceLine(allWindows, spotByWindow, currentSpot);
         this.updateOverlay(currentSpot);
+        this.updateDebugDiagnostics(spotRefInt, allWindows);
+    }
+
+    private updateDebugDiagnostics(spotRef: bigint, windows: bigint[]): void {
+        let debugEl = document.getElementById('debug-overlay');
+        if (!debugEl) {
+            debugEl = document.createElement('div');
+            debugEl.id = 'debug-overlay';
+            debugEl.style.position = 'absolute';
+            debugEl.style.top = '10px';
+            debugEl.style.left = '10px';
+            debugEl.style.color = '#00ff00';
+            debugEl.style.fontFamily = 'monospace';
+            debugEl.style.fontSize = '12px';
+            debugEl.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            debugEl.style.padding = '5px';
+            debugEl.style.pointerEvents = 'none';
+            document.body.appendChild(debugEl);
+        }
+
+        const head = this.physicsLayer.getHead();
+        const latestTs = windows.length > 0 ? windows[windows.length - 1] : 0n;
+        const dateStr = new Date(Number(latestTs) / 1e6).toISOString().split('T')[1].replace('Z', '');
+
+        debugEl.innerHTML = `
+            <div>SpotRefTick: ${spotRef / 250000000n}</div>
+            <div>Head Col: ${head}</div>
+            <div>Latest TS: ${latestTs} (${dateStr})</div>
+            <div>Physics: ${this.physicsLayer.getWidth()}x${801}</div>
+        `;
     }
 
     private createPriceLine(windows: bigint[], spotMap: Map<bigint, number>, currentSpot: number): void {

@@ -38,7 +38,7 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | `book_snapshot_1s` | SilverComputeSnapshotAndWall1s | Spot line (cyan) |
 | `wall_surface_1s` | SilverComputeSnapshotAndWall1s | Liquidity heatmap (blue/red) |
 | `vacuum_surface_1s` | SilverComputeVacuumSurface1s | Erosion overlay (black) |
-| `physics_bands_1s` | SilverComputePhysicsBands1s | Directional gradient (green/red) |
+| `physics_surface_1s` | SilverComputePhysicsSurface1s | Per-tick directional ease (green/red) |
 | `radar_vacuum_1s` | SilverComputeSnapshotAndWall1s | **NOT VISUALIZED** (ML inference) |
 | `gex_surface_1s` | SilverComputeGexSurface1s | GEX heatmap (green/red) |
 
@@ -53,7 +53,7 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 
 | Z | Layer | Color | Data Field |
 |---|-------|-------|------------|
-| -0.02 | Physics | green above / red below | `above_score`, `below_score` |
+| -0.02 | Physics | green above / red below | `physics_score_signed` |
 | -0.01 | Vacuum | black | `vacuum_score` |
 | 0.00 | Wall | blue asks / red bids | `depth_qty_rest`, `side` |
 | 0.01 | GEX | green calls / red puts | `gex_abs`, `gex_imbalance_ratio` |
@@ -75,7 +75,6 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 
 ```bash
 cd backend
-uv run python scripts/test_data_integrity.py --dt 2026-01-06
-uv run python scripts/test_physics_integrity.py --dt 2026-01-06
+uv run python scripts/test_integrity_v2.py --dt 2026-01-06 # Canonical Grid/Physics Check
 uv run python scripts/simulate_frontend.py
 ```

@@ -111,22 +111,22 @@ const connect = () => {
 
       if (isReadyForTick()) {
         if (batch.physics && batch.physics.length > 0) {
-          (renderer as any).updatePhysics(batch.physics);
+          renderer.updatePhysics(batch.physics, advancedTickTs!);
         }
 
         // Update Wall Surface
         if (batch.wall && batch.wall.length > 0) {
-          (renderer as any).updateWall(batch.wall);
+          renderer.updateWall(batch.wall, advancedTickTs!);
         }
 
         // Update Vacuum Surface
         if (batch.vacuum && batch.vacuum.length > 0) {
-          (renderer as any).updateVacuum(batch.vacuum);
+          renderer.updateVacuum(batch.vacuum, advancedTickTs!);
         }
 
         // Update GEX Surface
         if (batch.gex && batch.gex.length > 0) {
-          (renderer as any).updateGex(batch.gex);
+          renderer.updateGex(batch.gex, advancedTickTs!);
         }
       }
 

@@ -16,6 +16,9 @@ export class GridLayer {
     private mesh: THREE.Mesh;
     private material: THREE.ShaderMaterial;
 
+    private decayFactor: number = 0.0; // 0.0 = clear, 1.0 = persist
+    private blendMode: 'replace' | 'max' = 'replace';
+
     constructor(width: number, height: number, type: 'wall' | 'vacuum' | 'physics' | 'gex') {
         this.width = width;
         this.height = height;
@@ -240,8 +243,13 @@ export class GridLayer {
     advance(time: number, newSpot: number): void {
         this.head = (this.head + 1) % this.width;
 
-        // Clear Column Data
-        this.clearColumn(this.head);
+        // Write or Decay
+        const prevHead = (this.head - 1 + this.width) % this.width;
+        if (this.decayFactor > 0.001) {
+            this.decayColumn(this.head, prevHead);
+        } else {
+            this.clearColumn(this.head);
+        }
 
         // Write Spot History
         this.spotHistoryData[this.head] = newSpot;
@@ -270,17 +278,65 @@ export class GridLayer {
         this.texture.needsUpdate = true;
     }
 
+    private decayColumn(destCol: number, srcCol: number): void {
+        const stride = this.width * 4;
+        const decay = this.decayFactor;
+
+        for (let y = 0; y < this.height; y++) {
+            const srcIdx = y * stride + srcCol * 4;
+            const destIdx = y * stride + destCol * 4;
+
+            // Decay all channels? Typically alpha is key, but fading color is safe too.
+            this.data[destIdx] = this.data[srcIdx] * decay;
+            this.data[destIdx + 1] = this.data[srcIdx + 1] * decay;
+            this.data[destIdx + 2] = this.data[srcIdx + 2] * decay;
+            this.data[destIdx + 3] = this.data[srcIdx + 3] * decay;
+        }
+        this.texture.needsUpdate = true;
+    }
+
+    setDecay(tau: number): void {
+        if (tau <= 0) this.decayFactor = 0;
+        else this.decayFactor = Math.exp(-1.0 / tau);
+    }
+
+    setBlendMode(mode: 'replace' | 'max'): void {
+        this.blendMode = mode;
+    }
+
     write(relTicks: number, vector: [number, number, number, number]): void {
+        this.writeAt(this.head, relTicks, vector);
+    }
+
+    writeAt(colIdx: number, relTicks: number, vector: [number, number, number, number]): void {
         const centerY = Math.floor(this.height / 2);
         const y = centerY + relTicks;
         if (y < 0 || y >= this.height) return;
 
-        const idx = (y * this.width + this.head) * 4;
-        this.data[idx] = vector[0];
-        this.data[idx + 1] = vector[1];
-        this.data[idx + 2] = vector[2];
-        this.data[idx + 3] = vector[3];
+        const idx = (y * this.width + colIdx) * 4;
+
+        if (this.blendMode === 'max') {
+            // Max blend for persisting peaks
+            this.data[idx] = Math.max(this.data[idx], vector[0]);
+            this.data[idx + 1] = Math.max(this.data[idx + 1], vector[1]);
+            this.data[idx + 2] = Math.max(this.data[idx + 2], vector[2]);
+            this.data[idx + 3] = Math.max(this.data[idx + 3], vector[3]);
+        } else {
+            // Replace
+            this.data[idx] = vector[0];
+            this.data[idx + 1] = vector[1];
+            this.data[idx + 2] = vector[2];
+            this.data[idx + 3] = vector[3];
+        }
         this.texture.needsUpdate = true;
+    }
+
+    getHead(): number {
+        return this.head;
+    }
+
+    getWidth(): number {
+        return this.width;
     }
 }
 

@@ -89,11 +89,12 @@
     12.1. Track last `window_end_ts_ns` advanced.
     12.2. If `Δt_seconds > 1`, advance the ring buffer `Δt_seconds` times inserting empty/carry-forward columns so the x-axis remains true-time aligned.
 
-13. **[FRONTEND: TIMESTAMP SAFETY] Never write rows into the “current head column” unless their `window_end_ts_ns` matches it.** 
+13. **[FRONTEND: TIMESTAMP SAFETY] Never write rows into the “current head column” unless their `window_end_ts_ns` matches it. [COMPLETE]** 
     13.1. For each update function (wall/vacuum/gex/physics), filter rows: keep only rows where `row.window_end_ts_ns == advancedTickTs`.
     13.2. If you want late-arriving data support: compute the correct column index for that timestamp and write there (bounded by history window), else drop with metric.
 
-14. **[BACKEND: ISSUE #2 — TICK-LEVEL PHYSICS SURFACE] Add a per-tick physics stream (bands are not bucketed enough).**
+14. **[BACKEND: ISSUE #2 — TICK-LEVEL PHYSICS SURFACE] Add a per-tick physics stream (bands are not bucketed enough). [COMPLETE]**
+
     14.1. Create `silver.future_mbo.physics_surface_1s` (new dataset) with at minimum:
 
 * `window_end_ts_ns`, `rel_ticks` (int), `side` (A/B), `physics_score` (0..1), optionally `physics_score_signed` (-1..+1).
@@ -109,12 +110,12 @@
   * if `side=='B' and rel_ticks<0`: `physics_score_signed = -ease`
   * else 0. 
 
-15. **[FRONTEND: ISSUE #2 RENDERING] Render tick-physics as true buckets (1 tick tall × 1 second wide).** 
+15. **[FRONTEND: ISSUE #2 RENDERING] Render tick-physics as true buckets (1 tick tall × 1 second wide). [COMPLETE]** 
     15.1. Replace the current “physics gradient” writing logic with per-row writes at `rel_ticks`.
     15.2. Use alpha proportional to `abs(score_signed)` and color = sign (green/red).
     15.3. Do NOT smear via shader smoothstep; any smoothing must be explicit and optional.
 
-16. **[DISSIPATION MODEL] Implement bucketed temporal decay (so “pressure dissipates at specific levels”).** 
+16. **[DISSIPATION MODEL] Implement bucketed temporal decay (so “pressure dissipates at specific levels”). [COMPLETE]** 
     16.1. For the per-tick physics grid (and optionally wall/vacuum), change the per-column initialization from “clear to 0” to “copy previous column and decay”:
 
 * `new_cell = old_cell * exp(-Δt/τ)` for each tick row.
@@ -126,7 +127,7 @@
     17.2. Draw a constant small band height `h_ticks` (e.g., 2–4 ticks) around that strike row (centered), independent of strike spacing.
     17.3. Do NOT scale the band height up to 20 ticks (a full $5 strike block) unless explicitly in “coarse strike mode”.
 
-18. **[DATA INTEGRITY TESTS] Add automated checks for issue #1 (incoming GEX correctness) and issue #2 (tick bucket correctness).**
+18. **[DATA INTEGRITY TESTS] Add automated checks for issue #1 (incoming GEX correctness) and issue #2 (tick bucket correctness). [COMPLETE]**
     18.1. Per window, validate GEX:
 
 * rows==25, strikes monotonic, `Δstrike==5`, `abs(imbalance)<=1`, `gex_abs>=0`.
@@ -135,7 +136,7 @@
   18.3. Per row, validate GEX tick mapping:
 * `rel_ticks_gex % 20 == 0` and within ±240. 
 
-19. **[FRONTEND DEBUG OVERLAY] Make misalignment obvious in one glance.** 
+19. **[FRONTEND DEBUG OVERLAY] Make misalignment obvious in one glance. [COMPLETE]** 
     19.1. Draw horizontal guide lines at:
 
 * every 1 point (4 ticks)

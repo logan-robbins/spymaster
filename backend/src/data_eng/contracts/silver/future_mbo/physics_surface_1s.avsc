@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "physics_surface_1s",
+  "namespace": "silver.future_mbo",
+  "fields": [
+    {"name": "window_end_ts_ns", "type": "long"},
+    {"name": "event_ts_ns", "type": "long"},
+    {"name": "spot_ref_price_int", "type": "long"},
+    {"name": "rel_ticks", "type": "int"},
+    {"name": "side", "type": "string"},
+    {"name": "physics_score", "type": "double"},
+    {"name": "physics_score_signed", "type": "double"}
+  ]
+}

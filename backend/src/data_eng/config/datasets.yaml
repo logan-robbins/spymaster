@@ -143,6 +143,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/radar_vacuum_1s.avsc
 
+  silver.future_mbo.physics_surface_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=physics_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/physics_surface_1s.avsc
+
   # Silver - Equity MBO
   silver.equity_mbo.book_snapshot_1s:
     path: silver/product_type=equity_mbo/symbol={symbol}/table=book_snapshot_1s

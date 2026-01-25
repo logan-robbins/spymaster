@@ -163,8 +163,9 @@
             }
         },
         "physics": {
-            "description": "Aggregated physics bands. Directional pressure indicators.",
-            "rows_per_window": 1,
+            "description": "Per-tick physics score (ease of movement).",
+            "rows_per_window": "variable (usually ~60-100 ticks around spot)",
+            "spatial": true,
             "fields": [
                 {
                     "name": "window_end_ts_ns",
@@ -173,27 +174,27 @@
                     "desc": "Window timestamp"
                 },
                 {
-                    "name": "mid_price",
-                    "type": "double",
+                    "name": "rel_ticks",
+                    "type": "int",
                     "required": true,
-                    "desc": "Spot price (backup if snap missing)"
+                    "desc": "Ticks from spot"
                 },
                 {
-                    "name": "above_score",
+                    "name": "physics_score",
                     "type": "double",
                     "required": true,
-                    "desc": "Ease-of-movement up. 0-1. High = bullish."
+                    "desc": "Absolute physics score 0..1"
                 },
                 {
-                    "name": "below_score",
+                    "name": "physics_score_signed",
                     "type": "double",
                     "required": true,
-                    "desc": "Ease-of-movement down. 0-1. High = bearish."
+                    "desc": "+ve for upward ease, -ve for downward ease"
                 }
             ],
             "frontend_usage": {
                 "component": "renderer.ts:updatePhysics, state.ts:setPhysicsData",
-                "purpose": "Directional pressure gradient layer. Green above spot = easy to move up. Red below spot = easy to move down. Also backup spot source."
+                "purpose": "Directional pressure gradient layer. Green above spot = easy to move up. Red below spot = easy to move down."
             }
         },
         "gex": {
