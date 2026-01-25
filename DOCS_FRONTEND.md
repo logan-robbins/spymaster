@@ -20,8 +20,8 @@ WebSocket (Arrow IPC) → data-loader.ts → state.ts → renderer.ts (WebGL)
 | `src/main.ts` | Connection logic, batch handling, HMR disposal |
 | `src/hud/data-loader.ts` | WebSocket parsing, Arrow IPC decoding |
 | `src/hud/state.ts` | Data history, spot price extraction |
-| `src/hud/renderer.ts` | WebGL layers, heatmaps, spot line |
-| `src/hud/grid-layer.ts` | Scrolling texture for wall/vacuum/physics |
+| `src/hud/renderer.ts` | WebGL layers, GEX density, spot line |
+| `src/hud/grid-layer.ts` | Scrolling texture for wall/vacuum/physics/GEX |
 
 ## Streams Received
 
@@ -31,7 +31,7 @@ WebSocket (Arrow IPC) → data-loader.ts → state.ts → renderer.ts (WebGL)
 | `wall` | ~40-80 | `rel_ticks`, `side`, `depth_qty_rest` | renderer.updateWall |
 | `vacuum` | ~40-80 | `rel_ticks`, `vacuum_score` | renderer.updateVacuum |
 | `physics` | 1 | `mid_price`, `above_score`, `below_score` | renderer.updatePhysics |
-| `gex` | 25 | `strike_points`, `gex_abs`, `gex_imbalance_ratio` | renderer.createHeatmap |
+| `gex` | 25 | `strike_points`, `gex_abs`, `gex_imbalance_ratio` | renderer.updateGex |
 | `radar` | 1 | ~200 ML features | **IGNORED** (future ML inference) |
 
 ## Grid Layer
@@ -48,9 +48,9 @@ GridLayer(width, height)
 
 ```typescript
 updateWall(data: any[])     // Blue asks (side='A'), red bids (side='B')
-updateVacuum(data: any[])   // Black overlay, alpha = vacuum_score * 128
+updateVacuum(data: any[])   // Black erosion overlay (vacuum + wall_erosion)
 updatePhysics(data: any[])  // Green above spot (above_score), red below (below_score)
-createHeatmap(gexData, windows)  // GEX texture, green=calls, red=puts
+updateGex(data: any[])      // Tick-aligned density bands (overlap thickens)
 createPriceLine(spots, numWindows)  // Cyan spot line + marker
 ```
 
@@ -58,9 +58,10 @@ createPriceLine(spots, numWindows)  // Cyan spot line + marker
 
 ```
 -0.02  physicsLayer   (directional gradient)
--0.01  vacuumLayer    (erosion overlay)
  0.00  wallLayer      (liquidity)
- 0.01  heatmapGroup   (GEX)
+ 0.01  gexLayer       (tick-aligned density)
+ 0.015 vacuumLayer    (erosion overlay)
+ 0.02  gridGroup      (price grid lines)
  1.00  priceLineGroup (spot line)
 ```
 

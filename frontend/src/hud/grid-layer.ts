@@ -16,7 +16,7 @@ export class GridLayer {
     private mesh: THREE.Mesh;
     private material: THREE.ShaderMaterial;
 
-    constructor(width: number, height: number, type: 'wall' | 'vacuum' | 'physics') {
+    constructor(width: number, height: number, type: 'wall' | 'vacuum' | 'physics' | 'gex') {
         this.width = width;
         this.height = height;
 
@@ -25,8 +25,9 @@ export class GridLayer {
         this.texture = new THREE.DataTexture(this.data, width, height);
         this.texture.format = THREE.RGBAFormat;
         this.texture.type = THREE.FloatType;
-        this.texture.minFilter = THREE.NearestFilter;
-        this.texture.magFilter = THREE.NearestFilter;
+        const useLinearFilter = type === 'physics';
+        this.texture.minFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
+        this.texture.magFilter = useLinearFilter ? THREE.LinearFilter : THREE.NearestFilter;
         this.texture.wrapS = THREE.RepeatWrapping;
         this.texture.wrapT = THREE.ClampToEdgeWrapping;
         this.texture.needsUpdate = true;
@@ -156,21 +157,23 @@ export class GridLayer {
                     vec4 data = texture2D(map, uv);
                     float vacuum = data.r;
                     float turbulence = data.g;
+                    float erosion = data.b;
 
-                    if (vacuum < 0.1) discard;
+                    float darkness = clamp(vacuum * 0.9 + erosion * 0.6, 0.0, 1.0);
+                    if (darkness < 0.1) discard;
                     
                     // Crack Noise
                     float n = hash(uv * 50.0 + vec2(uTime * 0.2, 0.0));
                     
                     // Turbulence widens cracks
-                    float threshold = 0.6 - (turbulence * 0.2);
+                    float threshold = 0.6 - (turbulence * 0.2) + (erosion * 0.2);
                     if (n > threshold) discard; 
 
-                    gl_FragColor = vec4(0.0, 0.0, 0.0, vacuum * 0.9);
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, darkness);
                 }
             `;
         } else {
-            // Physics / Fallback
+            // Physics / GEX (pass-through)
             fragmentShader = `
                 ${commonUniforms}
                 // Physics layer is aggregate, so no rectification needed actually?
@@ -178,11 +181,7 @@ export class GridLayer {
                 ${rectifyLogic}
 
                 void main() {
-                   // Physics is currently strictly tick-based in generated texture?
-                   // No, Physics was aggregate bands.
-                   // Let's just pass through for now or apply same logic.
-                   // The updatePhysics writes to rows +/- ticks from spot.
-                   // So it is relative. Rectification applies.
+                   // Physics/GEX data is tick-relative with rectification applied.
                    
                    vec2 uv = getRectifiedUV();
                    if (uv.y < 0.0 || uv.y > 1.0) discard;
@@ -205,7 +204,9 @@ export class GridLayer {
             vertexShader,
             fragmentShader,
             transparent: true,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            blending: type === 'gex' ? THREE.AdditiveBlending : THREE.NormalBlending,
+            depthWrite: type !== 'gex'
         });
 
         const geometry = new THREE.PlaneGeometry(1, 1);

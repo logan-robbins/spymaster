@@ -16,6 +16,7 @@ import { GridLayer } from './grid-layer';
 const FUTURE_VOID_PERCENT = 0.15; // 15% of right side for predictions
 const DEFAULT_PRICE_RANGE = 6;    // +/- 12 ticks = +/- 3 points -> Total 6
 const HISTORY_SECONDS = 1800;     // 30 minutes
+const TICK_SIZE = 0.25;
 
 export class HUDRenderer {
     private renderer: THREE.WebGLRenderer;
@@ -27,10 +28,10 @@ export class HUDRenderer {
     private wallLayer: GridLayer;
     private vacuumLayer: GridLayer;
     private physicsLayer: GridLayer;
+    private gexLayer: GridLayer;
 
     // Groups
     private gridGroup: THREE.Group;
-    private heatmapGroup: THREE.Group;
     private priceLineGroup: THREE.Group;
     private overlayGroup: THREE.Group;
 
@@ -72,10 +73,10 @@ export class HUDRenderer {
         this.wallLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'wall');
         this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'vacuum');
         this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'physics');
+        this.gexLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT, 'gex');
 
         // Groups
         this.gridGroup = new THREE.Group();
-        this.heatmapGroup = new THREE.Group();
         this.priceLineGroup = new THREE.Group();
         this.overlayGroup = new THREE.Group();
 
@@ -92,7 +93,8 @@ export class HUDRenderer {
         const wallMesh = this.wallLayer.getMesh();
         this.scene.add(wallMesh);
 
-        this.scene.add(this.heatmapGroup);
+        const gexMesh = this.gexLayer.getMesh();
+        this.scene.add(gexMesh);
         this.scene.add(this.priceLineGroup);
         this.scene.add(this.overlayGroup);
 
@@ -111,6 +113,7 @@ export class HUDRenderer {
         this.wallLayer.advance(t, currentSpot);
         this.vacuumLayer.advance(t, currentSpot);
         this.physicsLayer.advance(t, currentSpot);
+        this.gexLayer.advance(t, currentSpot);
     }
 
     updateWall(data: any[]): void {
@@ -143,6 +146,58 @@ export class HUDRenderer {
             // Pack Float Vector for Shader
             // R=Vacuum, G=Turbulence, B=Erosion, A=Unused
             this.vacuumLayer.write(row.rel_ticks, [score, turbulence, erosion, 1.0]);
+        }
+    }
+
+    updateGex(data: any[]): void {
+        if (!data || data.length === 0) return;
+
+        const maxAbs = Math.max(
+            ...data.map(row => Math.abs(Number(row.gex_abs || 0))),
+            1
+        );
+        const fallbackSpot = this.state.getSpotRef();
+
+        for (const row of data) {
+            const strike = Number(row.strike_points);
+            if (!Number.isFinite(strike)) continue;
+
+            const spot = Number(row.underlying_spot_ref || row.spot_ref_price || fallbackSpot);
+            if (!Number.isFinite(spot)) continue;
+
+            const relTicks = Math.round((strike - spot) / TICK_SIZE);
+            const gexAbs = Math.abs(Number(row.gex_abs || 0));
+            const imbalance = Number(row.gex_imbalance_ratio || 0);
+            const norm = Math.min(gexAbs / maxAbs, 1);
+            if (norm <= 0) continue;
+
+            const density = Math.pow(norm, 0.5);
+            const band = Math.max(1, Math.round(density * 3));
+            const alphaBase = Math.min(255, density * 220);
+
+            let r = 180;
+            let g = 180;
+            let b = 180;
+            if (imbalance >= 0) {
+                r = 130;
+                g = 200;
+                b = 190;
+            } else {
+                r = 210;
+                g = 150;
+                b = 120;
+            }
+
+            const colorScale = 0.4 + (0.6 * density);
+            r = Math.min(255, r * colorScale);
+            g = Math.min(255, g * colorScale);
+            b = Math.min(255, b * colorScale);
+
+            for (let offset = -band; offset <= band; offset++) {
+                const falloff = 1 - Math.abs(offset) / (band + 1);
+                const alpha = alphaBase * falloff;
+                this.gexLayer.write(relTicks + offset, [r * falloff, g * falloff, b * falloff, alpha]);
+            }
         }
     }
 
@@ -240,12 +295,12 @@ export class HUDRenderer {
         pMesh.position.y = 0;
         pMesh.position.z = -0.02; // Backmost
 
-        // Update Vacuum
+        // Update Vacuum (darken disintegrating zones)
         const vMesh = this.vacuumLayer.getMesh();
         vMesh.scale.set(meshW, meshH, 1);
         vMesh.position.x = -meshW / 2;
         vMesh.position.y = 0;
-        vMesh.position.z = -0.01; // Behind wall
+        vMesh.position.z = 0.015; // Above wall/gex for erosion fade
 
         // Update Wall
         const wMesh = this.wallLayer.getMesh();
@@ -253,6 +308,13 @@ export class HUDRenderer {
         wMesh.position.x = -meshW / 2;
         wMesh.position.y = 0;
         wMesh.position.z = 0; // Middle
+
+        // Update GEX (tick-aligned density)
+        const gMesh = this.gexLayer.getMesh();
+        gMesh.scale.set(meshW, meshH, 1);
+        gMesh.position.x = -meshW / 2;
+        gMesh.position.y = 0;
+        gMesh.position.z = 0.01;
     }
 
     setZoom(level: number): void {
@@ -512,102 +574,12 @@ export class HUDRenderer {
             this.wallLayer.setSpotRef(currentSpot);
             this.vacuumLayer.setSpotRef(currentSpot);
             this.physicsLayer.setSpotRef(currentSpot);
+            this.gexLayer.setSpotRef(currentSpot);
         }
 
         this.createPriceGrid();
-        if (gexData.length > 0) {
-            this.createHeatmap(gexData, windows);
-        } else {
-            this.clearGroup(this.heatmapGroup);
-        }
         this.createPriceLine(spots, windows.length);
         this.updateOverlay();
-    }
-
-    private createHeatmap(gexData: any[], windows: bigint[]): void {
-        this.clearGroup(this.heatmapGroup);
-        const uniqueStrikes = [...new Set(gexData.map(r => Number(r.strike_points)))].sort((a, b) => a - b);
-        const numStrikes = uniqueStrikes.length;
-        const numWindows = windows.length;
-        if (numWindows === 0 || numStrikes === 0) return;
-
-        const strikeToIdx = new Map<number, number>();
-        uniqueStrikes.forEach((strike, idx) => strikeToIdx.set(strike, idx));
-
-        const textureWidth = numWindows;
-        const textureHeight = numStrikes;
-        // Use FloatType for HDR glow
-        const data = new Float32Array(textureWidth * textureHeight * 4);
-        const maxGexAbs = Math.max(...gexData.map(r => Number(r.gex_abs)), 1);
-
-        for (let t = 0; t < numWindows; t++) {
-            const windowTs = windows[t];
-            for (const row of gexData) {
-                if (row.window_end_ts_ns !== windowTs) continue;
-                const strike = Number(row.strike_points);
-                const s = strikeToIdx.get(strike);
-                if (s === undefined) continue;
-                const idx = (s * textureWidth + t) * 4;
-
-                const intensity = Math.min(Number(row.gex_abs) / maxGexAbs, 1);
-                const imbalance = Number(row.gex_imbalance_ratio);
-                const velocity = Number(row.d1_gex || 0); // Gamma Velocity
-
-                // Dynamic Pulse: If gamma is expanding (velocity > 0), boost brightness
-                // If contracting, dim slightly
-                const pulse = 1.0 + (velocity * 2.0);
-
-                const boosted = Math.pow(intensity, 0.4) * pulse;
-
-                // Color Mapping
-                let r = 0, g = 0, b = 0;
-
-                if (imbalance > 0) {
-                    // Call Heavy (Teal/Green)
-                    r = 0.05 * boosted;
-                    g = 0.8 * boosted;
-                    b = 0.6 * boosted;
-                } else {
-                    // Put Heavy (Red/Magenta)
-                    r = 0.8 * boosted;
-                    g = 0.05 * boosted;
-                    b = 0.4 * boosted;
-                }
-
-                data[idx] = r;
-                data[idx + 1] = g;
-                data[idx + 2] = b;
-                // Alpha: Additive blending handles the rest, but we scale it
-                data[idx + 3] = boosted * 0.3; // Base transparency
-            }
-        }
-        const texture = new THREE.DataTexture(data, textureWidth, textureHeight, THREE.RGBAFormat, THREE.FloatType);
-        texture.needsUpdate = true;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-
-        const viewWidth = (this.camera.right - this.camera.left);
-        const chartWidth = viewWidth * (1 - FUTURE_VOID_PERCENT);
-        const leftEdge = this.camera.left;
-        const minStrike = uniqueStrikes[0];
-        const maxStrike = uniqueStrikes[numStrikes - 1];
-        const strikeRange = maxStrike - minStrike || 1;
-        const planeWidth = chartWidth;
-        const planeHeight = strikeRange;
-
-        const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
-        const material = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            side: THREE.DoubleSide,
-            blending: THREE.AdditiveBlending, // Key change for visibility
-            depthWrite: false
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.x = leftEdge + chartWidth / 2;
-        mesh.position.y = this.priceToY((minStrike + maxStrike) / 2);
-        mesh.position.z = 0.01; // Top layer
-        this.heatmapGroup.add(mesh);
     }
 
     private createPriceLine(spots: number[], numWindows: number): void {

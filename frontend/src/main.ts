@@ -29,6 +29,20 @@ const loader = new DataLoader(API_BASE);
 const statusEl = document.getElementById('connection-status')!;
 const spotEl = document.getElementById('metric-spot')!;
 
+let pendingTickTs: bigint | null = null;
+let advancedTickTs: bigint | null = null;
+
+const maybeAdvanceForTick = () => {
+  if (pendingTickTs === null || advancedTickTs === pendingTickTs) return false;
+  const spotsByTime = state.getSpotsByTime();
+  if (!spotsByTime.has(pendingTickTs)) return false;
+  renderer.advanceLayers();
+  advancedTickTs = pendingTickTs;
+  return true;
+};
+
+const isReadyForTick = () => pendingTickTs !== null && advancedTickTs === pendingTickTs;
+
 // Stream Connection
 const connect = () => {
   statusEl.textContent = 'Connecting...';
@@ -38,9 +52,8 @@ const connect = () => {
     SYMBOL,
     DT,
     // onTick
-    () => {
-      // Advance the grid
-      renderer.advanceLayers();
+    (ts) => {
+      pendingTickTs = ts;
     },
     // onBatch
     (batch) => {
@@ -58,22 +71,34 @@ const connect = () => {
       // Update Physics state and visualization if available
       if (batch.physics && batch.physics.length > 0) {
         state.setPhysicsData(batch.physics);
-        (renderer as any).updatePhysics(batch.physics);
-      }
-
-      // Update Wall Surface
-      if (batch.wall && batch.wall.length > 0) {
-        (renderer as any).updateWall(batch.wall);
-      }
-
-      // Update Vacuum Surface
-      if (batch.vacuum && batch.vacuum.length > 0) {
-        (renderer as any).updateVacuum(batch.vacuum);
       }
 
       // Update GEX state if available
       if (batch.gex && batch.gex.length > 0) {
         state.setGexData(batch.gex as GexRow[]);
+      }
+
+      maybeAdvanceForTick();
+
+      if (isReadyForTick()) {
+        if (batch.physics && batch.physics.length > 0) {
+          (renderer as any).updatePhysics(batch.physics);
+        }
+
+        // Update Wall Surface
+        if (batch.wall && batch.wall.length > 0) {
+          (renderer as any).updateWall(batch.wall);
+        }
+
+        // Update Vacuum Surface
+        if (batch.vacuum && batch.vacuum.length > 0) {
+          (renderer as any).updateVacuum(batch.vacuum);
+        }
+
+        // Update GEX Surface
+        if (batch.gex && batch.gex.length > 0) {
+          (renderer as any).updateGex(batch.gex);
+        }
       }
 
       // Fallback if snap missing but GEX has spot ref
