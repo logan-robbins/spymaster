@@ -263,15 +263,20 @@ class FuturesBookEngine:
 
         # Implicit snapshot start: if we see a snapshot message and we aren't in snapshot mode,
         # it means a new snapshot has started. We must clear the book and enter snapshot mode.
-        if is_snapshot_msg and not self.snapshot_in_progress:
-            self._clear_book(flags)
-            # _clear_book sets snapshot_in_progress=True if flags has F_SNAPSHOT, which it does.
-
-        # Detect end of snapshot by transition: if we were in snapshot, and receive a non-snapshot message, 
-        # the snapshot is complete and the book is valid starting now.
-        if self.snapshot_in_progress and not is_snapshot_msg:
-            self.snapshot_in_progress = False
-            self.book_valid = True
+        # FIX: Databento flags=128 (F_SNAPSHOT) appear on almost all messages (A, C, M) in this dataset.
+        # This caused the engine to constantly clear the book (or never exit snapshot mode),
+        # resulting in an empty book. We disable this logic and rely on explicit ACTION_CLEAR ('R').
+        
+        # if is_snapshot_msg and not self.snapshot_in_progress:
+        #     self._clear_book(flags)
+        
+        # if self.snapshot_in_progress and not is_snapshot_msg:
+        #     self.snapshot_in_progress = False
+        #     self.book_valid = True
+        
+        # Assume valid unless proven otherwise
+        if not self.book_valid and not self.snapshot_in_progress:
+             self.book_valid = True
 
         window_id = ts // self.window_ns
         if self.curr_window_id is None:

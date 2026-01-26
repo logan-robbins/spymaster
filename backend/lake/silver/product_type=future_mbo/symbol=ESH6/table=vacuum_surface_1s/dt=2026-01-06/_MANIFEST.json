@@ -8,7 +8,7 @@
     {
       "dataset": "silver.future_mbo.wall_surface_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "d034a5401c42d7ebebb0300b22eee3a32ead7d33ff4155ad2715d11ad35780bf"
+      "manifest_sha256": "fcd71df768c027f111acb859fbaaf949e884fb8e74495ba5c55078a6adef03bd"
     },
     {
       "dataset": "gold.hud.physics_norm_calibration",
@@ -16,6 +16,6 @@
       "manifest_sha256": "fb9196e94d7112839e367c575e9d30521dcc44f544f61d547a73b484fb7eefea"
     }
   ],
-  "row_count": 92323,
+  "row_count": 92387,
   "stage": "silver_compute_vacuum_surface_1s"
 }
