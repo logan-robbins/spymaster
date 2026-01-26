@@ -220,6 +220,53 @@
                 "component": "renderer.ts:createHeatmap, state.ts:setGexData",
                 "purpose": "GEX heatmap overlay. Green=calls, red=puts."
             }
+        },
+        "bucket_radar": {
+            "description": "Bucket-native Physics Radar. 2-tick buckets aligned to spot.",
+            "rows_per_window": "variable (usually ~60 buckets around spot)",
+            "spatial": true,
+            "fields": [
+                {
+                    "name": "window_end_ts_ns",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Window timestamp"
+                },
+                {
+                    "name": "bucket_rel",
+                    "type": "int",
+                    "required": true,
+                    "desc": "Bucket index relative to spot (0=spot). 1 bucket = 2 ticks."
+                },
+                {
+                    "name": "blocked_level",
+                    "type": "int",
+                    "required": true,
+                    "desc": "0..5 integer resistance level."
+                },
+                {
+                    "name": "cavitation",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 vacuum visibility."
+                },
+                {
+                    "name": "gex_stiffness",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 gamma barrier strength."
+                },
+                {
+                    "name": "mobility",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 ease of movement."
+                }
+            ],
+            "frontend_usage": {
+                "component": "renderer.ts:updateBucketRadar",
+                "purpose": "Primary visualization layer. Blocked=resistance, Cavitation=vacuum."
+            }
         }
     },
     "constants": {

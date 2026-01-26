@@ -17,6 +17,10 @@
 8. Verify CLI smoke with `uv run`. [done]
 9. Create clean map with BP_MwtReceiver + prune other maps. [done]
 10. Set EditorStartupMap to the single map. [done]
+11. Verify end-to-end data flow (Backend→Bridge→UDP→UE). [done]
+12. Debug visualization working (wall heatmaps via DrawDebugSolidBox). [done]
+13. Configure NS_MarketWindTunnel with Grid 2D Gas simulation. [pending - requires Editor]
+14. Wire User parameter arrays to Niagara grid inputs. [pending - requires Editor]
 
 ---
 
@@ -771,13 +775,15 @@ V1 default: Mode A.
 * [x] Bridge forwards `physics_score_signed` as-is.
 * [x] Bridge forwards `gex_abs` + `gex_imbalance_ratio`.
 
-### Phase 2 — UE ingestion
+### Phase 2 — UE ingestion (COMPLETE)
 
 * [x] UDP receiver uses `FUdpSocketReceiver`.
 * [x] Receiver updates per-surface arrays (801 ticks) anchored to spot.
 * [x] Receiver applies dissipation (τ=5s) for physics + vacuum; clears wall each update.
+* [x] Debug visualization active (DrawDebugSolidBox for walls).
+* [x] End-to-end data flow verified (Backend→Bridge→UDP→UE).
 
-### Phase 3 — Niagara
+### Phase 3 — Niagara (REQUIRES MANUAL EDITOR WORK)
 
 * [ ] Create Niagara Fluids Grid 2D system. ([Epic Games Developers][2])
 * [ ] User parameter arrays drive wall/vacuum/physics/gex fields.
@@ -788,6 +794,9 @@ V1 default: Mode A.
   * suction/pressure (vacuum)
   * directional bias (physics)
   * macro overlay (gex)
+
+**Note**: Niagara system configuration cannot be done via Remote Control API. 
+This requires manual work in the Unreal Editor's Niagara Editor interface.
 
 ### Phase 4 — Azure + Pixel Streaming (optional for V1 demo)
 

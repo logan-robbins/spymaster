@@ -41,6 +41,7 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | `physics_surface_1s` | SilverComputePhysicsSurface1s | Per-tick directional ease (green/red) |
 | `radar_vacuum_1s` | SilverComputeSnapshotAndWall1s | **NOT VISUALIZED** (ML inference) |
 | `gex_surface_1s` | SilverComputeGexSurface1s | GEX heatmap (green/red) |
+| `bucket_radar_surface_1s` | SilverComputeBucketRadar1s | Bucket Radar (2-tick) |
 
 ## Grid Structure
 
@@ -73,6 +74,14 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 
 ## Market Wind Tunnel (Unreal Engine Integration)
 
+**Project**: `/Users/loganrobbins/Documents/Unreal Projects/MarketWindTunnel`
+**Map**: `MWT_Main` (only map in project)
+
+### Current Status
+- Phase 2 (UE Ingestion): **COMPLETE**
+- Phase 3 (Niagara): **PENDING** (requires manual Editor work)
+- Data flow verified: Backend → Bridge → UDP → UE → Debug Visualization
+
 ### 1. Launch Backend
 ```bash
 cd backend
@@ -80,23 +89,31 @@ uv run python -m src.serving.main
 ```
 
 ### 2. Launch Bridge (WebSocket -> UDP)
-Connects to 1Hz WebSocket stream, decodes Arrow IPC, transforms data, and emits sparse UDP packets to Unreal Engine.
 ```bash
 cd backend
-uv run python -m src.bridge.main --udp-ip 127.0.0.1 --udp-port 7777
+uv run python -m src.bridge.main --symbol ESH6 --dt 2026-01-06
 ```
 
 ### 3. Unreal Engine Receiver
-- Source Code: `unreal/MarketWindTunnel/Source/MarketWindTunnel/`
-- **Class**: `AMwtUdpReceiver`
-- **Setup**:
-    1. Create a Blueprint inheriting from `AMwtUdpReceiver`.
-    2. Add a Niagara Component with System `NS_MarketWindTunnel`.
-    3. The Receiver updates User Parameters: `User.WallAsk`, `User.WallBid`, `User.WallErosion`, `User.Vacuum`, `User.PhysicsSigned`, `User.GexAbs`, `User.GexImbalance`, `User.SpotHistory`, `User.SpotHead`, `User.SpotRefTick`, `User.MidPrice`, `User.BookValid`, `User.SpotLineEnabled`, `User.HistorySeconds`.
-    4. Remote control hooks: `ResetSurfaces`, `SetLayerGains`, `SetLayerEnabled` (BlueprintCallable).
+- **Class**: `AMwtUdpReceiver` (C++ in `unreal/MarketWindTunnel/Source/`)
+- **Blueprint**: `BP_MwtReceiver` (placed in MWT_Main level)
+- **Port**: 7777 (UDP)
+- **Debug Visualization**: Press Play to see wall heatmaps (blue=ask, red=bid)
 
 ### 4. Remote Control API (UE 5.7)
-- Enable plugins: `Remote Control API`, `Remote Control Web Interface`, `Editor Scripting Utilities`.
+```bash
+# CLI Examples
+cd backend
+uv run python scripts/remote_control_cli.py info
+uv run python scripts/remote_control_cli.py actors
+uv run python scripts/remote_control_cli.py open-map --asset-path /Game/MarketWindTunnel/Maps/MWT_Main
+```
+
+### 5. What Needs Manual Editor Work
+- NS_MarketWindTunnel Niagara system configuration
+- Grid 2D Gas emitter setup
+- User parameter array connections
+- See TASK_UNREAL.md for detailed steps
 - Default HTTP port: `30010` (Project Settings → Web Remote Control).
 - CLI (backend): `uv run python scripts/remote_control_cli.py info`, `uv run python scripts/remote_control_cli.py actors`, `uv run python scripts/remote_control_cli.py describe --object-path <path>`, `uv run python scripts/remote_control_cli.py set --object-path <path> --property WallGain --value 1.0`.
 - Use `remote/object/call` to invoke `AMwtUdpReceiver` functions for layer control.

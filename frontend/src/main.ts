@@ -110,6 +110,14 @@ const connect = () => {
         state.setGexData(batch.gex as GexRow[]);
       }
 
+      if (batch.bucket_radar && batch.bucket_radar.length > 0) {
+        // No state set needed? Or maybe set state if we want to query it?
+        // Renderer holds the texture data. State holds time-series of "rows" for overlay?
+        // Renderer stores texture, State stores "data".
+        // State usually stores Snap/Gex for global access (spot line, gex overlay logic).
+        // BucketRadar is pure visualization texture. No need to store in global state yet.
+      }
+
       // Only advance and write to layers once ALL surfaces for this tick have arrived
       if (!allSurfacesReceived()) {
         return;
@@ -134,6 +142,10 @@ const connect = () => {
 
         if (batch.gex && batch.gex.length > 0) {
           renderer.updateGex(batch.gex, advancedTickTs);
+        }
+
+        if (batch.bucket_radar && batch.bucket_radar.length > 0) {
+          renderer.updateBucketRadar(batch.bucket_radar, advancedTickTs);
         }
       }
 

@@ -77,6 +77,7 @@ float textureRow = (uHeight * 0.5) + relTicks;
 | `vacuum` | `renderer.updateVacuum` | `window_end_ts_ns`, `rel_ticks`, `vacuum_score` |
 | `physics`| `renderer.updatePhysics`| `window_end_ts_ns`, `rel_ticks`, `physics_score`, `physics_score_signed` |
 | `gex` | `renderer.updateGex` | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks` (multiples of 20), `underlying_spot_ref`, `gex_abs`, `gex`, `gex_imbalance_ratio` |
+| `bucket_radar`| `renderer.updateBucketRadar`| `window_end_ts_ns`, `bucket_rel`, `blocked_level`, `cavitation`, `gex_stiffness` |
 
 HUD stream columns are exactly those listed above. Optional wall/vacuum fields (`d1_depth_qty`, `d2_depth_qty`, `d2_pull_add_log`, `wall_erosion`) are not present in the stream and are treated as 0 by the renderer.
 
@@ -86,6 +87,7 @@ HUD stream columns are exactly those listed above. Optional wall/vacuum fields (
 |-------|---------|------|--------|------|
 | **Physics** | -0.02 | `GridLayer` | Linear | Per-tick directional ease (Green/Red) |
 | **Wall** | 0.00 | `GridLayer` | Linear | Liquidity heatmap |
+| **Bucket Radar** | 0.005 | `GridLayer` | Nearest | **2-Tick Bucket Native** |
 | **GEX** | 0.01 | `GridLayer` | Nearest | **Must align to 20-tick grid exactly** |
 | **Vacuum** | 0.015 | `GridLayer` | Linear | Dark erosion overlay |
 | **Grid Lines** | 0.02 | `THREE.Line` | N/A | Drawn at every 1.00 (4 ticks) relative to spot |
@@ -100,6 +102,7 @@ HUD stream columns are exactly those listed above. Optional wall/vacuum fields (
 ## Dissipation Model
 To visualize pressure "hanging" in the air, layers use a temporal decay model:
 - **Physics**: `τ=5s`. Decays ~18% per second.
+- **Bucket Radar**: `τ=0`. (Stateful evolution handled by backend or instant).
 - **Vacuum**: `τ=5s`.
 - **Wall**: `τ=0` (Instant clear).
 - **Logic**: `new_cell = old_cell * exp(-Δt/τ)`. Writes are applied on top.

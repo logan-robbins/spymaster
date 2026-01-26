@@ -32,6 +32,7 @@ export class HUDRenderer {
     private vacuumLayer: GridLayer;
     private physicsLayer: GridLayer;
     private gexLayer: GridLayer;
+    private bucketRadarLayer: GridLayer;
 
     // Groups
     private gridGroup: THREE.Group;
@@ -41,6 +42,8 @@ export class HUDRenderer {
     // View state
     private viewCenter: { x: number; y: number } = { x: 0, y: 0 };
     private zoomLevel: number = 1.0;
+    private autoCenter: boolean = true;
+    private isUserPanning: boolean = false;
 
     // World Scale Constants
     private readonly SEC_PER_UNIT_X = 0.1;
@@ -83,6 +86,7 @@ export class HUDRenderer {
         this.vacuumLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'vacuum');
         this.physicsLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'physics');
         this.gexLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'gex');
+        this.bucketRadarLayer = new GridLayer(HISTORY_SECONDS, LAYER_HEIGHT_TICKS, 'bucket_radar', 2.0); // 2-tick resolution
 
         // Task 16: Dissipation Model
         this.physicsLayer.setDecay(5.0); // 5-second half-life
@@ -102,6 +106,7 @@ export class HUDRenderer {
         this.scene.add(this.vacuumLayer.getMesh());
         this.scene.add(this.wallLayer.getMesh());
         this.scene.add(this.gexLayer.getMesh());
+        this.scene.add(this.bucketRadarLayer.getMesh());
 
         this.scene.add(this.priceLineGroup);
         this.scene.add(this.overlayGroup);
@@ -113,7 +118,52 @@ export class HUDRenderer {
         this.onResize();
 
         // Events
+        // Events
         canvas.addEventListener('wheel', (e) => this.onWheel(e));
+
+        // Task: Mouse Drag Panning
+        canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        window.addEventListener('mouseup', () => this.onMouseUp());
+    }
+
+    private isDragging: boolean = false;
+    private dragStart: { x: number; y: number } = { x: 0, y: 0 };
+
+    private onMouseDown(e: MouseEvent): void {
+        this.isDragging = true;
+        this.dragStart = { x: e.clientX, y: e.clientY };
+        this.isUserPanning = true;
+        this.autoCenter = false;
+    }
+
+    private onMouseMove(e: MouseEvent): void {
+        if (!this.isDragging) return;
+
+        const deltaX = e.clientX - this.dragStart.x;
+        const deltaY = e.clientY - this.dragStart.y;
+
+        // Convert pixels to World Units
+        // Y Axis:
+        const container = this.renderer.domElement.parentElement;
+        if (!container) return;
+
+        const viewHeight = this.camera.top - this.camera.bottom;
+        const pixelsPerUnitY = container.clientHeight / viewHeight;
+
+        const viewWidth = this.camera.right - this.camera.left;
+        const pixelsPerUnitX = container.clientWidth / viewWidth;
+
+        this.viewCenter.x -= deltaX / pixelsPerUnitX;
+        this.viewCenter.y += deltaY / pixelsPerUnitY;
+
+        this.dragStart = { x: e.clientX, y: e.clientY };
+        this.updateCamera();
+        this.updateVisualization();
+    }
+
+    private onMouseUp(): void {
+        this.isDragging = false;
     }
 
     advanceLayers(): void {
@@ -127,11 +177,12 @@ export class HUDRenderer {
         this.vacuumLayer.advance(t, spotTick);
         this.physicsLayer.advance(t, spotTick);
         this.gexLayer.advance(t, spotTick);
+        this.bucketRadarLayer.advance(t, spotTick);
     }
 
     updateWall(data: any[], currentTs: bigint): void {
         const layer = this.wallLayer;
-        
+
         for (const row of data) {
             const relTicks = Number(row.rel_ticks);
             if (isNaN(relTicks)) continue;
@@ -241,6 +292,31 @@ export class HUDRenderer {
         }
     }
 
+    updateBucketRadar(data: any[], currentTs: bigint): void {
+        const layer = this.bucketRadarLayer;
+
+        for (const row of data) {
+            const rowTs = BigInt(row.window_end_ts_ns || 0);
+            if (rowTs !== currentTs) continue;
+
+            const bucketRel = Number(row.bucket_rel);
+            if (isNaN(bucketRel)) continue;
+
+            // Expand 2-tick bucket to relTicks
+            // Bucket 0 -> Ticks 0, 1
+            // Bucket -1 -> Ticks -2, -1
+            const tickStart = bucketRel * 2;
+
+            const blocked = Number(row.blocked_level || 0);
+            const cavitation = Number(row.cavitation || 0);
+            const gex = Number(row.gex_stiffness || 0);
+            const mobility = Number(row.mobility || 0);
+
+            // Write once (Layer handles resolution mapping)
+            layer.write(tickStart, [blocked, cavitation, gex, mobility]);
+        }
+    }
+
     private onResize(): void {
         const container = this.renderer.domElement.parentElement;
         if (!container) return;
@@ -258,10 +334,17 @@ export class HUDRenderer {
         // Horizontal Pan when shift is held or just wheel?
         // Let's allow X panning if we want history
         if (e.shiftKey) {
-            const panDelta = (e.deltaY / 100) * (30 * this.SEC_PER_UNIT_X); // 30 seconds scan
+            // Horizontal Pan (History)
+            const panDelta = (e.deltaY / 100) * (30 * this.SEC_PER_UNIT_X);
             this.viewCenter.x += panDelta;
-            // Clamp? allow looking back
             this.viewCenter.x = Math.min(0, Math.max(-HISTORY_SECONDS * this.SEC_PER_UNIT_X, this.viewCenter.x));
+            this.isUserPanning = true;
+        } else {
+            // Vertical Pan or Zoom? 
+            // Ideally wheel is zoom, drag is pan.
+            // For now let's assume wheel is zoom.
+            // Reset auto-center if user manually pans Y (need logic for interaction)
+            // Let's stick to Tracking by default unless we add mouse drag.
         }
 
         this.updateCamera();
@@ -303,7 +386,7 @@ export class HUDRenderer {
         // Mesh center at -width/2
         const xPos = -width / 2;
 
-        [this.physicsLayer, this.vacuumLayer, this.wallLayer, this.gexLayer].forEach((layer, idx) => {
+        [this.physicsLayer, this.vacuumLayer, this.wallLayer, this.gexLayer, this.bucketRadarLayer].forEach((layer, idx) => {
             const mesh = layer.getMesh();
             mesh.scale.set(width, height, 1);
             mesh.position.set(xPos, 0, idx * 0.01);
@@ -313,6 +396,7 @@ export class HUDRenderer {
         // Set specific Z depths (Task 11: GEX must be on top of Vacuum)
         this.physicsLayer.getMesh().position.z = -0.02;
         this.wallLayer.getMesh().position.z = 0.0;
+        this.bucketRadarLayer.getMesh().position.z = 0.005; // Primary Layer
         this.vacuumLayer.getMesh().position.z = 0.015;
         this.gexLayer.getMesh().position.z = 0.02; // Moved in front of vacuum (was 0.01)
     }
@@ -326,6 +410,8 @@ export class HUDRenderer {
     centerView(): void {
         this.viewCenter = { x: 0, y: 0 };
         this.zoomLevel = 1.0;
+        this.autoCenter = true; // Re-enable tracking
+        this.isUserPanning = false;
         this.updateCamera();
         this.updateVisualization();
     }
@@ -343,14 +429,11 @@ export class HUDRenderer {
             group.remove(child);
             if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
                 child.geometry.dispose();
-                if (child.material instanceof THREE.Material) {
-                    child.material.dispose();
-                }
             }
         }
     }
 
-    private updateOverlay(currentSpot: number): void {
+    private updateOverlay(currentSpot: number, midPrice: number): void {
         const priceAxis = document.getElementById('price-axis');
         const timeAxis = document.getElementById('time-axis');
         if (!priceAxis || !timeAxis) return;
@@ -372,8 +455,11 @@ export class HUDRenderer {
         // Absolute Price Bounds
         const minPrice = currentSpot + this.camera.bottom;
         const maxPrice = currentSpot + this.camera.top;
+
+        // Align to step
         const startPrice = Math.floor(minPrice / displayStep) * displayStep;
 
+        // Draw Grid Labels
         for (let price = startPrice; price <= maxPrice; price += displayStep) {
             // World Y relative to Spot
             const y = price - currentSpot;
@@ -385,13 +471,31 @@ export class HUDRenderer {
 
             const el = document.createElement('div');
             el.className = 'price-label';
-            if (Math.abs(price - currentSpot) < displayStep / 2) {
-                el.className += ' current';
-            }
             el.textContent = price.toFixed(2);
             el.style.bottom = `${bottomPct}%`;
             el.style.position = 'absolute';
             el.style.transform = 'translateY(50%)';
+            priceAxis.appendChild(el);
+        }
+
+        // Draw Current Price Label (Mid)
+        const midY = midPrice - currentSpot;
+        const midNormY = (midY - this.camera.bottom) / viewHeight;
+        const midPct = midNormY * 100;
+
+        if (midPct >= 0 && midPct <= 100) {
+            const el = document.createElement('div');
+            el.className = 'price-label current';
+            el.textContent = midPrice.toFixed(2);
+            el.style.bottom = `${midPct}%`;
+            el.style.position = 'absolute';
+            el.style.transform = 'translateY(50%)';
+            // Add prominent styling via inline or ensure css covers .current
+            el.style.backgroundColor = '#00ccff';
+            el.style.color = '#000';
+            el.style.padding = '2px 4px';
+            el.style.borderRadius = '2px';
+            el.style.zIndex = '10';
             priceAxis.appendChild(el);
         }
 
@@ -494,27 +598,35 @@ export class HUDRenderer {
         // PriceDelta = Y
         // Ticks = PriceDelta / 0.25 = Y * 4
 
-        const maxTick = Math.ceil(topY * 4);
-        const minTick = Math.floor(bottomY * 4);
-
         const points1: THREE.Vector3[] = [];
         const points5: THREE.Vector3[] = [];
         const left = this.camera.left;
         const right = this.camera.right;
 
-        for (let tick = minTick; tick <= maxTick; tick++) {
-            if (tick === 0) continue; // Skip zero (handled by cyan line)
+        // Fix: Draw grid lines at ABSOLUTE price levels, adjusted for current spot
 
+        const currentSpot = this.lastValidSpot;
+        const absMinPrice = currentSpot + bottomY;
+        const absMaxPrice = currentSpot + topY;
+
+        const minAbsTick = Math.floor(absMinPrice / 0.25);
+        const maxAbsTick = Math.ceil(absMaxPrice / 0.25);
+
+        for (let absTick = minAbsTick; absTick <= maxAbsTick; absTick++) {
             // Task 19: Grid Lines
             // Every 20 ticks ($5) -> Strong
             // Every 4 ticks ($1) -> Weak
+            // Use absTick to determine modulus
 
-            const isStrike = (tick % 20 === 0);
-            const isPoint = (tick % 4 === 0);
+            const isStrike = (absTick % 20 === 0);
+            const isPoint = (absTick % 4 === 0);
 
             if (!isPoint) continue; // Only draw integer points
 
-            const y = tick * 0.25;
+            // Y relative to center (Spot)
+            // Y = Price - Spot
+            // Price = absTick * 0.25
+            const y = (absTick * 0.25) - currentSpot;
 
             if (isStrike) {
                 points5.push(new THREE.Vector3(left, y, -1));
@@ -585,6 +697,40 @@ export class HUDRenderer {
 
         const currentSpot = this.lastValidSpot; // This is now SNAP-ALIGNED PRICE
 
+        // Mid Price for Tracking
+        let midPrice = currentSpot;
+        // snapData is already declared above (line ~564)
+        if (snapData.length > 0) {
+            const rawMid = Number(snapData[snapData.length - 1].mid_price);
+            if (!isNaN(rawMid) && rawMid > 100) {
+                midPrice = rawMid;
+            }
+        } else {
+            // Fallback to Gex?
+            const gex = this.state.getGexData();
+            if (gex.length > 0) {
+                const best = gex[gex.length - 1];
+                const rawGexSpot = Number(best.underlying_spot_ref || best.spot_ref_price_int / 250000000n * 100n / 100n);
+                if (!isNaN(rawGexSpot) && rawGexSpot > 100) {
+                    midPrice = rawGexSpot;
+                }
+            }
+        }
+
+        // Task: Camera Tracking
+        // We want viewCenter.y to place midPrice in center.
+        // Y = Price - currentSpot (Anchor)
+        // targetY = midPrice - currentSpot
+
+        if (this.autoCenter && !this.isUserPanning) {
+            const targetY = (midPrice - currentSpot) * this.UNIT_PER_DOLLAR;
+            // Smooth lerp?
+            // this.viewCenter.y += (targetY - this.viewCenter.y) * 0.1;
+            // For crispness, instant for now.
+            this.viewCenter.y = targetY;
+            this.updateCamera();
+        }
+
         // Update Shaders with this Anchor
         // Convert to Tick Index
         const currentSpotTick = currentSpot / TICK_SIZE;
@@ -593,10 +739,13 @@ export class HUDRenderer {
         this.vacuumLayer.setSpotRef(currentSpotTick);
         this.physicsLayer.setSpotRef(currentSpotTick);
         this.gexLayer.setSpotRef(currentSpotTick);
+        this.bucketRadarLayer.setSpotRef(currentSpotTick);
 
         this.createPriceGrid();
         this.createPriceLine(allWindows, spotByWindow, currentSpot);
-        this.updateOverlay(currentSpot);
+
+        // Passed computed midPrice to overlay (calculated above)
+        this.updateOverlay(currentSpot, midPrice);
         this.updateDebugDiagnostics(spotRefInt, allWindows);
     }
 

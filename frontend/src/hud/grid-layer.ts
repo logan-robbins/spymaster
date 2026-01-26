@@ -2,7 +2,9 @@ import * as THREE from 'three';
 
 export class GridLayer {
     private width: number;   // columns = seconds of history
-    private height: number;  // rows = ticks
+    private height: number;  // rows = ticks (logical)
+    private texHeight: number; // rows = texels (actual)
+    private resolution: number; // ticks per texel
     private head: number = 0;
 
     // Main Data (Relative Physics)
@@ -19,13 +21,15 @@ export class GridLayer {
     private decayFactor: number = 0.0; // 0.0 = clear, 1.0 = persist
     private blendMode: 'replace' | 'max' = 'replace';
 
-    constructor(width: number, height: number, type: 'wall' | 'vacuum' | 'physics' | 'gex') {
+    constructor(width: number, height: number, type: 'wall' | 'vacuum' | 'physics' | 'gex' | 'bucket_radar', resolution: number = 1.0) {
         this.width = width;
         this.height = height;
+        this.resolution = resolution;
+        this.texHeight = Math.ceil(height / resolution);
 
         // 1. Physics Data Texture (RGBA Float32)
-        this.data = new Float32Array(width * height * 4);
-        this.texture = new THREE.DataTexture(this.data, width, height);
+        this.data = new Float32Array(width * this.texHeight * 4);
+        this.texture = new THREE.DataTexture(this.data, width, this.texHeight);
         this.texture.format = THREE.RGBAFormat;
         this.texture.type = THREE.FloatType;
         // Task 9: Force NearestFilter for bucketed look
@@ -66,7 +70,9 @@ export class GridLayer {
             uniform float uTime;
             uniform float uSpotRef; // Current Spot Price (Center of View)
             uniform float uWidth;   // Texture Width (History Seconds)
-            uniform float uHeight;  // Texture Height (Tick Range)
+            uniform float uHeight;  // Logical Height (Ticks)
+            uniform float uTexHeight; // Texture Height (Texels)
+            uniform float uResolution; // Ticks per Texel
             varying vec2 vUv;
         `;
 
@@ -100,14 +106,17 @@ export class GridLayer {
                 // Relative Tick = PixelTick - HistoricalSpotTick
                 // We want to map this to texture Y [0, 1]
                 // Texture Range: 0..Height corresponds to relative ticks centered?
-                // No, texture is written as: center + relTicks.
                 // center = Height/2.
                 
+                
                 float relTicks = currentTickIndex - historicalSpotTick;
-                float textureRow = (uHeight * 0.5) + relTicks;
+                float relTexels = floor(relTicks / uResolution);
+                
+                // +0.5 to sample center of texel
+                float textureRow = (uTexHeight * 0.5) + relTexels + 0.5;
                 
                 // Normalize to [0, 1]
-                float v = textureRow / uHeight;
+                float v = textureRow / uTexHeight;
                 
                 return vec2(x, v);
             }
@@ -177,6 +186,52 @@ export class GridLayer {
                     gl_FragColor = vec4(0.0, 0.0, 0.0, darkness);
                 }
             `;
+        } else if (type === 'bucket_radar') {
+            fragmentShader = `
+                ${commonUniforms}
+                ${rectifyLogic}
+
+                void main() {
+                    vec2 uv = getRectifiedUV();
+                    if (uv.y < 0.0 || uv.y > 1.0) discard;
+
+                    vec4 data = texture2D(map, uv);
+                    float blocked = data.r;      // 0..5
+                    float cavitation = data.g;   // 0..1
+                    float gex = data.b;          // 0..1
+                    float mobility = data.a;     // 0..1
+
+                    // Blockedness (Red/Orange)
+                    float blockAlpha = clamp(blocked / 5.0, 0.0, 1.0);
+                    vec3 blockColor = vec3(1.0, 0.3 * (1.0 - blockAlpha), 0.0) * blockAlpha;
+
+                    // Cavitation (Blue/Cyan Neon)
+                    float cavAlpha = clamp(cavitation, 0.0, 1.0);
+                    // Blue glow
+                    vec3 cavColor = vec3(0.0, 0.8, 1.0) * cavAlpha;
+
+                    // Gex Stiffness (Green subtle overlay)
+                    float gexAlpha = clamp(gex, 0.0, 1.0);
+                    vec3 gexColor = vec3(0.0, 1.0, 0.2) * (gexAlpha * 0.3);
+
+                    // Combine (Additive for glow, or Alpha blend?)
+                    // Start with blocked wall
+                    vec3 color = blockColor;
+                    
+                    // Add Cavitation (glowing inside/over wall)
+                    color += cavColor;
+                    
+                    // Add GEX
+                    color += gexColor;
+                    
+                    // Alpha
+                    float alpha = clamp(blockAlpha + cavAlpha + (gexAlpha * 0.3), 0.0, 0.95);
+                    
+                    if (alpha < 0.05) discard;
+
+                    gl_FragColor = vec4(color, alpha);
+                }
+            `;
         } else {
             // Physics / GEX (pass-through)
             fragmentShader = `
@@ -204,15 +259,17 @@ export class GridLayer {
                 uHeadOffset: { value: 0.0 },
                 uTime: { value: 0.0 },
                 uSpotRef: { value: 6000.0 }, // Updated by renderer
-                uWidth: { value: width },
-                uHeight: { value: height }
+                uWidth: { value: this.width },
+                uHeight: { value: this.height },
+                uTexHeight: { value: this.texHeight },
+                uResolution: { value: this.resolution }
             },
             vertexShader,
             fragmentShader,
             transparent: true,
             side: THREE.DoubleSide,
             blending: type === 'gex' ? THREE.AdditiveBlending : THREE.NormalBlending,
-            depthWrite: type !== 'gex'
+            depthWrite: type !== 'gex' && type !== 'bucket_radar'
         });
 
         const geometry = new THREE.PlaneGeometry(1, 1);
@@ -252,7 +309,7 @@ export class GridLayer {
     clearColumn(colIdx: number): void {
         const start = colIdx * 4;
         const stride = this.width * 4;
-        for (let y = 0; y < this.height; y++) {
+        for (let y = 0; y < this.texHeight; y++) {
             const idx = y * stride + start;
             this.data[idx] = 0;
             this.data[idx + 1] = 0;
@@ -266,7 +323,7 @@ export class GridLayer {
         const stride = this.width * 4;
         const decay = this.decayFactor;
 
-        for (let y = 0; y < this.height; y++) {
+        for (let y = 0; y < this.texHeight; y++) {
             const srcIdx = y * stride + srcCol * 4;
             const destIdx = y * stride + destCol * 4;
 
@@ -293,9 +350,11 @@ export class GridLayer {
     }
 
     writeAt(colIdx: number, relTicks: number, vector: [number, number, number, number]): void {
-        const centerY = Math.floor(this.height / 2);
-        const y = centerY + relTicks;
-        if (y < 0 || y >= this.height) return;
+        const centerY = Math.floor(this.texHeight / 2);
+        const relTexels = Math.floor(relTicks / this.resolution);
+        const y = centerY + relTexels;
+
+        if (y < 0 || y >= this.texHeight) return;
 
         const idx = (y * this.width + colIdx) * 4;
 

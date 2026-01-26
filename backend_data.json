@@ -63,6 +63,19 @@
                     "outputs": [
                         "silver.future_mbo.physics_surface_1s"
                     ]
+                },
+                {
+                    "order": 6,
+                    "stage": "SilverComputeBucketRadar1s",
+                    "inputs": [
+                        "silver.future_mbo.wall_surface_1s",
+                        "silver.future_mbo.vacuum_surface_1s",
+                        "silver.future_option_mbo.gex_surface_1s",
+                        "gold.hud.physics_norm_calibration"
+                    ],
+                    "outputs": [
+                        "silver.future_mbo.bucket_radar_surface_1s"
+                    ]
                 }
             ]
         },
@@ -101,7 +114,8 @@
         "vacuum": "silver.future_mbo.vacuum_surface_1s",
         "radar": "silver.future_mbo.radar_vacuum_1s",
         "physics": "silver.future_mbo.physics_surface_1s",
-        "gex": "silver.future_option_mbo.gex_surface_1s"
+        "gex": "silver.future_option_mbo.gex_surface_1s",
+        "bucket_radar": "silver.future_mbo.bucket_radar_surface_1s"
     },
     "datasets": {
         "silver.future_mbo.book_snapshot_1s": {
@@ -725,6 +739,78 @@
                 {
                     "step": 8,
                     "action": "Join snapshot on window_end_ts_ns to set spot_ref_price_int; event_ts_ns = window_end_ts_ns"
+                }
+            ]
+        },
+        "silver.future_mbo.bucket_radar_surface_1s": {
+            "frontend_stream": "bucket_radar",
+            "produced_by": "SilverComputeBucketRadar1s",
+            "description": "Bucket-native (2-tick) radar surface combining wall, vacuum, and gex.",
+            "spatial": true,
+            "fields": {
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "bucket_rel": {
+                    "type": "int",
+                    "desc": "Bucket index relative to spot (0=spot). 1 bucket = 2 ticks."
+                },
+                "blocked_level": {
+                    "type": "int",
+                    "desc": "0..5 integer resistance level."
+                },
+                "cavitation": {
+                    "type": "double",
+                    "desc": "0..1 vacuum visibility."
+                },
+                "gex_stiffness": {
+                    "type": "double",
+                    "desc": "0..1 gamma barrier strength."
+                },
+                "mobility": {
+                    "type": "double",
+                    "desc": "0..1 ease of movement."
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                }
+            },
+            "transformations": [
+                {
+                    "step": 1,
+                    "action": "Load Wall, Vacuum, GEX, Calibration."
+                },
+                {
+                    "step": 2,
+                    "action": "Normalize Wall Mass using calibration."
+                },
+                {
+                    "step": 3,
+                    "action": "Join Wall and Vacuum on valid ticks."
+                },
+                {
+                    "step": 4,
+                    "action": "Bucketize ticks: bucket_rel = floor(rel_ticks / 2)."
+                },
+                {
+                    "step": 5,
+                    "action": "Aggregate Mass (mean) and Vacuum (mean) per bucket."
+                },
+                {
+                    "step": 6,
+                    "action": "Join GEX (bucket_rel = floor(rel_ticks / 2))."
+                },
+                {
+                    "step": 7,
+                    "action": "Compute R0 = clamp(mass + gex, 0, 1)."
+                },
+                {
+                    "step": 8,
+                    "action": "Compute R_eff = R0 * (1 - vacuum)."
+                },
+                {
+                    "step": 9,
+                    "action": "Output BlockedLevel = round(5 * R_eff), Cavitation = vacuum^1.5."
                 }
             ]
         },
