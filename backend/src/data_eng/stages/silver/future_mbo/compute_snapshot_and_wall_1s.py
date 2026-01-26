@@ -45,8 +45,8 @@ class SilverComputeSnapshotAndWall1s(Stage):
         if is_partition_complete(ref_snap) and is_partition_complete(ref_wall) and is_partition_complete(ref_radar):
             return
 
-        # Warmup: Read 5 mins prior to build book state
-        WARMUP_NS = 300_000_000 * 60  # 5 minutes
+        # Warmup: Read enough history to catch the initial snapshot (starts at 05:00 ET)
+        WARMUP_NS = 3600_000_000_000 * 6  # 6 hours (covering 05:00 start for 09:30 window)
 
         df_snap, df_wall, df_radar = compute_futures_surfaces_1s_from_batches(
             iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS)

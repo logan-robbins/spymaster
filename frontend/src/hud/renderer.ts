@@ -736,7 +736,10 @@ export class HUDRenderer {
 
         // Update Shaders with this Anchor
         // Convert to Tick Index
-        const currentSpotTick = currentSpot / TICK_SIZE;
+        // FIX: uSpotRef represents the "Center of View" tick index for rectification.
+        // We must pass the Real Spot (midPrice), not the Anchor, so the shader
+        // calculates the correct relative offset from the Anchor-aligned texture.
+        const currentSpotTick = midPrice / TICK_SIZE;
 
         this.wallLayer.setSpotRef(currentSpotTick);
         this.vacuumLayer.setSpotRef(currentSpotTick);
