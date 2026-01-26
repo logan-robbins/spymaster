@@ -210,9 +210,10 @@ export class GridLayer {
                     // Blue glow
                     vec3 cavColor = vec3(0.0, 0.8, 1.0) * cavAlpha;
 
-                    // Gex Stiffness (Green subtle overlay)
+                    // Gex Stiffness (Magenta/Purple "Force Field" overlay)
+                    // Matches "Pressure" metaphor (High energy/stiffness = Warm-ish)
                     float gexAlpha = clamp(gex, 0.0, 1.0);
-                    vec3 gexColor = vec3(0.0, 1.0, 0.2) * (gexAlpha * 0.3);
+                    vec3 gexColor = vec3(0.9, 0.0, 0.9) * (gexAlpha * 0.4);
 
                     // Combine (Additive for glow, or Alpha blend?)
                     // Start with blocked wall

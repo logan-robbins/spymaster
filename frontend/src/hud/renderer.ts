@@ -280,12 +280,15 @@ export class HUDRenderer {
 
             const alpha = Math.min(intensity * 1.5, 1.0);
 
-            // Color Coding: Green (Up/Ease) vs Red (Down/Pressure)
+            // Color Coding: Cyan (Up/Ease) vs Blue (Down/Ease)
+            // Consistent with "Cool = Low Pressure / Vacuum"
             let r, g, b;
             if (signedScore > 0) {
-                r = 20; g = 180; b = 80;
+                // Up Ease -> Cyan
+                r = 0; g = 200; b = 255;
             } else {
-                r = 180; g = 40; b = 40;
+                // Down Ease -> Blue/Indigo
+                r = 60; g = 80; b = 255;
             }
 
             layer.write(relTicks, [r / 255.0, g / 255.0, b / 255.0, alpha]);
