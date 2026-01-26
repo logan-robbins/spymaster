@@ -113,3 +113,10 @@ A debug overlay (top-left) displays real-time alignment data:
 2. **Horizontal Smear**: Check if Shader uses `floor(x * width)`.
 3. **GEX Misalignment**: Verify backend is sending `rel_ticks % 20 == 0`.
 4. **Zero-Price Snap**: Ensure `state.ts` filters `spot_ref_price_int > 0`.
+5. **Layers Not Rendering**: Check that `rel_ticks` is converted to `Number()` (Arrow returns BigInt for int32 fields).
+6. **Data Race**: Ensure all surfaces are received before advancing ring buffer (see `allSurfacesReceived()` in main.ts).
+
+## Known Fixes Applied
+- **Shader Variable Redefinition**: Removed duplicate `float x` declaration in `grid-layer.ts` rectifyLogic.
+- **Arrow BigInt Conversion**: All `rel_ticks` fields must use `Number(row.rel_ticks)` since Apache Arrow JS returns int32 as BigInt.
+- **Surface Synchronization**: `main.ts` now waits for all surfaces (snap, wall, vacuum, physics, gex) before advancing the ring buffer and writing data.

@@ -31,6 +31,8 @@ const spotEl = document.getElementById('metric-spot')!;
 
 let pendingTickTs: bigint | null = null;
 let advancedTickTs: bigint | null = null;
+let expectedSurfaces: string[] = [];
+let receivedSurfaces: Set<string> = new Set();
 
 const maybeAdvanceForTick = () => {
   if (pendingTickTs === null) return false;
@@ -38,30 +40,22 @@ const maybeAdvanceForTick = () => {
   // First initialization
   if (advancedTickTs === null) {
     advancedTickTs = pendingTickTs;
-    // We don't advance on first frame, just set the anchor? 
-    // Or should we start the first column?
-    // Let's assume the first render loop handles valid state.
-    // But advanceLayers logic pushes a new column.
     renderer.advanceLayers();
     return true;
   }
 
   if (advancedTickTs === pendingTickTs) return false;
 
-  // Task 12: Time Gap Fill
   // Calculate seconds elapsed
   const diffNs = Number(pendingTickTs - advancedTickTs);
   const diffSec = Math.round(diffNs / 1e9);
 
   if (diffSec <= 0) {
-    // Out of order or duplicate? Ignore.
     return false;
   }
 
-  // If gap > 1s, we must advance multiple times to keep X-axis aligned.
-  // We cap it at, say, 60s to prevent freezing on huge wake-up gaps.
+  // If gap > 1s, advance multiple times to keep X-axis aligned
   const steps = Math.min(diffSec, 60);
-
   for (let i = 0; i < steps; i++) {
     renderer.advanceLayers();
   }
@@ -70,7 +64,13 @@ const maybeAdvanceForTick = () => {
   return true;
 };
 
-const isReadyForTick = () => pendingTickTs !== null && advancedTickTs === pendingTickTs;
+const allSurfacesReceived = () => {
+  if (expectedSurfaces.length === 0) return false;
+  for (const s of expectedSurfaces) {
+    if (!receivedSurfaces.has(s)) return false;
+  }
+  return true;
+};
 
 // Stream Connection
 const connect = () => {
@@ -80,15 +80,20 @@ const connect = () => {
   loader.connectStream(
     SYMBOL,
     DT,
-    // onTick
-    (ts) => {
+    // onTick - called when batch_start arrives with list of expected surfaces
+    (ts, surfaces) => {
       pendingTickTs = ts;
+      expectedSurfaces = surfaces || [];
+      receivedSurfaces.clear();
     },
-    // onBatch
-    (batch) => {
-      // console.log(`[Main] Batch received. Keys: ${Object.keys(batch).join(', ')}`);
+    // onBatch - called after each surface is decoded
+    (batch, surfaceName) => {
+      // Track which surface just arrived
+      if (surfaceName) {
+        receivedSurfaces.add(surfaceName);
+      }
 
-      // Update Snapshot/Spot state if available
+      // Update state incrementally
       if (batch.snap && batch.snap.length > 0) {
         state.setSpotData(batch.snap as SnapshotRow[]);
         const latest = batch.snap[batch.snap.length - 1];
@@ -97,36 +102,38 @@ const connect = () => {
         }
       }
 
-      // Update Physics state and visualization if available
       if (batch.physics && batch.physics.length > 0) {
         state.setPhysicsData(batch.physics);
       }
 
-      // Update GEX state if available
       if (batch.gex && batch.gex.length > 0) {
         state.setGexData(batch.gex as GexRow[]);
       }
 
+      // Only advance and write to layers once ALL surfaces for this tick have arrived
+      if (!allSurfacesReceived()) {
+        return;
+      }
+
+      // Now we have all surfaces - advance the ring buffer
       maybeAdvanceForTick();
 
-      if (isReadyForTick()) {
-        if (batch.physics && batch.physics.length > 0) {
-          renderer.updatePhysics(batch.physics, advancedTickTs!);
-        }
-
-        // Update Wall Surface
+      // Write data to layers
+      if (advancedTickTs !== null) {
         if (batch.wall && batch.wall.length > 0) {
-          renderer.updateWall(batch.wall, advancedTickTs!);
+          renderer.updateWall(batch.wall, advancedTickTs);
         }
 
-        // Update Vacuum Surface
         if (batch.vacuum && batch.vacuum.length > 0) {
-          renderer.updateVacuum(batch.vacuum, advancedTickTs!);
+          renderer.updateVacuum(batch.vacuum, advancedTickTs);
         }
 
-        // Update GEX Surface
+        if (batch.physics && batch.physics.length > 0) {
+          renderer.updatePhysics(batch.physics, advancedTickTs);
+        }
+
         if (batch.gex && batch.gex.length > 0) {
-          renderer.updateGex(batch.gex, advancedTickTs!);
+          renderer.updateGex(batch.gex, advancedTickTs);
         }
       }
 

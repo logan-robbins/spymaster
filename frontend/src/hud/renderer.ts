@@ -131,10 +131,11 @@ export class HUDRenderer {
 
     updateWall(data: any[], currentTs: bigint): void {
         const layer = this.wallLayer;
+        
         for (const row of data) {
-            if (typeof row.rel_ticks !== 'number') continue;
+            const relTicks = Number(row.rel_ticks);
+            if (isNaN(relTicks)) continue;
 
-            // Task 13: Timestamp Safety
             const rowTs = BigInt(row.window_end_ts_ns || 0);
             if (rowTs !== currentTs) continue;
 
@@ -143,7 +144,7 @@ export class HUDRenderer {
             const accel = Number(row.d2_depth_qty || 0);
             const sideCode = (row.side === 'A' || row.side === 'ask') ? 1.0 : -1.0;
 
-            layer.write(row.rel_ticks, [strength, velocity, accel, sideCode]);
+            layer.write(relTicks, [strength, velocity, accel, sideCode]);
         }
     }
 
@@ -151,7 +152,8 @@ export class HUDRenderer {
         const layer = this.vacuumLayer;
 
         for (const row of data) {
-            if (typeof row.rel_ticks !== 'number') continue;
+            const relTicks = Number(row.rel_ticks);
+            if (isNaN(relTicks)) continue;
 
             const rowTs = BigInt(row.window_end_ts_ns || 0);
             if (rowTs !== currentTs) continue;
@@ -161,7 +163,7 @@ export class HUDRenderer {
             const turbulence = Number(row.d2_pull_add_log || 0);
             const erosion = Number(row.wall_erosion || 0);
 
-            layer.write(row.rel_ticks, [score, turbulence, erosion, 1.0]);
+            layer.write(relTicks, [score, turbulence, erosion, 1.0]);
         }
     }
 
@@ -172,12 +174,11 @@ export class HUDRenderer {
         const layer = this.gexLayer;
 
         for (const row of data) {
-            if (typeof row.rel_ticks !== 'number') continue;
+            const relTicks = Number(row.rel_ticks);
+            if (isNaN(relTicks)) continue;
 
             const rowTs = BigInt(row.window_end_ts_ns || 0);
             if (rowTs !== currentTs) continue;
-
-            const relTicks = row.rel_ticks;
 
             const gexAbs = Math.abs(Number(row.gex_abs || 0));
             const imbalance = Number(row.gex_imbalance_ratio || 0);
@@ -214,33 +215,29 @@ export class HUDRenderer {
         const layer = this.physicsLayer;
 
         for (const row of data) {
-            // Task 13: Timestamp Safety
             const rowTs = BigInt(row.window_end_ts_ns || 0);
             if (rowTs !== currentTs) continue;
 
-            if (typeof row.rel_ticks !== 'number') continue;
+            const relTicks = Number(row.rel_ticks);
+            if (isNaN(relTicks)) continue;
 
-            // Task 15: Tick-Level Physics Buckets
             const signedScore = Number(row.physics_score_signed || 0);
             const intensity = Math.abs(signedScore);
 
             // Filter noise
             if (intensity < 0.05) continue;
 
-            const alpha = Math.min(intensity * 1.5, 1.0); // Boost visibility slightly
+            const alpha = Math.min(intensity * 1.5, 1.0);
 
             // Color Coding: Green (Up/Ease) vs Red (Down/Pressure)
-            // Using same hues as old gradient but discrete ticks
             let r, g, b;
             if (signedScore > 0) {
-                // Greenish
                 r = 20; g = 180; b = 80;
             } else {
-                // Reddish
                 r = 180; g = 40; b = 40;
             }
 
-            layer.write(row.rel_ticks, [r / 255.0, g / 255.0, b / 255.0, alpha]);
+            layer.write(relTicks, [r / 255.0, g / 255.0, b / 255.0, alpha]);
         }
     }
 

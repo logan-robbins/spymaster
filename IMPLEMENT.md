@@ -746,24 +746,24 @@ V1 default: Mode A.
 
 ## 12. Implementation Checklist (Striirm inputs
 
-* [ ] Backend can stream WS HUD at 1Hz. 【66:1†frontend_data.json†L1-L29】
-* [ ] `snap`, `wall`, `vacuum`, `physics`, `gex` surfaces appear in the stream. 【66:1†frontend_data.json†L30-L90】
-* [ ] Spot anchor (`spot_ref_price_int`) is non-zero and stable. 【70:2†backend_data.json†L16-L31】
+* [x] Backend can stream WS HUD at 1Hz.
+* [x] `snap`, `wall`, `vacuum`, `physics`, `gex` surfaces appear in the stream.
+* [x] Spot anchor (`spot_ref_price_int`) is non-zero and stable.
 
 ### Phase 1 — Bridge
 
-* [ ] Bridge decodes Arrow IPC via Python stream reader (`pyarrow.ipc.open_stream`). ([Apache Arrow][1])
-* [ ] Bridge emits UDP packets per surface with MWT header + sparse payload (as defined).
-* [ ] Bridge computes `wall_intensity_raw = log1p(depth_qty_rest)` for wall. 【70:13†frontend_data.json†L54-L57】
-* [ ] Bridge forwards `vacuum_score` as-is (0..1). 【70:8†frontend_data.json†L21-L25】
-* [ ] Bridge forwards `physics_score_signed` as-is. 【70:1†frontend_data.json†L14-L18】
-* [ ] Bridge forwards `gex_abs` + `gex_imbalance_ratio`. 【66:1†frontend_data.json†L62-L77】
+* [x] Bridge decodes Arrow IPC via Python stream reader (`pyarrow.ipc.open_stream`).
+* [x] Bridge emits UDP packets per surface with MWT header + sparse payload (as defined).
+* [x] Bridge computes `wall_intensity_raw = log1p(depth_qty_rest)` for wall.
+* [x] Bridge forwards `vacuum_score` as-is (0..1).
+* [x] Bridge forwards `physics_score_signed` as-is.
+* [x] Bridge forwards `gex_abs` + `gex_imbalance_ratio`.
 
 ### Phase 2 — UE ingestion
 
-* [ ] UDP receiver uses `FUdpSocketReceiver`. ([Epic Games Developers][6])
-* [ ] Receiver updates per-surface arrays (801 ticks) anchored to spot.
-* [ ] Receiver applies dissipation (τ=5s) for physics + vacuum; clears wall each update. 【70:14†DOCS_FRONTEND.md†L28-L33】
+* [x] UDP receiver uses `FUdpSocketReceiver`.
+* [x] Receiver updates per-surface arrays (801 ticks) anchored to spot.
+* [x] Receiver applies dissipation (τ=5s) for physics + vacuum; clears wall each update.
 
 ### Phase 3 — Niagara
 

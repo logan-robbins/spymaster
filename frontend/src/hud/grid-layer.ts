@@ -79,23 +79,7 @@ export class GridLayer {
                 
                 // Snap to nearest column center to prevent horizontal interpolation bleeding
                 float colIndex = floor(rawX * uWidth);
-                float x = (colIndex + 0.5) / uWidth; // continuous [0, 1] covering history window.
-                // We want to snap to the exact texture column corresponding to the second.
-                // Texture width = uHistorySeconds.
-                
-                float totalCols = 1800.0; // Fixed history? Or uniform uWidth?
-                // Let's assume vUv.x maps 0..1 to 0..Width.
-                // headOffset shifts the ring buffer.
-                // x_ring = mod(floor(vUv.x * totalCols) + uHeadOffset * totalCols, totalCols) / totalCols
-                
-                // Simplified: The texture wraps.
-                // We just need to snap vUv.x to nearest column center?
-                // No, NearestFilter handles fractional UVs by picking nearest texel.
-                // But specifically for TIME alignment, we want 1 pixel = 1 second.
-                // If we rely on UV, linear interpolation might bleed neighbors.
-                // NearestFilter is set in constructor. So vUv.x is safe if we don't offset by sub-pixels.
-                
-                float x = vUv.x + uHeadOffset;
+                float x = (colIndex + 0.5) / uWidth;
 
                 // 2. Vertical Rectification (Tick Space)
                 // uSpotRef is now passed as (spot_ref_price_int / TICK_INT).

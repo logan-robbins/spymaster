@@ -71,10 +71,33 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | Grid layer | `frontend/src/hud/grid-layer.ts` |
 | WebSocket loader | `frontend/src/hud/data-loader.ts` |
 
-## Verification
+## Market Wind Tunnel (Unreal Engine Integration)
 
+### 1. Launch Backend
 ```bash
 cd backend
-uv run python scripts/test_integrity_v2.py --dt 2026-01-06 # Canonical Grid/Physics Check
-uv run python scripts/simulate_frontend.py
+uv run python -m src.serving.main
+```
+
+### 2. Launch Bridge (WebSocket -> UDP)
+Connects to 1Hz WebSocket stream, decodes Arrow IPC, transforms data, and emits sparse UDP packets to Unreal Engine.
+```bash
+cd backend
+uv run python -m src.bridge.main --udp-ip 127.0.0.1 --udp-port 7777
+```
+
+### 3. Unreal Engine Receiver
+- Source Code: `unreal/MarketWindTunnel/Source/MarketWindTunnel/`
+- **Class**: `AMwtUdpReceiver`
+- **Setup**:
+    1. Create a Blueprint inheriting from `AMwtUdpReceiver`.
+    2. Add a Niagara Component with System `NS_MarketWindTunnel`.
+    3. The Receiver automatically updates User Parameters: `User.WallAsk`, `User.WallBid`, `User.Vacuum`, etc.
+
+### Verification
+```bash
+cd backend
+uv run python scripts/test_integrity_v2.py --dt 2026-01-06 
+uv run python scripts/verify_websocket_stream_v1.py # Verify WS
+uv run python scripts/test_udp_receiver.py # Verify Bridge UDP Output
 ```
