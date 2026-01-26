@@ -32,7 +32,7 @@ The renderer uses a **Tick Space** coordinate system to eliminate floating-point
 | Space | Unit | Description |
 |-------|------|-------------|
 | **Data Space** | Integer Ticks | `spot_ref_price_int` (e.g., 23800 ticks). `rel_ticks` offsets (e.g., +20). |
-| **Texture Space** | Texels | Y-axis: 0..801 (Layer Height). X-axis: 0..1800 (History). |
+| **Texture Space** | Texels | Y-axis: 0..801 (Layer Height). For Bucket Radar: Height/Resolution (e.g. 401). X-axis: 0..1800 (History). |
 | **World Space** | GL Units | `1 tick = 0.25 units`. `1 second = 0.1 units` (configurable). |
 | **Screen Space** | Pixels | Camera projects World Space → Screen. |
 
@@ -95,7 +95,6 @@ HUD stream columns are exactly those listed above. Optional wall/vacuum fields (
 ## Configuration
 - `TICK_SIZE`: `0.25`
 - `TICK_INT`: `250,000,000` (ns)
-- `LAYER_HEIGHT_TICKS`: `801` (±400 ticks around spot)
 - `LAYER_HEIGHT_TICKS`: `801` (±400 ticks around spot)
 - `PRICE_SCALE`: `1e-9`
 

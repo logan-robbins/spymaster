@@ -1,84 +1,131 @@
 # Market Wind Tunnel - Unreal Implementation Task Plan
 
-## Status: VERIFIED WORKING - Phase 3 Needs Editor Work
+## Status: C++ VISUALIZATION COMPLETE - Ready to Compile
 
-### System Status (Verified 2026-01-26)
-- Remote Control API: **CONNECTED** (port 30010)
-- MWT_Main level: **LOADED**
-- BP_MwtReceiver: **PRESENT** (port 7777)
-- Backend HUD stream: **RUNNING** (port 8000)
-- Bridge (WS→UDP): **RUNNING** 
-- Data flow: **VERIFIED** (snap/wall/vacuum/physics/gex surfaces streaming)
+### What Changed
+The Niagara-based approach failed because Array Data Interfaces weren't configured.
 
-### Debug Visualization
-The C++ receiver includes **built-in debug visualization** using DrawDebugSolidBox.
-To see it: **Press Play in UE Editor while bridge is running.**
-- Blue boxes = Ask walls
-- Red boxes = Bid walls
-- Position = relative to receiver actor location
-- Height = price tick offset from spot
+**New Architecture**: `MwtHeatmapRenderer` component renders the visualization using **Debug Draw primitives** (immediate mode rendering). This matches the frontend's tick-native architecture and works without any Editor configuration.
 
-### Remote Control API Capabilities
-**CAN DO via Remote Control:**
-- Load/switch maps: `client.load_level('/Game/MarketWindTunnel/Maps/MWT_Main')`
-- Read properties: `client.get_properties(object_path, property_name)`
-- Write properties: `client.set_property(object_path, prop, value)`
-- Call functions: `client.call_function(object_path, function_name, params)`
-- Spawn actors, search assets, list actors
+### Architecture (Matches frontend_data.json / DOCS_FRONTEND.md)
 
-**CANNOT DO via Remote Control:**
-- Create/configure Niagara systems (requires Editor)
-- Add emitters, modules, or GPU simulation code
-- Edit Blueprint graphs
-- Create materials or visual assets
+**Coordinate Systems:**
+- Data Space: Integer ticks, `spot_ref_price_int` anchor
+- Texture Space: Y=0..801 (layer height), X=0..HistorySeconds (time)
+- World Space: 1 tick = `TickWorldScale` units, 1 second = `TimeWorldScale` units
 
-### Phase 2 — UE Ingestion (COMPLETE)
-- [x] UDP receiver binds port 7777
-- [x] Packet validation (MWT1 magic, version check)
-- [x] Surface processing: SNAP, WALL, VACUUM, PHYSICS, GEX
-- [x] Arrays updated (801 ticks = ±400 around spot)
-- [x] Decay applied (wall instant clear, vacuum/physics τ=5s)
-- [x] Debug visualization renders walls in-game
+**Layer Stack (Z-order back→front):**
+| Layer | World Y | Color |
+|-------|---------|-------|
+| Physics | -5 | Green (up ease) / Red (down ease) |
+| Wall | 0 | Blue (asks) / Red (bids) |
+| Vacuum | +2 | Black overlay |
+| GEX | +3 | Green (calls) / Red (puts) |
+| Spot Line | +5 | Cyan |
+| Grid Lines | -10 | Gray (dark) |
 
-### Phase 3 — Niagara (REQUIRES EDITOR)
-The NS_MarketWindTunnel asset exists but needs manual configuration:
-- [ ] Add Grid 2D Gas emitter from Niagara Fluids templates
-- [ ] Create User parameter arrays (Float Array Data Interface)
-- [ ] Wire arrays into grid simulation (viscosity, pressure sources)
-- [ ] Add particle rendering (tracer, density visualization)
+**Dissipation Model:**
+- Physics: τ=5s (decays ~18% per second)
+- Vacuum: τ=5s
+- Wall: τ=0 (instant clear per window)
+- GEX: preserved
 
-### Test Commands
+### Files Updated
 
+**UE Project** (`/Users/loganrobbins/Documents/Unreal Projects/MarketWindTunnel/Source/`):
+- `MwtUdpReceiver.h/cpp` - UDP receiver, data processing
+- `MwtHeatmapRenderer.h/cpp` - Visualization renderer (NEW)
+- `MarketWindTunnel.Build.cs` - Added ProceduralMeshComponent module
+
+**Spymaster Repo** (`unreal/MarketWindTunnel/Source/`):
+- Synced from UE project
+
+### To Compile and Run
+
+**Step 1: Close Unreal Editor**
+
+**Step 2: Force Recompile (delete old binaries)**
 ```bash
-# Backend should already be running, but if not:
-cd backend && uv run python -m src.serving.main
-
-# Start bridge (streams data to UE on UDP 7777):
-cd backend && uv run python -m src.bridge.main --symbol ESH6 --dt 2026-01-06
-
-# Remote Control CLI examples:
-cd backend && uv run python scripts/remote_control_cli.py info
-cd backend && uv run python scripts/remote_control_cli.py actors
-cd backend && uv run python scripts/remote_control_cli.py maps --recursive-paths
+cd "/Users/loganrobbins/Documents/Unreal Projects/MarketWindTunnel"
+rm -rf Binaries Intermediate
 ```
 
-### What Happens When You Press Play
-1. BP_MwtReceiver::BeginPlay() binds UDP socket on port 7777
-2. Bridge sends MWT1 packets at ~1Hz per surface
-3. AMwtUdpReceiver::OnDataReceived() processes packets
-4. Arrays (WallAsk, WallBid, Vacuum, etc.) are populated
-5. AMwtUdpReceiver::Tick() calls UpdateNiagara() and renders debug boxes
-6. Debug visualization shows colored boxes representing liquidity walls
+**Step 3: Open Project in Unreal**
+- Open `MarketWindTunnel.uproject`
+- Wait for shader compilation
+- It will prompt to recompile - click Yes
 
-### Niagara Configuration (Manual Steps in Editor)
-1. Open NS_MarketWindTunnel in Niagara Editor
-2. Add emitter: Right-click → Add Emitter → From Template → Grid 2D Gas
-3. Add User Parameters: System Overview → User Parameters:
-   - User.WallAsk (Float Array)
-   - User.WallBid (Float Array)
-   - User.Vacuum (Float Array)
-   - User.PhysicsSigned (Float Array)
-   - User.GexAbs (Float Array)
-   - User.GexImbalance (Float Array)
-4. In Grid simulation module: Connect arrays to viscosity/velocity fields
-5. Compile and save
+**Step 4: Delete Old Blueprint**
+- In Content Browser: Delete `BP_MwtReceiver`
+- The old BP references NiagaraComponent which is no longer used
+
+**Step 5: Create New Blueprint**
+- Right-click in Content Browser → Blueprint Class
+- Search for `MwtUdpReceiver` → Select it
+- Name it `BP_MwtReceiver`
+- Open BP, verify `HeatmapRenderer` component exists
+
+**Step 6: Place in Level**
+- Open `MWT_Main` level
+- Drag `BP_MwtReceiver` into level
+- Position at origin (0, 0, 0)
+- Save level
+
+**Step 7: Start Backend + Bridge**
+```bash
+# Terminal 1: Backend
+cd backend && uv run python -m src.serving.main
+
+# Terminal 2: Bridge
+cd backend && uv run python -m src.bridge.main --symbol ESH6 --dt 2026-01-06
+```
+
+**Step 8: Press Play in UE**
+- You should see colored boxes appearing:
+  - Blue/Cyan boxes = Ask walls (above spot)
+  - Red boxes = Bid walls (below spot)
+  - Green/Red gradient = Physics ease
+  - Black overlay = Vacuum
+  - Cyan line = Spot price
+  - Gray grid lines = $5 price levels
+
+### Configurable Properties (in BP_MwtReceiver Details)
+
+**MwtHeatmapRenderer:**
+- `TickWorldScale`: World units per tick (default 0.5)
+- `TimeWorldScale`: World units per second (default 2.0)
+- `HistorySeconds`: Visible time history (default 300 = 5 min)
+- `WallIntensityMult`: Wall brightness (default 2.0)
+- `bShowWall/Vacuum/Physics/Gex/SpotLine/GridLines`: Toggle layers
+
+**MwtUdpReceiver:**
+- `Port`: UDP port (default 7777)
+- `bLogPackets`: Debug logging
+- `bLogSurfaceUpdates`: Surface update logging
+
+### Verification
+
+**Check Output Log for:**
+```
+MWT UDP Receiver: Listening on port 7777
+MWT: New window ts=..., spot=... ticks
+```
+
+**If No Visualization:**
+1. Check bridge is running (`ps aux | grep bridge`)
+2. Check UDP port not blocked (try `netstat -an | grep 7777`)
+3. Check `bShow*` properties are true in BP
+4. Camera may need repositioning to see the visualization
+
+### Data Flow
+```
+Backend HUD (ws://localhost:8000/v1/hud/stream)
+    ↓ (Arrow IPC)
+Bridge (Python - src/bridge/main.py)
+    ↓ (MWT-UDP v1 protocol)
+MwtUdpReceiver (C++ - port 7777)
+    ↓ (TArray<float> arrays)
+MwtHeatmapRenderer (C++ - Debug Draw)
+    ↓
+Viewport (colored boxes)
+```

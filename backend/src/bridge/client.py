@@ -54,10 +54,11 @@ class BridgeClient:
                 
                 if msg_type == "batch_start":
                     self.current_window_ts = data.get("window_end_ts_ns", 0)
-                    # print(f"Window: {self.current_window_ts}")
+                    print(f"[Bridge] Window: {self.current_window_ts}")
                     
                 elif msg_type == "surface_header":
                     self.current_surface_name = data.get("surface")
+                    print(f"[Bridge] Surface: {self.current_surface_name}")
                     
             except Exception as e:
                 print(f"JSON Parse Error: {e}")
@@ -211,6 +212,7 @@ class BridgeClient:
             )
             data = header.pack() + payload
             self.emitter.send(data)
+            print(f"[UDP] Surface={sid} Count={cnt} Spot={spot} Size={len(data)}b")
         except Exception as e:
             print(f"Packet Error: {e} | TS={self.current_window_ts} Spot={self.spot_ref_price_int}")
             traceback.print_exc()

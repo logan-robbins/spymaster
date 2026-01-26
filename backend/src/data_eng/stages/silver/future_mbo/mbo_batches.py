@@ -34,6 +34,7 @@ def iter_mbo_batches(
     symbol: str,
     dt: str,
     batch_size: int = 1_000_000,
+    start_buffer_ns: int = 0,
 ) -> Iterable[pd.DataFrame]:
     dataset_key = "bronze.future_mbo.mbo"
     ref = partition_ref(cfg, dataset_key, symbol, dt)
@@ -58,7 +59,7 @@ def iter_mbo_batches(
         raise ValueError(f"Unexpected extra columns not in contract: {sorted(extra)}")
 
     start_ns, end_ns = first_hour_window_ns(dt)
-    filt = (ds.field("ts_event") >= start_ns) & (ds.field("ts_event") < end_ns)
+    filt = (ds.field("ts_event") >= (start_ns - start_buffer_ns)) & (ds.field("ts_event") < end_ns)
 
     scanner = dataset.scanner(columns=MBO_COLUMNS, filter=filt, batch_size=batch_size)
 

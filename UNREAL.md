@@ -783,20 +783,23 @@ V1 default: Mode A.
 * [x] Debug visualization active (DrawDebugSolidBox for walls).
 * [x] End-to-end data flow verified (Backend→Bridge→UDP→UE).
 
-### Phase 3 — Niagara (REQUIRES MANUAL EDITOR WORK)
+### Phase 3 — Visualization (REWRITTEN - Debug Draw Approach)
 
-* [ ] Create Niagara Fluids Grid 2D system. ([Epic Games Developers][2])
-* [ ] User parameter arrays drive wall/vacuum/physics/gex fields.
-* [ ] Visual output shows:
+Niagara Array Data Interfaces were not configured. Replaced with `MwtHeatmapRenderer` using Debug Draw primitives.
 
-  * tracer (price)
-  * obstacles (walls)
-  * suction/pressure (vacuum)
-  * directional bias (physics)
-  * macro overlay (gex)
+* [x] MwtHeatmapRenderer component created
+* [x] Debug Draw visualization for all layers:
+  * Wall: Blue (asks) / Red (bids) boxes
+  * Physics: Green (up) / Red (down) boxes
+  * Vacuum: Black overlay boxes
+  * GEX: Green (calls) / Red (puts) boxes
+  * Spot Line: Cyan line
+  * Grid Lines: Gray lines at $5 intervals
+* [x] Tick-native coordinate system (matches frontend)
+* [x] Ring buffer time history
+* [x] Dissipation model (Physics/Vacuum τ=5s, Wall τ=0)
 
-**Note**: Niagara system configuration cannot be done via Remote Control API. 
-This requires manual work in the Unreal Editor's Niagara Editor interface.
+**To Compile**: See TASK_UNREAL.md for step-by-step instructions.
 
 ### Phase 4 — Azure + Pixel Streaming (optional for V1 demo)
 

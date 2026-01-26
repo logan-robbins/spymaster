@@ -96,9 +96,17 @@ uv run python -m src.bridge.main --symbol ESH6 --dt 2026-01-06
 
 ### 3. Unreal Engine Receiver
 - **Class**: `AMwtUdpReceiver` (C++ in `unreal/MarketWindTunnel/Source/`)
+- **Renderer**: `MwtHeatmapRenderer` component (Debug Draw visualization)
 - **Blueprint**: `BP_MwtReceiver` (placed in MWT_Main level)
 - **Port**: 7777 (UDP)
-- **Debug Visualization**: Press Play to see wall heatmaps (blue=ask, red=bid)
+
+**Visualization Layers:**
+- Blue boxes = Ask walls (above spot)
+- Red boxes = Bid walls (below spot)
+- Green/Red gradient = Physics directional ease
+- Black boxes = Vacuum overlay
+- Cyan line = Spot price
+- Gray lines = $5 price grid
 
 ### 4. Remote Control API (UE 5.7)
 ```bash

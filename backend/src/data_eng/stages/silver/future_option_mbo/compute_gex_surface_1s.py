@@ -609,8 +609,17 @@ def _calc_gex_vectorized(df, grid_base):
     df_grid["underlying"] = "ES" # Hardcode or Derive? Avro schema expects it.
     
     # Aggregates
-    grp = df.groupby(["window_end_ts_ns", "strike_price", "is_call"])["gex_val"].sum().reset_index()
-    grp["strike_price_int"] = (grp["strike_price"] * PRICE_SCALE).round().astype(np.int64)
+    # Bin to nearest grid point
+    # df["strike_price"] is int64 raw
+    raw_strike_float = df["strike_price"].astype(float) * PRICE_SCALE
+    # Round to freq
+    binned_strike = (raw_strike_float / freq).round() * freq
+    # Convert back to int for grouping
+    df["grid_strike_int"] = (binned_strike / PRICE_SCALE).round().astype(np.int64)
+
+    grp = df.groupby(["window_end_ts_ns", "grid_strike_int", "is_call"])["gex_val"].sum().reset_index()
+    grp = grp.rename(columns={"grid_strike_int": "strike_price_int"})
+    
     
     # Pivot Call/Put
     piv = grp.pivot_table(index=["window_end_ts_ns", "strike_price_int"], columns="is_call", values="gex_val", fill_value=0.0)

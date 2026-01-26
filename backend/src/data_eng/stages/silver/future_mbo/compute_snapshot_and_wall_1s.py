@@ -20,7 +20,7 @@ from .book_engine import (
     WALL_COLUMNS,
     compute_futures_surfaces_1s_from_batches,
 )
-from .mbo_batches import iter_mbo_batches
+from .mbo_batches import first_hour_window_ns, iter_mbo_batches
 
 
 class SilverComputeSnapshotAndWall1s(Stage):
@@ -45,9 +45,18 @@ class SilverComputeSnapshotAndWall1s(Stage):
         if is_partition_complete(ref_snap) and is_partition_complete(ref_wall) and is_partition_complete(ref_radar):
             return
 
+        # Warmup: Read 5 mins prior to build book state
+        WARMUP_NS = 300_000_000 * 60  # 5 minutes
+
         df_snap, df_wall, df_radar = compute_futures_surfaces_1s_from_batches(
-            iter_mbo_batches(cfg, repo_root, symbol, dt)
+            iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS)
         )
+
+        # Filter out warmup data from output
+        start_ns, _ = first_hour_window_ns(dt)
+        df_snap = df_snap[df_snap["window_end_ts_ns"] >= start_ns]
+        df_wall = df_wall[df_wall["window_end_ts_ns"] >= start_ns]
+        df_radar = df_radar[df_radar["window_end_ts_ns"] >= start_ns]
 
         contract_snap_path = repo_root / cfg.dataset(out_key_snap).contract
         contract_wall_path = repo_root / cfg.dataset(out_key_wall).contract

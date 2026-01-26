@@ -13,7 +13,7 @@ from ....io import (
     write_partition,
 )
 from .book_engine import RADAR_COLUMNS, compute_futures_surfaces_1s_from_batches
-from .mbo_batches import iter_mbo_batches
+from .mbo_batches import first_hour_window_ns, iter_mbo_batches
 
 
 class SilverComputeRadarVacuum1s(Stage):
@@ -31,9 +31,16 @@ class SilverComputeRadarVacuum1s(Stage):
         if is_partition_complete(out_ref):
             return
 
+        # Warmup: Read 5 mins prior to build book state
+        WARMUP_NS = 300_000_000 * 60  # 5 minutes
+        
         _, _, df_out = compute_futures_surfaces_1s_from_batches(
-            iter_mbo_batches(cfg, repo_root, symbol, dt)
+            iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS)
         )
+
+        # Filter out warmup data from output
+        start_ns, _ = first_hour_window_ns(dt)
+        df_out = df_out[df_out["window_end_ts_ns"] >= start_ns]
 
         if df_out.empty:
             df_out = pd.DataFrame(columns=RADAR_COLUMNS)
