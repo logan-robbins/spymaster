@@ -17,6 +17,7 @@ void AMwtUdpReceiver::BeginPlay() {
   Super::BeginPlay();
 
   InitArrays();
+  ResetSurfaces();
 
   // Start UDP Receiver
   FIPv4Endpoint Endpoint(FIPv4Address::Any, Port);
@@ -57,6 +58,7 @@ void AMwtUdpReceiver::EndPlay(const EEndPlayReason::Type EndPlayReason) {
 void AMwtUdpReceiver::InitArrays() {
   // 801 ticks (+/- 400 around spot)
   int32 Size = 801;
+  int32 HistorySize = FMath::Max(HistorySeconds, 1);
   WallAsk.Init(0.0f, Size);
   WallBid.Init(0.0f, Size);
   WallErosion.Init(0.0f, Size);
@@ -64,6 +66,57 @@ void AMwtUdpReceiver::InitArrays() {
   PhysicsSigned.Init(0.0f, Size);
   GexAbs.Init(0.0f, Size);
   GexImbalance.Init(0.0f, Size);
+  SpotHistory.Init(0.0f, HistorySize);
+  SpotHead = 0;
+
+  WallAskScaled.Init(0.0f, Size);
+  WallBidScaled.Init(0.0f, Size);
+  WallErosionScaled.Init(0.0f, Size);
+  VacuumScaled.Init(0.0f, Size);
+  PhysicsScaled.Init(0.0f, Size);
+  GexAbsScaled.Init(0.0f, Size);
+  GexImbalanceScaled.Init(0.0f, Size);
+}
+
+void AMwtUdpReceiver::ResetSurfaces() {
+  FScopeLock Lock(&DataMutex);
+  FMemory::Memset(WallAsk.GetData(), 0, WallAsk.Num() * sizeof(float));
+  FMemory::Memset(WallBid.GetData(), 0, WallBid.Num() * sizeof(float));
+  FMemory::Memset(WallErosion.GetData(), 0, WallErosion.Num() * sizeof(float));
+  FMemory::Memset(Vacuum.GetData(), 0, Vacuum.Num() * sizeof(float));
+  FMemory::Memset(PhysicsSigned.GetData(), 0,
+                  PhysicsSigned.Num() * sizeof(float));
+  FMemory::Memset(GexAbs.GetData(), 0, GexAbs.Num() * sizeof(float));
+  FMemory::Memset(GexImbalance.GetData(), 0,
+                  GexImbalance.Num() * sizeof(float));
+  FMemory::Memset(SpotHistory.GetData(), 0,
+                  SpotHistory.Num() * sizeof(float));
+  SpotHead = 0;
+  CurrentWindowTs = 0;
+  LastSpotTs = 0;
+  SpotRefPriceInt = 0;
+  SpotRefTick = 0.0f;
+  MidPrice = 0.0;
+  bBookValid = false;
+}
+
+void AMwtUdpReceiver::SetLayerGains(float InWallGain, float InVacuumGain,
+                                    float InPhysicsGain, float InGexGain) {
+  FScopeLock Lock(&DataMutex);
+  WallGain = InWallGain;
+  VacuumGain = InVacuumGain;
+  PhysicsGain = InPhysicsGain;
+  GexGain = InGexGain;
+}
+
+void AMwtUdpReceiver::SetLayerEnabled(bool bWall, bool bVacuum, bool bPhysics,
+                                      bool bGex, bool bSpotLine) {
+  FScopeLock Lock(&DataMutex);
+  bEnableWall = bWall;
+  bEnableVacuum = bVacuum;
+  bEnablePhysics = bPhysics;
+  bEnableGex = bGex;
+  bEnableSpotLine = bSpotLine;
 }
 
 void AMwtUdpReceiver::OnDataReceived(const FArrayReaderPtr &ArrayReaderPtr,
@@ -80,17 +133,26 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
       reinterpret_cast<const FMwtPacketHeader *>(Data.GetData());
 
   // Basic validation
+  if (FMemory::Memcmp(Header->Magic, "MWT1", 4) != 0)
+    return;
   if (Header->Version != 1)
     return;
 
   FScopeLock Lock(&DataMutex);
+
+  SpotRefPriceInt = Header->SpotRefPriceInt;
+  if (SpotRefPriceInt > 0) {
+    const double TickInt = 250000000.0;
+    SpotRefTick = static_cast<float>(SpotRefPriceInt / TickInt);
+  } else {
+    SpotRefTick = 0.0f;
+  }
 
   // Check for new window -> Clear / Decay
   if (Header->WindowEndTsNs > CurrentWindowTs) {
     CurrentWindowTs = Header->WindowEndTsNs;
 
     // Clear Wall (Immediate)
-    float ClearVal = 0.0f;
     FMemory::Memset(WallAsk.GetData(), 0, WallAsk.Num() * sizeof(float));
     FMemory::Memset(WallBid.GetData(), 0, WallBid.Num() * sizeof(float));
     FMemory::Memset(WallErosion.GetData(), 0,
@@ -117,7 +179,23 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
     if (Offset >= Data.Num())
       break;
 
-    if (Header->SurfaceId == 2) // WALL
+    if (Header->SurfaceId == 1) // SNAP
+    {
+      if (Offset + sizeof(FMwtSnapEntry) > Data.Num())
+        break;
+      const FMwtSnapEntry *Entry =
+          reinterpret_cast<const FMwtSnapEntry *>(Data.GetData() + Offset);
+      Offset += sizeof(FMwtSnapEntry);
+
+      MidPrice = Entry->MidPrice;
+      bBookValid = Entry->bBookValid;
+
+      if (Header->WindowEndTsNs > LastSpotTs && SpotHistory.Num() > 0) {
+        SpotHistory[SpotHead] = SpotRefTick;
+        SpotHead = (SpotHead + 1) % SpotHistory.Num();
+        LastSpotTs = Header->WindowEndTsNs;
+      }
+    } else if (Header->SurfaceId == 2) // WALL
     {
       if (Offset + sizeof(FMwtWallEntry) > Data.Num())
         break;
@@ -136,6 +214,8 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
       }
     } else if (Header->SurfaceId == 3) // VACUUM
     {
+      if (Offset + sizeof(FMwtVacuumEntry) > Data.Num())
+        break;
       const FMwtVacuumEntry *Entry =
           reinterpret_cast<const FMwtVacuumEntry *>(Data.GetData() + Offset);
       Offset += sizeof(FMwtVacuumEntry);
@@ -146,6 +226,8 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
       }
     } else if (Header->SurfaceId == 4) // PHYSICS
     {
+      if (Offset + sizeof(FMwtPhysicsEntry) > Data.Num())
+        break;
       const FMwtPhysicsEntry *Entry =
           reinterpret_cast<const FMwtPhysicsEntry *>(Data.GetData() + Offset);
       Offset += sizeof(FMwtPhysicsEntry);
@@ -156,6 +238,8 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
       }
     } else if (Header->SurfaceId == 5) // GEX
     {
+      if (Offset + sizeof(FMwtGexEntry) > Data.Num())
+        break;
       const FMwtGexEntry *Entry =
           reinterpret_cast<const FMwtGexEntry *>(Data.GetData() + Offset);
       Offset += sizeof(FMwtGexEntry);
@@ -166,12 +250,7 @@ void AMwtUdpReceiver::ProcessPacket(const TArray<uint8> &Data) {
         GexImbalance[Idx] = Entry->ImbalanceRatio;
       }
     } else {
-      // Skip unknown payload? We can't know size.
-      // But we know SNAP is size 16.
-      if (Header->SurfaceId == 1)
-        Offset += sizeof(FMwtSnapEntry);
-      else
-        break;
+      break;
     }
   }
 }
@@ -188,15 +267,44 @@ void AMwtUdpReceiver::UpdateNiagara() {
 
   FScopeLock Lock(&DataMutex);
 
+  const float WallScale = bEnableWall ? WallGain : 0.0f;
+  const float VacuumScale = bEnableVacuum ? VacuumGain : 0.0f;
+  const float PhysicsScale = bEnablePhysics ? PhysicsGain : 0.0f;
+  const float GexScale = bEnableGex ? GexGain : 0.0f;
+
+  for (int32 i = 0; i < WallAsk.Num(); i++) {
+    WallAskScaled[i] = WallAsk[i] * WallScale;
+    WallBidScaled[i] = WallBid[i] * WallScale;
+    WallErosionScaled[i] = WallErosion[i] * WallScale;
+    VacuumScaled[i] = Vacuum[i] * VacuumScale;
+    PhysicsScaled[i] = PhysicsSigned[i] * PhysicsScale;
+    GexAbsScaled[i] = GexAbs[i] * GexScale;
+    GexImbalanceScaled[i] = bEnableGex ? GexImbalance[i] : 0.0f;
+  }
+
   // Push Arrays to User Parameters
-  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.WallAsk"), WallAsk);
-  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.WallBid"), WallBid);
+  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.WallAsk"),
+                                            WallAskScaled);
+  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.WallBid"),
+                                            WallBidScaled);
   NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.WallErosion"),
-                                            WallErosion);
-  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.Vacuum"), Vacuum);
+                                            WallErosionScaled);
+  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.Vacuum"), VacuumScaled);
   NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.PhysicsSigned"),
-                                            PhysicsSigned);
-  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.GexAbs"), GexAbs);
+                                            PhysicsScaled);
+  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.GexAbs"), GexAbsScaled);
   NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.GexImbalance"),
-                                            GexImbalance);
+                                            GexImbalanceScaled);
+  NiagaraComp->SetNiagaraVariableFloatArray(TEXT("User.SpotHistory"),
+                                            SpotHistory);
+
+  NiagaraComp->SetNiagaraVariableFloat(TEXT("User.MidPrice"),
+                                       static_cast<float>(MidPrice));
+  NiagaraComp->SetNiagaraVariableFloat(TEXT("User.SpotRefTick"), SpotRefTick);
+  NiagaraComp->SetNiagaraVariableBool(TEXT("User.BookValid"), bBookValid);
+  NiagaraComp->SetNiagaraVariableBool(TEXT("User.SpotLineEnabled"),
+                                      bEnableSpotLine);
+  NiagaraComp->SetNiagaraVariableInt(TEXT("User.SpotHead"), SpotHead);
+  NiagaraComp->SetNiagaraVariableInt(TEXT("User.HistorySeconds"),
+                                     SpotHistory.Num());
 }

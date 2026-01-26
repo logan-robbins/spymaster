@@ -66,16 +66,19 @@ float textureRow = (uHeight * 0.5) + relTicks;
 - **Spot Anchor**: `spot_ref_price_int` MUST be used for geometry anchoring. `mid_price` is cosmetic only.
 - **GEX Alignment**: `rel_ticks` provided by backend are authoritative. They are guaranteed to be multiples of 20 (for ES $5 strikes).
 - **Rounding**: `Math.round` is BANNED for grid math. Use `floor` or exact integer arithmetic.
+- **Control Frames**: WebSocket `batch_start`/`surface_header` JSON uses `window_end_ts_ns` as a string; parse to `BigInt` before comparisons.
 
 ## Streams & Fields
 
 | Stream | Update Method | Key Fields (Tick-Native) |
 |--------|---------------|--------------------------|
-| `snap` | `state.setSpotData` | `spot_ref_price_int` (Master Anchor), `mid_price` (Cosmetic) |
-| `gex` | `renderer.updateGex` | `spot_ref_price_int`, `rel_ticks` (Integer, +/- 20, 40...) |
-| `wall` | `renderer.updateWall` | `spot_ref_price_int`, `rel_ticks` (Integer) |
-| `vacuum` | `renderer.updateVacuum` | `rel_ticks` (Integer) |
-| `physics`| `renderer.updatePhysics`| `rel_ticks` (Integer), `physics_score_signed` |
+| `snap` | `state.setSpotData` | `window_end_ts_ns`, `mid_price`, `spot_ref_price_int`, `book_valid` |
+| `wall` | `renderer.updateWall` | `window_end_ts_ns`, `rel_ticks`, `side`, `depth_qty_rest` |
+| `vacuum` | `renderer.updateVacuum` | `window_end_ts_ns`, `rel_ticks`, `vacuum_score` |
+| `physics`| `renderer.updatePhysics`| `window_end_ts_ns`, `rel_ticks`, `physics_score`, `physics_score_signed` |
+| `gex` | `renderer.updateGex` | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks` (multiples of 20), `underlying_spot_ref`, `gex_abs`, `gex`, `gex_imbalance_ratio` |
+
+HUD stream columns are exactly those listed above. Optional wall/vacuum fields (`d1_depth_qty`, `d2_depth_qty`, `d2_pull_add_log`, `wall_erosion`) are not present in the stream and are treated as 0 by the renderer.
 
 ## Render Layers
 

@@ -13,7 +13,7 @@
                         "window_end_ts_ns",
                         "surfaces"
                     ],
-                    "desc": "Marks new window and lists surfaces included in this batch"
+                    "desc": "Marks new window and lists surfaces included in this batch. window_end_ts_ns is serialized as string in JSON; parse to BigInt."
                 },
                 {
                     "type": "surface_header",
@@ -21,7 +21,7 @@
                         "surface",
                         "window_end_ts_ns"
                     ],
-                    "desc": "Header immediately preceding the binary Arrow IPC payload for the surface"
+                    "desc": "Header immediately preceding the binary Arrow IPC payload for the surface. window_end_ts_ns is serialized as string."
                 }
             ],
             "binary_frame": "Arrow IPC stream for the surface named in the preceding surface_header"
@@ -48,7 +48,7 @@
                     "name": "spot_ref_price_int",
                     "type": "long",
                     "required": true,
-                    "desc": "Tick-aligned spot anchor (integer)."
+                    "desc": "Tick-aligned spot anchor (integer, 20-tick grid)."
                 },
                 {
                     "name": "book_valid",
@@ -90,35 +90,11 @@
                     "type": "double",
                     "required": true,
                     "desc": "Resting depth (orders >500ms old). Used for intensity."
-                },
-                {
-                    "name": "add_qty",
-                    "type": "double",
-                    "required": false,
-                    "desc": "New orders added"
-                },
-                {
-                    "name": "pull_qty_total",
-                    "type": "double",
-                    "required": false,
-                    "desc": "Total cancellations"
-                },
-                {
-                    "name": "d1_depth_qty",
-                    "type": "double",
-                    "required": false,
-                    "desc": "Depth velocity"
-                },
-                {
-                    "name": "d2_depth_qty",
-                    "type": "double",
-                    "required": false,
-                    "desc": "Depth acceleration"
                 }
             ],
             "frontend_usage": {
                 "component": "renderer.ts:updateWall",
-                "purpose": "Blue/red liquidity heatmap. Intensity = log1p(depth_qty_rest)."
+                "purpose": "Blue/red liquidity heatmap. Intensity = log1p(depth_qty_rest). d1/d2 are zeroed because stream omits them."
             }
         },
         "vacuum": {
@@ -143,23 +119,11 @@
                     "type": "double",
                     "required": true,
                     "desc": "Normalized 0-1. Higher = more vacuum (liquidity eroding)."
-                },
-                {
-                    "name": "d2_pull_add_log",
-                    "type": "double",
-                    "required": false,
-                    "desc": "Acceleration of pull/add ratio (Turbulence)"
-                },
-                {
-                    "name": "wall_erosion",
-                    "type": "double",
-                    "required": false,
-                    "desc": "Rate of wall decay"
                 }
             ],
             "frontend_usage": {
                 "component": "renderer.ts:updateVacuum",
-                "purpose": "Black overlay on wall. Alpha = vacuum_score * 128."
+                "purpose": "Black overlay on wall. Alpha = vacuum_score * 128. Turbulence/erosion default to 0 because stream omits them."
             }
         },
         "physics": {
@@ -225,13 +189,13 @@
                     "name": "spot_ref_price_int",
                     "type": "long",
                     "required": true,
-                    "desc": "Tick-aligned spot anchor (integer)."
+                    "desc": "Tick-aligned spot anchor (integer, 20-tick grid)."
                 },
                 {
                     "name": "rel_ticks",
                     "type": "int",
                     "required": true,
-                    "desc": "Ticks relative to spot_ref_price_int."
+                    "desc": "Ticks relative to spot_ref_price_int (multiples of 20 for ES)."
                 },
                 {
                     "name": "gex_abs",
@@ -250,12 +214,6 @@
                     "type": "double",
                     "required": true,
                     "desc": "-1 to +1. Positive=call-heavy (green), negative=put-heavy (red)."
-                },
-                {
-                    "name": "d1_gex",
-                    "type": "double",
-                    "required": false,
-                    "desc": "GEX Velocity"
                 }
             ],
             "frontend_usage": {
@@ -267,6 +225,8 @@
     "constants": {
         "PRICE_SCALE": 1e-9,
         "TICK_SIZE": 0.25,
-        "WINDOW_NS": 1000000000
+        "TICK_INT": 250000000,
+        "WINDOW_NS": 1000000000,
+        "HUD_STREAM_MAX_TICKS": 400
     }
 }

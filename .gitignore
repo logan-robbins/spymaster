@@ -87,6 +87,22 @@ yarn-debug.log*
 yarn-error.log*
 yarn-error.log
 
+# Unreal Engine
+**/Binaries/
+**/Intermediate/
+**/Saved/
+**/DerivedDataCache/
+**/.vs/
+**/*.sln
+**/*.suo
+**/*.opensdf
+**/*.sdf
+**/*.VC.db
+**/*.VC.opendb
+**/*.xcodeproj/
+**/*.xcworkspace/
+**/*.code-workspace
+
 # Angular
 .angular/
 /.angular/cache

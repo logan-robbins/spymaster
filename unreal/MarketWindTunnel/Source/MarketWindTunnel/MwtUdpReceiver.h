@@ -80,6 +80,56 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
   int32 Port = 7777;
 
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  int32 HistorySeconds = 1800;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  float WallGain = 1.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  float VacuumGain = 1.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  float PhysicsGain = 1.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  float GexGain = 1.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  bool bEnableWall = true;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  bool bEnableVacuum = true;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  bool bEnablePhysics = true;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  bool bEnableGex = true;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MWT")
+  bool bEnableSpotLine = true;
+
+  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MWT")
+  double MidPrice = 0.0;
+
+  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MWT")
+  float SpotRefTick = 0.0f;
+
+  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MWT")
+  bool bBookValid = false;
+
+  UFUNCTION(BlueprintCallable, Category = "MWT")
+  void ResetSurfaces();
+
+  UFUNCTION(BlueprintCallable, Category = "MWT")
+  void SetLayerGains(float InWallGain, float InVacuumGain, float InPhysicsGain,
+                     float InGexGain);
+
+  UFUNCTION(BlueprintCallable, Category = "MWT")
+  void SetLayerEnabled(bool bWall, bool bVacuum, bool bPhysics, bool bGex,
+                       bool bSpotLine);
+
   // Data State (Thread Safe via Queue or Render Thread updates)
   // For V1, we'll use a thread-safe MPMC queue or simple locking.
   // Given the 1Hz update, locking is fine.
@@ -94,9 +144,21 @@ public:
   TArray<float> PhysicsSigned;
   TArray<float> GexAbs;
   TArray<float> GexImbalance;
+  TArray<float> SpotHistory;
+  int32 SpotHead = 0;
+
+  TArray<float> WallAskScaled;
+  TArray<float> WallBidScaled;
+  TArray<float> WallErosionScaled;
+  TArray<float> VacuumScaled;
+  TArray<float> PhysicsScaled;
+  TArray<float> GexAbsScaled;
+  TArray<float> GexImbalanceScaled;
 
   // Current State
   int64 CurrentWindowTs;
+  int64 LastSpotTs = 0;
+  int64 SpotRefPriceInt = 0;
 
 private:
   void ProcessPacket(const TArray<uint8> &Data);

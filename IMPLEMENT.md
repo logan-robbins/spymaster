@@ -6,6 +6,18 @@
 **Non-goals (explicit)**: do **not** implement forward prediction; do **not** address non-functional requirements (latency budgets, scale, HA, auth, etc.).  
 **V1 definition of “done”**: A UE Niagara Fluids 2D simulation is live-updated from the backend’s 1-second HUD stream and is viewable locally; the same project can be run on an Azure GPU VM and accessed via Pixel Streaming.
 
+## Task Plan (2026-01-06 RTH)
+1. Inventory Unreal artifacts in repo + define safe cleanup targets. [done]
+2. Add Unreal cleanup utility and ignore rules. [done]
+3. Add Remote Control API client + UE control hooks. [done]
+4. Update README/DOCS for Unreal cleanup + remote control usage. [done]
+5. Verify minimal CLI smoke with `uv run`. [done]
+6. Add Remote Control map utilities (list/open/delete). [done]
+7. Update docs for single-map workflow. [done]
+8. Verify CLI smoke with `uv run`. [done]
+9. Create clean map with BP_MwtReceiver + prune other maps. [done]
+10. Set EditorStartupMap to the single map. [done]
+
 ---
 
 ## 0. Source-of-truth Inputs (Do not deviate)

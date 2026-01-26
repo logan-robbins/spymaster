@@ -147,7 +147,7 @@
                 },
                 "spot_ref_price_int": {
                     "type": "long",
-                    "desc": "Spot anchor for all rel_ticks"
+                    "desc": "Grid-aligned (20 ticks) spot anchor for rel_ticks"
                 },
                 "book_valid": {
                     "type": "boolean",
@@ -157,18 +157,27 @@
             "transformations": [
                 {
                     "step": 1,
-                    "field": "mid_price",
-                    "formula": "(best_bid + best_ask) * 0.5 * PRICE_SCALE"
+                    "action": "If best_bid_price_int>0 and best_ask_price_int>0 compute mid_price + mid_price_int, else set both to 0"
                 },
                 {
                     "step": 2,
-                    "field": "mid_price_int",
-                    "formula": "round((best_bid + best_ask) * 0.5)"
+                    "field": "mid_price",
+                    "formula": "(best_bid_price_int + best_ask_price_int) * 0.5 * PRICE_SCALE"
                 },
                 {
                     "step": 3,
+                    "field": "mid_price_int",
+                    "formula": "round((best_bid_price_int + best_ask_price_int) * 0.5)"
+                },
+                {
+                    "step": 4,
                     "field": "spot_ref_price_int",
-                    "formula": "last_trade_price_int || (book_valid ? best_bid_price_int : 0)"
+                    "formula": "raw_spot = (last_trade_price_int > 0) ? last_trade_price_int : ((book_valid && best_bid_price_int > 0) ? best_bid_price_int : 0)"
+                },
+                {
+                    "step": 5,
+                    "field": "spot_ref_price_int",
+                    "formula": "if raw_spot>0 then round(raw_spot / (GRID_ALIGN_TICKS*TICK_INT)) * (GRID_ALIGN_TICKS*TICK_INT) else 0"
                 }
             ]
         },
@@ -193,7 +202,8 @@
                     "desc": "'B' or 'A'"
                 },
                 "spot_ref_price_int": {
-                    "type": "long"
+                    "type": "long",
+                    "desc": "Grid-aligned spot anchor"
                 },
                 "rel_ticks": {
                     "type": "int",
@@ -256,18 +266,37 @@
                 },
                 {
                     "step": 3,
+                    "field": "depth_qty_rest",
+                    "formula": "sum(qty) of resting orders at window_end_ts_ns where (window_end_ts_ns - order.ts_enter) >= REST_NS"
+                },
+                {
+                    "step": 4,
+                    "field": "pull_qty_rest",
+                    "formula": "sum(qty) of cancellations for orders with age >= REST_NS within the window"
+                },
+                {
+                    "step": 5,
+                    "action": "Accumulate per-price add_qty, pull_qty_total, fill_qty over events in the 1s window"
+                },
+                {
+                    "step": 6,
                     "field": "d1_depth_qty",
                     "formula": "depth_end[t] - depth_end[t-1]"
                 },
                 {
-                    "step": 4,
+                    "step": 7,
                     "field": "d2_depth_qty",
                     "formula": "d1[t] - d1[t-1]"
                 },
                 {
-                    "step": 5,
+                    "step": 8,
                     "field": "d3_depth_qty",
                     "formula": "d2[t] - d2[t-1]"
+                },
+                {
+                    "step": 9,
+                    "field": "window_valid",
+                    "formula": "book_valid && !window_has_snapshot"
                 }
             ]
         },
@@ -285,10 +314,12 @@
                     "type": "long"
                 },
                 "spot_ref_price": {
-                    "type": "double"
+                    "type": "double",
+                    "desc": "spot_ref_price_int * PRICE_SCALE"
                 },
                 "spot_ref_price_int": {
-                    "type": "long"
+                    "type": "long",
+                    "desc": "Grid-aligned (20 ticks) spot anchor"
                 },
                 "approach_dir": {
                     "type": "string",
@@ -308,17 +339,17 @@
                     "key_features": [
                         {
                             "name": "f1_ask_com_disp_log",
-                            "formula": "log((d_ask_end + EPS) / (d_ask_start + EPS))",
-                            "desc": "Ask COM displacement"
+                            "formula": "log((d_ask_ticks_end + EPS_DIST_TICKS) / (d_ask_ticks_start + EPS_DIST_TICKS))",
+                            "desc": "Ask COM displacement (ticks)"
                         },
                         {
                             "name": "f1_ask_slope_convex_log",
-                            "formula": "log((far_depth + EPS) / (near_depth + EPS))",
+                            "formula": "log((ask_depth_far + EPS_QTY) / (ask_depth_near + EPS_QTY))",
                             "desc": "Book convexity"
                         },
                         {
                             "name": "f2_ask_pull_add_log_rest",
-                            "formula": "log((pull_rest + EPS) / (add + EPS))",
+                            "formula": "log((ask_pull_rest_qty + EPS_QTY) / (ask_add_qty + EPS_QTY))",
                             "desc": "Pull/add ratio"
                         },
                         {
@@ -328,7 +359,7 @@
                         },
                         {
                             "name": "f6_vacuum_decay_log",
-                            "formula": "f2_ask + f4_bid",
+                            "formula": "f2_ask_pull_add_log_rest + f4_bid_pull_add_log_rest",
                             "desc": "Combined pull/add"
                         },
                         {
@@ -363,31 +394,31 @@
             "transformations": [
                 {
                     "step": 1,
-                    "action": "Aggregate depth by bucket (at/near/mid/far) per side"
+                    "action": "Build start/end snapshots from depth within ±20 ticks of spot_ref_price_int (buckets: at<=2, near<=5, mid<=14, far>=15)"
                 },
                 {
                     "step": 2,
-                    "action": "Compute center-of-mass distance per side"
+                    "action": "Compute depth totals, bucket shares, COM distances (d_ask_ticks, d_bid_ticks), and BBO distances"
                 },
                 {
                     "step": 3,
-                    "action": "Compute base features f1-f9 (ask) and f3-f4 (bid)"
+                    "action": "Accumulate add/pull/reprice metrics from window events with rest threshold REST_NS"
                 },
                 {
                     "step": 4,
-                    "action": "Compute vacuum features f5-f7"
+                    "action": "Compute base features f1..f9 (ask/bid) from start/end snapshots and accumulators"
                 },
                 {
                     "step": 5,
-                    "action": "Derive up features u1-u19 from base"
+                    "action": "Compute vacuum features f5..f7 and up features u1..u19 derived from base"
                 },
                 {
                     "step": 6,
-                    "action": "Compute d1/d2/d3 for all 49 features"
+                    "action": "Compute d1/d2/d3 for all 49 base+up features using prior window values"
                 },
                 {
                     "step": 7,
-                    "action": "Compute approach_dir from 3-bar spot trend"
+                    "action": "Compute approach_dir from 4-window spot_ref_price_int trend (current - 3 windows ago)"
                 }
             ]
         },
@@ -410,7 +441,8 @@
                     "type": "string"
                 },
                 "spot_ref_price_int": {
-                    "type": "long"
+                    "type": "long",
+                    "desc": "Grid-aligned spot anchor"
                 },
                 "rel_ticks": {
                     "type": "int"
@@ -476,17 +508,17 @@
                 {
                     "step": 5,
                     "field": "d1_pull_add_log",
-                    "formula": "diff(pull_add_log) by (side, price)"
+                    "formula": "diff(pull_add_log) over time per (side, price_int), fill missing with 0"
                 },
                 {
                     "step": 6,
                     "field": "d2_pull_add_log",
-                    "formula": "diff(d1)"
+                    "formula": "diff(d1_pull_add_log) per (side, price_int)"
                 },
                 {
                     "step": 7,
                     "field": "d3_pull_add_log",
-                    "formula": "diff(d2)"
+                    "formula": "diff(d2_pull_add_log) per (side, price_int)"
                 },
                 {
                     "step": 8,
@@ -537,7 +569,8 @@
                     "type": "long"
                 },
                 "spot_ref_price_int": {
-                    "type": "long"
+                    "type": "long",
+                    "desc": "Grid-aligned spot anchor"
                 },
                 "mid_price": {
                     "type": "double"
@@ -661,17 +694,37 @@
             "transformations": [
                 {
                     "step": 1,
-                    "action": "Join wall and vacuum surfaces on tick"
+                    "action": "Outer-join wall_surface and vacuum_surface on (window_end_ts_ns, rel_ticks)"
                 },
                 {
                     "step": 2,
-                    "field": "ease",
-                    "formula": "0.5*vac + 0.35*erosion + 0.15*(1-wall)"
+                    "action": "Compute wall_strength_log = log(depth_qty_rest+1) and log1p_erosion_norm = log1p(max(-d1_depth_qty,0)/(depth_qty_start+EPS)) from wall_surface"
                 },
                 {
                     "step": 3,
+                    "action": "Normalize wall_strength_log and log1p_erosion_norm using gold.hud.physics_norm_calibration bounds"
+                },
+                {
+                    "step": 4,
+                    "action": "Set vacuum_norm = vacuum_score; fill missing wall/vacuum values with 0.0"
+                },
+                {
+                    "step": 5,
+                    "action": "If side missing (vacuum-only tick), infer side from rel_ticks (rel>0 => A, rel<0 => B)"
+                },
+                {
+                    "step": 6,
+                    "field": "physics_score",
+                    "formula": "0.50*vacuum_norm + 0.35*wall_erosion_norm + 0.15*(1 - wall_strength_norm)"
+                },
+                {
+                    "step": 7,
                     "field": "physics_score_signed",
-                    "formula": "+ease if A else -ease if B"
+                    "formula": "+physics_score if side=A & rel_ticks>0, -physics_score if side=B & rel_ticks<0, else 0"
+                },
+                {
+                    "step": 8,
+                    "action": "Join snapshot on window_end_ts_ns to set spot_ref_price_int; event_ts_ns = window_end_ts_ns"
                 }
             ]
         },
@@ -752,7 +805,7 @@
                 },
                 "spot_ref_price_int": {
                     "type": "long",
-                    "desc": "Tick-aligned spot anchor (integer)"
+                    "desc": "Tick-aligned spot anchor (integer, 20-tick grid)"
                 },
                 "rel_ticks": {
                     "type": "int",
@@ -807,71 +860,79 @@
             "transformations": [
                 {
                     "step": 1,
-                    "action": "Filter definitions to 0DTE (expiry == session_date)"
+                    "action": "Filter instrument_definitions to C/P options with expiration date == session_date (Etc/GMT+5), keep last per instrument_id"
                 },
                 {
                     "step": 2,
-                    "action": "Filter to options with OI > 0"
+                    "action": "Load open interest and filter to option_symbol with OI > 0"
                 },
                 {
                     "step": 3,
-                    "action": "Process options MBO → mid_price per (window, instrument)"
+                    "action": "Filter option MBO to eligible instrument_ids and compute per-window BBO mid_price per instrument"
                 },
                 {
                     "step": 4,
-                    "action": "Join futures spot from book_snapshot_1s"
+                    "action": "Join futures spot_ref_price_int from book_snapshot_1s and set spot_ref_price = spot_ref_price_int * PRICE_SCALE"
                 },
                 {
                     "step": 5,
-                    "field": "T",
-                    "formula": "(expiry_ns - window_ns) / 1e9 / 86400 / 365"
+                    "action": "Filter strikes to ±60 points around round(spot_ref_price/5)*5 and keep T>0"
                 },
                 {
                     "step": 6,
-                    "field": "iv",
-                    "formula": "Newton-Raphson (3 iter) on BS price"
+                    "field": "T",
+                    "formula": "(expiration_ns - window_end_ts_ns) / 1e9 / 86400 / 365"
                 },
                 {
                     "step": 7,
+                    "field": "iv",
+                    "formula": "Newton-Raphson (3 iter) on BS price (vectorized)"
+                },
+                {
+                    "step": 8,
                     "field": "d1",
                     "formula": "(ln(F/K) + 0.5*iv²*T) / (iv*√T)"
                 },
                 {
-                    "step": 8,
+                    "step": 9,
                     "field": "gamma",
                     "formula": "e^(-rT) * N'(d1) / (F * iv * √T)"
                 },
                 {
-                    "step": 9,
-                    "field": "gex",
-                    "formula": "gamma * OI * 50"
-                },
-                {
                     "step": 10,
-                    "action": "Build grid: round(spot/5)*5 ± 60"
+                    "field": "gex_val",
+                    "formula": "gamma * open_interest * CONTRACT_MULTIPLIER"
                 },
                 {
                     "step": 11,
-                    "action": "Aggregate by (window, strike, is_call)"
+                    "action": "Build strike grid per window: strike_ref = round(spot_ref_price/5)*5; offsets [-12..12]*5; compute strike_points, strike_price_int, rel_ticks"
                 },
                 {
                     "step": 12,
-                    "field": "gex_abs",
-                    "formula": "call + put"
+                    "action": "Aggregate gex_val by (window_end_ts_ns, strike_price, is_call) and pivot to gex_call_abs/gex_put_abs"
                 },
                 {
                     "step": 13,
-                    "field": "gex",
-                    "formula": "call - put"
+                    "field": "gex_abs",
+                    "formula": "gex_call_abs + gex_put_abs"
                 },
                 {
                     "step": 14,
-                    "field": "gex_imbalance_ratio",
-                    "formula": "gex / (gex_abs + EPS)"
+                    "field": "gex",
+                    "formula": "gex_call_abs - gex_put_abs"
                 },
                 {
                     "step": 15,
-                    "action": "Compute d1/d2/d3 by strike"
+                    "field": "gex_imbalance_ratio",
+                    "formula": "gex / (gex_abs + EPS_GEX)"
+                },
+                {
+                    "step": 16,
+                    "action": "Compute d1/d2/d3 for gex_abs, gex, gex_imbalance_ratio by strike_price_int over time"
+                },
+                {
+                    "step": 17,
+                    "action": "Set window_start_ts_ns = window_end_ts_ns - WINDOW_NS and underlying_spot_ref = spot_ref_price"
                 }
             ]
         }
@@ -884,7 +945,8 @@
             "log1p_pull_intensity_rest",
             "log1p_erosion_norm",
             "d2_pull_add_log",
-            "wall_strength_log"
+            "wall_strength_log",
+            "gex_abs"
         ]
     },
     "constants": {
@@ -892,8 +954,13 @@
         "REST_NS": 500000000,
         "TICK_SIZE": 0.25,
         "TICK_INT": 250000000,
+        "GRID_ALIGN_TICKS": 20,
         "PRICE_SCALE": 1e-9,
         "EPS_QTY": 1.0,
+        "EPS_DIST_TICKS": 1.0,
+        "EPS_GEX": 1e-6,
+        "GEX_STRIKE_STEP_POINTS": 5,
+        "GEX_MAX_STRIKE_OFFSETS": 12,
         "CONTRACT_MULTIPLIER": 50,
         "RISK_FREE_RATE": 0.05
     }
