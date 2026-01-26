@@ -85,10 +85,10 @@ HUD stream columns are exactly those listed above. Optional wall/vacuum fields (
 
 | Layer | Z-Depth | Type | Filter | Note |
 |-------|---------|------|--------|------|
-| **Physics** | -0.02 | `GridLayer` | Linear | Per-tick directional ease (Green/Red) |
+| **Physics** | -0.02 | `GridLayer` | Linear | Per-tick directional ease (Cyan/Blue) |
 | **Wall** | 0.00 | `GridLayer` | Linear | Liquidity heatmap |
 | **Bucket Radar** | 0.005 | `GridLayer` | Nearest | **2-Tick Bucket Native** |
-| **GEX** | 0.01 | `GridLayer` | Nearest | **Must align to 20-tick grid exactly** |
+| **GEX** | 0.01 | `GridLayer` | Nearest | **Magenta (Calls) / Green (Puts)** |
 | **Vacuum** | 0.015 | `GridLayer` | Linear | Dark erosion overlay |
 | **Grid Lines** | 0.02 | `THREE.Line` | N/A | Drawn at every 1.00 (4 ticks) relative to spot |
 

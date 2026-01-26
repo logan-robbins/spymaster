@@ -158,7 +158,7 @@
             ],
             "frontend_usage": {
                 "component": "renderer.ts:updatePhysics, state.ts:setPhysicsData",
-                "purpose": "Directional pressure gradient layer. Green above spot = easy to move up. Red below spot = easy to move down."
+                "purpose": "Directional pressure gradient layer. Cyan above spot = easy to move up. Blue below spot = easy to move down."
             }
         },
         "gex": {
@@ -213,12 +213,12 @@
                     "name": "gex_imbalance_ratio",
                     "type": "double",
                     "required": true,
-                    "desc": "-1 to +1. Positive=call-heavy (green), negative=put-heavy (red)."
+                    "desc": "-1 to +1. Positive=call-heavy (magenta), negative=put-heavy (green)."
                 }
             ],
             "frontend_usage": {
                 "component": "renderer.ts:createHeatmap, state.ts:setGexData",
-                "purpose": "GEX heatmap overlay. Green=calls, red=puts."
+                "purpose": "GEX heatmap overlay. Magenta=calls, Green=puts."
             }
         },
         "bucket_radar": {

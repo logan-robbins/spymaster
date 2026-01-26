@@ -348,6 +348,10 @@ class FuturesBookEngine:
         if spot_ref > 0:
             spot_ref = int(round(spot_ref / grid_step)) * grid_step
 
+        # DEBUG: Print order book size
+        if len(self.snap_rows) % 100 == 0:
+            print(f"DEBUG: Window {self.window_start_ts} | SpotRef: {spot_ref} | Orders: {len(self.orders)} | Bids: {len(self.depth_bid)} | Asks: {len(self.depth_ask)}")
+
         self.snap_rows.append(
             {
                 "window_start_ts_ns": self.window_start_ts,

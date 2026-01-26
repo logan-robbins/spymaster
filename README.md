@@ -19,11 +19,11 @@ npm run dev
 ### Pipeline (Silver Layer)
 ```bash
 cd backend
-# Futures
-uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ES --dates 2026-01-06 --workers 1
+# Futures (requires 6-hour warmup for state hydration)
+uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06 --workers 1
 
 # Options
-uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ES --dates 2026-01-06 --workers 1
+uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ESH6 --dates 2026-01-06 --workers 1
 ```
 
 ## Data Flow
@@ -54,10 +54,10 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 
 | Z | Layer | Color | Data Field |
 |---|-------|-------|------------|
-| -0.02 | Physics | green above / red below | `physics_score_signed` |
+| -0.02 | Physics | Cyan above / Blue below | `physics_score_signed` |
 | -0.01 | Vacuum | black | `vacuum_score` |
 | 0.00 | Wall | blue asks / red bids | `depth_qty_rest`, `side` |
-| 0.01 | GEX | green calls / red puts | `gex_abs`, `gex_imbalance_ratio` |
+| 0.01 | GEX | Magenta calls / Green puts | `gex_abs`, `gex_imbalance_ratio` |
 | 1.00 | Spot Line | cyan | `mid_price` |
 
 ## File References

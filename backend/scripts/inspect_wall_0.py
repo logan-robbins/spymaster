@@ -25,10 +25,13 @@ print(f"Total Rows with rel_ticks=0: {len(df_0)}")
 
 if not df_0.empty:
     print("\nSample Rows (rel_ticks=0):")
-    print(df_0[["window_end_ts_ns", "spot_ref_price_int", "price_int", "depth_qty_rest", "side"]].head(10))
+    print(df_0[["window_end_ts_ns", "spot_ref_price_int", "price_int", "depth_qty_end", "depth_qty_rest", "side"]].head(10))
     
     print("\nStats for rel_ticks=0:")
+    print("RESTING Depth:")
     print(df_0["depth_qty_rest"].describe())
+    print("TOTAL Depth:")
+    print(df_0["depth_qty_end"].describe())
     
     # Check if we have consistent timestamps
     timestamps = df["window_end_ts_ns"].unique()
