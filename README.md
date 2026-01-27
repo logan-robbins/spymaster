@@ -16,6 +16,12 @@ npm run dev
 # http://localhost:5173
 ```
 
+### Swift Physics Lab (macOS)
+```bash
+cd swift
+swift run MarketParticlePhysicsApp
+```
+
 ### Pipeline (Silver Layer)
 ```bash
 cd backend
