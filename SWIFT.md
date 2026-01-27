@@ -800,3 +800,214 @@ If a new factor needs visibility, it gets a **debug-only overlay channel**, not 
 [2]: https://developer.apple.com/documentation/metalkit/mtkview?utm_source=chatgpt.com "MTKView | Apple Developer Documentation"
 [3]: https://developer.apple.com/documentation/Charts?utm_source=chatgpt.com "Swift Charts | Apple Developer Documentation"
 [4]: https://developer.apple.com/documentation/Metal/MTLComputeCommandEncoder?utm_source=chatgpt.com "MTLComputeCommandEncoder"
+
+---
+
+# ✅ What you added for “true real-time GEX flow” (and where it currently lives)
+
+1. **Silver now has real options book microstructure outputs** (these are your “true flow” feeds):
+
+* `silver.future_option_mbo.book_flow_1s` (mapped as stream key `options_flow`)
+
+  * fields include `instrument_id`, `side`, `price_int`, `add_qty`, `pull_qty`, `fill_qty`, `window_end_ts_ns` 
+* `silver.future_option_mbo.book_wall_1s` (mapped as stream key `options_wall`)
+
+  * adds `depth_total` and `pull_rest_qty` on top of add/pull/fill-type fields 
+
+2. **Silver’s `gex_surface_1s` already contains “flow-like” derivatives** (cheap to stream, fixed 25 rows/window):
+
+* `gex_call_abs`, `gex_put_abs`
+* `d1/d2/d3` for `gex_abs`, `gex`, `gex_imbalance_ratio` 
+
+3. **Your current WebSocket HUD stream does *not* include any of the new flow streams**
+
+* `frontend_data.json` defines only: `snap`, `wall`, `vacuum`, `physics`, `gex`, `bucket_radar` 
+* DOCS also flags `options_wall` / `options_flow` as “TBD” in the frontend layer list 
+
+So: the pipeline can produce real-time options flow, but the serving layer currently doesn’t expose it, and the client contracts don’t acknowledge it yet.
+
+---
+
+## A) Extend the Silver data pipeline (this is required)
+
+**All computations that involve joins, aggregation, state, or normalization must live in Silver (or Gold), not in the serving layer.**
+Serving should not become a second analytics engine.
+
+### A1) Make `SilverComputeGexSurface1s` *actually emit* the new datasets every window
+
+Even if the contract is written, treat it as “not done” until verified on disk.
+
+**Implementation steps**
+
+1. In `backend/src/data_eng/stages/silver/` locate the stage implementation for **`SilverComputeGexSurface1s`** (path called out in your README). 
+2. Ensure this stage writes **three outputs per 1s window**:
+
+   * `silver.future_option_mbo.gex_surface_1s`
+   * `silver.future_option_mbo.book_wall_1s`
+   * `silver.future_option_mbo.book_flow_1s` 
+3. Ensure `book_wall_1s` includes **`depth_total` and `pull_rest_qty`** (these are essential for “wall memory”: thickness + erosion). 
+4. Ensure `book_flow_1s` includes **`add_qty`, `pull_qty`, `fill_qty`** keyed by `(window_end_ts_ns, instrument_id, side, price_int)` (or tighter if you already do it; the point is: the dataset must exist and be consistent window-to-window). 
+
+**Why pipeline (not serving):** this requires per-window aggregation over raw option MBO events; doing it in serving would create inconsistent results across replays and make performance unpredictable.
+
+---
+
+### A2) Add a strike-aligned *flow surface* for the underlying (this is the part that makes it usable by the physics app)
+
+Right now `options_flow` / `options_wall` are **option-premium price space** (`price_int` = option price), keyed by `instrument_id`. That’s not directly drawable or usable as an obstacle field in **underlying tick space**.
+
+Your physics app needs a **fixed, strike-grid surface** exactly like `gex_surface_1s` (25 rows per window, rel_ticks in multiples of 20 for ES). 
+
+**Implementation steps**
+
+1. Create a new Silver dataset (new file in `backend/src/data_eng/contracts/silver/` + new stage output) called something like:
+
+   * `silver.future_option_mbo.gex_flow_surface_1s` (name it whatever, but it must be strike-grid aligned). 
+2. Build it inside the **same stage** `SilverComputeGexSurface1s` (do not create a second pass unless you must), because that stage already has the inputs you need: instrument defs, futures spot anchor, and strike grid logic. 
+3. For each 1s window:
+
+   * Join `book_flow_1s` to `instrument_definitions` to get:
+
+     * underlying strike (strike_price_int / strike_points)
+     * right (call/put)
+   * Aggregate flows to strike:
+
+     * `add_qty_sum`, `pull_qty_sum`, `fill_qty_sum` per strike
+     * also compute: **`reinforce = add_qty_sum - pull_qty_sum - fill_qty_sum`**
+   * Join futures `spot_ref_price_int` and compute:
+
+     * `rel_ticks = (strike_price_int - spot_ref_price_int) / TICK_INT`
+     * enforce `rel_ticks % 20 == 0` for ES-style $5 strikes 
+   * Emit exactly the 25 strike rows (same strike grid as `gex_surface_1s`); missing strikes must be present with zeros.
+
+**Why this is non-negotiable:**
+Without this surface, the Swift physics sim will be forced to do heavyweight joining/aggregation itself (instrument definitions, strike mapping, flow aggregation), and you’ll lose determinism across clients and replays.
+
+---
+
+### A3) Extend `gold.hud.physics_norm_calibration` to include the new flow metrics
+
+You already normalize key physics metrics via `gold.hud.physics_norm_calibration`. 
+Do the same for flow or your “wall thickening vs erosion” will be dominated by raw scale changes.
+
+**Implementation steps**
+
+1. Update the calibration builder (wherever you compute q05/q95 bands) to add quantile ranges for:
+
+   * `flow_abs = add_qty_sum + pull_qty_sum + fill_qty_sum`
+   * `flow_reinforce = add_qty_sum - pull_qty_sum - fill_qty_sum`
+   * optionally `pull_rest_intensity = pull_rest_qty / (depth_total + eps)` aggregated to strike using `book_wall_1s` 
+2. Recompute calibration on a representative period (same way you did for `gex_abs`, `wall_strength_log`, etc.). 
+3. In the new `gex_flow_surface_1s`, output normalized versions (0..1 or -1..1) using the exact same `clip((val-q05)/(q95-q05))` pattern you already use. 
+
+**Why pipeline:** calibration is inherently global/stateful. Serving must not own it.
+
+---
+
+## B) Update the serving layer (streaming only; no heavy math)
+
+Now that Silver produces usable surfaces, serving’s job is to **expose** them safely.
+
+### B1) Add surface gating via query param (required to not break the existing HUD)
+
+Your frontend renderer has synchronization logic that assumes a known set of surfaces per batch. If you suddenly add more surfaces to every batch, you risk stalling the ring-buffer advance or breaking “allSurfacesReceived()”-style logic. 
+
+**Implementation steps**
+
+1. In `src.serving.main` (or wherever the WebSocket endpoint is implemented) add support for a query param like:
+
+   * `?surfaces=snap,wall,vacuum,physics,gex,bucket_radar,gex_flow`
+2. Default behavior must remain **exactly** the current 6 surfaces defined in `frontend_data.json`:
+   `snap, wall, vacuum, physics, gex, bucket_radar` 
+3. When `surfaces` is specified:
+
+   * Only include those in the `batch_start.surfaces` list
+   * Only send `surface_header` + Arrow payloads for those surfaces 
+
+This allows:
+
+* Web HUD stays stable (unchanged defaults)
+* Swift Physics Lab requests the extra surfaces it needs
+
+---
+
+### B2) Stream the new strike-aligned flow surface
+
+**Implementation steps**
+
+1. Register the new Silver dataset (`gex_flow_surface_1s`) in the server’s dataset registry / stream mapping (where you map dataset → stream name).
+   Your backend contract already uses stream mapping patterns like this. 
+2. Implement streaming for that surface exactly like `gex`:
+
+   * fixed row count per window (25)
+   * Arrow IPC payload
+   * keyed by `window_end_ts_ns`
+
+---
+
+### B3) Extend the existing `gex` stream payload to include the derivative fields (do this now)
+
+This is basically free bandwidth (25 rows), and it gives you “instant momentum of the obstacle field.”
+
+**Implementation steps**
+
+1. In the serving transform for the `gex` surface, include these additional columns in the Arrow table:
+
+   * `gex_call_abs`, `gex_put_abs`
+   * `d1_gex_abs`, `d2_gex_abs`, `d3_gex_abs`
+   * `d1_gex`, `d2_gex`, `d3_gex`
+   * `d1_gex_imbalance_ratio`, `d2_*`, `d3_*` 
+2. Do not change the existing column meanings; you’re only adding fields already produced by Silver.
+
+**Why serving is OK here:** it’s not computing anything, just exposing already-computed Silver columns.
+
+---
+
+## C) Update the contracts + docs (yes, do it; this prevents future breakage)
+
+You said “don’t write the schema,” so I’m not dumping JSON—but the engineer must update these artifacts.
+
+**Implementation steps**
+
+1. Update `frontend_data.json` to include:
+
+   * the new optional surface(s) (at least the strike-level flow surface)
+   * the extended `gex` fields list
+     so the contract matches reality. 
+2. Update `DOCS_FRONTEND.md`:
+
+   * remove “TBD” for the new surfaces you’re actually streaming
+   * document the `surfaces=` query param contract and default surface set
+     (this doc is treated as “law” by engineers, and it’s currently inconsistent). 
+
+---
+
+## D) Verification steps (must be done before calling it “implemented”)
+
+Use your repo’s own verification flow.
+
+**Implementation steps**
+
+1. Run the Silver pipelines to generate outputs:
+
+   * futures + options pipelines as documented in README 
+2. Run stream verification (`verify_websocket_stream_v1.py`) and integrity tests (`test_integrity_v2.py`) mentioned in README. 
+3. Validate invariants:
+
+   * `window_end_ts_ns` strictly increasing
+   * `spot_ref_price_int > 0` when `book_valid = true`
+   * For strike-aligned surfaces: `rel_ticks % 20 == 0` (ES $5 grid) 
+4. Validate surface gating:
+
+   * Default connection returns only the 6 original surfaces (so web HUD remains identical). 
+   * Physics Lab connection with `surfaces=` receives the additional flow surface(s).
+
+---
+
+## What this unlocks immediately in the physics app
+
+With **one new strike-aligned flow surface** plus the **extended gex derivatives**, you can now implement:
+
+* **Soft obstacle thickening/erosion**: obstacle strength update driven by `flow_reinforce_norm` (and/or `d1_gex_abs`) at each strike rel_ticks.
+* **Memory**: wall persists and changes, rather than being static “heatmap wallpaper.”
+* **Stable bandwidth**: still fixed-row, tick-native surfaces (no giant per-instrument streams needed for the sim).

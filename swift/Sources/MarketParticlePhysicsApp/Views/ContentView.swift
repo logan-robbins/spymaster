@@ -83,6 +83,17 @@ struct ControlsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 16) {
+                Picker("Source", selection: Binding(
+                    get: { viewModel.dataSourceMode },
+                    set: { viewModel.setDataSourceMode($0) }
+                )) {
+                    ForEach(DataSourceMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 140)
+
                 Button(viewModel.isRunning ? "Stop" : "Start") {
                     viewModel.toggleRun()
                 }

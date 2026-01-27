@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+enum DataSourceMode: String, CaseIterable {
+    case synthetic = "Synthetic"
+    case live = "Live"
+}
+
 @MainActor
 final class EngineViewModel: ObservableObject {
     @Published private(set) var actualSeries: [ChartPoint] = []
@@ -17,6 +22,7 @@ final class EngineViewModel: ObservableObject {
     @Published private(set) var statusLine: String = ""
     @Published private(set) var weightSummaries: [WeightSummary] = []
     @Published private(set) var resolvedOrigin: ResolvedOriginFrame?
+    @Published var dataSourceMode: DataSourceMode = .live
 
     let renderer: MetalRenderer
 
@@ -35,7 +41,8 @@ final class EngineViewModel: ObservableObject {
     )
 
     private lazy var engine = PhysicsEngine(grid: grid, horizon: horizon, dtSeconds: dtSeconds, ledger: ledger, wallMemory: wallMemory, learner: learner)
-    private lazy var dataSource = MarketDataSource(grid: grid, seed: 42)
+    private lazy var syntheticDataSource = MarketDataSource(grid: grid, seed: 42)
+    private lazy var liveDataSource = LiveMarketDataSource(grid: grid, symbol: "ESH6", dt: "2026-01-06", speed: 1.0)
 
     private var timer: Timer?
     private var history: [EngineSnapshot] = []
@@ -49,10 +56,40 @@ final class EngineViewModel: ObservableObject {
         self.renderer = renderer
     }
 
+    private var activeDataSource: MarketDataSourceProtocol {
+        switch dataSourceMode {
+        case .synthetic:
+            return syntheticDataSource
+        case .live:
+            return liveDataSource
+        }
+    }
+
     func startIfNeeded() {
         if actualSeries.isEmpty {
+            // Connect live data source if in live mode
+            if dataSourceMode == .live {
+                liveDataSource.connect()
+            }
             resume()
         }
+    }
+
+    func setDataSourceMode(_ mode: DataSourceMode) {
+        guard mode != dataSourceMode else { return }
+
+        stop()
+        dataSourceMode = mode
+
+        // Manage connections
+        if mode == .live {
+            liveDataSource.connect()
+        } else {
+            liveDataSource.disconnect()
+        }
+
+        resetState(seed: 42)
+        resume()
     }
 
     func toggleRun() {
@@ -65,6 +102,11 @@ final class EngineViewModel: ObservableObject {
 
     func replay() {
         stop()
+        // For live mode, reconnect to start from beginning
+        if dataSourceMode == .live {
+            liveDataSource.disconnect()
+            liveDataSource.connect()
+        }
         resetState(seed: 42)
         resume()
     }
@@ -113,7 +155,8 @@ final class EngineViewModel: ObservableObject {
         engine.reset()
         wallMemory.reset(to: initialWallState)
         learner.reset()
-        dataSource.reset(seed: seed)
+        syntheticDataSource.reset(seed: seed)
+        liveDataSource.reset(seed: seed)
         history.removeAll()
         currentSnapshot = nil
         scrubIndex = 0
@@ -124,8 +167,18 @@ final class EngineViewModel: ObservableObject {
             return
         }
 
-        guard let frame = dataSource.nextFrame() else {
-            stop()
+        // For live mode, check if we have data available
+        if dataSourceMode == .live && !liveDataSource.hasFrames {
+            // No data yet, update status to show waiting
+            statusLine = "Waiting for data... (pending: \(liveDataSource.pendingCount))"
+            return
+        }
+
+        guard let frame = activeDataSource.nextFrame() else {
+            if dataSourceMode == .synthetic {
+                stop()
+            }
+            // For live, just wait for more data
             return
         }
 
@@ -187,7 +240,8 @@ final class EngineViewModel: ObservableObject {
         ]
 
         let timestamp = dateFrom(timestampNs: frame.timestampNs).formatted(date: .omitted, time: .standard)
-        statusLine = "t=\(timestamp) spot=\(String(format: "%.2f", frame.spotTicks * frame.tickSize)) pred=\(result.predictedOffsets.count)"
+        let modeStr = dataSourceMode == .live ? "LIVE" : "SIM"
+        statusLine = "[\(modeStr)] t=\(timestamp) spot=\(String(format: "%.2f", frame.spotTicks * frame.tickSize))"
     }
 
     private func trimSeries(_ series: inout [ChartPoint], limit: Int = 600) {

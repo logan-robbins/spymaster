@@ -59,4 +59,8 @@ Connect to `ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06` and par
 - String (Utf8): side
 
 ## Current Status
-- Phase 1: Step 1 - Researching Arrow IPC format
+- Phase 1: [COMPLETE] Arrow IPC parser implemented and tested
+- Phase 2: [COMPLETE] WebSocket client implemented
+- Phase 3: [COMPLETE] LiveMarketDataSource adapter created
+- Phase 4: [COMPLETE] ViewModel integration with Live/Synthetic toggle
+- Phase 5: [IN PROGRESS] Testing & Verification
