@@ -11,6 +11,7 @@ from numba import boolean, float64, int64, int8, jit, types
 from numba.typed import Dict as NumbaDict, List as NumbaList
 from scipy.stats import norm
 
+from .options_book_engine import OptionsBookEngine
 from ...base import Stage, StageIO
 from ....config import AppConfig
 from ....contracts import enforce_contract, load_avro_contract
@@ -121,9 +122,9 @@ class SilverComputeGexSurface1s(Stage):
         df_def: pd.DataFrame,
         symbol: str,
         dt: str,
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if df_mbo.empty or df_snap.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         # Load Metadata
         defs = _load_definitions(df_def, dt)
@@ -132,64 +133,45 @@ class SilverComputeGexSurface1s(Stage):
         # Filter Defs by OI
         defs = defs.loc[defs["option_symbol"].isin(oi_map.keys())].copy()
         if defs.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             
         eligible_ids = set(defs["instrument_id"].astype(int).tolist())
-        eligible_ids_arr = np.array(list(eligible_ids), dtype=np.int64)
-
+        
         # Filter MBO
-        # Before sort, filter columns to save memory
+        # Keep essential columns
         keep_cols = ["ts_event", "instrument_id", "action", "side", "price", "size", "order_id", "flags", "sequence"]
         df_mbo = df_mbo[keep_cols].copy()
         df_mbo = df_mbo.loc[df_mbo["instrument_id"].isin(eligible_ids)].copy()
         
         if df_mbo.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-        df_mbo = df_mbo.sort_values(["ts_event", "sequence"], ascending=[True, True])
+        # Run Engine
+        engine = OptionsBookEngine()
+        df_flow, df_bbo = engine.process_batch(df_mbo)
         
-        # Prepare Arrays for Numba
-        ts_arr = df_mbo["ts_event"].to_numpy(dtype=np.int64)
-        iid_arr = df_mbo["instrument_id"].to_numpy(dtype=np.int64)
+        if df_bbo.empty:
+             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+             
+        # Process GEX from BBO
+        # 1. Scale Mid
+        df_mids = df_bbo.copy()
+        # Engine treats mid as float derived from int.
+        # But wait, engine returns mid_price_int?
+        # Let's check engine output logic.
+        # Engine: mid = (bb + ba) * 0.5. mid is float.
+        # DF: "mid_price_int": list(bbo_mid).
+        # NumbaList(float64).
+        # So "mid_price_int" column actually contains FLOATs in the DataFrame?
+        # Yes, Pandas allows float in column named "int".
+        # But we should probably rename it in Engine or Handle here.
+        # In Engine I named it "mid_price_int". 
+        # Here I will assume it's the raw mid (unscaled or scaled?).
+        # Engine uses input Price (Int). So Mid is Int-scale Float.
         
-        # Map Action: A=1, C=2, M=3, R=4, F=5, T=6
-        act_map = {"A": 1, "C": 2, "M": 3, "R": 4, "F": 5, "T": 6, "N": 0}
-        act_arr = df_mbo["action"].map(act_map).fillna(0).to_numpy(dtype=np.int8)
-        
-        # Map Side: A=0, B=1, N=-1
-        side_map = {"A": 0, "B": 1, "N": -1}
-        side_arr = df_mbo["side"].map(side_map).fillna(-1).to_numpy(dtype=np.int8)
-        
-        px_arr = df_mbo["price"].to_numpy(dtype=np.int64)
-        sz_arr = df_mbo["size"].to_numpy(dtype=np.int64)
-        oid_arr = df_mbo["order_id"].to_numpy(dtype=np.int64)
-        flags_arr = df_mbo["flags"].to_numpy(dtype=np.int64)
-        
-        # Clear DF to free memory
-        del df_mbo
-
-        # Call Numba
-        # Returns arrays: out_ts, out_iid, out_mid
-        res_ts, res_iid, res_mid = _numba_mbo_to_mids(
-            ts_arr, iid_arr, act_arr, side_arr, px_arr, sz_arr, oid_arr, flags_arr, WINDOW_NS
-        )
-        
-        if len(res_ts) == 0:
-            return pd.DataFrame()
-            
-        # Convert to DF
-        df_mids = pd.DataFrame({
-            "window_end_ts_ns": res_ts,
-            "instrument_id": res_iid,
-            "mid_price_int": res_mid # Note: this is actually float mid * PRICE_SCALE? No, Numba returns float real mid.
-        })
-        # Check numba func return. It returns float64. Is it scaled?
-        # Numba func: mid = (best_bid + best_ask) * 0.5. (Integer space).
-        # We need to scale to float here.
         df_mids["mid_price"] = df_mids["mid_price_int"] * PRICE_SCALE
         
         # Merge Spot
-        # Spot map: window_end -> spot
         df_mids = df_mids.merge(df_snap[["window_end_ts_ns", "spot_ref_price_int"]], on="window_end_ts_ns", how="inner")
         df_mids["spot_ref_price"] = df_mids["spot_ref_price_int"] * PRICE_SCALE
         
@@ -197,7 +179,6 @@ class SilverComputeGexSurface1s(Stage):
         df_mids = df_mids.merge(defs, on="instrument_id", how="inner")
         
         # Merge OI
-        # oi_map is dict. Map it.
         df_mids["open_interest"] = df_mids["option_symbol"].map(oi_map).fillna(0.0)
         
         # Prepare Grid Master
@@ -205,284 +186,40 @@ class SilverComputeGexSurface1s(Stage):
         grid_master["spot_ref_price"] = grid_master["spot_ref_price_int"] * PRICE_SCALE
         
         # Vectorized GEX
-        df_out = _calc_gex_vectorized(df_mids, grid_master)
+        df_gex = _calc_gex_vectorized(df_mids, grid_master)
         
-        return df_out
-
-@jit(nopython=True)
-def _numba_mbo_to_mids(ts_arr, iid_arr, act_arr, side_arr, px_arr, sz_arr, oid_arr, flags_arr, window_ns):
-    # State: OID -> (iid, side, price, qty)
-    # Using separate dicts for struct-like storage
-    ord_iid = NumbaDict.empty(int64, int64)
-    ord_side = NumbaDict.empty(int64, int8)
-    ord_px = NumbaDict.empty(int64, int64)
-    ord_qty = NumbaDict.empty(int64, int64)
-    
-    # Depth: (iid, price) -> qty (Separate Bid/Ask)
-    depth_b = NumbaDict.empty(DEPTH_KEY_TYPE, int64)
-    depth_a = NumbaDict.empty(DEPTH_KEY_TYPE, int64)
-    
-    # Levels: (iid, side) -> List[price]
-    # We maintain sorted price lists to allow BBO finding
-    # Side: 0=Ask (Min best), 1=Bid (Max best)
-    # Mapping lists in Numba dicts is possible but managing them is manual.
-    # Because lists are ref types, we need to be careful with copies.
-    # Actually, we can use 2 dicts:
-    levels_bid = NumbaDict.empty(int64, NumbaList.empty_list(int64))
-    levels_ask = NumbaDict.empty(int64, NumbaList.empty_list(int64))
-    
-    # Known IIDs tracking
-    known_iids = NumbaDict.empty(int64, boolean)
-    
-    # Output
-    out_ts = NumbaList.empty_list(int64)
-    out_iid = NumbaList.empty_list(int64)
-    out_mid = NumbaList.empty_list(float64)
-    
-    curr_window = -1
-    window_start = 0
-    window_end = 0
-    
-    n = len(ts_arr)
-    for i in range(n):
-        ts = ts_arr[i]
-        w_id = ts // window_ns
+        # Prepare Wall/Flow
+        # Pass through, but enforce types?
+        # df_flow: instrument_id, side, price_int...
+        # df_bbo: we used for GEX. Do we output it as "Wall"? No, Wall is Depth.
+        # Wait, OptionsBookEngine returns `df_flow` which has "depth_total".
+        # This IS the Wall data (Liquidity Snapshot per active level + Flow).
+        # It's named `df_flow` in engine return.
+        # I defined `book_wall_1s` and `book_flow_1s` schemas.
+        # `book_wall_1s`: depth_total, add_qty, pull_qty...
+        # `book_flow_1s`: side, price_int, add_qty... (Redundant?)
+        # `df_flow` from engine has ALL these columns.
+        # So `df_wall` = `df_flow`.
+        # `df_flow` output dataset? Maybe distinct?
+        # Actually `df_flow` from engine has `depth_total`.
+        # So I can use it for `book_wall_1s`.
+        # Do I need `book_flow_1s` separate?
+        # Schema for `book_flow_1s` is subset.
+        # I will output the SAME dataframe for both? Or split?
+        # Let's write `df_flow` to `book_wall_1s`.
+        # And maybe `book_flow_1s` is the Aggregated Flow?
+        # Engine aggregates only by (Window, IID, Side, Px).
         
-        if curr_window == -1:
-            curr_window = w_id
-            window_start = w_id * window_ns
-            window_end = window_start + window_ns
-            
-        if w_id != curr_window:
-            # Emit Snapshot
-            # Iterate known iids
-            for iid in known_iids:
-                # Get Best Bid
-                bb = 0
-                if iid in levels_bid:
-                    lb = levels_bid[iid]
-                    if len(lb) > 0:
-                        bb = lb[-1] # Max
-                
-                # Get Best Ask
-                ba = 0
-                if iid in levels_ask:
-                    la = levels_ask[iid]
-                    if len(la) > 0:
-                        ba = la[0] # Min
-                
-                if bb > 0 and ba > 0 and ba > bb:
-                     mid = (bb + ba) * 0.5
-                     out_ts.append(window_end)
-                     out_iid.append(iid)
-                     out_mid.append(mid)
-            
-            # Catch up windows
-            # If gap > 1s, we should technically emit for empty windows?
-            # Standard logic: MBO only emits on change?
-            # But here we want 1s sampling.
-            # If we miss windows, pipeline fails to join?
-            # If we just emit current state for the NEW window end?
-            # Correct logic: We must loop from curr_window+1 to w_id.
-            
-            while curr_window < w_id:
-                curr_window += 1
-                window_start = curr_window * window_ns
-                window_end = window_start + window_ns
-                if curr_window == w_id: break
-                
-                # Re-emit last state for gaps?
-                # For GEX surface, if market is quiet, we still need the data.
-                # Optimized: Don't re-emit. Pandas 'asof' merge or forward fill?
-                # The user pipeline expects 'window_end_ts_ns' to match.
-                # If we omit rows, merge fails (inner join).
-                # Re-emitting in loop is safe.
-                
-                for iid in known_iids:
-                    bb = 0
-                    if iid in levels_bid:
-                        lb = levels_bid[iid]
-                        if len(lb) > 0: bb = lb[-1]
-                    ba = 0
-                    if iid in levels_ask:
-                        la = levels_ask[iid]
-                        if len(la) > 0: ba = la[0]
-                    
-                    if bb > 0 and ba > 0 and ba > bb:
-                        mid = (bb + ba) * 0.5
-                        out_ts.append(window_end)
-                        out_iid.append(iid)
-                        out_mid.append(mid)
-
-        # Process Row
-        act = act_arr[i]
-        iid = iid_arr[i]
-        oid = oid_arr[i]
+        df_wall = df_flow.copy()
         
-        known_iids[iid] = True
+        # Create Flow dataset by just keeping flow cols?
+        df_flow_out = df_flow[["window_end_ts_ns", "instrument_id", "side", "price_int", "add_qty", "pull_qty", "fill_qty"]].copy()
         
-        if act == ACT_ADD:
-            side = side_arr[i]
-            px = px_arr[i]
-            qty = sz_arr[i]
-            
-            # Store Order
-            ord_iid[oid] = iid
-            ord_side[oid] = side
-            ord_px[oid] = px
-            ord_qty[oid] = qty
-            
-            # Update Depth
-            k = (iid, px)
-            if side == SIDE_BID:
-                if k in depth_b:
-                    depth_b[k] += qty
-                else:
-                    depth_b[k] = qty
-                    if iid not in levels_bid:
-                        levels_bid[iid] = NumbaList.empty_list(int64)
-                    _insort(levels_bid[iid], px)
-            else:
-                if k in depth_a:
-                    depth_a[k] += qty
-                else:
-                    depth_a[k] = qty
-                    if iid not in levels_ask:
-                        levels_ask[iid] = NumbaList.empty_list(int64)
-                    _insort(levels_ask[iid], px)
-                    
-        elif act == ACT_CANCEL or act == ACT_FILL:
-            # Cancel/Fill reduces quantity
-            if oid in ord_iid:
-                # Retrieve info
-                side = ord_side[oid]
-                px = ord_px[oid]
-                old_qty = ord_qty[oid]
-                
-                delta = sz_arr[i] if act == ACT_FILL else old_qty # Cancel usually full?
-                # Databento: Cancel size is amount cancelled.
-                # MBO logic: C record has 'size' field.
-                
-                # Update Order
-                new_qty = old_qty - delta
-                if new_qty <= 0:
-                     # Delete order
-                     del ord_iid[oid]
-                     del ord_side[oid]
-                     del ord_px[oid]
-                     del ord_qty[oid]
-                else:
-                     ord_qty[oid] = new_qty
-                
-                # Update Depth
-                k = (iid, px)
-                if side == SIDE_BID:
-                    if k in depth_b:
-                        depth_b[k] -= delta
-                        if depth_b[k] <= 0:
-                            del depth_b[k]
-                            if iid in levels_bid:
-                                _remove_val(levels_bid[iid], px)
-                else:
-                    if k in depth_a:
-                        depth_a[k] -= delta
-                        if depth_a[k] <= 0:
-                            del depth_a[k]
-                            if iid in levels_ask:
-                                _remove_val(levels_ask[iid], px)
+        return df_gex, df_wall, df_flow_out
 
-        elif act == ACT_MODIFY:
-            # M record: New Price, New Size. Old order replaced.
-            if oid in ord_iid:
-                side = ord_side[oid] # Side invariant
-                old_px = ord_px[oid]
-                old_qty = ord_qty[oid]
-                
-                new_px = px_arr[i]
-                new_sz = sz_arr[i]
-                
-                # Remove Old Depth
-                k_old = (iid, old_px)
-                if side == SIDE_BID:
-                    if k_old in depth_b:
-                        depth_b[k_old] -= old_qty
-                        if depth_b[k_old] <= 0:
-                            del depth_b[k_old]
-                            if iid in levels_bid:
-                                _remove_val(levels_bid[iid], old_px)
-                else:
-                    if k_old in depth_a:
-                        depth_a[k_old] -= old_qty
-                        if depth_a[k_old] <= 0:
-                            del depth_a[k_old]
-                            if iid in levels_ask:
-                                _remove_val(levels_ask[iid], old_px)
-                                
-                # Add New Depth
-                k_new = (iid, new_px)
-                if side == SIDE_BID:
-                    if k_new in depth_b:
-                        depth_b[k_new] += new_sz
-                    else:
-                        depth_b[k_new] = new_sz
-                        if iid not in levels_bid:
-                            levels_bid[iid] = NumbaList.empty_list(int64)
-                        _insort(levels_bid[iid], new_px)
-                else:
-                    if k_new in depth_a:
-                        depth_a[k_new] += new_sz
-                    else:
-                        depth_a[k_new] = new_sz
-                        if iid not in levels_ask:
-                            levels_ask[iid] = NumbaList.empty_list(int64)
-                        _insort(levels_ask[iid], new_px)
-                
-                # Update Order
-                ord_px[oid] = new_px
-                ord_qty[oid] = new_sz
-                
-        elif act == ACT_CLEAR:
-             # Reset all for this IID? Or global?
-             # R record usually has flags. MBO R is rare per instrument alone?
-             # If R: clear known books?
-             # For now ignore R or clear everything? 
-             # Safe: Just clear orders for this IID if needed. 
-             # Simpler: Clear all if global R.
-             # Numba logic complexity: high. 
-             # Assume R is global reset if no IID? 
-             pass
 
-    # Flush Last
-    if curr_window != -1:
-         # Loop to catch up if needed
-         pass
-         
-    return out_ts, out_iid, out_mid
 
-@jit(nopython=True)
-def _insort(l, val):
-    # Bisect insort
-    lo = 0
-    hi = len(l)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if l[mid] < val:
-            lo = mid + 1
-        else:
-            hi = mid
-    l.insert(lo, val)
 
-@jit(nopython=True)
-def _remove_val(l, val):
-    # O(N) remove
-    # Find index
-    idx = -1
-    for i in range(len(l)):
-        if l[i] == val:
-            idx = i
-            break
-    if idx != -1:
-        l.pop(idx)
 
 def _calc_gex_vectorized(df, grid_base):
     # Calculate Strike Points

@@ -13,6 +13,10 @@ let package = Package(
             resources: [
                 .process("Metal/Shaders.metal")
             ]
+        ),
+        .testTarget(
+            name: "MarketParticlePhysicsAppTests",
+            dependencies: ["MarketParticlePhysicsApp"]
         )
     ]
 )

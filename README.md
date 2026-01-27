@@ -8,6 +8,14 @@ cd backend
 uv run python -m src.serving.main
 # WebSocket: ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06
 ```
+Note: One backend stream can serve multiple clients simultaneously (frontend/, Swift app, Unreal bridge). Do not restart the backend if another engineer is actively using it.
+
+Process check before restart:
+```bash
+lsof -iTCP:8000 -sTCP:LISTEN
+pgrep -fl "src.serving.main"
+```
+If a process is running, coordinate before stopping/restarting it.
 
 ### Frontend
 ```bash
@@ -20,7 +28,9 @@ npm run dev
 ```bash
 cd swift
 swift run MarketParticlePhysicsApp
+swift test
 ```
+Controls: Freeze/Step/Replay, Scrub (disable Live Mode), Zoom X, Debug overlay.
 
 ### Pipeline (Silver Layer)
 ```bash
@@ -47,6 +57,8 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | `physics_surface_1s` | SilverComputePhysicsSurface1s | Per-tick directional ease (green/red) |
 | `radar_vacuum_1s` | SilverComputeSnapshotAndWall1s | **NOT VISUALIZED** (ML inference) |
 | `gex_surface_1s` | SilverComputeGexSurface1s | GEX heatmap (green/red) |
+| `book_wall_1s` | SilverComputeGexSurface1s | Options Liquidity Wall (Granular) |
+| `book_flow_1s` | SilverComputeGexSurface1s | Options Flow Analysis |
 | `bucket_radar_surface_1s` | SilverComputeBucketRadar1s | Bucket Radar (2-tick) |
 
 ## Grid Structure

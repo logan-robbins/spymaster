@@ -18,7 +18,7 @@ struct ContentView: View {
                             )
                             .foregroundStyle(.cyan)
                         }
-                        ForEach(viewModel.predictionSeries.keys.sorted(), id: \ .self) { horizon in
+                        ForEach(viewModel.predictionSeries.keys.sorted(), id: \.self) { horizon in
                             if let series = viewModel.predictionSeries[horizon] {
                                 ForEach(series) { point in
                                     LineMark(
@@ -64,7 +64,12 @@ struct ContentView: View {
         .onAppear {
             viewModel.startIfNeeded()
         }
-        .onChange(of: viewModel.zoomFactor) { _, _ in
+        .onChange(of: viewModel.zoomFactor) { _ in
+            if let snapshot = viewModel.currentSnapshotForDisplay() {
+                viewModel.refreshRenderer(snapshot: snapshot)
+            }
+        }
+        .onChange(of: viewModel.showPredictions) { _ in
             if let snapshot = viewModel.currentSnapshotForDisplay() {
                 viewModel.refreshRenderer(snapshot: snapshot)
             }
@@ -105,7 +110,7 @@ struct ControlsPanel: View {
             HStack(spacing: 16) {
                 Text("Weights")
                     .font(.headline)
-                ForEach(viewModel.weightSummaries, id: \ .name) { item in
+                ForEach(viewModel.weightSummaries, id: \.name) { item in
                     VStack(alignment: .leading) {
                         Text(item.name)
                             .font(.caption)
@@ -140,7 +145,7 @@ struct ControlsPanel: View {
                     step: 1
                 )
                 .disabled(viewModel.isLiveMode)
-                .onChange(of: viewModel.scrubIndex) { _, newValue in
+                .onChange(of: viewModel.scrubIndex) { newValue in
                     viewModel.scrub(to: newValue)
                 }
                 Text(viewModel.scrubLabel)
@@ -184,7 +189,12 @@ struct PhysicsOverlayView: View {
             let rowHeightC = bandCHeight / CGFloat(viewModel.horizonCount)
 
             ZStack(alignment: .topLeading) {
-                ForEach(1...viewModel.horizonCount, id: \\ .self) { horizon in
+                Text("Spot (t0)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.6))
+                    .position(x: width * 0.5, y: 12)
+
+                ForEach(Array(1...viewModel.horizonCount), id: \.self) { horizon in
                     let label = String(format: "+%.1fs", Double(horizon) * viewModel.dtSecondsValue)
                     Text(label)
                         .font(.system(size: 10, design: .monospaced))
@@ -193,7 +203,7 @@ struct PhysicsOverlayView: View {
                 }
 
                 if let resolved = viewModel.resolvedOrigin {
-                    ForEach(resolved.resolved, id: \\ .horizon) { item in
+                    ForEach(resolved.resolved, id: \.horizon) { item in
                         let error = item.errorTicks
                         if abs(error) >= 2 {
                             let offset = item.predictedTicks - resolved.originSpotTicks

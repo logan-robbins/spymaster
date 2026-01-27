@@ -201,7 +201,7 @@ final class EngineViewModel: ObservableObject {
         case 1: return .orange
         case 2: return .yellow
         case 3: return .green
-        default: return .purple
+        default: return .blue
         }
     }
 
@@ -323,7 +323,6 @@ private enum FieldSampler {
         let o = sample(field: fields.obstacle, grid: grid, ticks: ticks)
         let c = sample(field: fields.current, grid: grid, ticks: ticks)
         let g = sample(field: fields.damping, grid: grid, ticks: ticks)
-        let v0 = (weights.wU * u) + (weights.wO * o)
         let grad = gradient(field: fields.potential, grid: grid, ticks: ticks) * weights.wU
             + gradient(field: fields.obstacle, grid: grid, ticks: ticks) * weights.wO
         return FieldSample(potential: u, obstacle: o, current: c, damping: g, dVdx: grad)

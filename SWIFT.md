@@ -522,7 +522,7 @@ Run rollout to H=4 and visualize.
 
 *A “physics lab instrument panel” for your market‑as‑medium model (1D price particle + fields), built for live streaming + replay + rapid iteration.*
 
-## Tooling baseline
+## Tooling baseline [COMPLETE]
 
 * **Swift 6.2** app layer (UI + orchestration) ([Swift.org][1])
 * **Metal + MetalKit MTKView** as the realtime visualization surface ([Apple Developer][2])
@@ -531,7 +531,7 @@ Run rollout to H=4 and visualize.
 
 ---
 
-## 1) Purpose and “read in 2 seconds” goals
+## 1) Purpose and “read in 2 seconds” goals [COMPLETE]
 
 This view must answer, instantly:
 
@@ -545,7 +545,7 @@ This is not a decorative viz. It’s an *instrument*.
 
 ---
 
-## 2) Canvas layout (single MTKView scene, fixed bands)
+## 2) Canvas layout (single MTKView scene, fixed bands) [COMPLETE]
 
 Inside the MTKView, render three horizontal bands with shared X axis:
 
@@ -565,7 +565,7 @@ Always shows the **most recently fully-resolved origin frame** (e.g., t−H) wit
 
 ---
 
-## 3) Coordinate system (hard rule)
+## 3) Coordinate system (hard rule) [COMPLETE]
 
 **X axis is always price offset in ticks**, centered on “spot/mid at origin time of the frame.”
 
@@ -581,9 +581,9 @@ Always shows the **most recently fully-resolved origin frame** (e.g., t−H) wit
 
 ---
 
-## 4) Visual encodings (exact mappings)
+## 4) Visual encodings (exact mappings) [COMPLETE]
 
-### 4.1 Potential / Vacuum field `U(x)` → “Terrain”
+### 4.1 Potential / Vacuum field `U(x)` → “Terrain” [COMPLETE]
 
 **What it should look like:** a valley/hill landscape.
 
@@ -607,7 +607,7 @@ Always shows the **most recently fully-resolved origin frame** (e.g., t−H) wit
 
 ---
 
-### 4.2 Obstacle field `O(x)` → “Soft walls”
+### 4.2 Obstacle field `O(x)` → “Soft walls” [COMPLETE]
 
 Obstacles must read as *distinct objects with identity*, not just “part of the terrain.”
 
@@ -632,7 +632,7 @@ Obstacles must read as *distinct objects with identity*, not just “part of the
 
 ---
 
-### 4.3 Current / Drift field `C(x)` → “Flow arrows”
+### 4.3 Current / Drift field `C(x)` → “Flow arrows” [COMPLETE]
 
 Currents must be readable without clutter.
 
@@ -650,7 +650,7 @@ Currents must be readable without clutter.
 
 ---
 
-### 4.4 Viscosity / Damping `Γ(x)` → “Drag haze”
+### 4.4 Viscosity / Damping `Γ(x)` → “Drag haze” [COMPLETE]
 
 Viscosity is a *resistance field*; it should feel like “thicker medium.”
 
@@ -665,7 +665,7 @@ Viscosity is a *resistance field*; it should feel like “thicker medium.”
 
 ---
 
-### 4.5 Particle state (spot) → “Probe”
+### 4.5 Particle state (spot) → “Probe” [COMPLETE]
 
 The particle is your probe moving through the medium.
 
@@ -686,9 +686,9 @@ The particle is your probe moving through the medium.
 
 ---
 
-## 5) Forecast encoding (no ambiguity)
+## 5) Forecast encoding (no ambiguity) [COMPLETE]
 
-### 5.1 Forecast Ladder (Band B): current tick predictions
+### 5.1 Forecast Ladder (Band B): current tick predictions [COMPLETE]
 
 Band B is a discrete, horizon-indexed instrument readout.
 
@@ -713,7 +713,7 @@ Connect the predicted markers across horizons with a thin line so the forecast r
 
 ---
 
-### 5.2 Resolved Error Ladder (Band C): always show last resolved frame
+### 5.2 Resolved Error Ladder (Band C): always show last resolved frame [COMPLETE]
 
 Band C uses the same ladder layout, but shows **both predicted and actual** for one origin time that’s now fully known.
 
@@ -728,7 +728,7 @@ Per horizon row:
 
 ---
 
-## 6) Interaction and controls (instrument-grade)
+## 6) Interaction and controls (instrument-grade) [COMPLETE]
 
 These interactions are mandatory because they accelerate iteration:
 
@@ -755,7 +755,7 @@ These interactions are mandatory because they accelerate iteration:
 
 ---
 
-## 7) Rendering order (layer stack)
+## 7) Rendering order (layer stack) [COMPLETE]
 
 Back → front, in Band A:
 
@@ -777,7 +777,7 @@ Band C:
 
 ---
 
-## 8) Extensibility rule (so you can add 100 signals later)
+## 8) Extensibility rule (so you can add 100 signals later) [COMPLETE]
 
 You will add many influences later; the viz must not collapse.
 

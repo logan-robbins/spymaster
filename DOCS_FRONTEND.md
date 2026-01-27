@@ -77,6 +77,8 @@ float textureRow = (uHeight * 0.5) + relTicks;
 | `vacuum` | `renderer.updateVacuum` | `window_end_ts_ns`, `rel_ticks`, `vacuum_score` |
 | `physics`| `renderer.updatePhysics`| `window_end_ts_ns`, `rel_ticks`, `physics_score`, `physics_score_signed` |
 | `gex` | `renderer.updateGex` | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks` (multiples of 20), `underlying_spot_ref`, `gex_abs`, `gex`, `gex_imbalance_ratio` |
+| `options_wall` | TBD | `window_end_ts_ns`, `instrument_id`, `price_int`, `depth_total`, `pull_rest_qty` |
+| `options_flow` | TBD | `window_end_ts_ns`, `instrument_id`, `side`, `price_int`, `add_qty`, `pull_qty`, `fill_qty` |
 | `bucket_radar`| `renderer.updateBucketRadar`| `window_end_ts_ns`, `bucket_rel`, `blocked_level`, `cavitation`, `gex_stiffness` |
 
 HUD stream columns are exactly those listed above. Optional wall/vacuum fields (`d1_depth_qty`, `d2_depth_qty`, `d2_pull_add_log`, `wall_erosion`) are not present in the stream and are treated as 0 by the renderer.

@@ -102,7 +102,9 @@
                         "bronze.shared.instrument_definitions"
                     ],
                     "outputs": [
-                        "silver.future_option_mbo.gex_surface_1s"
+                        "silver.future_option_mbo.gex_surface_1s",
+                        "silver.future_option_mbo.book_wall_1s",
+                        "silver.future_option_mbo.book_flow_1s"
                     ]
                 }
             ]
@@ -115,6 +117,8 @@
         "radar": "silver.future_mbo.radar_vacuum_1s",
         "physics": "silver.future_mbo.physics_surface_1s",
         "gex": "silver.future_option_mbo.gex_surface_1s",
+        "options_wall": "silver.future_option_mbo.book_wall_1s",
+        "options_flow": "silver.future_option_mbo.book_flow_1s",
         "bucket_radar": "silver.future_mbo.bucket_radar_surface_1s"
     },
     "datasets": {
@@ -1021,6 +1025,71 @@
                     "action": "Set window_start_ts_ns = window_end_ts_ns - WINDOW_NS and underlying_spot_ref = spot_ref_price"
                 }
             ]
+        },
+        "silver.future_option_mbo.book_wall_1s": {
+            "frontend_stream": "options_wall",
+            "produced_by": "SilverComputeGexSurface1s",
+            "description": "Options Liquidity Wall. Per-instrument order book depth.",
+            "fields": {
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "instrument_id": {
+                    "type": "long"
+                },
+                "price_int": {
+                    "type": "long",
+                    "desc": "Premium price"
+                },
+                "side": {
+                    "type": "string",
+                    "desc": "'A' or 'B'"
+                },
+                "depth_total": {
+                    "type": "long",
+                    "desc": "Total depth at window end"
+                },
+                "add_qty": {
+                    "type": "long"
+                },
+                "pull_qty": {
+                    "type": "long"
+                },
+                "pull_rest_qty": {
+                    "type": "long"
+                },
+                "fill_qty": {
+                    "type": "long"
+                }
+            }
+        },
+        "silver.future_option_mbo.book_flow_1s": {
+            "frontend_stream": "options_flow",
+            "produced_by": "SilverComputeGexSurface1s",
+            "description": "Options Flow. Net flow metrics.",
+            "fields": {
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "instrument_id": {
+                    "type": "long"
+                },
+                "side": {
+                    "type": "string"
+                },
+                "price_int": {
+                    "type": "long"
+                },
+                "add_qty": {
+                    "type": "long"
+                },
+                "pull_qty": {
+                    "type": "long"
+                },
+                "fill_qty": {
+                    "type": "long"
+                }
+            }
         }
     },
     "calibration": {
