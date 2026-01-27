@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "book_wall_1s",
+  "namespace": "silver.future_option_mbo",
+  "fields": [
+    {"name": "window_end_ts_ns", "type": "long"},
+    {"name": "strike_price_int", "type": "long"},
+    {"name": "side", "type": "string"},
+    {"name": "right", "type": "string"},
+    {"name": "depth_total", "type": "long"},
+    {"name": "add_qty", "type": "long"},
+    {"name": "pull_qty", "type": "long"},
+    {"name": "pull_rest_qty", "type": "long"},
+    {"name": "fill_qty", "type": "long"}
+  ]
+}

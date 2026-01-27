@@ -79,8 +79,3 @@ def test_options_book_engine():
     # My synthetic data only added Asks. So NO BBO should be emitted.
     
     assert res_bbo.empty
-    
-    print("Test Passed!")
-
-if __name__ == "__main__":
-    test_options_book_engine()

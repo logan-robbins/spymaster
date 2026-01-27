@@ -87,6 +87,18 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option_mbo/gex_surface_1s.avsc
 
+  silver.future_option_mbo.book_wall_1s:
+    path: silver/product_type=future_option_mbo/symbol={symbol}/table=book_wall_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_option_mbo/book_wall_1s.avsc
+
+  silver.future_option_mbo.book_flow_1s:
+    path: silver/product_type=future_option_mbo/symbol={symbol}/table=book_flow_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_option_mbo/book_flow_1s.avsc
+
   # Silver - Futures
   silver.future.market_by_price_10:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10

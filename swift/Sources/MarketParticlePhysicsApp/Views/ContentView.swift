@@ -141,10 +141,10 @@ struct ControlsPanel: View {
                     .font(.headline)
                 Slider(
                     value: $viewModel.scrubIndex,
-                    in: 0...Double(max(viewModel.historyCount - 1, 0)),
+                    in: 0...Double(max(viewModel.historyCount - 1, 1)),
                     step: 1
                 )
-                .disabled(viewModel.isLiveMode)
+                .disabled(viewModel.isLiveMode || viewModel.historyCount < 2)
                 .onChange(of: viewModel.scrubIndex) { newValue in
                     viewModel.scrub(to: newValue)
                 }

@@ -267,6 +267,98 @@
                 "component": "renderer.ts:updateBucketRadar",
                 "purpose": "Primary visualization layer. Blocked=resistance, Cavitation=vacuum."
             }
+        },
+        "options_wall": {
+            "description": "Options Liquidity Wall. Granular book depth per Strike/Right.",
+            "rows_per_window": "variable",
+            "spatial": true,
+            "fields": [
+                {
+                    "name": "window_end_ts_ns",
+                    "type": "long",
+                    "required": true
+                },
+                {
+                    "name": "strike_price_int",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Underlying strike price (tick-aligned)"
+                },
+                {
+                    "name": "side",
+                    "type": "string",
+                    "required": true,
+                    "desc": "'A' or 'B'"
+                },
+                {
+                    "name": "right",
+                    "type": "string",
+                    "required": true,
+                    "desc": "'C' or 'P'"
+                },
+                {
+                    "name": "depth_total",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Aggregated depth"
+                },
+                {
+                    "name": "pull_rest_qty",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Resting liquidity pulled"
+                }
+            ],
+            "frontend_usage": {
+                "component": "TBD",
+                "purpose": "Visualizes granular options liquidity barriers."
+            }
+        },
+        "options_flow": {
+            "description": "Options Layout Flow. Aggressive flow metrics.",
+            "rows_per_window": "variable",
+            "spatial": true,
+            "fields": [
+                {
+                    "name": "window_end_ts_ns",
+                    "type": "long",
+                    "required": true
+                },
+                {
+                    "name": "strike_price_int",
+                    "type": "long",
+                    "required": true
+                },
+                {
+                    "name": "side",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "name": "right",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "name": "add_qty",
+                    "type": "long",
+                    "required": true
+                },
+                {
+                    "name": "pull_qty",
+                    "type": "long",
+                    "required": true
+                },
+                {
+                    "name": "fill_qty",
+                    "type": "long",
+                    "required": true
+                }
+            ],
+            "frontend_usage": {
+                "component": "TBD",
+                "purpose": "Visualizes aggressive flow (attacks) on gamma levels."
+            }
         }
     },
     "constants": {

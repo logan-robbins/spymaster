@@ -117,7 +117,7 @@ async def stream(
     try:
         iterator = SERVICE.iter_batches(symbol, dt, start_ts_ns=start_ts_ns)
         last_window_ts = None
-        
+
         for window_id, batch in iterator:
             if last_window_ts is not None:
                 delta_ns = window_id - last_window_ts
@@ -125,7 +125,7 @@ async def stream(
                 to_sleep = delta_sec / speed
                 if to_sleep > 0:
                     await asyncio.sleep(to_sleep)
-            
+
             last_window_ts = window_id
 
             # Send batch metadata first
@@ -151,7 +151,7 @@ async def stream(
                     }
                 )
                 await websocket.send_bytes(_df_to_arrow_ipc(df))
-            
+
             # Send batch end marker? Not strictly necessary if "batch_start" implies new group.
     except WebSocketDisconnect:
         return

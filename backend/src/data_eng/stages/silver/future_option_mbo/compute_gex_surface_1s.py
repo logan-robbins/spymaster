@@ -188,32 +188,56 @@ class SilverComputeGexSurface1s(Stage):
         # Vectorized GEX
         df_gex = _calc_gex_vectorized(df_mids, grid_master)
         
-        # Prepare Wall/Flow
-        # Pass through, but enforce types?
-        # df_flow: instrument_id, side, price_int...
-        # df_bbo: we used for GEX. Do we output it as "Wall"? No, Wall is Depth.
-        # Wait, OptionsBookEngine returns `df_flow` which has "depth_total".
-        # This IS the Wall data (Liquidity Snapshot per active level + Flow).
-        # It's named `df_flow` in engine return.
-        # I defined `book_wall_1s` and `book_flow_1s` schemas.
-        # `book_wall_1s`: depth_total, add_qty, pull_qty...
-        # `book_flow_1s`: side, price_int, add_qty... (Redundant?)
-        # `df_flow` from engine has ALL these columns.
-        # So `df_wall` = `df_flow`.
-        # `df_flow` output dataset? Maybe distinct?
-        # Actually `df_flow` from engine has `depth_total`.
-        # So I can use it for `book_wall_1s`.
-        # Do I need `book_flow_1s` separate?
-        # Schema for `book_flow_1s` is subset.
-        # I will output the SAME dataframe for both? Or split?
-        # Let's write `df_flow` to `book_wall_1s`.
-        # And maybe `book_flow_1s` is the Aggregated Flow?
-        # Engine aggregates only by (Window, IID, Side, Px).
+        # Prepare Wall/Flow - Aggregate to Strike-Native
+        # Join definitions to get strike_price and right
+        # df_flow has columns: window_end_ts_ns, instrument_id, side, price_int, ... metrics
         
-        df_wall = df_flow.copy()
+        # Merge Defs to df_flow
+        # We need strike_price (scaled) or raw? GEX uses scaled.
+        # But schema has strike_price_int.
+        # Defs has "strike_price" (float).
+        # We need to convert strike_price to int (x 1e9 / PRICE_SCALE?)
+        # Actually defs from _load_definitions has "strike_price" as float (from contract).
+        # We should use that.
         
-        # Create Flow dataset by just keeping flow cols?
-        df_flow_out = df_flow[["window_end_ts_ns", "instrument_id", "side", "price_int", "add_qty", "pull_qty", "fill_qty"]].copy()
+        df_rich = df_flow.merge(defs[["instrument_id", "strike_price", "put_call"]], on="instrument_id", how="inner")
+        
+        # Convert strike to int representation for schema
+        # In this project, PRICE_SCALE is 1e-9. Prices are stored as int64 * 1e-9.
+        # So int = float / PRICE_SCALE.
+        df_rich["strike_price_int"] = (df_rich["strike_price"] / PRICE_SCALE).round().astype(np.int64)
+        
+        # Rename put_call to right? Schema has "right".
+        # Defs usually has "put_call" as "C" or "P".
+        df_rich["right"] = df_rich["put_call"]
+        
+        # Group By keys: window, strike, side, right
+        grp_keys = ["window_end_ts_ns", "strike_price_int", "side", "right"]
+        
+        # Aggregation Dictionary
+        agg_wall = {
+            "depth_total": "sum",
+            "add_qty": "sum",
+            "pull_qty": "sum",
+            "pull_rest_qty": "sum",
+            "fill_qty": "sum"
+        }
+        
+        # 1. Wall Surface (Depth + Metrics)
+        df_wall = df_rich.groupby(grp_keys, as_index=False).agg(agg_wall)
+        
+        # 2. Flow Surface (Metrics only)
+        # Actually df_wall has everything. df_flow_out is just specialized subset?
+        # User asked for visual sets. 
+        # If I drop depth_total for flow dataset:
+        
+        agg_flow = {
+            "add_qty": "sum",
+            "pull_qty": "sum",
+            "fill_qty": "sum"
+        }
+        
+        df_flow_out = df_rich.groupby(grp_keys, as_index=False).agg(agg_flow)
         
         return df_gex, df_wall, df_flow_out
 
