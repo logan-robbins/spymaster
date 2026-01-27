@@ -139,6 +139,13 @@ dbn-data/*
 *.tmp
 test_cache_logic.py
 
+# Swift
+swift/.build/
+swift/.swiftpm/
+*.xcodeproj
+*.xcworkspace
+.swiftpm/
+
 # Auto-generated infrastructure inventory (contains sensitive info)
 infra/azure-resources.json
 infra/azure-resources.json.backup

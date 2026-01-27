@@ -13,6 +13,7 @@ final class EngineViewModel: ObservableObject {
     @Published var scrubIndex: Double = 0
     @Published var hoverReadout: String = ""
     @Published var debugOverlayText: String = ""
+    @Published var showDebugOverlay: Bool = false
     @Published private(set) var statusLine: String = ""
     @Published private(set) var weightSummaries: [WeightSummary] = []
     @Published private(set) var resolvedOrigin: ResolvedOriginFrame?
@@ -256,6 +257,39 @@ final class EngineViewModel: ObservableObject {
             freeze()
             scrub(to: scrubIndex)
         }
+    }
+
+    var historyCount: Int {
+        history.count
+    }
+
+    var scrubLabel: String {
+        guard !history.isEmpty else { return "--:--:--" }
+        let index = Int(max(0, min(Double(history.count - 1), scrubIndex)))
+        let snapshot = history[index]
+        return dateFrom(timestampNs: snapshot.frame.timestampNs).formatted(date: .omitted, time: .standard)
+    }
+
+    var horizonCount: Int {
+        horizon
+    }
+
+    var dtSecondsValue: Double {
+        Double(dtSeconds)
+    }
+
+    func currentSnapshotForDisplay() -> EngineSnapshot? {
+        currentSnapshot
+    }
+
+    func refreshRenderer(snapshot: EngineSnapshot) {
+        updateRenderer(snapshot: snapshot)
+    }
+
+    func mapTicksToX(_ ticks: Float, width: CGFloat) -> CGFloat {
+        let visibleMaxTicks = grid.maxTicks / Float(max(zoomFactor, 1e-3))
+        let normalized = max(-1.0, min(1.0, ticks / visibleMaxTicks))
+        return CGFloat((normalized + 1.0) * 0.5) * width
     }
 
     private func updateDebugOverlay(snapshot: EngineSnapshot) {
