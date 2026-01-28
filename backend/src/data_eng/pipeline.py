@@ -46,20 +46,18 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             ]
 
     elif product_type == "future_mbo":
-        from .stages.bronze.future_mbo.ingest_preview import BronzeIngestMboPreview
-        from .stages.silver.future_mbo.compute_snapshot_and_wall_1s import SilverComputeSnapshotAndWall1s
+        from .stages.bronze.future_mbo.ingest import BronzeIngestFutureMbo
+        from .stages.silver.future_mbo.compute_book_states_1s import SilverComputeBookStates1s
         from .stages.silver.future_mbo.compute_vacuum_surface_1s import SilverComputeVacuumSurface1s
         from .stages.silver.future_mbo.compute_physics_bands_1s import SilverComputePhysicsBands1s
-        from .stages.silver.future_mbo.compute_radar_vacuum_1s import SilverComputeRadarVacuum1s
         from .stages.silver.future_mbo.compute_physics_surface_1s import SilverComputePhysicsSurface1s
 
         if layer == "bronze":
-            return [BronzeIngestMboPreview()]
+            return [BronzeIngestFutureMbo()]
         elif layer == "silver":
             return [
-                SilverComputeSnapshotAndWall1s(),
+                SilverComputeBookStates1s(),
                 SilverComputeVacuumSurface1s(),
-                SilverComputeRadarVacuum1s(),
                 SilverComputePhysicsBands1s(),
                 SilverComputePhysicsSurface1s(),
             ]
@@ -67,10 +65,9 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
             return []
         elif layer == "all":
             return [
-                BronzeIngestMboPreview(),
-                SilverComputeSnapshotAndWall1s(),
+                BronzeIngestFutureMbo(),
+                SilverComputeBookStates1s(),
                 SilverComputeVacuumSurface1s(),
-                SilverComputeRadarVacuum1s(),
                 SilverComputePhysicsBands1s(),
                 SilverComputePhysicsSurface1s(),
             ]

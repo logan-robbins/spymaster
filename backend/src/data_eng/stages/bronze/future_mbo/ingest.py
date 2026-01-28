@@ -18,10 +18,10 @@ RTYPE_MBO = 160
 NULL_PRICE = np.iinfo("int64").max
 
 
-class BronzeIngestMboPreview(Stage):
+class BronzeIngestFutureMbo(Stage):
     def __init__(self) -> None:
         super().__init__(
-            name="bronze_ingest_mbo_preview",
+            name="bronze_ingest_future_mbo",
             io=StageIO(
                 inputs=[],
                 output="bronze.future_mbo.mbo",

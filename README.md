@@ -63,11 +63,33 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | `book_flow_1s` | SilverComputeGexSurface1s | Options Flow Analysis |
 | `bucket_radar_surface_1s` | SilverComputeBucketRadar1s | Bucket Radar (2-tick) |
 
+### Data Shape Examples
+
+#### 1. book_snapshot_1s (Time Series)
+Standard OHLC/BBO candles. **One row per second.**
+
+| window_end_ts_ns | best_bid | best_ask | last_price | volume |
+|------------------|----------|----------|------------|--------|
+| 12:00:01         | 5000.25  | 5000.50  | 5000.50    | 120    |
+| 12:00:02         | 5000.25  | 5000.50  | 5000.25    | 50     |
+
+#### 2. depth_and_flow_1s (Panel Data / Long Format)
+Granular Heatmap Surface. **Multiple rows per second** (one per price level).
+
+| window_end_ts_ns | price_int | add_qty | pull_qty | depth_qty |
+|------------------|-----------|---------|----------|-----------|
+| 12:00:01         | 5000.00   | 10      | 2        | 50        |
+| 12:00:01         | 5000.25   | 0       | 5        | 20        |
+| 12:00:01         | 5000.50   | 15      | 0        | 100       |
+| ...              | ...       | ...     | ...      | ...       |
+| 12:00:02         | 5000.00   | 5       | 0        | 55        |
+
 ## Grid Structure
 
 - **1 column = 1 second** (window cadence)
 - **1 row = 1 tick** ($0.25)
 - **Center = spot price** (rel_ticks = 0)
+- **Vertical Range**: +/- 200 ticks ($50.00) from spot
 - **GEX**: $5 strike intervals = 20 ticks apart
 
 ## Layer Stack (Z-order back→front)

@@ -34,7 +34,7 @@ class SilverComputePhysicsBands1s(Stage):
             io=StageIO(
                 inputs=[
                     "silver.future_mbo.book_snapshot_1s",
-                    "silver.future_mbo.wall_surface_1s",
+                    "silver.future_mbo.depth_and_flow_1s",
                     "silver.future_mbo.vacuum_surface_1s",
                     "gold.hud.physics_norm_calibration",
                 ],
@@ -48,30 +48,31 @@ class SilverComputePhysicsBands1s(Stage):
             return
 
         snap_key = "silver.future_mbo.book_snapshot_1s"
-        wall_key = "silver.future_mbo.wall_surface_1s"
+        snap_key = "silver.future_mbo.book_snapshot_1s"
+        flow_key = "silver.future_mbo.depth_and_flow_1s"
         vac_key = "silver.future_mbo.vacuum_surface_1s"
         cal_key = "gold.hud.physics_norm_calibration"
 
         snap_ref = partition_ref(cfg, snap_key, symbol, dt)
-        wall_ref = partition_ref(cfg, wall_key, symbol, dt)
+        flow_ref = partition_ref(cfg, flow_key, symbol, dt)
         vac_ref = partition_ref(cfg, vac_key, symbol, dt)
         cal_ref = partition_ref(cfg, cal_key, symbol, dt)
 
-        for ref in (snap_ref, wall_ref, vac_ref, cal_ref):
+        for ref in (snap_ref, flow_ref, vac_ref, cal_ref):
             if not is_partition_complete(ref):
                 raise FileNotFoundError(f"Input not ready: {ref.dataset_key} dt={dt}")
 
         snap_contract = load_avro_contract(repo_root / cfg.dataset(snap_key).contract)
-        wall_contract = load_avro_contract(repo_root / cfg.dataset(wall_key).contract)
+        flow_contract = load_avro_contract(repo_root / cfg.dataset(flow_key).contract)
         vac_contract = load_avro_contract(repo_root / cfg.dataset(vac_key).contract)
         cal_contract = load_avro_contract(repo_root / cfg.dataset(cal_key).contract)
 
         df_snap = enforce_contract(read_partition(snap_ref), snap_contract)
-        df_wall = enforce_contract(read_partition(wall_ref), wall_contract)
+        df_flow = enforce_contract(read_partition(flow_ref), flow_contract)
         df_vac = enforce_contract(read_partition(vac_ref), vac_contract)
         df_cal = enforce_contract(read_partition(cal_ref), cal_contract)
 
-        df_out = self.transform_multi(df_snap, df_wall, df_vac, df_cal)
+        df_out = self.transform_multi(df_snap, df_flow, df_vac, df_cal)
 
         out_contract_path = repo_root / cfg.dataset(self.io.output).contract
         out_contract = load_avro_contract(out_contract_path)
@@ -79,7 +80,7 @@ class SilverComputePhysicsBands1s(Stage):
 
         lineage = [
             {"dataset": snap_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(snap_ref)},
-            {"dataset": wall_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(wall_ref)},
+            {"dataset": flow_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(flow_ref)},
             {"dataset": vac_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(vac_ref)},
             {"dataset": cal_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(cal_ref)},
         ]
@@ -98,7 +99,7 @@ class SilverComputePhysicsBands1s(Stage):
     def transform_multi(
         self,
         df_snap: pd.DataFrame,
-        df_wall: pd.DataFrame,
+        df_flow: pd.DataFrame,
         df_vac: pd.DataFrame,
         df_cal: pd.DataFrame,
     ) -> pd.DataFrame:
@@ -142,7 +143,7 @@ class SilverComputePhysicsBands1s(Stage):
 
         cal = _load_calibration(df_cal)
 
-        wall = df_wall.copy()
+        wall = df_flow.copy()
         wall["wall_strength_log"] = np.log(wall["depth_qty_rest"].astype(float) + 1.0)
         wall_erosion = np.maximum(-wall["d1_depth_qty"].astype(float), 0.0)
         wall["log1p_erosion_norm"] = np.log1p(wall_erosion / (wall["depth_qty_start"].astype(float) + EPS_QTY))

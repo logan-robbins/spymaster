@@ -26,7 +26,7 @@ class SilverComputeVacuumSurface1s(Stage):
             name="silver_compute_vacuum_surface_1s",
             io=StageIO(
                 inputs=[
-                    "silver.future_mbo.wall_surface_1s",
+                    "silver.future_mbo.depth_and_flow_1s",
                     "gold.hud.physics_norm_calibration",
                 ],
                 output="silver.future_mbo.vacuum_surface_1s",
@@ -38,31 +38,31 @@ class SilverComputeVacuumSurface1s(Stage):
         if is_partition_complete(out_ref):
             return
 
-        wall_key = "silver.future_mbo.wall_surface_1s"
+        flow_key = "silver.future_mbo.depth_and_flow_1s"
         cal_key = "gold.hud.physics_norm_calibration"
 
-        wall_ref = partition_ref(cfg, wall_key, symbol, dt)
-        if not is_partition_complete(wall_ref):
-            raise FileNotFoundError(f"Input not ready: {wall_key} dt={dt}")
+        flow_ref = partition_ref(cfg, flow_key, symbol, dt)
+        if not is_partition_complete(flow_ref):
+            raise FileNotFoundError(f"Input not ready: {flow_key} dt={dt}")
 
         cal_ref = partition_ref(cfg, cal_key, symbol, dt)
         if not is_partition_complete(cal_ref):
             raise FileNotFoundError(f"Input not ready: {cal_key} dt={dt}")
 
-        wall_contract = load_avro_contract(repo_root / cfg.dataset(wall_key).contract)
+        flow_contract = load_avro_contract(repo_root / cfg.dataset(flow_key).contract)
         cal_contract = load_avro_contract(repo_root / cfg.dataset(cal_key).contract)
 
-        df_wall = enforce_contract(read_partition(wall_ref), wall_contract)
+        df_flow = enforce_contract(read_partition(flow_ref), flow_contract)
         df_cal = enforce_contract(read_partition(cal_ref), cal_contract)
 
-        df_out = self.transform_multi(df_wall, df_cal)
+        df_out = self.transform_multi(df_flow, df_cal)
 
         out_contract_path = repo_root / cfg.dataset(self.io.output).contract
         out_contract = load_avro_contract(out_contract_path)
         df_out = enforce_contract(df_out, out_contract)
 
         lineage = [
-            {"dataset": wall_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(wall_ref)},
+            {"dataset": flow_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(flow_ref)},
             {"dataset": cal_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(cal_ref)},
         ]
 
@@ -77,8 +77,8 @@ class SilverComputeVacuumSurface1s(Stage):
             stage=self.name,
         )
 
-    def transform_multi(self, df_wall: pd.DataFrame, df_cal: pd.DataFrame) -> pd.DataFrame:
-        if df_wall.empty:
+    def transform_multi(self, df_flow: pd.DataFrame, df_cal: pd.DataFrame) -> pd.DataFrame:
+        if df_flow.empty:
             return pd.DataFrame(
                 columns=[
                     "window_start_ts_ns",
@@ -101,18 +101,18 @@ class SilverComputeVacuumSurface1s(Stage):
 
         cal = _load_calibration(df_cal)
 
-        depth_start = df_wall["depth_qty_start"].astype(float).to_numpy()
-        depth_rest = df_wall["depth_qty_rest"].astype(float).to_numpy()
-        pull_qty_rest = df_wall["pull_qty_rest"].astype(float).to_numpy()
-        add_qty = df_wall["add_qty"].astype(float).to_numpy()
-        d1_depth = df_wall["d1_depth_qty"].astype(float).to_numpy()
+        depth_start = df_flow["depth_qty_start"].astype(float).to_numpy()
+        depth_rest = df_flow["depth_qty_rest"].astype(float).to_numpy()
+        pull_qty_rest = df_flow["pull_qty_rest"].astype(float).to_numpy()
+        add_qty = df_flow["add_qty"].astype(float).to_numpy()
+        d1_depth = df_flow["d1_depth_qty"].astype(float).to_numpy()
 
         pull_intensity_rest = pull_qty_rest / (depth_start + EPS_QTY)
         pull_add_log = np.log((pull_qty_rest + EPS_QTY) / (add_qty + EPS_QTY))
         wall_erosion = np.maximum(-d1_depth, 0.0)
         wall_strength_log = np.log(depth_rest + 1.0)
 
-        df = df_wall[
+        df = df_flow[
             [
                 "window_start_ts_ns",
                 "window_end_ts_ns",

@@ -13,7 +13,7 @@ TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 GRID_ALIGN_TICKS = 20  # $5.00 grid for ES
 WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
-HUD_MAX_TICKS = 600
+HUD_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
 
 F_SNAPSHOT = 128
 F_LAST = 256
@@ -51,61 +51,6 @@ BID_BELOW_FAR = "BID_BELOW_FAR"
 ASK_INFLUENCE = {ASK_ABOVE_AT, ASK_ABOVE_NEAR, ASK_ABOVE_MID, ASK_ABOVE_FAR}
 BID_INFLUENCE = {BID_BELOW_AT, BID_BELOW_NEAR, BID_BELOW_MID, BID_BELOW_FAR}
 
-BASE_FEATURES = [
-    "f1_ask_com_disp_log",
-    "f1_ask_slope_convex_log",
-    "f1_ask_slope_inner_log",
-    "f1_ask_at_share_delta",
-    "f1_ask_near_share_delta",
-    "f1_ask_reprice_away_share_rest",
-    "f2_ask_pull_add_log_rest",
-    "f2_ask_pull_intensity_log_rest",
-    "f2_ask_at_pull_share_rest",
-    "f2_ask_near_pull_share_rest",
-    "f3_bid_com_disp_log",
-    "f3_bid_slope_convex_log",
-    "f3_bid_slope_inner_log",
-    "f3_bid_at_share_delta",
-    "f3_bid_near_share_delta",
-    "f3_bid_reprice_away_share_rest",
-    "f4_bid_pull_add_log_rest",
-    "f4_bid_pull_intensity_log_rest",
-    "f4_bid_at_pull_share_rest",
-    "f4_bid_near_pull_share_rest",
-    "f5_vacuum_expansion_log",
-    "f6_vacuum_decay_log",
-    "f7_vacuum_total_log",
-    "f8_ask_bbo_dist_ticks",
-    "f9_bid_bbo_dist_ticks",
-]
-
-UP_FEATURES = [
-    "u1_ask_com_disp_log",
-    "u2_ask_slope_convex_log",
-    "u2_ask_slope_inner_log",
-    "u3_ask_at_share_decay",
-    "u3_ask_near_share_decay",
-    "u4_ask_reprice_away_share_rest",
-    "u5_ask_pull_add_log_rest",
-    "u6_ask_pull_intensity_log_rest",
-    "u7_ask_at_pull_share_rest",
-    "u7_ask_near_pull_share_rest",
-    "u8_bid_com_approach_log",
-    "u9_bid_slope_support_log",
-    "u9_bid_slope_inner_log",
-    "u10_bid_at_share_rise",
-    "u10_bid_near_share_rise",
-    "u11_bid_reprice_toward_share_rest",
-    "u12_bid_add_pull_log_rest",
-    "u13_bid_add_intensity_log",
-    "u14_bid_far_pull_share_rest",
-    "u15_up_expansion_log",
-    "u16_up_flow_log",
-    "u17_up_total_log",
-    "u18_ask_bbo_dist_ticks",
-    "u19_bid_bbo_dist_ticks",
-]
-
 SNAP_COLUMNS = [
     "window_start_ts_ns",
     "window_end_ts_ns",
@@ -120,7 +65,7 @@ SNAP_COLUMNS = [
     "book_valid",
 ]
 
-WALL_COLUMNS = [
+DEPTH_FLOW_COLUMNS = [
     "window_start_ts_ns",
     "window_end_ts_ns",
     "price_int",
@@ -134,19 +79,8 @@ WALL_COLUMNS = [
     "depth_qty_rest",
     "pull_qty_rest",
     "fill_qty",
-    "d1_depth_qty",
-    "d2_depth_qty",
-    "d3_depth_qty",
     "window_valid",
 ]
-
-RADAR_COLUMNS = [
-    "window_start_ts_ns",
-    "window_end_ts_ns",
-    "spot_ref_price",
-    "spot_ref_price_int",
-    "approach_dir",
-] + BASE_FEATURES + [f"d1_{name}" for name in BASE_FEATURES] + [f"d2_{name}" for name in BASE_FEATURES] + [f"d3_{name}" for name in BASE_FEATURES] + UP_FEATURES + [f"d1_{name}" for name in UP_FEATURES] + [f"d2_{name}" for name in UP_FEATURES] + [f"d3_{name}" for name in UP_FEATURES]
 
 
 @dataclass
@@ -206,11 +140,13 @@ class FuturesBookEngine:
         window_ns: int = WINDOW_NS,
         rest_ns: int = REST_NS,
         hud_max_ticks: int = HUD_MAX_TICKS,
+        compute_depth_flow: bool = True,
     ) -> None:
         self.tick_int = tick_int
         self.window_ns = window_ns
         self.rest_ns = rest_ns
         self.hud_max_ticks = hud_max_ticks
+        self.compute_depth_flow = compute_depth_flow
 
         self.orders: Dict[int, OrderState] = {}
         self.depth_bid: Dict[int, int] = {}
@@ -239,19 +175,10 @@ class FuturesBookEngine:
         self.acc_fill_ask: Dict[int, float] = {}
 
         self.prev_depth_bid: Dict[int, float] = {}
-        self.prev_d1_bid: Dict[int, float] = {}
-        self.prev_d2_bid: Dict[int, float] = {}
         self.prev_depth_ask: Dict[int, float] = {}
-        self.prev_d1_ask: Dict[int, float] = {}
-        self.prev_d2_ask: Dict[int, float] = {}
-
-        self.radar_deriv_base = RadarDerivativeState(BASE_FEATURES)
-        self.radar_deriv_up = RadarDerivativeState(UP_FEATURES)
-        self.approach_state = ApproachDirState()
 
         self.snap_rows: List[Dict[str, object]] = []
-        self.wall_rows: List[Dict[str, object]] = []
-        self.radar_rows: List[Dict[str, object]] = []
+        self.depth_flow_rows: List[Dict[str, object]] = []
 
     def process(self, events: Iterable[Tuple[int, str, str, int, int, int, int]]) -> None:
         for ts, action, side, price, size, order_id, flags in events:
@@ -371,12 +298,54 @@ class FuturesBookEngine:
         window_valid = self.book_valid and (not self.window_has_snapshot)
 
         if spot_ref > 0:
-            self._emit_wall_rows(spot_ref, window_valid)
-            self._emit_radar_row(spot_ref)
+            if self.compute_depth_flow:
+                self._emit_depth_flow_rows(spot_ref, window_valid)
 
         self._reset_accumulators()
 
-    def _emit_wall_rows(self, spot_ref: int, window_valid: bool) -> None:
+# ... (omitted methods) ...
+
+def compute_futures_surfaces_1s_from_batches(
+    batches: Iterable[pd.DataFrame],
+    compute_depth_flow: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    engine = FuturesBookEngine(compute_depth_flow=compute_depth_flow)
+    seen = False
+
+    for batch in batches:
+        if batch.empty:
+            continue
+        seen = True
+        required = {"ts_event", "action", "side", "price", "size", "order_id", "sequence", "flags"}
+        missing = required.difference(batch.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {sorted(missing)}")
+        for row in batch.itertuples(index=False):
+            engine.apply_event(
+                int(row.ts_event),
+                str(row.action),
+                str(row.side),
+                int(row.price),
+                int(row.size),
+                int(row.order_id),
+                int(row.flags),
+            )
+
+    if not seen:
+        return (
+            pd.DataFrame(columns=SNAP_COLUMNS),
+            pd.DataFrame(columns=DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame(),
+            pd.DataFrame(),
+        )
+
+    engine.flush_final()
+
+    df_snap = _rows_to_df(engine.snap_rows, SNAP_COLUMNS)
+    df_depth_flow = _rows_to_df(engine.depth_flow_rows, DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame()
+    
+    return df_snap, df_depth_flow, pd.DataFrame()
+
+    def _emit_depth_flow_rows(self, spot_ref: int, window_valid: bool) -> None:
         min_price = spot_ref - self.hud_max_ticks * self.tick_int
         max_price = spot_ref + self.hud_max_ticks * self.tick_int
 
@@ -396,8 +365,10 @@ class FuturesBookEngine:
             if depth_start < 0:
                 depth_start = 0.0
             rel_ticks = int(round((price - spot_ref) / self.tick_int))
-            d1, d2, d3 = _depth_derivatives(price, depth_end, self.prev_depth_bid, self.prev_d1_bid, self.prev_d2_bid)
-            self.wall_rows.append(
+            # Simple State Track: Current Depth
+            self.prev_depth_bid[price] = depth_end
+            
+            self.depth_flow_rows.append(
                 {
                     "window_start_ts_ns": self.window_start_ts,
                     "window_end_ts_ns": self.window_end_ts,
@@ -412,9 +383,6 @@ class FuturesBookEngine:
                     "depth_qty_rest": float(rest_bid.get(price, 0.0)),
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
-                    "d1_depth_qty": float(d1),
-                    "d2_depth_qty": float(d2),
-                    "d3_depth_qty": float(d3),
                     "window_valid": window_valid,
                 }
             )
@@ -429,8 +397,10 @@ class FuturesBookEngine:
             if depth_start < 0:
                 depth_start = 0.0
             rel_ticks = int(round((price - spot_ref) / self.tick_int))
-            d1, d2, d3 = _depth_derivatives(price, depth_end, self.prev_depth_ask, self.prev_d1_ask, self.prev_d2_ask)
-            self.wall_rows.append(
+            # Simple State Track: Current Depth
+            self.prev_depth_ask[price] = depth_end
+            
+            self.depth_flow_rows.append(
                 {
                     "window_start_ts_ns": self.window_start_ts,
                     "window_end_ts_ns": self.window_end_ts,
@@ -445,35 +415,11 @@ class FuturesBookEngine:
                     "depth_qty_rest": float(rest_ask.get(price, 0.0)),
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
-                    "d1_depth_qty": float(d1),
-                    "d2_depth_qty": float(d2),
-                    "d3_depth_qty": float(d3),
                     "window_valid": window_valid,
                 }
             )
 
-    def _emit_radar_row(self, spot_ref: int) -> None:
-        start_snap = _snapshot_from_depth(self.window_depth_start_bid, self.window_depth_start_ask, spot_ref)
-        end_snap = _snapshot_from_depth(self.depth_bid, self.depth_ask, spot_ref)
-        accum = _radar_accumulators(self.window_orders_start, self.window_events, spot_ref, self.rest_ns)
-
-        base_feats = _compute_base_features(start_snap, end_snap, accum)
-        up_feats = _compute_up_features(base_feats, start_snap, accum)
-
-        row: Dict[str, object] = {
-            "window_start_ts_ns": self.window_start_ts,
-            "window_end_ts_ns": self.window_end_ts,
-            "spot_ref_price": spot_ref * PRICE_SCALE,
-            "spot_ref_price_int": spot_ref,
-        }
-        row.update(base_feats)
-        row.update(up_feats)
-
-        self.radar_deriv_base.apply(row)
-        self.radar_deriv_up.apply(row)
-        row["approach_dir"] = self.approach_state.next_dir(spot_ref)
-
-        self.radar_rows.append(row)
+        self._reset_accumulators()
 
     def _reset_accumulators(self) -> None:
         self.acc_add_bid = {}
@@ -704,20 +650,7 @@ def _resting_depth(orders: Dict[int, OrderState], side: str, min_price: int, max
     return result
 
 
-def _depth_derivatives(price: int, depth_end: float, prev_depth: Dict[int, float], prev_d1: Dict[int, float], prev_d2: Dict[int, float]) -> Tuple[float, float, float]:
-    prev_val = prev_depth.get(price)
-    if prev_val is None:
-        d1 = 0.0
-        d2 = 0.0
-        d3 = 0.0
-    else:
-        d1 = depth_end - prev_val
-        d2 = d1 - prev_d1.get(price, 0.0)
-        d3 = d2 - prev_d2.get(price, 0.0)
-    prev_depth[price] = depth_end
-    prev_d1[price] = d1
-    prev_d2[price] = d2
-    return d1, d2, d3
+
 
 
 def _bucket_for(side: str, price_int: int, spot_ref: int) -> str:

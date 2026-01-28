@@ -1,0 +1,601 @@
+{
+    "future_mbo": {
+        "bronze": {
+            "BronzeIngestFutureMbo": {
+                "ts_event": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.ts_event"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64",
+                        "Filter for session window (09:30-10:30 ET)"
+                    ]
+                },
+                "price": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.price"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64",
+                        "Handle NULL_PRICE (replace with 0 if action is Add/Modify)"
+                    ]
+                },
+                "size": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.size"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "action": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.action"
+                    ],
+                    "transformation_steps": [
+                        "Pass through"
+                    ]
+                },
+                "side": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.side"
+                    ],
+                    "transformation_steps": [
+                        "Pass through"
+                    ]
+                },
+                "order_id": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.order_id"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "flags": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.flags"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "instrument_id": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.instrument_id"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                }
+            }
+        },
+        "silver": {
+            "SilverComputeBookStates1s": {
+                "book_snapshot_1s": {
+                    "window_start_ts_ns": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.ts_event"
+                        ],
+                        "transformation_steps": [
+                            "Floor ts_event to 1s bucket (start of window)"
+                        ]
+                    },
+                    "window_end_ts_ns": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.ts_event"
+                        ],
+                        "transformation_steps": [
+                            "Ceil ts_event to 1s bucket (end of window)"
+                        ]
+                    },
+                    "best_bid_price_int": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.price",
+                            "bronze.future_mbo.mbo.side",
+                            "bronze.future_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Apply stateful updates (Add/Modify/Cancel/Fill) to internal order map",
+                            "Aggregate resting quantity by price level",
+                            "Select maximum price with quantity > 0 where side='B' at window_end_ts"
+                        ]
+                    },
+                    "best_bid_qty": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.size",
+                            "bronze.future_mbo.mbo.side",
+                            "bronze.future_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Apply stateful updates to internal order map",
+                            "Sum quantity of all active orders at Best Bid Price at window_end_ts"
+                        ]
+                    },
+                    "best_ask_price_int": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.price",
+                            "bronze.future_mbo.mbo.side",
+                            "bronze.future_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Apply stateful updates to internal order map",
+                            "Aggregate resting quantity by price level",
+                            "Select minimum price with quantity > 0 where side='A' at window_end_ts"
+                        ]
+                    },
+                    "best_ask_qty": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.size",
+                            "bronze.future_mbo.mbo.side",
+                            "bronze.future_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Apply stateful updates to internal order map",
+                            "Sum quantity of all active orders at Best Ask Price at window_end_ts"
+                        ]
+                    },
+                    "mid_price": {
+                        "built_from": [
+                            "best_bid_price_int",
+                            "best_ask_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Avg(Best Bid, Best Ask) * PRICE_SCALE (1e-9)"
+                        ]
+                    },
+                    "mid_price_int": {
+                        "built_from": [
+                            "best_bid_price_int",
+                            "best_ask_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Round(Avg(Best Bid, Best Ask))"
+                        ]
+                    },
+                    "last_trade_price_int": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.price",
+                            "bronze.future_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Filter action='T'",
+                            "Take last observed price in window (or carry forward previous)"
+                        ]
+                    },
+                    "spot_ref_price_int": {
+                        "built_from": [
+                            "last_trade_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Round last_trade_price_int to nearest 20-tick ($5.00) grid anchor"
+                        ]
+                    },
+                    "book_valid": {
+                        "built_from": [
+                            "internal_state"
+                        ],
+                        "transformation_steps": [
+                            "True if book state is initialized and no Snapshot/Clear flags persisted unexpectedly"
+                        ]
+                    }
+                },
+                "depth_and_flow_1s": {
+                    "_description": "Granular Market Depth and Order Flow dynamics (Adds/Pulls/Fills) for the Limit Order Book.",
+                    "_shape": "Long Format (Panel Data)",
+                    "_grain": "1 Second x Price Level (tick)",
+                    "_primary_key": [
+                        "window_end_ts_ns",
+                        "price_int"
+                    ],
+                    "price_int": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.price"
+                        ],
+                        "transformation_steps": [
+                            "Aggregate distinct prices in window +/- 200 ticks from spot"
+                        ]
+                    },
+                    "side": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.side"
+                        ],
+                        "transformation_steps": [
+                            "Pass through ('A' or 'B')"
+                        ]
+                    },
+                    "spot_ref_price_int": {
+                        "built_from": [
+                            "last_trade_price (internal state)"
+                        ],
+                        "transformation_steps": [
+                            "From internal engine state (same as snapshot)"
+                        ]
+                    },
+                    "rel_ticks": {
+                        "built_from": [
+                            "price_int",
+                            "spot_ref_price_int"
+                        ],
+                        "transformation_steps": [
+                            "(price_int - spot_ref_price_int) / TICK_INT",
+                            "Round to integer"
+                        ]
+                    },
+                    "depth_qty_start": {
+                        "built_from": [
+                            "book_state"
+                        ],
+                        "transformation_steps": [
+                            "calculated as: depth_qty_end - add_qty + pull_qty_total + fill_qty"
+                        ]
+                    },
+                    "depth_qty_end": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Quantity remaining at price level at end of window"
+                        ]
+                    },
+                    "add_qty": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.action=A"
+                        ],
+                        "transformation_steps": [
+                            "Sum of added volume at price level in window"
+                        ]
+                    },
+                    "pull_qty_total": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.action=C|M"
+                        ],
+                        "transformation_steps": [
+                            "Sum of cancelled/reduced volume at price level in window"
+                        ]
+                    },
+                    "depth_qty_rest": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Quantity of orders resting for > 500ms"
+                        ]
+                    },
+                    "pull_qty_rest": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Sum of cancelled volume from orders resting > 500ms"
+                        ]
+                    },
+                    "fill_qty": {
+                        "built_from": [
+                            "bronze.future_mbo.mbo.action=F"
+                        ],
+                        "transformation_steps": [
+                            "Sum of filled volume at price level in window"
+                        ]
+                    }
+                }
+            },
+            "SilverComputeVacuumSurface1s": {
+                "vacuum_surface_1s": {
+                    "pull_intensity_rest": {
+                        "built_from": [
+                            "wall_surface_1s.pull_qty_rest",
+                            "wall_surface_1s.depth_qty_start"
+                        ],
+                        "transformation_steps": [
+                            "pull_qty_rest / (depth_qty_start + 1.0)"
+                        ]
+                    },
+                    "pull_add_log": {
+                        "built_from": [
+                            "wall_surface_1s.pull_qty_rest",
+                            "wall_surface_1s.add_qty"
+                        ],
+                        "transformation_steps": [
+                            "log((pull_qty_rest + 1) / (add_qty + 1))"
+                        ]
+                    },
+                    "wall_erosion": {
+                        "built_from": [
+                            "wall_surface_1s.d1_depth_qty"
+                        ],
+                        "transformation_steps": [
+                            "max(-d1_depth_qty, 0)"
+                        ]
+                    },
+                    "wall_strength_log": {
+                        "built_from": [
+                            "wall_surface_1s.depth_qty_rest"
+                        ],
+                        "transformation_steps": [
+                            "log(depth_qty_rest + 1)"
+                        ]
+                    },
+                    "d1_pull_add_log": {
+                        "built_from": [
+                            "pull_add_log"
+                        ],
+                        "transformation_steps": [
+                            "diff of pull_add_log"
+                        ]
+                    },
+                    "d2_pull_add_log": {
+                        "built_from": [
+                            "d1_pull_add_log"
+                        ],
+                        "transformation_steps": [
+                            "diff of d1"
+                        ]
+                    },
+                    "d3_pull_add_log": {
+                        "built_from": [
+                            "d2_pull_add_log"
+                        ],
+                        "transformation_steps": [
+                            "diff of d2"
+                        ]
+                    },
+                    "vacuum_score": {
+                        "built_from": [
+                            "pull_add_log",
+                            "pull_intensity_rest",
+                            "wall_erosion",
+                            "d2_pull_add_log",
+                            "gold.hud.physics_norm_calibration"
+                        ],
+                        "transformation_steps": [
+                            "Normalize each component with calibration bounds",
+                            "Mean of 4 normalized components"
+                        ]
+                    }
+                }
+            },
+            "SilverComputePhysicsBands1s": {
+                "physics_bands_1s": {
+                    "features": [
+                        "above_at_wall_strength_norm",
+                        "above_at_wall_erosion_norm",
+                        "above_at_vacuum_norm",
+                        "above_at_ease",
+                        "above_near_wall_strength_norm",
+                        "above_near_wall_erosion_norm",
+                        "above_near_vacuum_norm",
+                        "above_near_ease",
+                        "above_mid_wall_strength_norm",
+                        "...",
+                        "below_at_...",
+                        "below_near_...",
+                        "below_mid_...",
+                        "below_far_...",
+                        "above_score",
+                        "below_score",
+                        "vacuum_total_score"
+                    ],
+                    "transformation_steps": [
+                        "Band aggregation (At: 0-2, Near: 3-5, Mid: 6-14, Far: 15-20)",
+                        "Ease = 0.5*Vac + 0.35*Erosion + 0.15*(1-Strength)",
+                        "Above Score = 0.6*Above_At_Ease + 0.4*Above_Near_Ease",
+                        "Below Score = 0.6*Below_At_Ease + 0.4*Below_Near_Ease",
+                        "Total = Mean(Above, Below)"
+                    ]
+                }
+            },
+            "SilverComputePhysicsSurface1s": {
+                "physics_surface_1s": {
+                    "physics_score": {
+                        "built_from": [
+                            "vacuum_norm",
+                            "wall_erosion_norm",
+                            "wall_strength_norm"
+                        ],
+                        "transformation_steps": [
+                            "0.50 * vacuum_norm + 0.35 * erosion_norm + 0.15 * (1 - strength_norm)"
+                        ]
+                    },
+                    "physics_score_signed": {
+                        "built_from": [
+                            "physics_score",
+                            "side",
+                            "rel_ticks"
+                        ],
+                        "transformation_steps": [
+                            "+score if Ask and Above (>0 ticks)",
+                            "-score if Bid and Below (<0 ticks)",
+                            "0 otherwise"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "future_option_mbo": {
+        "bronze": {
+            "BronzeIngestInstrumentDefinitions": {
+                "instrument_definitions": {
+                    "built_from": [
+                        "raw.source=databento.dataset=definition"
+                    ],
+                    "transformation_steps": [
+                        "Load definition DBN files",
+                        "Extract underlying, strike, expiration, instrument_id"
+                    ]
+                }
+            },
+            "BronzeIngestFutureOptionStatistics": {
+                "statistics": {
+                    "built_from": [
+                        "raw.source=databento.table=statistics",
+                        "raw.source=databento.dataset=definition"
+                    ],
+                    "transformation_steps": [
+                        "Load statistics DBN files",
+                        "Filter for stat_type=1 (Open Interest)",
+                        "Join with definitions to get metadata (symbol, strike, etc.)",
+                        "Filter for 0DTE options"
+                    ]
+                }
+            },
+            "BronzeIngestFutureOptionMbo": {
+                "mbo": {
+                    "built_from": [
+                        "raw.source=databento.table=market_by_order_dbn",
+                        "raw.source=databento.dataset=definition"
+                    ],
+                    "transformation_steps": [
+                        "Load MBO DBN files",
+                        "Filter for options (Right Class C/P)",
+                        "Filter for 0DTE options using definitions",
+                        "Join with definitions to attach strike, expiration, underlying",
+                        "Handle NULL_PRICE"
+                    ]
+                }
+            }
+        },
+        "silver": {
+            "SilverComputeStatisticsClean": {
+                "statistics_clean": {
+                    "built_from": [
+                        "bronze.future_option.statistics"
+                    ],
+                    "transformation_steps": [
+                        "Sort by timestamp",
+                        "Group by option_symbol and take last value (deduplicate)",
+                        "Add ts_event_est string"
+                    ]
+                }
+            },
+            "SilverComputeGexSurface1s": {
+                "gex_surface_1s": {
+                    "gex_val": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.price (Mid)",
+                            "silver.future_mbo.book_snapshot_1s.spot_ref_price (Underlying)",
+                            "bronze.shared.instrument_definitions.strike_price",
+                            "bronze.shared.instrument_definitions.expiration",
+                            "bronze.future_option.statistics.open_interest"
+                        ],
+                        "transformation_steps": [
+                            "Compute Implied Volatility (IV) via Newton-Raphson inversion of Black-Scholes using Market Mid Price",
+                            "Compute Gamma using Black-Scholes formula with derived IV",
+                            "Multiply Gamma * Open Interest * Contract Multiplier (50)"
+                        ]
+                    },
+                    "gex": {
+                        "built_from": [
+                            "gex_call_abs",
+                            "gex_put_abs"
+                        ],
+                        "transformation_steps": [
+                            "Sum GEX at strike: Call GEX - Put GEX"
+                        ]
+                    },
+                    "gex_abs": {
+                        "built_from": [
+                            "gex_call_abs",
+                            "gex_put_abs"
+                        ],
+                        "transformation_steps": [
+                            "Call GEX + Put GEX"
+                        ]
+                    },
+                    "gex_imbalance_ratio": {
+                        "built_from": [
+                            "gex",
+                            "gex_abs"
+                        ],
+                        "transformation_steps": [
+                            "gex / (gex_abs + 1e-6)"
+                        ]
+                    },
+                    "d1_gex": {
+                        "built_from": [
+                            "gex"
+                        ],
+                        "transformation_steps": [
+                            "First derivative along strike"
+                        ]
+                    },
+                    "d2_gex": {
+                        "built_from": [
+                            "d1_gex"
+                        ],
+                        "transformation_steps": [
+                            "Second derivative along strike"
+                        ]
+                    },
+                    "d3_gex": {
+                        "built_from": [
+                            "d2_gex"
+                        ],
+                        "transformation_steps": [
+                            "Third derivative along strike"
+                        ]
+                    }
+                },
+                "gex_flow_surface_1s": {
+                    "flow_abs": {
+                        "built_from": [
+                            "add_qty",
+                            "pull_qty",
+                            "fill_qty"
+                        ],
+                        "transformation_steps": [
+                            "Sum of all activity"
+                        ]
+                    },
+                    "flow_reinforce": {
+                        "built_from": [
+                            "add_qty",
+                            "pull_qty",
+                            "fill_qty"
+                        ],
+                        "transformation_steps": [
+                            "add - pull - fill"
+                        ]
+                    },
+                    "pull_rest_intensity": {
+                        "built_from": [
+                            "pull_rest_qty",
+                            "depth_total"
+                        ],
+                        "transformation_steps": [
+                            "pull_rest_qty / (depth_total + 1)"
+                        ]
+                    },
+                    "flow_abs_norm": {
+                        "built_from": [
+                            "flow_abs",
+                            "calibration"
+                        ],
+                        "transformation_steps": [
+                            "Normalize"
+                        ]
+                    },
+                    "flow_reinforce_norm": {
+                        "built_from": [
+                            "flow_reinforce",
+                            "calibration"
+                        ],
+                        "transformation_steps": [
+                            "Normalize"
+                        ]
+                    },
+                    "pull_rest_intensity_norm": {
+                        "built_from": [
+                            "pull_rest_intensity",
+                            "calibration"
+                        ],
+                        "transformation_steps": [
+                            "Normalize"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
