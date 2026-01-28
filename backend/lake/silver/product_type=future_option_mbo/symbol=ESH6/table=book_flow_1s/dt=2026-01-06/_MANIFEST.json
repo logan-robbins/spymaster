@@ -1,0 +1,31 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_option_mbo/book_flow_1s.avsc",
+  "contract_sha256": "61f63fc2116d445f00c3cf67782cc53cacb22f3e7002261b80d4432fd2b3fcd7",
+  "dataset": "silver.future_option_mbo.book_flow_1s",
+  "dt": "2026-01-06",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.future_option_mbo.mbo",
+      "dt": "2026-01-06",
+      "manifest_sha256": "11f341b196d9cd487adefca1bc710fcde1d2c6d91601a9da061a7981351203c3"
+    },
+    {
+      "dataset": "silver.future_mbo.book_snapshot_1s",
+      "dt": "2026-01-06",
+      "manifest_sha256": "f596074f9e36feaeb91cba2a2950b7ccd7dc79c401055f2acb42328b239af9cb"
+    },
+    {
+      "dataset": "silver.future_option.statistics_clean",
+      "dt": "2026-01-06",
+      "manifest_sha256": "c5b602e9bc71cf9be28cf858a1d0235ee3821d075c02d37b1ede69f382c19dc5"
+    },
+    {
+      "dataset": "bronze.shared.instrument_definitions",
+      "dt": "2026-01-06",
+      "manifest_sha256": "e87df077cb622d738ac7cffdf174bec13b23bf93bba2bcfb420f9c157ea59ccc"
+    }
+  ],
+  "row_count": 1989143,
+  "stage": "silver_compute_gex_surface_1s"
+}

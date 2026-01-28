@@ -87,6 +87,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option_mbo/gex_surface_1s.avsc
 
+  silver.future_option_mbo.gex_flow_surface_1s:
+    path: silver/product_type=future_option_mbo/symbol={symbol}/table=gex_flow_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_option_mbo/gex_flow_surface_1s.avsc
+
   silver.future_option_mbo.book_wall_1s:
     path: silver/product_type=future_option_mbo/symbol={symbol}/table=book_wall_1s
     format: parquet

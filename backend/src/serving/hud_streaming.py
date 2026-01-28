@@ -24,6 +24,10 @@ WINDOW_NS = 1_000_000_000
 HUD_HISTORY_WINDOWS = 1800
 HUD_STREAM_MAX_TICKS = 400
 
+DEFAULT_SURFACES = ["snap", "wall", "vacuum", "physics", "gex", "bucket_radar"]
+OPTIONAL_SURFACES = ["gex_flow"]
+AVAILABLE_SURFACES = DEFAULT_SURFACES + OPTIONAL_SURFACES
+
 STREAM_COLUMNS: Dict[str, List[str]] = {
     "snap": ["window_end_ts_ns", "mid_price", "spot_ref_price_int", "book_valid"],
     "wall": ["window_end_ts_ns", "rel_ticks", "side", "depth_qty_rest"],
@@ -35,9 +39,45 @@ STREAM_COLUMNS: Dict[str, List[str]] = {
         "spot_ref_price_int",
         "rel_ticks",
         "underlying_spot_ref",
+        "gex_call_abs",
+        "gex_put_abs",
         "gex_abs",
         "gex",
         "gex_imbalance_ratio",
+        "d1_gex_abs",
+        "d2_gex_abs",
+        "d3_gex_abs",
+        "d1_gex",
+        "d2_gex",
+        "d3_gex",
+        "d1_gex_imbalance_ratio",
+        "d2_gex_imbalance_ratio",
+        "d3_gex_imbalance_ratio",
+    ],
+    "bucket_radar": [
+        "window_end_ts_ns",
+        "bucket_rel",
+        "blocked_level",
+        "cavitation",
+        "gex_stiffness",
+        "mobility",
+    ],
+    "gex_flow": [
+        "window_end_ts_ns",
+        "strike_points",
+        "spot_ref_price_int",
+        "rel_ticks",
+        "flow_abs",
+        "flow_reinforce",
+        "flow_abs_norm",
+        "flow_reinforce_norm",
+        "pull_rest_intensity",
+        "pull_rest_intensity_norm",
+        "add_qty_sum",
+        "pull_qty_sum",
+        "fill_qty_sum",
+        "pull_rest_qty_sum",
+        "depth_total_sum",
     ],
 }
 
@@ -50,6 +90,8 @@ class HudStreamCache:
     radar: pd.DataFrame
     physics: pd.DataFrame
     gex: pd.DataFrame
+    bucket_radar: pd.DataFrame
+    gex_flow: pd.DataFrame
     window_ids: List[int]
     groups: Dict[str, Dict[int, pd.DataFrame]]
     columns: Dict[str, List[str]]
@@ -65,14 +107,28 @@ class HudRingBuffer:
         self.radar = deque(maxlen=max_windows)
         self.physics = deque(maxlen=max_windows)
         self.gex = deque(maxlen=max_windows)
+        self.bucket_radar = deque(maxlen=max_windows)
+        self.gex_flow = deque(maxlen=max_windows)
 
-    def append(self, snap: pd.DataFrame, wall: pd.DataFrame, vacuum: pd.DataFrame, radar: pd.DataFrame, physics: pd.DataFrame, gex: pd.DataFrame) -> None:
+    def append(
+        self,
+        snap: pd.DataFrame,
+        wall: pd.DataFrame,
+        vacuum: pd.DataFrame,
+        radar: pd.DataFrame,
+        physics: pd.DataFrame,
+        gex: pd.DataFrame,
+        bucket_radar: pd.DataFrame,
+        gex_flow: pd.DataFrame,
+    ) -> None:
         self.snap.append(_ensure_columns(snap, self.columns["snap"]))
         self.wall.append(_ensure_columns(wall, self.columns["wall"]))
         self.vacuum.append(_ensure_columns(vacuum, self.columns["vacuum"]))
         self.radar.append(_ensure_columns(radar, self.columns["radar"]))
         self.physics.append(_ensure_columns(physics, self.columns["physics"]))
         self.gex.append(_ensure_columns(gex, self.columns["gex"]))
+        self.bucket_radar.append(_ensure_columns(bucket_radar, self.columns["bucket_radar"]))
+        self.gex_flow.append(_ensure_columns(gex_flow, self.columns["gex_flow"]))
 
     def frames(self) -> Dict[str, pd.DataFrame]:
         return {
@@ -82,6 +138,8 @@ class HudRingBuffer:
             "radar": _concat(self.radar, self.columns["radar"]),
             "physics": _concat(self.physics, self.columns["physics"]),
             "gex": _concat(self.gex, self.columns["gex"]),
+            "bucket_radar": _concat(self.bucket_radar, self.columns["bucket_radar"]),
+            "gex_flow": _concat(self.gex_flow, self.columns["gex_flow"]),
         }
 
 
@@ -103,6 +161,9 @@ class HudStreamService:
         radar_key = "silver.future_mbo.radar_vacuum_1s"
         physics_key = "silver.future_mbo.physics_surface_1s"
         gex_key = "silver.future_option_mbo.gex_surface_1s"
+        bucket_radar_key = "silver.future_mbo.bucket_radar_surface_1s"
+        gex_flow_key = "silver.future_option_mbo.gex_flow_surface_1s"
+        optional_keys = {gex_key, bucket_radar_key, gex_flow_key}
 
         # Helper to read and enforce
         def _load(ds_key: str) -> pd.DataFrame:
@@ -110,7 +171,7 @@ class HudStreamService:
             if not is_partition_complete(ref):
                 # For GEX or others that might be optional in early testing, we could return empty
                 # but for now we expect them to exist if pipeline ran.
-                if ds_key == gex_key:  # Gracefully handle missing GEX for now if not run
+                if ds_key in optional_keys:  # Gracefully handle missing optional datasets
                     print(f"WARN: Missing {ds_key}, returning empty.")
                     return pd.DataFrame(columns=_columns_for(self.repo_root, self.cfg, ds_key))
                 raise FileNotFoundError(f"Input not ready: {ds_key} dt={dt}")
@@ -124,6 +185,8 @@ class HudStreamService:
         df_radar = pd.DataFrame(columns=_columns_for(self.repo_root, self.cfg, radar_key))
         df_physics = _stream_view(_load(physics_key), "physics")
         df_gex = _stream_view(_load(gex_key), "gex")
+        df_bucket_radar = _stream_view(_load(bucket_radar_key), "bucket_radar")
+        df_gex_flow = _stream_view(_load(gex_flow_key), "gex_flow")
 
         window_ids = df_snap["window_end_ts_ns"].sort_values().unique().astype(int).tolist() if not df_snap.empty else []
 
@@ -134,6 +197,8 @@ class HudStreamService:
             "radar": _group_by_window(df_radar),
             "physics": _group_by_window(df_physics),
             "gex": _group_by_window(df_gex),
+            "bucket_radar": _group_by_window(df_bucket_radar),
+            "gex_flow": _group_by_window(df_gex_flow),
         }
 
         columns = {
@@ -143,6 +208,8 @@ class HudStreamService:
             "radar": _columns_for(self.repo_root, self.cfg, radar_key),
             "physics": STREAM_COLUMNS["physics"],
             "gex": STREAM_COLUMNS["gex"],
+            "bucket_radar": STREAM_COLUMNS["bucket_radar"],
+            "gex_flow": STREAM_COLUMNS["gex_flow"],
         }
 
         cache = HudStreamCache(
@@ -152,6 +219,8 @@ class HudStreamService:
             radar=df_radar,
             physics=df_physics,
             gex=df_gex,
+            bucket_radar=df_bucket_radar,
+            gex_flow=df_gex_flow,
             window_ids=window_ids,
             groups=groups,
             columns=columns,
@@ -199,6 +268,8 @@ class HudStreamService:
                 "radar": pd.DataFrame(columns=cache.columns["radar"]),
                 "physics": pd.DataFrame(columns=cache.columns["physics"]),
                 "gex": pd.DataFrame(columns=cache.columns["gex"]),
+                "bucket_radar": pd.DataFrame(columns=cache.columns["bucket_radar"]),
+                "gex_flow": pd.DataFrame(columns=cache.columns["gex_flow"]),
             }
 
         window_ids = cache.window_ids
@@ -210,6 +281,8 @@ class HudStreamService:
                 "radar": pd.DataFrame(columns=cache.columns["radar"]),
                 "physics": pd.DataFrame(columns=cache.columns["physics"]),
                 "gex": pd.DataFrame(columns=cache.columns["gex"]),
+                "bucket_radar": pd.DataFrame(columns=cache.columns["bucket_radar"]),
+                "gex_flow": pd.DataFrame(columns=cache.columns["gex_flow"]),
             }
 
         if end_ts_ns is None:
@@ -227,6 +300,8 @@ class HudStreamService:
                 cache.groups["radar"].get(window_id, pd.DataFrame(columns=cache.columns["radar"])),
                 cache.groups["physics"].get(window_id, pd.DataFrame(columns=cache.columns["physics"])),
                 cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"])),
+                cache.groups["bucket_radar"].get(window_id, pd.DataFrame(columns=cache.columns["bucket_radar"])),
+                cache.groups["gex_flow"].get(window_id, pd.DataFrame(columns=cache.columns["gex_flow"])),
             )
 
         frames = ring.frames()
@@ -237,11 +312,21 @@ class HudStreamService:
             "radar": pd.DataFrame(columns=cache.columns["radar"]),
             "physics": _stream_view(frames["physics"], "physics"),
             "gex": _stream_view(frames["gex"], "gex"),
+            "bucket_radar": _stream_view(frames["bucket_radar"], "bucket_radar"),
+            "gex_flow": _stream_view(frames["gex_flow"], "gex_flow"),
         }
 
-    def iter_batches(self, symbol: str, dt: str, start_ts_ns: int | None = None) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
+    def iter_batches(
+        self,
+        symbol: str,
+        dt: str,
+        start_ts_ns: int | None = None,
+        surfaces: List[str] | None = None,
+    ) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
         cache = self.load_cache(symbol, dt)
         ring = HudRingBuffer(HUD_HISTORY_WINDOWS, cache.columns)
+        if surfaces is None:
+            surfaces = DEFAULT_SURFACES
         for window_id in cache.window_ids:
             if start_ts_ns is not None and window_id < start_ts_ns:
                 continue
@@ -265,15 +350,27 @@ class HudStreamService:
                 cache.groups["gex"].get(window_id, pd.DataFrame(columns=cache.columns["gex"])),
                 "gex",
             )
+            bucket_radar = _stream_view(
+                cache.groups["bucket_radar"].get(window_id, pd.DataFrame(columns=cache.columns["bucket_radar"])),
+                "bucket_radar",
+            )
+            gex_flow = _stream_view(
+                cache.groups["gex_flow"].get(window_id, pd.DataFrame(columns=cache.columns["gex_flow"])),
+                "gex_flow",
+            )
             radar = pd.DataFrame(columns=cache.columns["radar"])
-            ring.append(snap, wall, vacuum, radar, physics, gex)
-            yield window_id, {
+            ring.append(snap, wall, vacuum, radar, physics, gex, bucket_radar, gex_flow)
+            full_batch = {
                 "snap": snap,
                 "wall": wall,
                 "vacuum": vacuum,
                 "physics": physics,
                 "gex": gex,
+                "bucket_radar": bucket_radar,
+                "gex_flow": gex_flow,
             }
+            batch = {surface: full_batch[surface] for surface in surfaces if surface in full_batch}
+            yield window_id, batch
 
 
 def _group_by_window(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
@@ -306,7 +403,7 @@ def _stream_view(df: pd.DataFrame, surface: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required stream columns for {surface}: {missing}")
     df = df.loc[:, columns]
-    if surface in {"wall", "vacuum", "physics"} and "rel_ticks" in df.columns:
+    if surface in {"wall", "vacuum", "physics", "gex_flow"} and "rel_ticks" in df.columns:
         df = df.loc[df["rel_ticks"].between(-HUD_STREAM_MAX_TICKS, HUD_STREAM_MAX_TICKS)]
     return df
 

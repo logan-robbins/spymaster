@@ -833,7 +833,7 @@ So: the pipeline can produce real-time options flow, but the serving layer curre
 **All computations that involve joins, aggregation, state, or normalization must live in Silver (or Gold), not in the serving layer.**
 Serving should not become a second analytics engine.
 
-### A1) Make `SilverComputeGexSurface1s` *actually emit* the new datasets every window
+### A1) Make `SilverComputeGexSurface1s` *actually emit* the new datasets every window [COMPLETE]
 
 Even if the contract is written, treat it as “not done” until verified on disk.
 
@@ -852,7 +852,7 @@ Even if the contract is written, treat it as “not done” until verified on di
 
 ---
 
-### A2) Add a strike-aligned *flow surface* for the underlying (this is the part that makes it usable by the physics app)
+### A2) Add a strike-aligned *flow surface* for the underlying (this is the part that makes it usable by the physics app) [COMPLETE]
 
 Right now `options_flow` / `options_wall` are **option-premium price space** (`price_int` = option price), keyed by `instrument_id`. That’s not directly drawable or usable as an obstacle field in **underlying tick space**.
 
@@ -885,7 +885,7 @@ Without this surface, the Swift physics sim will be forced to do heavyweight joi
 
 ---
 
-### A3) Extend `gold.hud.physics_norm_calibration` to include the new flow metrics
+### A3) Extend `gold.hud.physics_norm_calibration` to include the new flow metrics [COMPLETE]
 
 You already normalize key physics metrics via `gold.hud.physics_norm_calibration`. 
 Do the same for flow or your “wall thickening vs erosion” will be dominated by raw scale changes.
@@ -908,7 +908,7 @@ Do the same for flow or your “wall thickening vs erosion” will be dominated 
 
 Now that Silver produces usable surfaces, serving’s job is to **expose** them safely.
 
-### B1) Add surface gating via query param (required to not break the existing HUD)
+### B1) Add surface gating via query param (required to not break the existing HUD) [COMPLETE]
 
 Your frontend renderer has synchronization logic that assumes a known set of surfaces per batch. If you suddenly add more surfaces to every batch, you risk stalling the ring-buffer advance or breaking “allSurfacesReceived()”-style logic. 
 
@@ -931,7 +931,7 @@ This allows:
 
 ---
 
-### B2) Stream the new strike-aligned flow surface
+### B2) Stream the new strike-aligned flow surface [COMPLETE]
 
 **Implementation steps**
 
@@ -945,7 +945,7 @@ This allows:
 
 ---
 
-### B3) Extend the existing `gex` stream payload to include the derivative fields (do this now)
+### B3) Extend the existing `gex` stream payload to include the derivative fields (do this now) [COMPLETE]
 
 This is basically free bandwidth (25 rows), and it gives you “instant momentum of the obstacle field.”
 
@@ -963,7 +963,7 @@ This is basically free bandwidth (25 rows), and it gives you “instant momentum
 
 ---
 
-## C) Update the contracts + docs (yes, do it; this prevents future breakage)
+## C) Update the contracts + docs (yes, do it; this prevents future breakage) [COMPLETE]
 
 You said “don’t write the schema,” so I’m not dumping JSON—but the engineer must update these artifacts.
 
@@ -982,7 +982,7 @@ You said “don’t write the schema,” so I’m not dumping JSON—but the eng
 
 ---
 
-## D) Verification steps (must be done before calling it “implemented”)
+## D) Verification steps (must be done before calling it “implemented”) [PARTIAL]
 
 Use your repo’s own verification flow.
 
@@ -1001,6 +1001,8 @@ Use your repo’s own verification flow.
 
    * Default connection returns only the 6 original surfaces (so web HUD remains identical). 
    * Physics Lab connection with `surfaces=` receives the additional flow surface(s).
+
+Status: `test_integrity_v2.py` PASS. `verify_websocket_stream_v1.py` connected but closed without a close frame (port 8000 already in use); rerun after restarting backend if needed.
 
 ---
 

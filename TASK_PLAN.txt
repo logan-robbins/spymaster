@@ -1,0 +1,7 @@
+Plan (living)
+1) Discover current silver/serving contracts + pipelines and locate gex/flow paths. [done]
+2) Implement silver outputs: book_wall/book_flow (instrument_id + price_int), strike-aligned gex_flow_surface_1s, and first-hour filtering. [done]
+3) Extend gold.hud.physics_norm_calibration with flow metrics + update normalization usage. [done]
+4) Update serving: add surfaces gating, gex_flow stream, bucket_radar stream, and extended gex fields. [done]
+5) Update contracts/configs/docs: avro, datasets.yaml, backend_data.json, frontend_data.json, README.md, DOCS_FRONTEND.md, SWIFT.md task markers. [done]
+6) Verify pipelines + stream integrity for 2026-01-06 first hour (uv run commands). [partial: websocket verify closed without close frame]

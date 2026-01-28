@@ -8,14 +8,24 @@
     {
       "dataset": "silver.future_mbo.wall_surface_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "a4d5d3c2c5e22ed8a03b69217ef85f07b3779f47af8ed2676777a0310c5ba207"
+      "manifest_sha256": "fcd71df768c027f111acb859fbaaf949e884fb8e74495ba5c55078a6adef03bd"
     },
     {
       "dataset": "silver.future_option_mbo.gex_surface_1s",
       "dt": "2026-01-06",
-      "manifest_sha256": "efbc963e0b02218067d1f31dcb1e2ac61407e31f6959588c980708bc0d680e75"
+      "manifest_sha256": "a6c60b7b51657d1c17debcab5ebf2cff7e5bb98e61df48daefb210a61b2ee05b"
+    },
+    {
+      "dataset": "silver.future_option_mbo.book_wall_1s",
+      "dt": "2026-01-06",
+      "manifest_sha256": "507bcdf4282a40a1b1454e3f972f4da84411d53a348d9ed7bb594b493dd3845d"
+    },
+    {
+      "dataset": "bronze.shared.instrument_definitions",
+      "dt": "2026-01-06",
+      "manifest_sha256": "e87df077cb622d738ac7cffdf174bec13b23bf93bba2bcfb420f9c157ea59ccc"
     }
   ],
-  "row_count": 6,
+  "row_count": 9,
   "stage": "gold_build_hud_physics_norm_calibration"
 }

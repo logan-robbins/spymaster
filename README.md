@@ -7,6 +7,7 @@
 cd backend
 uv run python -m src.serving.main
 # WebSocket: ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06
+# Surfaces override: ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06&surfaces=snap,wall,vacuum,physics,gex,bucket_radar,gex_flow
 ```
 Note: One backend stream can serve multiple clients simultaneously (frontend/, Swift app, Unreal bridge). Do not restart the backend if another engineer is actively using it.
 
@@ -57,6 +58,7 @@ Bronze (DBN ingest) → Silver (surfaces) → WebSocket → Frontend (WebGL)
 | `physics_surface_1s` | SilverComputePhysicsSurface1s | Per-tick directional ease (green/red) |
 | `radar_vacuum_1s` | SilverComputeSnapshotAndWall1s | **NOT VISUALIZED** (ML inference) |
 | `gex_surface_1s` | SilverComputeGexSurface1s | GEX heatmap (green/red) |
+| `gex_flow_surface_1s` | SilverComputeGexSurface1s | Strike-aligned options flow (reinforce/erosion) |
 | `book_wall_1s` | SilverComputeGexSurface1s | Options Liquidity Wall (Granular) |
 | `book_flow_1s` | SilverComputeGexSurface1s | Options Flow Analysis |
 | `bucket_radar_surface_1s` | SilverComputeBucketRadar1s | Bucket Radar (2-tick) |

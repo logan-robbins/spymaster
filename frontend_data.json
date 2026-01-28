@@ -198,6 +198,18 @@
                     "desc": "Ticks relative to spot_ref_price_int (multiples of 20 for ES)."
                 },
                 {
+                    "name": "gex_call_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Absolute call GEX."
+                },
+                {
+                    "name": "gex_put_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Absolute put GEX."
+                },
+                {
                     "name": "gex_abs",
                     "type": "double",
                     "required": true,
@@ -214,11 +226,162 @@
                     "type": "double",
                     "required": true,
                     "desc": "-1 to +1. Positive=call-heavy (magenta), negative=put-heavy (green)."
+                },
+                {
+                    "name": "d1_gex_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "1st derivative of gex_abs."
+                },
+                {
+                    "name": "d2_gex_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "2nd derivative of gex_abs."
+                },
+                {
+                    "name": "d3_gex_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "3rd derivative of gex_abs."
+                },
+                {
+                    "name": "d1_gex",
+                    "type": "double",
+                    "required": true,
+                    "desc": "1st derivative of gex."
+                },
+                {
+                    "name": "d2_gex",
+                    "type": "double",
+                    "required": true,
+                    "desc": "2nd derivative of gex."
+                },
+                {
+                    "name": "d3_gex",
+                    "type": "double",
+                    "required": true,
+                    "desc": "3rd derivative of gex."
+                },
+                {
+                    "name": "d1_gex_imbalance_ratio",
+                    "type": "double",
+                    "required": true,
+                    "desc": "1st derivative of gex_imbalance_ratio."
+                },
+                {
+                    "name": "d2_gex_imbalance_ratio",
+                    "type": "double",
+                    "required": true,
+                    "desc": "2nd derivative of gex_imbalance_ratio."
+                },
+                {
+                    "name": "d3_gex_imbalance_ratio",
+                    "type": "double",
+                    "required": true,
+                    "desc": "3rd derivative of gex_imbalance_ratio."
                 }
             ],
             "frontend_usage": {
                 "component": "renderer.ts:createHeatmap, state.ts:setGexData",
                 "purpose": "GEX heatmap overlay. Magenta=calls, Green=puts."
+            }
+        },
+        "gex_flow": {
+            "description": "Strike-aligned options flow surface (25 rows/window).",
+            "rows_per_window": 25,
+            "spatial": true,
+            "grid": "±60 points from spot in 5-point steps",
+            "fields": [
+                {
+                    "name": "window_end_ts_ns",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Window timestamp"
+                },
+                {
+                    "name": "strike_points",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Strike price for Y-axis"
+                },
+                {
+                    "name": "spot_ref_price_int",
+                    "type": "long",
+                    "required": true,
+                    "desc": "Tick-aligned spot anchor (integer, 20-tick grid)."
+                },
+                {
+                    "name": "rel_ticks",
+                    "type": "int",
+                    "required": true,
+                    "desc": "Ticks relative to spot_ref_price_int (multiples of 20 for ES)."
+                },
+                {
+                    "name": "flow_abs",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Total flow magnitude (add+pull+fill)."
+                },
+                {
+                    "name": "flow_reinforce",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Net reinforcement (add - pull - fill)."
+                },
+                {
+                    "name": "flow_abs_norm",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 normalized flow magnitude."
+                },
+                {
+                    "name": "flow_reinforce_norm",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 normalized reinforcement."
+                },
+                {
+                    "name": "pull_rest_intensity",
+                    "type": "double",
+                    "required": true,
+                    "desc": "Pull rest intensity (pull_rest_qty_sum / depth_total_sum)."
+                },
+                {
+                    "name": "pull_rest_intensity_norm",
+                    "type": "double",
+                    "required": true,
+                    "desc": "0..1 normalized pull rest intensity."
+                },
+                {
+                    "name": "add_qty_sum",
+                    "type": "double",
+                    "required": true
+                },
+                {
+                    "name": "pull_qty_sum",
+                    "type": "double",
+                    "required": true
+                },
+                {
+                    "name": "fill_qty_sum",
+                    "type": "double",
+                    "required": true
+                },
+                {
+                    "name": "pull_rest_qty_sum",
+                    "type": "double",
+                    "required": true
+                },
+                {
+                    "name": "depth_total_sum",
+                    "type": "double",
+                    "required": true
+                }
+            ],
+            "frontend_usage": {
+                "component": "TBD (Swift Physics Lab)",
+                "purpose": "Strike-grid flow surface for obstacle thickening/erosion."
             }
         },
         "bucket_radar": {
@@ -269,7 +432,7 @@
             }
         },
         "options_wall": {
-            "description": "Options Liquidity Wall. Granular book depth per Strike/Right.",
+            "description": "Options Liquidity Wall. Granular book depth per instrument/price.",
             "rows_per_window": "variable",
             "spatial": true,
             "fields": [
@@ -279,10 +442,10 @@
                     "required": true
                 },
                 {
-                    "name": "strike_price_int",
+                    "name": "instrument_id",
                     "type": "long",
                     "required": true,
-                    "desc": "Underlying strike price (tick-aligned)"
+                    "desc": "Option instrument id"
                 },
                 {
                     "name": "side",
@@ -291,10 +454,10 @@
                     "desc": "'A' or 'B'"
                 },
                 {
-                    "name": "right",
-                    "type": "string",
+                    "name": "price_int",
+                    "type": "long",
                     "required": true,
-                    "desc": "'C' or 'P'"
+                    "desc": "Option premium price (scaled int)"
                 },
                 {
                     "name": "depth_total",
@@ -315,7 +478,7 @@
             }
         },
         "options_flow": {
-            "description": "Options Layout Flow. Aggressive flow metrics.",
+            "description": "Options Layout Flow. Aggressive flow metrics per instrument/price.",
             "rows_per_window": "variable",
             "spatial": true,
             "fields": [
@@ -325,7 +488,7 @@
                     "required": true
                 },
                 {
-                    "name": "strike_price_int",
+                    "name": "instrument_id",
                     "type": "long",
                     "required": true
                 },
@@ -335,8 +498,8 @@
                     "required": true
                 },
                 {
-                    "name": "right",
-                    "type": "string",
+                    "name": "price_int",
+                    "type": "long",
                     "required": true
                 },
                 {

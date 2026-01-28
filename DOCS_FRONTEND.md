@@ -22,6 +22,10 @@ npm run dev
 # Dashboard available at: http://localhost:5173
 ```
 
+**WebSocket Surfaces (default + override)**:
+- Default surfaces: `snap,wall,vacuum,physics,gex,bucket_radar`
+- Override example: `ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06&surfaces=snap,wall,vacuum,physics,gex,bucket_radar,gex_flow`
+
 ## Architecture (Tick-Native)
 The renderer uses a **Tick Space** coordinate system to eliminate floating-point drift and alignment artifacts.
 - **X-axis (Time)**: Discrete Columns. `1 pixel = 1 second`. No continuous UV scrolling / interpolation.
@@ -76,10 +80,11 @@ float textureRow = (uHeight * 0.5) + relTicks;
 | `wall` | `renderer.updateWall` | `window_end_ts_ns`, `rel_ticks`, `side`, `depth_qty_rest` |
 | `vacuum` | `renderer.updateVacuum` | `window_end_ts_ns`, `rel_ticks`, `vacuum_score` |
 | `physics`| `renderer.updatePhysics`| `window_end_ts_ns`, `rel_ticks`, `physics_score`, `physics_score_signed` |
-| `gex` | `renderer.updateGex` | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks` (multiples of 20), `underlying_spot_ref`, `gex_abs`, `gex`, `gex_imbalance_ratio` |
+| `gex` | `renderer.updateGex` | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks` (multiples of 20), `underlying_spot_ref`, `gex_call_abs`, `gex_put_abs`, `gex_abs`, `gex`, `gex_imbalance_ratio`, `d1/d2/d3` for `gex_abs`, `gex`, `gex_imbalance_ratio` |
+| `gex_flow` | TBD (Swift Physics Lab) | `window_end_ts_ns`, `strike_points`, `spot_ref_price_int`, `rel_ticks`, `flow_abs`, `flow_reinforce`, `flow_abs_norm`, `flow_reinforce_norm`, `pull_rest_intensity`, `pull_rest_intensity_norm` |
 | `options_wall` | TBD | `window_end_ts_ns`, `instrument_id`, `price_int`, `depth_total`, `pull_rest_qty` |
 | `options_flow` | TBD | `window_end_ts_ns`, `instrument_id`, `side`, `price_int`, `add_qty`, `pull_qty`, `fill_qty` |
-| `bucket_radar`| `renderer.updateBucketRadar`| `window_end_ts_ns`, `bucket_rel`, `blocked_level`, `cavitation`, `gex_stiffness` |
+| `bucket_radar`| `renderer.updateBucketRadar`| `window_end_ts_ns`, `bucket_rel`, `blocked_level`, `cavitation`, `gex_stiffness`, `mobility` |
 
 HUD stream columns are exactly those listed above. Optional wall/vacuum fields (`d1_depth_qty`, `d2_depth_qty`, `d2_pull_add_log`, `wall_erosion`) are not present in the stream and are treated as 0 by the renderer.
 

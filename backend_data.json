@@ -104,7 +104,8 @@
                     "outputs": [
                         "silver.future_option_mbo.gex_surface_1s",
                         "silver.future_option_mbo.book_wall_1s",
-                        "silver.future_option_mbo.book_flow_1s"
+                        "silver.future_option_mbo.book_flow_1s",
+                        "silver.future_option_mbo.gex_flow_surface_1s"
                     ]
                 }
             ]
@@ -117,6 +118,7 @@
         "radar": "silver.future_mbo.radar_vacuum_1s",
         "physics": "silver.future_mbo.physics_surface_1s",
         "gex": "silver.future_option_mbo.gex_surface_1s",
+        "gex_flow": "silver.future_option_mbo.gex_flow_surface_1s",
         "options_wall": "silver.future_option_mbo.book_wall_1s",
         "options_flow": "silver.future_option_mbo.book_flow_1s",
         "bucket_radar": "silver.future_mbo.bucket_radar_surface_1s"
@@ -1026,6 +1028,100 @@
                 }
             ]
         },
+        "silver.future_option_mbo.gex_flow_surface_1s": {
+            "frontend_stream": "gex_flow",
+            "produced_by": "SilverComputeGexSurface1s",
+            "description": "Strike-aligned options flow surface for underlying (25 rows per window).",
+            "spatial": true,
+            "fields": {
+                "window_start_ts_ns": {
+                    "type": "long"
+                },
+                "window_end_ts_ns": {
+                    "type": "long"
+                },
+                "underlying": {
+                    "type": "string"
+                },
+                "strike_price_int": {
+                    "type": "long"
+                },
+                "spot_ref_price_int": {
+                    "type": "long"
+                },
+                "rel_ticks": {
+                    "type": "int"
+                },
+                "strike_points": {
+                    "type": "double"
+                },
+                "add_qty_sum": {
+                    "type": "double"
+                },
+                "pull_qty_sum": {
+                    "type": "double"
+                },
+                "fill_qty_sum": {
+                    "type": "double"
+                },
+                "flow_abs": {
+                    "type": "double"
+                },
+                "flow_reinforce": {
+                    "type": "double"
+                },
+                "flow_abs_norm": {
+                    "type": "double",
+                    "desc": "0-1 normalized"
+                },
+                "flow_reinforce_norm": {
+                    "type": "double",
+                    "desc": "0-1 normalized"
+                },
+                "pull_rest_qty_sum": {
+                    "type": "double"
+                },
+                "depth_total_sum": {
+                    "type": "double"
+                },
+                "pull_rest_intensity": {
+                    "type": "double"
+                },
+                "pull_rest_intensity_norm": {
+                    "type": "double",
+                    "desc": "0-1 normalized"
+                }
+            },
+            "transformations": [
+                {
+                    "step": 1,
+                    "action": "Aggregate book_wall_1s to strike: sum add/pull/fill/pull_rest/depth by (window_end_ts_ns, strike_price_int)"
+                },
+                {
+                    "step": 2,
+                    "action": "Build strike grid per window from spot_ref_price_int; emit 25 rows even if missing"
+                },
+                {
+                    "step": 3,
+                    "field": "flow_abs",
+                    "formula": "add_qty_sum + pull_qty_sum + fill_qty_sum"
+                },
+                {
+                    "step": 4,
+                    "field": "flow_reinforce",
+                    "formula": "add_qty_sum - pull_qty_sum - fill_qty_sum"
+                },
+                {
+                    "step": 5,
+                    "field": "pull_rest_intensity",
+                    "formula": "pull_rest_qty_sum / (depth_total_sum + EPS_QTY)"
+                },
+                {
+                    "step": 6,
+                    "action": "Normalize flow_abs, flow_reinforce, pull_rest_intensity with gold.hud.physics_norm_calibration"
+                }
+            ]
+        },
         "silver.future_option_mbo.book_wall_1s": {
             "frontend_stream": "options_wall",
             "produced_by": "SilverComputeGexSurface1s",
@@ -1034,17 +1130,17 @@
                 "window_end_ts_ns": {
                     "type": "long"
                 },
-                "strike_price_int": {
+                "instrument_id": {
                     "type": "long",
-                    "desc": "Underlying strike"
+                    "desc": "Option instrument id"
                 },
                 "side": {
                     "type": "string",
                     "desc": "'A' or 'B'"
                 },
-                "right": {
-                    "type": "string",
-                    "desc": "'C' or 'P'"
+                "price_int": {
+                    "type": "long",
+                    "desc": "Option premium price (scaled int)"
                 },
                 "depth_total": {
                     "type": "long",
@@ -1072,14 +1168,16 @@
                 "window_end_ts_ns": {
                     "type": "long"
                 },
-                "strike_price_int": {
-                    "type": "long"
+                "instrument_id": {
+                    "type": "long",
+                    "desc": "Option instrument id"
                 },
                 "side": {
                     "type": "string"
                 },
-                "right": {
-                    "type": "string"
+                "price_int": {
+                    "type": "long",
+                    "desc": "Option premium price (scaled int)"
                 },
                 "add_qty": {
                     "type": "long"
@@ -1102,7 +1200,10 @@
             "log1p_erosion_norm",
             "d2_pull_add_log",
             "wall_strength_log",
-            "gex_abs"
+            "gex_abs",
+            "flow_abs",
+            "flow_reinforce",
+            "pull_rest_intensity"
         ]
     },
     "constants": {

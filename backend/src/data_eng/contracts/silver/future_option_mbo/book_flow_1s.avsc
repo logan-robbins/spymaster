@@ -4,9 +4,9 @@
   "namespace": "silver.future_option_mbo",
   "fields": [
     {"name": "window_end_ts_ns", "type": "long"},
-    {"name": "strike_price_int", "type": "long"},
+    {"name": "instrument_id", "type": "long"},
     {"name": "side", "type": "string"},
-    {"name": "right", "type": "string"},
+    {"name": "price_int", "type": "long"},
     {"name": "add_qty", "type": "long"},
     {"name": "pull_qty", "type": "long"},
     {"name": "fill_qty", "type": "long"}

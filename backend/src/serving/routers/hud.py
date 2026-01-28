@@ -10,7 +10,7 @@ import pyarrow.ipc as ipc
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import Response
 
-from ..hud_streaming import HudStreamService
+from ..hud_streaming import HudStreamService, DEFAULT_SURFACES, AVAILABLE_SURFACES
 
 router = APIRouter(prefix="/v1/hud", tags=["hud"])
 
@@ -75,7 +75,10 @@ async def bootstrap(
 async def get_surfaces(
     symbol: str = Query(..., description="Symbol (e.g., ESH6)"),
     dt: str = Query(..., description="Session date (YYYY-MM-DD)"),
-    surface: str = Query(..., description="Surface type: book_snapshot, wall, vacuum, radar, physics_bands, gex"),
+    surface: str = Query(
+        ...,
+        description="Surface type: book_snapshot, wall, vacuum, radar, physics_bands, gex, bucket_radar, gex_flow",
+    ),
     start_ts_ns: int | None = Query(None, description="Start timestamp (ns)"),
     end_ts_ns: int | None = Query(None, description="End timestamp (ns)"),
 ):
@@ -87,6 +90,8 @@ async def get_surfaces(
         "radar": cache.radar,
         "physics_bands": cache.physics,
         "gex": cache.gex,
+        "bucket_radar": cache.bucket_radar,
+        "gex_flow": cache.gex_flow,
     }
     df = surface_map.get(surface)
     if df is None:
@@ -112,10 +117,20 @@ async def stream(
     dt: str,
     start_ts_ns: int | None = None,
     speed: float = 1.0,
+    surfaces: str | None = None,
 ):
     await websocket.accept()
     try:
-        iterator = SERVICE.iter_batches(symbol, dt, start_ts_ns=start_ts_ns)
+        if surfaces is None or surfaces.strip() == "":
+            surface_list = DEFAULT_SURFACES
+        else:
+            surface_list = [s.strip() for s in surfaces.split(",") if s.strip()]
+            invalid = [s for s in surface_list if s not in AVAILABLE_SURFACES]
+            if invalid:
+                await websocket.close(code=1008)
+                return
+
+        iterator = SERVICE.iter_batches(symbol, dt, start_ts_ns=start_ts_ns, surfaces=surface_list)
         last_window_ts = None
 
         for window_id, batch in iterator:
@@ -133,7 +148,7 @@ async def stream(
                 {
                     "type": "batch_start",
                     "window_end_ts_ns": str(window_id),
-                    "surfaces": list(batch.keys()),
+                    "surfaces": surface_list,
                 }
             )
 
