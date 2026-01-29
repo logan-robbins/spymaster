@@ -103,9 +103,6 @@ Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, r
 - `frontend2/src/spot-line.ts`
 - `frontend2/src/price-axis.ts`
 
-## Deprecations
-- `frontend/` (removed)
-- `DOCS_FRONTEND.md` (legacy)
 
 ## Required updates when pipeline/features change
 - `backend/src/data_eng/contracts/`
