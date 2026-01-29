@@ -1,0 +1,10 @@
+## 11) The “why” in one sentence (so the agent doesn’t lose the plot)
+
+You built Bronze/Silver/Gold so that **raw events → conserved primitives → normalized field**, and the next evolution is to treat that field as a **spatiotemporal medium** where:
+
+* **ρ/ν** define obstacles and damping
+* **pressure_grad** defines directional push
+* multi‑scale filters create “waves”
+* a simple driven-damped particle model yields **interpretable lookahead**
+
+That’s exactly the bridge from “pretty velocity heatmap” to “actionable, explainable microstructure prediction.”  
