@@ -1,650 +1,632 @@
-Below is a concrete, step‑by‑step implementation guide for an LLM coding agent to extend the existing **future_mbo** and **future_option_mbo** pipelines from “1‑second net liquidity velocity” into a **spatiotemporal, multi‑scale physics field** with **obstacles (walls / permeability / viscosity)** and **pressure (pressure gradient force)**, plus **short‑horizon lookahead** suitable for real‑time streaming.
+# Spymaster Upgrade Spec: Spatiotemporal Liquidity Physics + Lookahead
 
-This is written to align with your current architecture (Bronze → Silver → Gold, Arrow streaming, Frontend2 grids).  
+This is the **single source of truth** for upgrading the existing working pipelines (**future_mbo**, **future_option_mbo**) from a single-frame `liquidity_velocity` heatmap into a **spatiotemporal physics system** with:
 
----
+- **Obstacles** expressed in standard fluid / porous-media terms: **density ρ**, **permeability κ**, **hydraulic resistance R**, and **effective viscosity ν**.
+- **Pressure-gradient force** expressed as a signed field **g(x,t) = −∂p/∂x**, aligned to market direction.
+- **Spatial awareness** across **±N ticks** so each cell responds to what is happening above/below it (collapse / vacuum / barrier growth).
+- **Causal lookahead** (1–30s) computed from these fields and streamed in real time.
 
-## 1) Why the pipelines are built in 3 stages (and why that matters for “physics”)
-
-### Bronze = “canonical raw events”
-
-**Why:** Bronze exists to make raw MBO usable and reproducible:
-
-* cast types once (int64), fix NULL_PRICE edge cases, filter to a fixed session window.
-* keep it “as close to exchange feed as possible” so you can rebuild everything deterministically.
-
-This is crucial for physics/ML because you need **stable semantics** and you don’t want “model features” leaking into ingestion rules. 
-
-### Silver = “stateful reconstruction + physically meaningful primitives”
-
-**Why:** Physics requires state (books), coordinates (space), and conserved quantities (depth/flow). Silver is where you:
-
-* reconstruct book state each 1s window
-* compute:
-
-  * **book_snapshot_1s** (best bid/ask, mid, last trade, spot anchor)
-  * **depth_and_flow_1s** (depth start/end, adds/pulls/fills, resting/persistent liquidity)
-* produce **stable coordinate systems**:
-
-  * `rel_ticks` (spot-anchored)
-  * `rel_ticks_side` (side-anchored)
-
-This is exactly analogous to converting raw sensor readings into a **field on a grid**.
-
-### Gold = “derived fields (normalized), designed for streaming”
-
-**Why:** Gold turns Silver primitives into normalized signals that:
-
-* are comparable across price levels and time
-* are robust to depth scale changes
-* stream cleanly as a surface (grid)
-
-You currently compute normalized intensities and:
-
-* `liquidity_velocity = add_intensity - pull_intensity - fill_intensity`
-  which is a **net local source/sink of liquidity**. That is already “physics-like” because it is a signed field on a spatial grid. 
+**No code belongs in this document.** It is written for an LLM coding agent to implement **exactly**. Formulas, columns, and ordering are non‑negotiable.
 
 ---
 
-## 2) What features exist today (explicitly) and what they mean in “physics terms”
+## 0) Ground truth: why the pipeline is Bronze → Silver → Gold (and why it must stay that way)
 
-### Future (underlying) today
+The current system is correct because each layer has a distinct invariance contract.
 
-**Silver depth_and_flow_1s (per 1s × price level × side)**
+### Bronze = canonical raw events (no “model semantics”)
+- Purpose: deterministic ingest of MBO events with stable types.
+- Allowed transformations: casting, NULL_PRICE edge handling, session-window filtering.
+- Disallowed transformations: any feature engineering, smoothing, normalization, or “physics.”
 
-* `depth_qty_start`, `depth_qty_end`
-* `add_qty`, `pull_qty_total`, `fill_qty`
-* `depth_qty_rest` and `pull_qty_rest` (persistence proxy, >500ms)
-* coordinates: `rel_ticks`, `rel_ticks_side`
+**Reason:** if features leak into Bronze, replay and auditability die. Every downstream model becomes irreproducible.
 
-**Gold physics_surface_1s**
+### Silver = state reconstruction + physically meaningful primitives
+- Purpose: reconstruct book state and compute the primitives that correspond to “measurable quantities” on a grid.
+- Silver outputs are the **state variables** we need for physics:
+  - Depth at price level at window start/end (`depth_qty_start`, `depth_qty_end`)
+  - Flux components (`add_qty`, `pull_qty_total`, `fill_qty`)
+  - Persistence proxies (`depth_qty_rest`, `pull_qty_rest`)
+  - Stable coordinates: `rel_ticks` (spot anchored), `side` (A/B)
 
-* `add_intensity = add_qty / (depth_qty_start + 1)`
-* `pull_intensity = pull_qty_total / (depth_qty_start + 1)`
-* `fill_intensity = fill_qty / (depth_qty_start + 1)`
-* `liquidity_velocity = add_intensity - pull_intensity - fill_intensity`
+**Reason:** obstacles, viscosity, pressure require **state**, not just events.
 
-**Interpretation:**
+### Gold = normalized fields designed for streaming + downstream inference
+- Purpose: map Silver primitives to dimensionless, comparable fields on a lattice.
+- Gold already computes:
+  - `u(x,t) = liquidity_velocity = add_intensity − pull_intensity − fill_intensity`
 
-* Think of each price level as a cell on a 1D lattice.
-* `liquidity_velocity(x,t)` is the **signed “rate of change” of obstacle mass** (building vs eroding) normalized by local depth.
-* It is not price velocity; it’s **medium reconfiguration velocity**.
-
-### Options today
-
-Options Silver/Gold mirror futures but on a **strike bucket grid**:
-
-* `strike_price_int` bucketed by $5, mapped to `rel_ticks` (multiples of 20)
-* `depth_qty_*`, adds/pulls/fills per strike bucket
-* Gold computes the same normalized `liquidity_velocity`
-* streaming currently aggregates C/P and bid/ask into a single net velocity per strike level. 
-
-**Interpretation:**
-
-* Options surface is a coarse “external structure field” on top of the underlying lattice.
+Gold is where the physics fields live (multi-scale, derivatives, obstacle/pressure fields).
 
 ---
 
-## 3) Define the physics vocabulary you want (standard terms) and map them to your data
+## 1) Coordinate system and sign conventions (fixed)
 
-You asked for **standard fluid/aero terms**. Use these as your canonical terms:
+### 1.1 Space
+- Spatial coordinate: **x = rel_ticks** (spot anchored)
+- Grid spacing: **Δx = 1 tick** (ES: $0.25)
+- Window cadence: **Δt = 1 second**
 
-### 3.1 Spatial coordinate
+### 1.2 Side and direction
+- `side = 'B'` is bid book.
+- `side = 'A'` is ask book.
 
-* **x** = `rel_ticks` (spot-anchored ticks)
-* Grid spacing: Δx = 1 tick ($0.25)
+**Market direction convention:**
+- Positive force means **upward price pressure**.
+- Negative force means **downward price pressure**.
 
-### 3.2 Fields you will maintain (and stream)
+### 1.3 Compression vs rarefaction (gas dynamics terminology)
+Define the base field:
+- **u(x,t)** = `liquidity_velocity(x,t)` (already computed in Gold)
 
-1. **Liquidity density** (analogous to mass / density in a medium)
-
-   * Symbol: **ρ(x,t)**
-   * Source: depth at level
-   * Candidate: `ρ = log1p(depth_qty_end)` (compress heavy tails)
-
-2. **Permeability** (porous-media standard term)
-
-   * Symbol: **κ(x,t)**
-   * Intuition: “how easily price can pass through this level”
-   * Candidate: `κ = 1 / (1 + ρ)` or `κ = exp(-ρ)`
-
-3. **Viscosity** (kinematic viscosity, standard symbol ν)
-
-   * Symbol: **ν(x,t)** (nu)
-   * Intuition: “friction / damping produced by obstacles”
-   * Source: density + persistence + strengthening
-   * Candidate:
-
-     * persistence fraction **φ(x,t)** = `depth_qty_rest / (depth_qty_end + 1)`
-     * strengthening signal **s(x,t)** = `EMA_slow(liquidity_velocity)` clipped
-     * `ν = ν0 + νρ*ρ + νφ*φ + νs*max(0, s)`
-
-4. **Pressure** (standard symbol p) / **pressure gradient force** (−∂p/∂x)
-
-   * In fluids: acceleration is driven by pressure gradients.
-   * In your market mapping: **pressure is the directional “push” produced by *changes* in obstacles** (velocity of liquidity building/eroding), not the obstacle mass itself.
-   * You will compute a **signed pressure gradient field** directly from liquidity_velocity with the correct market sign convention:
-
-     * For **bids below spot**, building liquidity is supportive → pushes price up.
-     * For **asks above spot**, building liquidity is resistive → pushes price down.
-   * Define:
-
-     * `g(x,t) = pressure_gradient(x,t)`
-     * If you have both side and rel_ticks:
-
-       * `g = +u` for bid side
-       * `g = -u` for ask side
-     * Equivalent in a single formula if x is signed:
-
-       * `g(x,t) = -sign(x) * u(x,t)` (u is liquidity_velocity on spot-anchored x)
-
-5. **Force on the price particle** (external force term)
-
-   * Symbol: **F(t)**
-   * Compute as a **distance‑weighted integral of pressure gradient** near the price:
-
-     * `F(t) = Σ_x w(|x|) * g(x,t)`
-     * w(|x|) decays with distance (Gaussian or exponential)
-
-6. **Drag / damping** (standard)
-
-   * Symbol: **D(t)** or γ
-   * Derived from local viscosity near x=0:
-
-     * `ν_local(t) = Σ_{|x|≤K} wν(|x|) * ν(x,t)`
-
-This gives you a clean “physics API”:
-
-* **ρ(x,t)** obstacle mass
-* **κ(x,t)** permeability (inverse obstacle)
-* **ν(x,t)** viscosity (damping)
-* **g(x,t)** pressure gradient
-* **F(t)** net pressure force
-* **ν_local(t)** local damping
+Interpretation:
+- **u > 0** = liquidity **compression** (book thickening / wall building)
+- **u < 0** = liquidity **rarefaction** (book thinning / vacuum opening)
 
 ---
 
-## 4) The core upgrade: from single‑frame velocity to spatiotemporal awareness + derivatives
+## 2) Temporal awareness: multi-scale causal “liquidity waves” (mandatory)
 
-Your target is: “not just u(x,t), but how it evolves across time scales and across x”.
+All temporal filtering is **causal** (real-time safe) and defined per cell `(x, side)`.
 
-### 4.1 Multi‑timeframe (temporal) representation (causal, streaming friendly)
+### 2.1 Four fixed EMA time constants
+Maintain four exponential moving averages of `u`:
+- `u_ema_2`   (τ = 2s)
+- `u_ema_8`   (τ = 8s)
+- `u_ema_32`  (τ = 32s)
+- `u_ema_128` (τ = 128s)
 
-Implement **cascaded EMAs** (or IIR filters) per cell (x,side):
+EMA update rule:
+- `EMA_τ(t) = EMA_τ(t−1) + α_τ * (u(t) − EMA_τ(t−1))`
+- `α_τ = 1 − exp(−Δt / τ)` with `Δt = 1s`
 
-* Choose 3–5 time constants (seconds): e.g. τ = {2, 8, 32, 128}
-* Maintain:
+### 2.2 Wave (band) decomposition
+Define three band components:
+- `u_band_fast = u_ema_2  − u_ema_8`
+- `u_band_mid  = u_ema_8  − u_ema_32`
+- `u_band_slow = u_ema_32 − u_ema_128`
 
-  * `u_ema_2`, `u_ema_8`, `u_ema_32`, `u_ema_128`
+Define wave energy (scalar intensity of structural change):
+- `u_wave_energy = sqrt(u_band_fast² + u_band_mid² + u_band_slow²)`
 
-Then define **band‑pass / wave components** (this is your “wave propagation” feel):
+This is the required replacement for “just showing u.” It encodes how liquidity is changing across time scales.
 
-* `u_band_fast = u_ema_2 - u_ema_8`
-* `u_band_mid  = u_ema_8 - u_ema_32`
-* `u_band_slow = u_ema_32 - u_ema_128`
-
-Define **wave energy**:
-
-* `E = sqrt(u_band_fast^2 + u_band_mid^2 + u_band_slow^2)`
-* This highlights “sudden structural shifts” vs noise.
-
-**Why this is the right first step:**
-
-* It’s incremental (perfect for real-time).
-* It’s interpretable (fast vs slow “liquidity wave”).
-* It gives you a causal lookback structure that naturally supports short-horizon extrapolation.
-
-### 4.2 Temporal derivatives (per cell)
-
-Compute first/second temporal derivatives (discrete):
-
-* `du_dt = u(t) - u(t-1)`
-* `d2u_dt2 = du_dt(t) - du_dt(t-1)`
-
-Also compute derivatives for the band components:
-
-* `d(u_band_fast)/dt`, etc.
-  These derivatives are “shock detectors”.
-
-### 4.3 Spatial derivatives (across x)
-
-On each 1s frame, after you have the array u(x) (for each side or in combined signed x):
-
-* **gradient:** `du_dx(x) = (u(x+1) - u(x-1)) / 2`
-* **curvature / Laplacian:** `d2u_dx2(x) = u(x+1) - 2u(x) + u(x-1)`
-
-Do the same for obstacle density ρ(x,t) and/or viscosity ν(x,t):
-
-* `dν_dx`, `d2ν_dx2`
-
-**Why:**
-Spatial gradients distinguish:
-
-* a “uniform build” (less predictive)
-* a “front” (liquidity cliff approaching the touch)
-* a “wall” (local maxima in ρ and ν)
-
-### 4.4 Feature extraction: “walls”, “voids”, and “fronts”
-
-Make these explicit, because traders think this way and it maps to physics obstacles.
-
-Define per frame:
-
-* **Wall strength** (obstacle):
-
-  * `O(x,t) = ρ(x,t) * (1 + λφ*φ(x,t)) * (1 + λs*max(0, u_ema_32(x,t)))`
-* **Void strength**:
-
-  * `V(x,t) = -min(0, u_ema_8(x,t))` (eroding zones)
-  * and/or `κ(x,t)` (high permeability)
-
-Then detect:
-
-* nearest top‑N walls above and below spot
-* nearest top‑N voids above and below spot
-* a “front” if `|du_dx|` is large near touch
-
-These become both:
-
-* additional heatmap overlays (spatial awareness)
-* inputs into the forecast engine (lookahead)
+### 2.3 Temporal derivatives (computed from the smoothed field, not raw)
+Compute temporal derivatives from `u_ema_2`:
+- `du_dt     = u_ema_2(t) − u_ema_2(t−1)`
+- `d2u_dt2   = du_dt(t) − du_dt(t−1)`
 
 ---
 
-## 5) Forward projection: a simple, explainable “price particle” simulator (no ML required)
+## 3) Spatial awareness: neighborhood coupling across ±N ticks (mandatory)
 
-You want “some lookahead based on momentum” with an understandable API.
+This section implements your requirement:
 
-### 5.1 Define the price particle state
+- A level at +$0.50 matters because it is strengthening while +$0.25 is depleting.
+- We must detect whether depletion extends further above (collapse / vacuum) or terminates into a strengthening wall.
 
-At each second t:
+This is done by enforcing **two spatial scales** and by computing **local prominence** (relative strengthening) and **coherent rarefaction corridors**.
 
-* current spot coordinate: `x0(t) = 0` in rel_ticks (by definition)
-* but you track actual spot tick index separately in the UI (already done).
+### 3.1 Two fixed spatial neighborhoods
+Everything spatial uses **spot-anchored x** and is computed per side per frame.
 
-Define particle velocity state:
+Define two neighborhoods:
+- **Near neighborhood:** `N_near = 16` ticks (±16)
+- **Far neighborhood:**  `N_far  = 64` ticks (±64)
 
-* `v_p(t)` (this is **price velocity** in ticks/sec), computed from spot changes:
+### 3.2 Fixed Gaussian kernels (normalized to sum=1)
+Use Gaussian kernels on integer ticks with truncation at ±N.
 
-  * `v_p(t) = spot_tick(t) - spot_tick(t-1)`
+- Near kernel σ: `σ_near = 6`
+- Far  kernel σ: `σ_far  = 24`
 
-### 5.2 Compute net force from pressure gradient field
+Compute:
+- `u_near(x,t) = GaussianSmooth(u_ema_8(·,t),  σ_near, ±N_near) evaluated at x`
+- `u_far(x,t)  = GaussianSmooth(u_ema_32(·,t), σ_far,  ±N_far)  evaluated at x`
 
-Use your pressure gradient definition:
+### 3.3 Spatial derivatives (from the near-smoothed field)
+Compute the spatial gradient and curvature on `u_near`:
+- `du_dx(x,t)   = (u_near(x+1,t) − u_near(x−1,t)) / 2`
+- `d2u_dx2(x,t) = u_near(x+1,t) − 2*u_near(x,t) + u_near(x−1,t)`
 
-* `g(x,t) = +u_ema_8(x,t)` for bids, `g = -u_ema_8(x,t)` for asks
-  (or `g = -sign(x)*u_ema_8` if you have signed x)
+### 3.4 Local prominence = “relative strengthening vs neighborhood”
+Define a spatial prominence (high-pass) field:
+- `u_prom(x,t) = u_near(x,t) − u_far(x,t)`
 
-Then net force:
+Interpretation:
+- `u_prom > 0`: this level is strengthening **relative to its neighborhood**
+- `u_prom < 0`: this level is depleting **relative to its neighborhood**
 
-* `F(t) = Σ_{|x|≤Xmax} w(|x|) * g(x,t)`
-* Use two radii to get “near” vs “far” forces:
+This is the formal definition of “+$0.50 is an obstacle because it is strengthening while +$0.25 is depleting.”
 
-  * `F_near` with σ=8 ticks
-  * `F_far`  with σ=32 ticks
+### 3.5 Coherent rarefaction corridor (collapse detection)
+Define rarefaction magnitude:
+- `r(x,t) = max(0, −u_near(x,t))`
 
-### 5.3 Compute local damping from viscosity
+Define fixed exponential distance weights:
+- `w_k = exp(−k / 16)` and renormalize within each sum.
 
-* `ν_local(t) = Σ_{|x|≤K} wν(|x|) * ν(x,t)`
-* Ensure ν_local is bounded away from 0.
+Upward corridor (asks above spot):
+- `corridor_up(t)   = Σ_{k=1..N_far} w_k * r(+k,t)`
 
-### 5.4 Discrete-time dynamics (interpretable)
+Downward corridor (bids below spot):
+- `corridor_down(t) = Σ_{k=1..N_far} w_k * r(−k,t)`
 
-Use a damped driven system (standard):
+These are mandatory per-second scalars. They answer:
+- “Is depletion extending further above (vacuum)?” → high `corridor_up`
+- “Is depletion extending further below?” → high `corridor_down`
 
-* `v_p(t+1) = (1 - γ*ν_local) * v_p(t) + β * F(t)`
-* `x_p(t+1) = x_p(t) + v_p(t+1)`
-
-Where:
-
-* γ is damping strength
-* β is force coupling
-* clamp `(1 - γ*ν_local)` into [0,1] for stability
-
-### 5.5 Produce a forecast for horizons 1–30s
-
-Run the recurrence forward N steps using:
-
-* either “frozen field” assumption: u_ema stays constant
-* or a simple extrapolation:
-
-  * `u_ema_8_pred(h) = u_ema_8 + h * du_ema_8_dt` (clipped)
-  * recompute F each step
-
-Output:
-
-* `predicted_spot_tick_delta[h]` for h=1..H
-* `predicted_direction[h] = sign(delta)`
-* `confidence[h] = |F| / (ν_local + ε)` (simple, explainable)
-
-**This is the minimum viable lookahead engine**:
-
-* It is physics‑inspired
-* It is causal and incremental
-* It gives a right‑margin prediction path immediately
 
 ---
 
-## 6) Where options fit: “external obstacles” and “pinning viscosity”
+## 4) Obstacles and viscosity: porous-media mapping (fixed definitions)
 
-Your options surface is currently **coarse strike buckets**. Use it as an **external potential / obstacle field** rather than pretending it directly predicts direction.
+This section defines the “obstacle” in standard terms and makes it explicitly depend on:
+1) depth (mass), 2) persistence (resting), and 3) reinforcement vs neighborhood.
 
-### 6.1 Add missing primitives to options Silver (if needed)
+### 4.1 Liquidity density (ρ)
+Per cell `(x, side)`:
+- `rho(x,t) = log(1 + depth_qty_end(x,t))`
 
-To make options contribute to viscosity consistently, you want the same base primitives as futures:
+`log(1+·)` is mandatory to compress the heavy-tailed depth distribution.
 
-* `depth_qty_rest` (resting quantity >500ms) per strike bucket
-  (today you have `pull_qty_rest` but not necessarily `depth_qty_rest` in the JSON doc)
+### 4.2 Persistence fraction (φ)
+Per cell `(x, side)`:
+- `phi_rest(x,t) = depth_qty_rest(x,t) / (depth_qty_end(x,t) + 1)`
 
-**Why:**
-Options “walls” are only meaningful if they’re persistent, not flickering.
+This is the persistence proxy: what fraction of depth is “resting” (>500ms).
 
-### 6.2 Compute options obstacle strength on the strike lattice
+### 4.3 Persistence-weighted liquidity wave (institutional weighting)
+Define persistence-weighted velocities:
+- `u_p(x,t)      = phi_rest(x,t) * u_ema_8(x,t)`
+- `u_p_slow(x,t) = phi_rest(x,t) * u_ema_32(x,t)`
 
-For each strike bucket x (multiples of 20 ticks):
+These are the only `u` variants used to define obstacles and pressure. They explicitly de-emphasize flickering liquidity.
 
-* `ρ_opt = log1p(depth_qty_end_opt)`
-* `φ_opt = depth_qty_rest_opt / (depth_qty_end_opt + 1)`
-* `u_opt_slow = EMA_32(liquidity_velocity_opt)`
+### 4.4 Obstacle strength (Ω): “wall mass × reinforcement”
+Define obstacle strength:
+- `Omega(x,t) = rho(x,t) * (0.5 + 0.5*phi_rest(x,t)) * (1 + max(0, u_p_slow(x,t)))`
+
+Interpretation:
+- High depth + high persistence yields a high baseline obstacle.
+- If that obstacle is **being reinforced** (positive slow persistence-weighted velocity), it strengthens further.
+
+### 4.5 Obstacle prominence (Ω_prom): “this wall is stronger than neighbors”
+Compute the same near/far smoothing on `Omega`:
+- `Omega_near(x,t) = GaussianSmooth(Omega(·,t), σ_near=6,  ±N_near=16)`
+- `Omega_far(x,t)  = GaussianSmooth(Omega(·,t), σ_far=24,   ±N_far=64)`
+
+Define prominence:
+- `Omega_prom(x,t) = Omega_near(x,t) − Omega_far(x,t)`
+
+This is the formal definition of a “wall” / “obstacle” in this system. It captures *relative* strengthening in space.
+
+### 4.6 Effective viscosity (ν), resistance (R), and permeability (κ)
+Define **hydraulic resistance**:
+- `R(x,t) = 1 + Omega_near(x,t) + 2*max(0, Omega_prom(x,t))`
+
+Define **effective viscosity**:
+- `nu(x,t) = R(x,t)`  (ν is resistance/viscosity in this 1D medium)
+
+Define **permeability**:
+- `kappa(x,t) = 1 / nu(x,t)`
+
+This is porous-media standard form: high resistance ↔ low permeability.
+
+---
+
+## 5) Pressure-gradient force: market-aligned g(x,t) = −∂p/∂x (fixed)
+
+Pressure gradient must push price **in the correct direction**.
+
+### 5.1 Side-specific pressure gradient (g_side)
+Using the persistence-weighted mid-scale velocity `u_p`:
+
+- Bid side:
+  - `pressure_grad(x,t) = +u_p(x,t)` for rows with `side='B'`
+
+- Ask side:
+  - `pressure_grad(x,t) = −u_p(x,t)` for rows with `side='A'`
+
+Interpretation:
+- Building bids (positive u) increases upward pressure.
+- Building asks (positive u) increases downward pressure (therefore sign flip).
+
+### 5.2 Directional field on spot-anchored x (g_dir)
+For force and forecasting, construct a directional field on signed x:
+
+- For x > 0 (above spot): `g_dir(x,t) = pressure_grad(+x, side='A')`
+- For x < 0 (below spot): `g_dir(x,t) = pressure_grad(−|x|, side='B')`
+- For x = 0: exclude from force integrals.
+
+This makes `g_dir > 0` mean upward pressure everywhere on the lattice.
+
+---
+
+## 6) The collapse vs wall diagnostic (mandatory)
+
+This produces a deterministic answer to your mental model:
+
+- If +$0.25 is depleting and +$0.50 is strengthening → move into +$0.50 then stall.
+- If +$0.25 and +$0.50 and higher levels are depleting → full collapse / vacuum → continuation likely.
+
+### 6.1 Find the first meaningful wall above and below
+Compute within ±N_far (64 ticks):
+
+Above spot (asks, x=+1..+64):
+- `W_up = max_{k=1..64} Omega_prom(+k,t)`
+- Threshold: `T_up = 0.60 * W_up`
+- First wall distance:
+  - `D_up(t) = min{k ≥ 1 : Omega_prom(+k,t) ≥ T_up}`
+  - If none meets it, set `D_up = 64`
+
+Below spot (bids, x=−1..−64):
+- `W_down = max_{k=1..64} Omega_prom(−k,t)`
+- Threshold: `T_down = 0.60 * W_down`
+- First wall distance:
+  - `D_down(t) = min{k ≥ 1 : Omega_prom(−k,t) ≥ T_down}`
+  - If none meets it, set `D_down = 64`
+
+### 6.2 Vacuum mass into the first wall (rarefaction integral)
+Use the same fixed weights `w_k = exp(−k/16)` renormalized.
+
+Above:
+- `Vacuum_up(t) = Σ_{k=1..D_up−1} w_k * max(0, −u_near(+k,t))`
+
+Below:
+- `Vacuum_down(t) = Σ_{k=1..D_down−1} w_k * max(0, −u_near(−k,t))`
+
+### 6.3 Wall reinforcement at the first wall
+Above:
+- `Reinforce_up(t) = max(0, u_p_slow(+D_up,t))`
+
+Below:
+- `Reinforce_down(t) = max(0, u_p_slow(−D_down,t))`
+
+### 6.4 Run propensity score (the scalar explanation a trader understands)
+Compute:
+- `RunScore_up(t)   = Vacuum_up(t)   − Reinforce_up(t)`
+- `RunScore_down(t) = Vacuum_down(t) − Reinforce_down(t)`
+
+Interpretation:
+- Large positive `RunScore_up`: vacuum corridor is strong and the first wall is not strengthening → continuation likely.
+- Negative `RunScore_up`: the first wall is being reinforced → stall/mean-revert near that wall.
+
+These two scalars MUST be produced every second and streamed with the forecast for explainability.
+
+
+---
+
+## 7) Lookahead: price particle in a viscous medium (mandatory, causal, stream-time)
+
+This is the production lookahead engine. It is deterministic and derived from the fields above.
+
+### 7.1 State variables
+Maintain per second:
+- Spot tick index `S(t)` from the snap surface.
+- Price velocity in ticks/sec: `v(t) = S(t) − S(t−1)`.
+
+Particle position in **relative ticks** during forecast:
+- `δ(0) = 0` (start at current spot)
+- `δ(h)` evolves in ticks for h=1..H.
+
+### 7.2 Force and damping are evaluated at shifted coordinates (critical)
+During forecast, the particle moves through the spatial field. Therefore force and viscosity MUST be evaluated at **shifted coordinates**.
+
+Fixed kernels:
+- Force radius: `X_force = 64`
+- Force weights: `w_force(k) = exp(−k² / (2*12²))`, normalized over k=1..64.
+- Damping radius: `X_damp = 16`
+- Damping weights: `w_damp(k) = exp(−k² / (2*6²))`, normalized over k=1..16.
+
+At forecast step h with position δ(h):
+
+Force:
+- `F(h) = Σ_{x ∈ {−64..−1,+1..+64}} w_force(|x|) * kappa(x−δ(h), t) * g_dir(x−δ(h), t)`
+
+Local viscosity:
+- `NuLocal(h) = Σ_{x ∈ {−16..−1,+1..+16}} w_damp(|x|) * nu(x−δ(h), t)`
+
+This is what makes “wall at +$0.50 strengthening” behave like a wall as the particle approaches it.
+
+### 7.3 Discrete-time dynamics (1s step)
+Forecast horizon: `H = 30` seconds.
+
+Dynamics:
+- `a(h) = β * F(h) / (1 + NuLocal(h))`
+- `v(h+1) = (1 − γ) * v(h) + a(h)`
+- `δ(h+1) = δ(h) + v(h+1)`
+
+Hard stability constraints:
+- Clamp `v(h)` to `[-8, +8]` ticks/sec.
+- Clamp `δ(h)` to `[-80, +80]` ticks.
+
+### 7.4 Forecast outputs (streamed every second)
+For each horizon `h ∈ {1..30}` output:
+- `predicted_tick_delta(h) = round(δ(h))`
+- `predicted_spot_tick(h) = S(t) + predicted_tick_delta(h)`
+- `confidence(h)` (below)
+
+### 7.5 Confidence (explainable and tied to collapse/wall diagnostics)
+Define:
+- `C0 = tanh( |F(0)| / (1 + NuLocal(0)) )`
+
+Directional gating using run scores:
+- If `predicted_tick_delta(h) > 0`: `Gate = tanh(max(0, RunScore_up(t)))`
+- If `predicted_tick_delta(h) < 0`: `Gate = tanh(max(0, RunScore_down(t)))`
+- Else: `Gate = 0`
+
+Final confidence:
+- `confidence(h) = C0 * Gate`
+
+High confidence only occurs when:
+- force exists AND
+- there is a vacuum corridor in the predicted direction AND
+- the first wall is not being reinforced.
+
+---
+
+## 8) Options: how they enter the physics (strictly as viscosity, not thrust)
+
+Options liquidity is treated as an **external obstacle field** that increases viscosity near round strikes (pinning). It does **not** directly contribute to pressure-gradient thrust in this upgrade.
+
+### 8.1 Required Silver change (options)
+The options Silver `depth_and_flow_1s` MUST include:
+- `depth_qty_rest` (resting quantity >500ms)
+
+Without `depth_qty_rest`, options obstacles cannot be persistence-weighted and are not usable as “real walls.”
+
+### 8.2 Options obstacle field on strike lattice
+On the options strike buckets (rel_ticks multiples of 20), compute:
+
+- `rho_opt = log(1 + depth_qty_end_opt)`
+- `phi_rest_opt = depth_qty_rest_opt / (depth_qty_end_opt + 1)`
+- `u_opt_ema_8`, `u_opt_ema_32` using the same EMA rules (per strike bucket)
+- `u_opt_p_slow = phi_rest_opt * u_opt_ema_32`
 
 Define:
+- `Omega_opt = rho_opt * (0.5 + 0.5*phi_rest_opt) * (1 + max(0, u_opt_p_slow))`
 
-* `O_opt(x,t) = ρ_opt * (1 + λφ_opt*φ_opt) * (1 + λs_opt*max(0,u_opt_slow))`
+### 8.3 Spread options obstacles onto futures tick lattice
+For each strike bucket located at x_s (multiple of 20 ticks), spread into tick space:
 
-### 6.3 Couple options obstacles into the futures viscosity field
+Fixed kernel:
+- spread radius: ±24 ticks
+- `σ_spread = 8`
+- `K_spread(d) = exp(−d² / (2*8²))`, normalized over d=−24..+24
 
-Map strike buckets into the futures tick lattice by “spreading”:
+Compute:
+- `Omega_opt_spread(x,t) = Σ_s Omega_opt(x_s,t) * K_spread(x − x_s)`
 
-* For each strike x_s:
+### 8.4 Combine into total obstacle and viscosity
+Define:
+- `Omega_total = Omega_fut + 0.70 * Omega_opt_spread`
 
-  * distribute O_opt(x_s) into nearby ticks with a kernel (e.g., σ=6 ticks)
-* Then:
+Then recompute:
+- `Omega_total_near`, `Omega_total_far`, `Omega_total_prom`
+- `nu_total`, `kappa_total`
 
-  * `ν_total(x,t) = ν_fut(x,t) + λ_opt * O_opt_spread(x,t)`
+All lookahead computations use the total fields (`nu_total`, `kappa_total`, `Omega_total_prom`).
 
-**Interpretation:**
-Options liquidity walls create “macro viscosity bumps” at round strikes → **pinning / slowing**.
-
-### 6.4 (Optional later) directional options pressure
-
-If/when you stop aggregating away right/side, you can try:
-
-* call‑heavy build vs put‑heavy build as directional bias
-  But don’t make this v1; keep v1 as “options = obstacles, not thrust.”
-
----
-
-## 7) Concrete implementation plan (what files to touch, what to add, in what order)
-
-This is written so an LLM coding agent can execute it mechanically.
-
-### Step 0 — Lock the schema decisions first
-
-**Goal:** decide exactly which new columns you will stream.
-
-**Add to futures gold `physics_surface_1s` (or create a new dataset if you prefer):**
-
-* Base:
-
-  * `rho` (float32)
-  * `phi_rest` (float32)
-  * `permeability_kappa` (float32)
-  * `viscosity_nu` (float32)
-* Multi-scale:
-
-  * `u_ema_2`, `u_ema_8`, `u_ema_32` (float32)
-  * `u_band_fast`, `u_band_mid` (float32)
-  * `u_wave_energy` (float32)
-* Derivatives:
-
-  * `du_dt`, `d2u_dt2` (float32)
-  * `du_dx`, `d2u_dx2` (float32)
-* Pressure gradient:
-
-  * `pressure_grad` (float32)  // g(x,t)
-
-**Add to options gold similarly (at strike buckets):**
-
-* at least: `rho_opt`, `phi_rest_opt`, `viscosity_nu_opt`, `u_ema_8_opt`, `pressure_grad_opt` (even if pressure isn’t used yet)
-
-**Why schema first:**
-Everything downstream (Avro, datasets.yaml, futures_data.json, streaming, frontend parsing) depends on it. 
 
 ---
 
-### Step 1 — Update Avro contracts + datasets.yaml + futures_data.json
+## 9) Data products and schema: exactly what must be added
 
-**Agent actions:**
+This upgrade adds columns. It does **not** create alternate datasets or parallel “v2” tables. The existing Gold tables are extended.
 
-1. Modify:
+### 9.1 Futures Gold: `gold.future_mbo.physics_surface_1s` (add these columns)
+Grain: `(window_end_ts_ns, rel_ticks, side)`.
 
-* `backend/src/data_eng/contracts/gold/future_mbo/physics_surface_1s.avsc`
-* `backend/src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc`
+**Existing (keep):**
+- `window_end_ts_ns`, `spot_ref_price_int`, `rel_ticks`, `side`
+- `add_intensity`, `pull_intensity`, `fill_intensity`
+- `liquidity_velocity` (u)
 
-2. Ensure `backend/src/data_eng/config/datasets.yaml` matches column set.
+**Add (mandatory):**
 
-3. Update `futures_data.json` to accurately describe:
+Temporal multi-scale:
+- `u_ema_2`, `u_ema_8`, `u_ema_32`, `u_ema_128`
+- `u_band_fast`, `u_band_mid`, `u_band_slow`
+- `u_wave_energy`
+- `du_dt`, `d2u_dt2`
 
-* which fields exist in each layer
-* transformations (including new ones)
+Spatial awareness:
+- `u_near`, `u_far`, `u_prom`
+- `du_dx`, `d2u_dx2`
 
-4. Update `README.md` “Data products” and “Streaming protocol” sections if the stream changes.  
+Obstacle / viscosity:
+- `rho`, `phi_rest`
+- `u_p`, `u_p_slow`
+- `Omega`, `Omega_near`, `Omega_far`, `Omega_prom`
+- `nu`, `kappa`
 
-**Acceptance check:**
-Pipeline runs without schema mismatch and produces Arrow tables with the new columns.
+Pressure:
+- `pressure_grad` (side-specific; directional assembly happens in the server)
 
----
+### 9.2 Options Gold: `gold.future_option_mbo.physics_surface_1s` (add these columns)
+Grain: current options Gold grain + required persistence columns.
 
-### Step 2 — Extend Silver if you need more primitives (especially for options)
+**Existing (keep):**
+- `window_end_ts_ns`, `spot_ref_price_int`, `rel_ticks`, `liquidity_velocity`
 
-**Agent actions:**
+**Add (mandatory):**
+- `rho_opt`, `phi_rest_opt`
+- `u_opt_ema_8`, `u_opt_ema_32`
+- `u_opt_p_slow`
+- `Omega_opt`
 
-* Confirm options Silver outputs enough to compute `phi_rest_opt` (rest fraction).
-* If not present, add `depth_qty_rest` to options `depth_and_flow_1s` (same concept as futures).
-* If you add it, remember: update Avro + datasets.yaml + futures_data.json + README.
+This requires options Silver to provide `depth_qty_end` and `depth_qty_rest` at the strike bucket level.
 
-**Why:**
-You can’t define viscosity/obstacles without persistence.
+### 9.3 New streaming surface: `forecast`
+Add a new streamed surface called `forecast` (Arrow IPC) emitted once per second.
 
----
+Grain: `(window_end_ts_ns, horizon_s)`.
 
-### Step 3 — Implement the new Gold computations (futures + options)
+Rows:
+- Horizons 1..30:
+  - `horizon_s` (int)
+  - `predicted_spot_tick` (int)
+  - `predicted_tick_delta` (int)
+  - `confidence` (float)
 
-**Agent actions (futures):**
-
-* In `backend/src/data_eng/stages/gold/future_mbo/compute_physics_surface_1s.py`:
-
-  1. Compute base fields: ρ, φ, κ, ν
-  2. Compute causal EMAs per (rel_ticks, side):
-
-     * store last EMA state (offline: via groupby+rolling; online: via dict/array state)
-  3. Compute band components and energy
-  4. Compute du_dt (needs previous u for each cell)
-  5. Compute spatial derivatives per frame:
-
-     * convert rows to a dense array for each side
-     * compute du_dx, d2u_dx2
-     * write back to rows
-
-**Agent actions (options):**
-
-* Mirror logic but on 41 strike buckets.
-* Keep it cheap; it’ll be tiny.
-
-**Critical constraint:**
-Make the implementation incremental‑friendly:
-
-* Even if your gold batch job is offline today, write it so it can be reused in a real-time path.
-
----
-
-### Step 4 — Add a real-time “forecast” computation in the stream server
-
-Your forecasts should be computed **in the server at stream time**, not baked into gold, because:
-
-* you may tune parameters live
-* you want the same logic in real-time and replay
-
-**Agent actions:**
-
-* In `backend/src/serving/velocity_streaming.py`:
-
-  * Maintain last spot tick index and last price velocity `v_p`
-  * From the current frame’s gold fields, compute:
-
-    * `pressure_grad` field (or use the one you stream)
-    * `F_near`, `F_far`
-    * `ν_local`
-  * Run the discrete dynamics forward for horizons (e.g., 5s, 10s, 30s):
-
-    * output an Arrow table `forecast` with:
-
-      * `window_end_ts_ns`
-      * `horizon_s`
-      * `predicted_spot_tick`
-      * `predicted_spot_price` (optional)
-      * `confidence`
-
-**Streaming protocol update:**
-
-* Add a new surface name: `"forecast"`
-* Or add a JSON message type for forecast (but stick to Arrow for speed/consistency)
-
-Update README streaming protocol accordingly. 
+- A required horizon 0 diagnostic row (same schema):
+  - `horizon_s = 0`
+  - `RunScore_up`, `RunScore_down` (float)
+  - `D_up`, `D_down` (int)
 
 ---
 
-### Step 5 — Frontend: render new fields + render forecast in the prediction margin
+## 10) Calibration (mandatory): fit β and γ from 20 days / first 3 hours
 
-Your frontend already reserves a right margin (`PREDICTION_MARGIN`) but doesn’t draw predictions.
+The lookahead model has two scalar parameters:
+- `β` (force coupling)
+- `γ` (velocity damping)
 
-**Agent actions:**
+These are fit from data and then loaded by the stream server.
 
-1. Update `frontend2/src/ws-client.ts`:
+### 10.1 Training window and data
+- Use the last **20 trading days** of MBO.
+- Use only **RTH 09:30–12:30 ET** (first 3 hours).
+- Do not regime-split. Fit globally.
 
-* Add parsing for new columns in `VelocityRow` (or define a richer type).
-* Add `onForecast` callback.
+### 10.2 Fit method (deterministic linear regression)
+For every second t:
+- Spot tick index: `S(t)`
+- Velocity: `v(t) = S(t) − S(t−1)`
+- Compute `F(0)` and `NuLocal(0)` at δ=0 using the definitions above.
+- Features:
+  - `x1 = v(t)`
+  - `x2 = F(0) / (1 + NuLocal(0))`
+- Target:
+  - `y = v(t+1)`
 
-2. Add a simple UI “field selector”:
+Fit:
+- `y ≈ a*x1 + b*x2`
 
-* velocity (u)
-* wave energy (E)
-* viscosity (ν)
-* pressure gradient (g)
+Map to physics parameters:
+- `γ = 1 − clip(a, 0, 1)`
+- `β = max(0, b)`
 
-3. Update `VelocityGrid` to support multiple channels:
+### 10.3 Evaluation (required)
+Evaluate on held-out days:
+- Horizons: 1s, 2s, 5s, 10s, 20s, 30s
+- Metrics:
+  - Hit rate on sign(ΔS)
+  - MAE in ticks
+  - Confidence calibration: bucket by `confidence`, verify monotonic hit rate
 
-* Either:
-
-  * store multiple fields in RGBA channels (R=u, G=E, B=ν, A=1)
-  * OR allocate multiple textures (cleaner but more code)
-
-4. Implement a `PredictionLine` similar to `SpotLine`:
-
-* draw predicted path starting at “now” and extending into the right margin
-
-5. (Optional but powerful) show predicted zones:
-
-* if you also forecast `u_band_fast`, draw a faint heatmap into the right margin.
-
----
-
-## 8) Calibration/training plan (uses your 20 days, stays interpretable)
-
-You said regimes don’t matter much; good. Treat calibration as fitting a small number of physics parameters.
-
-### 8.1 Parameters to fit (keep it small)
-
-* EMA time constants (or just choose fixed τ)
-* weights:
-
-  * β (force coupling)
-  * γ (damping coupling)
-  * ν weights (νρ, νφ, νs)
-  * λ_opt (options viscosity coupling)
-* kernel widths (σ near, σ far)
-
-### 8.2 Targets
-
-For horizons h ∈ {1,2,5,10,30} seconds:
-
-* classification: sign(Δspot_tick(h))
-* regression: Δspot_tick(h)
-
-### 8.3 Fit method (fast + robust)
-
-* Start with ridge regression / logistic regression on:
-
-  * F_near, F_far, ν_local, wave_energy_near, wall_distance_near, etc.
-* Or fit β and γ directly by minimizing forecast error (simple grid search).
-
-### 8.4 Evaluation
-
-* Use walk-forward by day:
-
-  * train on N-1 days, test on the held-out day
-* Track:
-
-  * directional hit rate
-  * MAE in ticks
-  * “confidence calibration” (do high-confidence forecasts hit more often?)
-
-This keeps the product explainable while still data‑driven.
+The product is considered launchable only if confidence is monotonic on held-out days.
 
 ---
 
-## 9) “Native physics engine” option (if you really want an engine API)
+## 11) Non-goals (strictly out of scope until this spec is complete)
 
-If the goal is **an intuitive simulation and API**, not necessarily best prediction, then yes: you can adapt a standard physics engine.
+These are not implemented until the above is finished and validated:
 
-### Swift-native suggestion (Apple-friendly)
+1) Using a rigid-body physics engine (SpriteKit / Matter.js / Box2D) as the forecasting mechanism.  
+   - Production lookahead is the deterministic model defined here.
 
-* Use **SpriteKit** physics:
+2) Regime classifiers, volatility-conditioned parameter sets, or “if VIX then …” logic.  
+   - You stated regimes do not matter materially; do not add complexity.
 
-  * price = a dynamic circular body
-  * obstacles = static thin rectangles at price levels (walls)
-  * viscosity = linear damping on the particle (SpriteKit has this)
-  * pressure = force applied each timestep
-
-**Why it’s attractive:**
-
-* trivial API
-* great visuals
-* runs extremely fast on Apple Silicon
-
-**Caution:**
-
-* rigid-body collision physics is not the same as a calibrated forecast model.
-* treat this as a visualization/sandbox, while your “forecast engine” remains deterministic math.
-
-### Web suggestion (if staying Angular)
-
-* Matter.js or planck.js (Box2D) can do the same.
-* Same caution applies.
+3) Any model that uses non-causal features (future leakage).  
+   - Everything here is strictly causal.
 
 ---
 
-## 10) Practical acceptance criteria (what “done” looks like)
+## 12) Implementation order (strict) and acceptance criteria
 
-The agent should ship this in milestones, each with clear pass/fail:
+An LLM coding agent MUST implement in this order. Do not reorder.
 
-### Milestone A — Spatiotemporal fields exist and stream
+### Phase A — Schema + contracts first (must compile end-to-end)
+1. Update Avro contracts for the modified Gold tables and the new forecast surface.
+2. Update `datasets.yaml` to match the contracts.
+3. Update `futures_data.json` so it describes the new columns and transformations.
+4. Update `README.md` streaming protocol section to include the `forecast` surface.
 
-* Gold surface includes ν, pressure_grad, EMAs, band components.
-* Frontend can toggle and view at least:
+**Acceptance:** pipelines run without schema mismatch and the stream server can send Arrow IPC for all surfaces.
 
-  * liquidity_velocity
-  * wave_energy
-  * viscosity
+### Phase B — Options Silver persistence (must exist before options viscosity)
+1. Add `depth_qty_rest` to options Silver `depth_and_flow_1s`.
+2. Propagate the new field through options Gold.
 
-### Milestone B — Forecast surface exists and renders
+**Acceptance:** options Gold can compute `phi_rest_opt` and `Omega_opt`.
 
-* Server sends `forecast` each second.
-* Frontend renders predicted spot path into right margin.
-* Forecast updates smoothly in replay.
+### Phase C — Futures Gold physics fields (must match formulas exactly)
+1. Implement temporal EMAs and wave fields.
+2. Implement spatial smoothing (near/far), prominence, and derivatives.
+3. Implement obstacle fields (rho, phi_rest, Omega, Omega_prom, nu, kappa).
+4. Implement pressure_grad sign conventions.
 
-### Milestone C — Basic calibration works
+**Acceptance:** Gold table contains every required column with correct shapes and no NaNs.
 
-* A small offline script can fit β/γ (or regression weights) from 20-day lookback (first 3 hours).
-* The server loads these weights from config.
+### Phase D — Stream-time forecasting (must be real-time safe)
+1. In the stream server, assemble directional fields (`g_dir`) and viscosity fields.
+2. Compute `D_up`, `D_down`, `RunScore_up`, `RunScore_down`.
+3. Run the 1..30s particle forecast with shifted-coordinate sampling.
+4. Stream the `forecast` surface every second.
 
+**Acceptance:** frontend receives forecasts without stalling; predicted path reacts to walls and vacuums.
+
+### Phase E — Frontend visualization (must communicate the story)
+1. Add a field selector for rendering:
+   - `liquidity_velocity` (u)
+   - `u_wave_energy`
+   - `nu` (viscosity)
+   - `pressure_grad`
+2. Render the forecast path into the right margin.
+3. Display `RunScore_up/down` and `D_up/down` on-screen as a compact debug HUD.
+
+**Acceptance:** a user can point at a run and explain it using vacuum + first-wall distance + reinforcement.
+
+### Phase F — Calibration + validation (must be repeatable)
+1. Implement the β/γ regression fit using 20 days, 09:30–12:30 ET.
+2. Store parameters in config and load them in the stream server.
+3. Validate monotonic confidence on held-out days.
+
+**Acceptance:** higher confidence forecasts hit more often; low confidence forecasts are explicitly de-emphasized.
+
+
+
+---
+
+## 13) Physics-engine visualization sandbox (after launch, not used for forecast)
+
+This is the only allowed way to “feed the field into a physics engine” without contaminating the forecast logic.
+
+### Engine choice (fixed)
+- Use **Matter.js** in the browser (same runtime as the existing Three.js UI).
+- Do not use the engine for prediction. It is a **visual sandbox** driven by the deterministic fields.
+
+### Mapping from Spymaster fields → Matter.js parameters (fixed)
+Represent the system in 2D where Y is price (ticks) and X is time (already in the UI):
+
+1) **Price particle**
+- Body: circle.
+- Vertical position: current spot tick.
+- Vertical velocity: `v(t)` from the snap surface.
+- Air friction (damping): set `frictionAir ∝ (γ + NuLocal(0) / (1 + NuLocal(0)))`.
+
+2) **Walls (obstacles)**
+- For each tick level x in the rendered range:
+  - Create a thin static rectangle at that Y level.
+  - Rectangle “hardness” is proportional to `Omega_prom(x,t)`:
+    - restitution = 0 (no bounce)
+    - friction = clamp(Omega_prom / (1 + Omega_prom), 0, 1)
+  - Collision filtering:
+    - Walls above spot use ask-side `Omega_prom`.
+    - Walls below spot use bid-side `Omega_prom`.
+
+3) **Pressure-gradient force**
+- Each render frame, apply a vertical force to the particle:
+  - `F_engine ∝ F(0)` (the same net force scalar from the deterministic model)
+- Do not apply per-wall forces; the deterministic net force already integrates the field.
+
+### Update cadence (fixed)
+- Physics engine step: 60 Hz.
+- Field refresh: once per second (on each streamed tick).
+- Between ticks: hold fields constant.
+
+This sandbox exists only to make the “price particle in viscous medium with growing/eroding obstacles” intuition immediately legible.

@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "physics_surface_1s",
+  "namespace": "gold.equity_option_mbo",
+  "fields": [
+    {"name": "window_end_ts_ns", "type": "long"},
+    {"name": "event_ts_ns", "type": "long"},
+    {"name": "spot_ref_price_int", "type": "long"},
+    {"name": "strike_price_int", "type": "long"},
+    {"name": "strike_points", "type": "double"},
+    {"name": "rel_ticks", "type": "int"},
+    {"name": "right", "type": "string"},
+    {"name": "side", "type": "string"},
+    {"name": "add_intensity", "type": "double"},
+    {"name": "fill_intensity", "type": "double"},
+    {"name": "pull_intensity", "type": "double"},
+    {"name": "liquidity_velocity", "type": "double"}
+  ]
+}

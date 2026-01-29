@@ -14,7 +14,7 @@
 - When you are done, you MUST update README.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
 
 ## Constraints
-- product_types: future_mbo, future_option_mbo
+- product_types: future_mbo, future_option_mbo, equity_mbo, equity_option_mbo
 - dt: 2026-01-06
 - session window: 09:30-09:40 ET (dev); config: `backend/src/data_eng/stages/silver/future_mbo/mbo_batches.py` (first_hour_window_ns)
 - symbol: ESH6
@@ -24,6 +24,9 @@
 - rel_ticks: spot-anchored
 - rel_ticks_side: side-anchored (best bid/ask at window start)
 - option strike grid: $5 buckets, ±$50 from spot_ref_price_int (rel_ticks multiples of 20)
+- equity bucket size: $0.50 (BUCKET_INT = 500_000_000)
+- equity grid: ±$50 from spot_ref_price_int (100 buckets)
+- equity option strike grid: $1 buckets, ±$25 from spot_ref_price_int (rel_ticks multiples of 2)
 
 ## Commands
 
@@ -80,6 +83,10 @@ uv run python scripts/batch_download_equities.py poll --log-file logs/equities.l
 - `uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06 --workers 1`
 - `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ES --dt 2026-01-06 --workers 1`
 - `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer gold --symbol ES --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol SPY --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type equity_mbo --layer gold --symbol SPY --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type equity_option_mbo --layer silver --symbol SPY --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type equity_option_mbo --layer gold --symbol SPY --dt 2026-01-06 --workers 1`
 - add `--overwrite` for silver/gold rebuilds
 
 ### Unified stream server (futures + options)
@@ -107,6 +114,16 @@ uv run python scripts/batch_download_equities.py poll --log-file logs/equities.l
 - SilverComputeOptionBookStates1s -> `silver.future_option_mbo.book_snapshot_1s`, `silver.future_option_mbo.depth_and_flow_1s`
 - GoldComputeOptionPhysicsSurface1s -> `gold.future_option_mbo.physics_surface_1s`
 
+## Pipeline (equity_mbo)
+- BronzeIngestEquityMbo -> `bronze.equity_mbo.mbo`
+- SilverComputeEquityBookStates1s -> `silver.equity_mbo.book_snapshot_1s`, `silver.equity_mbo.depth_and_flow_1s`
+- GoldComputeEquityPhysicsSurface1s -> `gold.equity_mbo.physics_surface_1s`
+
+## Pipeline (equity_option_mbo)
+- BronzeIngestEquityOptionMbo -> `bronze.equity_option_mbo.cmbp_1` (CMBP-1)
+- SilverComputeEquityOptionBookStates1s -> `silver.equity_option_mbo.book_snapshot_1s`, `silver.equity_option_mbo.depth_and_flow_1s`
+- GoldComputeEquityOptionPhysicsSurface1s -> `gold.equity_option_mbo.physics_surface_1s`
+
 ## Data products
 - `bronze.future_mbo.mbo` -> `backend/src/data_eng/contracts/bronze/future_mbo/mbo.avsc`
 - `silver.future_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc`
@@ -116,6 +133,14 @@ uv run python scripts/batch_download_equities.py poll --log-file logs/equities.l
 - `silver.future_option_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/future_option_mbo/book_snapshot_1s.avsc`
 - `silver.future_option_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/future_option_mbo/depth_and_flow_1s.avsc`
 - `gold.future_option_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc`
+- `bronze.equity_mbo.mbo` -> `backend/src/data_eng/contracts/bronze/equity_mbo/mbo.avsc`
+- `silver.equity_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/equity_mbo/book_snapshot_1s.avsc`
+- `silver.equity_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/equity_mbo/depth_and_flow_1s.avsc` (rel_ticks, rel_ticks_side)
+- `gold.equity_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/equity_mbo/physics_surface_1s.avsc`
+- `bronze.equity_option_mbo.cmbp_1` -> `backend/src/data_eng/contracts/bronze/equity_option_mbo/cmbp_1.avsc`
+- `silver.equity_option_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/equity_option_mbo/book_snapshot_1s.avsc`
+- `silver.equity_option_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/equity_option_mbo/depth_and_flow_1s.avsc`
+- `gold.equity_option_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/equity_option_mbo/physics_surface_1s.avsc`
 
 ## Streaming protocol (unified)
 Per 1-second window, server sends:
@@ -141,8 +166,15 @@ Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, r
 - `backend/src/data_eng/stages/silver/future_option_mbo/options_book_engine.py`
 - `backend/src/data_eng/stages/silver/future_option_mbo/compute_book_states_1s.py`
 - `backend/src/data_eng/stages/gold/future_option_mbo/compute_physics_surface_1s.py`
+- `backend/src/data_eng/stages/silver/equity_mbo/book_engine.py`
+- `backend/src/data_eng/stages/silver/equity_mbo/compute_book_states_1s.py`
+- `backend/src/data_eng/stages/gold/equity_mbo/compute_physics_surface_1s.py`
+- `backend/src/data_eng/stages/silver/equity_option_mbo/cmbp1_book_engine.py`
+- `backend/src/data_eng/stages/silver/equity_option_mbo/compute_book_states_1s.py`
+- `backend/src/data_eng/stages/gold/equity_option_mbo/compute_physics_surface_1s.py`
 - `backend/src/data_eng/config/datasets.yaml`
 - `futures_data.json`
+- `equities_data.json`
 - `backend/src/serving/velocity_streaming.py`
 - `backend/src/serving/velocity_main.py`
 - `backend/src/serving/routers/velocity.py`
@@ -158,4 +190,5 @@ Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, r
 - `backend/src/data_eng/contracts/`
 - `backend/src/data_eng/config/datasets.yaml`
 - `futures_data.json`
+- `equities_data.json`
 - `README.md`

@@ -60,6 +60,26 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/future_option_mbo/mbo.avsc
 
+  # Bronze - Equity MBO
+  bronze.equity_mbo.mbo:
+    path: bronze/source=databento/product_type=equity_mbo/symbol={symbol}/table=mbo
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/equity_mbo/mbo.avsc
+
+  # Bronze - Equity Option MBO (CMBP-1)
+  bronze.equity_option_mbo.cmbp_1:
+    path: bronze/source=databento/product_type=equity_option_cmbp_1/symbol={symbol}/table=cmbp_1
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/equity_option_mbo/cmbp_1.avsc
+
+  bronze_cache.equity_option_mbo.cmbp_1_0dte:
+    path: bronze_cache/product_type=equity_option_cmbp_1/symbol={symbol}/table=cmbp_1_0dte
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/bronze/equity_option_mbo/cmbp_1.avsc
+
   # Silver - Future Option MBO
   silver.future_option_mbo.book_snapshot_1s:
     path: silver/product_type=future_option_mbo/symbol={symbol}/table=book_snapshot_1s
@@ -111,6 +131,19 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/depth_and_flow_1s.avsc
 
+  # Silver - Equity MBO
+  silver.equity_mbo.book_snapshot_1s:
+    path: silver/product_type=equity_mbo/symbol={symbol}/table=book_snapshot_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/equity_mbo/book_snapshot_1s.avsc
+
+  silver.equity_mbo.depth_and_flow_1s:
+    path: silver/product_type=equity_mbo/symbol={symbol}/table=depth_and_flow_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/equity_mbo/depth_and_flow_1s.avsc
+
   # Silver - Futures - 2-minute candle level approach (one per level type)
   silver.future.market_by_price_10_pm_high_approach2m:
     path: silver/product_type=future/symbol={symbol}/table=market_by_price_10_pm_high_approach2m
@@ -161,6 +194,19 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option/statistics_clean.avsc
 
+  # Silver - Equity Option MBO
+  silver.equity_option_mbo.book_snapshot_1s:
+    path: silver/product_type=equity_option_mbo/symbol={symbol}/table=book_snapshot_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/equity_option_mbo/book_snapshot_1s.avsc
+
+  silver.equity_option_mbo.depth_and_flow_1s:
+    path: silver/product_type=equity_option_mbo/symbol={symbol}/table=depth_and_flow_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/equity_option_mbo/depth_and_flow_1s.avsc
+
   # Gold - Futures
   gold.future.setup_vectors:
     path: gold/product_type=future/symbol={symbol}/table=setup_vectors
@@ -175,12 +221,26 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_mbo/physics_surface_1s.avsc
 
+  # Gold - Equity MBO
+  gold.equity_mbo.physics_surface_1s:
+    path: gold/product_type=equity_mbo/symbol={symbol}/table=physics_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/equity_mbo/physics_surface_1s.avsc
+
   # Gold - Future Option MBO
   gold.future_option_mbo.physics_surface_1s:
     path: gold/product_type=future_option_mbo/symbol={symbol}/table=physics_surface_1s
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc
+
+  # Gold - Equity Option MBO
+  gold.equity_option_mbo.physics_surface_1s:
+    path: gold/product_type=equity_option_mbo/symbol={symbol}/table=physics_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/equity_option_mbo/physics_surface_1s.avsc
 
   # Gold - Future Options
   gold.future_option.trades_first3h:

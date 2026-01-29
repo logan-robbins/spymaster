@@ -1,7 +1,7 @@
 {
-    "future_mbo": {
+    "equity_mbo": {
         "bronze": {
-            "BronzeIngestFutureMbo": {
+            "BronzeIngestEquityMbo": {
                 "ts_event": {
                     "built_from": [
                         "raw.market_by_order_dbn.ts_event"
@@ -71,11 +71,11 @@
             }
         },
         "silver": {
-            "SilverComputeBookStates1s": {
+            "SilverComputeEquityBookStates1s": {
                 "book_snapshot_1s": {
                     "window_start_ts_ns": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.ts_event"
+                            "bronze.equity_mbo.mbo.ts_event"
                         ],
                         "transformation_steps": [
                             "Floor ts_event to 1s bucket (start of window)"
@@ -83,7 +83,7 @@
                     },
                     "window_end_ts_ns": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.ts_event"
+                            "bronze.equity_mbo.mbo.ts_event"
                         ],
                         "transformation_steps": [
                             "Ceil ts_event to 1s bucket (end of window)"
@@ -91,9 +91,9 @@
                     },
                     "best_bid_price_int": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.price",
-                            "bronze.future_mbo.mbo.side",
-                            "bronze.future_mbo.mbo.action"
+                            "bronze.equity_mbo.mbo.price",
+                            "bronze.equity_mbo.mbo.side",
+                            "bronze.equity_mbo.mbo.action"
                         ],
                         "transformation_steps": [
                             "Apply stateful updates (Add/Modify/Cancel/Fill) to internal order map",
@@ -103,9 +103,9 @@
                     },
                     "best_bid_qty": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.size",
-                            "bronze.future_mbo.mbo.side",
-                            "bronze.future_mbo.mbo.action"
+                            "bronze.equity_mbo.mbo.size",
+                            "bronze.equity_mbo.mbo.side",
+                            "bronze.equity_mbo.mbo.action"
                         ],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -114,9 +114,9 @@
                     },
                     "best_ask_price_int": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.price",
-                            "bronze.future_mbo.mbo.side",
-                            "bronze.future_mbo.mbo.action"
+                            "bronze.equity_mbo.mbo.price",
+                            "bronze.equity_mbo.mbo.side",
+                            "bronze.equity_mbo.mbo.action"
                         ],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -126,9 +126,9 @@
                     },
                     "best_ask_qty": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.size",
-                            "bronze.future_mbo.mbo.side",
-                            "bronze.future_mbo.mbo.action"
+                            "bronze.equity_mbo.mbo.size",
+                            "bronze.equity_mbo.mbo.side",
+                            "bronze.equity_mbo.mbo.action"
                         ],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -155,8 +155,8 @@
                     },
                     "last_trade_price_int": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.price",
-                            "bronze.future_mbo.mbo.action"
+                            "bronze.equity_mbo.mbo.price",
+                            "bronze.equity_mbo.mbo.action"
                         ],
                         "transformation_steps": [
                             "Filter action='T'",
@@ -168,9 +168,8 @@
                             "last_trade_price_int"
                         ],
                         "transformation_steps": [
-                            "Use last_trade_price_int if present on-book at window start",
-                            "If not on-book, fallback to nearest of best_bid_price_int/best_ask_price_int at window start",
-                            "If last_trade_price_int is 0, fallback to best_bid_price_int (else best_ask_price_int)"
+                            "Resolve spot anchor from last trade or BBO at window start",
+                            "Round to $0.50 bucket for downstream option alignment"
                         ]
                     },
                     "book_valid": {
@@ -183,24 +182,24 @@
                     }
                 },
                 "depth_and_flow_1s": {
-                    "_description": "Granular Market Depth and Order Flow dynamics (Adds/Pulls/Fills) for the Limit Order Book.",
+                    "_description": "Bucketed Market Depth and Order Flow for equity MBO.",
                     "_shape": "Long Format (Panel Data)",
-                    "_grain": "1 Second x Price Level (tick)",
+                    "_grain": "1 Second x $0.50 Price Bucket",
                     "_primary_key": [
                         "window_end_ts_ns",
                         "price_int"
                     ],
                     "price_int": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.price"
+                            "bronze.equity_mbo.mbo.price"
                         ],
                         "transformation_steps": [
-                            "Aggregate distinct prices in window +/- 200 ticks from spot"
+                            "Aggregate distinct prices into $0.50 buckets within +/- $50 of spot"
                         ]
                     },
                     "side": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.side"
+                            "bronze.equity_mbo.mbo.side"
                         ],
                         "transformation_steps": [
                             "Pass through ('A' or 'B')"
@@ -211,7 +210,7 @@
                             "last_trade_price (internal state)"
                         ],
                         "transformation_steps": [
-                            "From internal engine state (window-start anchor, same as snapshot)"
+                            "Spot anchor bucketed to $0.50 at window start"
                         ]
                     },
                     "rel_ticks": {
@@ -220,10 +219,10 @@
                             "spot_ref_price_int"
                         ],
                         "transformation_steps": [
-                            "(price_int - spot_ref_price_int) / TICK_INT",
+                            "(price_int - spot_ref_price_int) / BUCKET_INT (0.50)",
                             "Round to integer"
                         ],
-                        "note": "Spot-anchored coordinate; keep for spot-based views"
+                        "note": "Spot-anchored coordinate in $0.50 buckets"
                     },
                     "rel_ticks_side": {
                         "built_from": [
@@ -233,11 +232,11 @@
                             "best_ask_price_int (window start)"
                         ],
                         "transformation_steps": [
-                            "If side='B': (price_int - best_bid_price_int_start) / TICK_INT",
-                            "If side='A': (price_int - best_ask_price_int_start) / TICK_INT",
-                            "Round to integer"
+                            "Bucket best_bid/best_ask to $0.50 grid at window start",
+                            "If side='B': (price_int - best_bid_bucket) / BUCKET_INT",
+                            "If side='A': (price_int - best_ask_bucket) / BUCKET_INT"
                         ],
-                        "note": "Primary coordinate for liquidity modeling (side-anchored)"
+                        "note": "Side-anchored coordinate in $0.50 buckets"
                     },
                     "depth_qty_start": {
                         "built_from": [
@@ -249,65 +248,65 @@
                     },
                     "depth_qty_end": {
                         "built_from": [
-                            "bronze.future_mbo.mbo"
+                            "bronze.equity_mbo.mbo"
                         ],
                         "transformation_steps": [
-                            "Quantity remaining at price level at end of window"
+                            "Quantity remaining at bucket at end of window"
                         ]
                     },
                     "add_qty": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.action=A"
+                            "bronze.equity_mbo.mbo.action=A"
                         ],
                         "transformation_steps": [
-                            "Sum of added volume at price level in window"
+                            "Sum of added volume in bucket in window"
                         ]
                     },
                     "pull_qty_total": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.action=C|M"
+                            "bronze.equity_mbo.mbo.action=C|M"
                         ],
                         "transformation_steps": [
-                            "Sum of cancelled/reduced volume at price level in window"
+                            "Sum of cancelled/reduced volume in bucket in window"
                         ]
                     },
                     "depth_qty_rest": {
                         "built_from": [
-                            "bronze.future_mbo.mbo"
+                            "bronze.equity_mbo.mbo"
                         ],
                         "transformation_steps": [
-                            "Quantity of orders resting for > 500ms"
+                            "Quantity of orders resting for > 500ms, aggregated to bucket"
                         ]
                     },
                     "pull_qty_rest": {
                         "built_from": [
-                            "bronze.future_mbo.mbo"
+                            "bronze.equity_mbo.mbo"
                         ],
                         "transformation_steps": [
-                            "Sum of cancelled volume from orders resting > 500ms"
+                            "Sum of cancelled volume from orders resting > 500ms, aggregated to bucket"
                         ]
                     },
                     "fill_qty": {
                         "built_from": [
-                            "bronze.future_mbo.mbo.action=F"
+                            "bronze.equity_mbo.mbo.action=F"
                         ],
                         "transformation_steps": [
-                            "Sum of filled volume at price level in window"
+                            "Sum of filled volume in bucket in window"
                         ]
                     }
                 }
             }
         },
         "gold": {
-            "GoldComputePhysicsSurface1s": {
+            "GoldComputeEquityPhysicsSurface1s": {
                 "_inputs": [
-                    "silver.future_mbo.book_snapshot_1s",
-                    "silver.future_mbo.depth_and_flow_1s"
+                    "silver.equity_mbo.book_snapshot_1s",
+                    "silver.equity_mbo.depth_and_flow_1s"
                 ],
                 "physics_surface_1s": {
                     "rel_ticks_side": {
                         "built_from": [
-                            "silver.future_mbo.depth_and_flow_1s.rel_ticks_side"
+                            "silver.equity_mbo.depth_and_flow_1s.rel_ticks_side"
                         ],
                         "transformation_steps": [
                             "Pass through"
@@ -315,8 +314,8 @@
                     },
                     "add_intensity": {
                         "built_from": [
-                            "silver.future_mbo.depth_and_flow_1s.add_qty",
-                            "silver.future_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_mbo.depth_and_flow_1s.add_qty",
+                            "silver.equity_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "add_qty / (depth_qty_start + 1.0)"
@@ -324,8 +323,8 @@
                     },
                     "fill_intensity": {
                         "built_from": [
-                            "silver.future_mbo.depth_and_flow_1s.fill_qty",
-                            "silver.future_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_mbo.depth_and_flow_1s.fill_qty",
+                            "silver.equity_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "fill_qty / (depth_qty_start + 1.0)"
@@ -333,8 +332,8 @@
                     },
                     "pull_intensity": {
                         "built_from": [
-                            "silver.future_mbo.depth_and_flow_1s.pull_qty_total",
-                            "silver.future_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_mbo.depth_and_flow_1s.pull_qty_total",
+                            "silver.equity_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "pull_qty_total / (depth_qty_start + 1.0)"
@@ -349,68 +348,53 @@
                         "transformation_steps": [
                             "add_intensity - pull_intensity - fill_intensity"
                         ],
-                        "note": "True net change in liquidity. Positive = building, Negative = eroding (pulls + fills > adds)"
+                        "note": "True net change in liquidity in $0.50 buckets"
                     }
                 }
             }
         }
     },
-    "future_option_mbo": {
+    "equity_option_mbo": {
         "bronze": {
-            "BronzeIngestFutureOptionMbo": {
+            "BronzeIngestEquityOptionMbo": {
                 "ts_event": {
                     "built_from": [
-                        "raw.market_by_order_dbn.ts_event"
+                        "raw.cmbp_1.ts_event"
                     ],
                     "transformation_steps": [
                         "Cast to int64",
                         "Output filtered to session window (09:30-09:40 ET for dev)"
                     ]
                 },
-                "price": {
+                "bid_px_00": {
                     "built_from": [
-                        "raw.market_by_order_dbn.price"
+                        "raw.cmbp_1.bid_px_00"
                     ],
                     "transformation_steps": [
                         "Cast to int64",
-                        "Handle NULL_PRICE (replace with 0 if action is Add/Modify)"
+                        "Handle NULL_PRICE (replace with 0)"
                     ]
                 },
-                "size": {
+                "ask_px_00": {
                     "built_from": [
-                        "raw.market_by_order_dbn.size"
+                        "raw.cmbp_1.ask_px_00"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64",
+                        "Handle NULL_PRICE (replace with 0)"
+                    ]
+                },
+                "bid_sz_00": {
+                    "built_from": [
+                        "raw.cmbp_1.bid_sz_00"
                     ],
                     "transformation_steps": [
                         "Cast to int64"
                     ]
                 },
-                "action": {
+                "ask_sz_00": {
                     "built_from": [
-                        "raw.market_by_order_dbn.action"
-                    ],
-                    "transformation_steps": [
-                        "Pass through"
-                    ]
-                },
-                "side": {
-                    "built_from": [
-                        "raw.market_by_order_dbn.side"
-                    ],
-                    "transformation_steps": [
-                        "Pass through"
-                    ]
-                },
-                "order_id": {
-                    "built_from": [
-                        "raw.market_by_order_dbn.order_id"
-                    ],
-                    "transformation_steps": [
-                        "Cast to int64"
-                    ]
-                },
-                "flags": {
-                    "built_from": [
-                        "raw.market_by_order_dbn.flags"
+                        "raw.cmbp_1.ask_sz_00"
                     ],
                     "transformation_steps": [
                         "Cast to int64"
@@ -418,31 +402,40 @@
                 },
                 "instrument_id": {
                     "built_from": [
-                        "raw.market_by_order_dbn.instrument_id"
+                        "raw.cmbp_1.instrument_id"
                     ],
                     "transformation_steps": [
                         "Cast to int64"
                     ]
                 },
-                "strike": {
+                "underlying": {
                     "built_from": [
-                        "raw.market_by_order_dbn.strike"
+                        "definitions.underlying"
                     ],
                     "transformation_steps": [
-                        "Cast to int64"
+                        "Join OPRA definitions on instrument_id",
+                        "Filter to underlying symbol and 0DTE expiration"
                     ]
                 },
                 "right": {
                     "built_from": [
-                        "raw.market_by_order_dbn.instrument_class"
+                        "definitions.instrument_class"
                     ],
                     "transformation_steps": [
-                        "Map to right ('C' or 'P') from instrument definitions"
+                        "Map to right ('C' or 'P') from OPRA definitions"
+                    ]
+                },
+                "strike": {
+                    "built_from": [
+                        "definitions.strike_price"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
                     ]
                 },
                 "expiration": {
                     "built_from": [
-                        "raw.market_by_order_dbn.expiration"
+                        "definitions.expiration"
                     ],
                     "transformation_steps": [
                         "Cast to int64"
@@ -451,11 +444,11 @@
             }
         },
         "silver": {
-            "SilverComputeOptionBookStates1s": {
+            "SilverComputeEquityOptionBookStates1s": {
                 "book_snapshot_1s": {
                     "window_start_ts_ns": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.ts_event"
+                            "bronze.equity_option_mbo.cmbp_1.ts_event"
                         ],
                         "transformation_steps": [
                             "Floor ts_event to 1s bucket (start of window)"
@@ -463,7 +456,7 @@
                     },
                     "window_end_ts_ns": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.ts_event"
+                            "bronze.equity_option_mbo.cmbp_1.ts_event"
                         ],
                         "transformation_steps": [
                             "Ceil ts_event to 1s bucket (end of window)"
@@ -471,24 +464,18 @@
                     },
                     "bid_price_int": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.price",
-                            "bronze.future_option_mbo.mbo.side",
-                            "bronze.future_option_mbo.mbo.action"
+                            "bronze.equity_option_mbo.cmbp_1.bid_px_00"
                         ],
                         "transformation_steps": [
-                            "Stateful order map per instrument",
-                            "Select maximum price with quantity > 0 where side='B' at window_end_ts"
+                            "Use CMBP-1 bid price per instrument at window_end_ts"
                         ]
                     },
                     "ask_price_int": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.price",
-                            "bronze.future_option_mbo.mbo.side",
-                            "bronze.future_option_mbo.mbo.action"
+                            "bronze.equity_option_mbo.cmbp_1.ask_px_00"
                         ],
                         "transformation_steps": [
-                            "Stateful order map per instrument",
-                            "Select minimum price with quantity > 0 where side='A' at window_end_ts"
+                            "Use CMBP-1 ask price per instrument at window_end_ts"
                         ]
                     },
                     "mid_price_int": {
@@ -497,7 +484,7 @@
                             "ask_price_int"
                         ],
                         "transformation_steps": [
-                            "Round(Avg(Best Bid, Best Ask))"
+                            "Avg(Best Bid, Best Ask)"
                         ]
                     },
                     "mid_price": {
@@ -510,10 +497,10 @@
                     },
                     "spot_ref_price_int": {
                         "built_from": [
-                            "silver.future_mbo.book_snapshot_1s.spot_ref_price_int"
+                            "silver.equity_mbo.book_snapshot_1s.spot_ref_price_int"
                         ],
                         "transformation_steps": [
-                            "Spot anchor from futures MBO snapshot at window_end_ts"
+                            "Spot anchor from equity MBO snapshot at window_end_ts"
                         ]
                     },
                     "book_valid": {
@@ -521,12 +508,12 @@
                             "internal_state"
                         ],
                         "transformation_steps": [
-                            "True if book state is initialized per instrument"
+                            "True if bid/ask available per instrument"
                         ]
                     }
                 },
                 "depth_and_flow_1s": {
-                    "_description": "Option MBO depth and flow aggregated to $5 strike buckets, spot-anchored.",
+                    "_description": "Equity option depth/flow from CMBP-1, bucketed to $1 strikes.",
                     "_shape": "Long Format (Panel Data)",
                     "_grain": "1 Second x Strike Bucket x Right x Side",
                     "_primary_key": [
@@ -537,18 +524,18 @@
                     ],
                     "strike_price_int": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.strike"
+                            "bronze.equity_option_mbo.cmbp_1.strike"
                         ],
                         "transformation_steps": [
-                            "Bucket strikes every $5 and align to spot grid ±$50"
+                            "Bucket strikes every $1 and align to spot grid +/- $25"
                         ]
                     },
                     "spot_ref_price_int": {
                         "built_from": [
-                            "silver.future_mbo.book_snapshot_1s.spot_ref_price_int"
+                            "silver.equity_mbo.book_snapshot_1s.spot_ref_price_int"
                         ],
                         "transformation_steps": [
-                            "Spot anchor from futures MBO snapshot at window_end_ts"
+                            "Spot anchor from equity MBO snapshot at window_end_ts"
                         ]
                     },
                     "rel_ticks": {
@@ -557,13 +544,13 @@
                             "spot_ref_price_int"
                         ],
                         "transformation_steps": [
-                            "(strike_price_int - spot_ref_price_int) / TICK_INT",
-                            "Round to integer (multiples of 20 ticks)"
+                            "(strike_price_int - spot_ref_price_int) / 0.50",
+                            "Round to integer (multiples of 2 ticks per $1)"
                         ]
                     },
                     "depth_qty_start": {
                         "built_from": [
-                            "book_state"
+                            "CMBP-1 L1 state"
                         ],
                         "transformation_steps": [
                             "calculated as: depth_qty_end - add_qty + pull_qty_total + fill_qty"
@@ -571,57 +558,58 @@
                     },
                     "depth_qty_end": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo"
+                            "bronze.equity_option_mbo.cmbp_1.bid_sz_00",
+                            "bronze.equity_option_mbo.cmbp_1.ask_sz_00"
                         ],
                         "transformation_steps": [
-                            "Quantity remaining at strike bucket at end of window"
+                            "End-of-window L1 size at strike bucket"
                         ]
                     },
                     "add_qty": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.action=A"
+                            "CMBP-1 L1 size deltas"
                         ],
                         "transformation_steps": [
-                            "Sum of added volume at strike bucket in window"
+                            "Sum of size increases at strike bucket in window"
                         ]
                     },
                     "pull_qty_total": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.action=C|M"
+                            "CMBP-1 L1 size deltas"
                         ],
                         "transformation_steps": [
-                            "Sum of cancelled/reduced volume at strike bucket in window"
+                            "Sum of size decreases or price moves at strike bucket in window"
                         ]
                     },
                     "pull_qty_rest": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo"
+                            "CMBP-1 L1 updates"
                         ],
                         "transformation_steps": [
-                            "Sum of cancelled volume from orders resting > 500ms"
+                            "Set to 0.0 (resting age not observable in CMBP-1)"
                         ]
                     },
                     "fill_qty": {
                         "built_from": [
-                            "bronze.future_option_mbo.mbo.action=F"
+                            "CMBP-1 L1 updates"
                         ],
                         "transformation_steps": [
-                            "Sum of filled volume at strike bucket in window"
+                            "Set to 0.0 (fills not observable in CMBP-1)"
                         ]
                     }
                 }
             }
         },
         "gold": {
-            "GoldComputeOptionPhysicsSurface1s": {
+            "GoldComputeEquityOptionPhysicsSurface1s": {
                 "_inputs": [
-                    "silver.future_option_mbo.depth_and_flow_1s"
+                    "silver.equity_option_mbo.depth_and_flow_1s"
                 ],
                 "physics_surface_1s": {
                     "add_intensity": {
                         "built_from": [
-                            "silver.future_option_mbo.depth_and_flow_1s.add_qty",
-                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_mbo.depth_and_flow_1s.add_qty",
+                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "add_qty / (depth_qty_start + 1.0)"
@@ -629,8 +617,8 @@
                     },
                     "fill_intensity": {
                         "built_from": [
-                            "silver.future_option_mbo.depth_and_flow_1s.fill_qty",
-                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_mbo.depth_and_flow_1s.fill_qty",
+                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "fill_qty / (depth_qty_start + 1.0)"
@@ -638,8 +626,8 @@
                     },
                     "pull_intensity": {
                         "built_from": [
-                            "silver.future_option_mbo.depth_and_flow_1s.pull_qty_total",
-                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_mbo.depth_and_flow_1s.pull_qty_total",
+                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "pull_qty_total / (depth_qty_start + 1.0)"

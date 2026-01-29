@@ -60,7 +60,7 @@ Follow this sequence always:
 
 
 **CRITICAL INSTRUCTIONS** 
-- ONLY the README.md or *_data.json files is considered current, do not read any other MD unless specifically requested by the user. (the *_data.json files are living documents possibly being edited by multiple engineers.)
+- Do not read any other MD documents unless specifically requested by the user.
 - ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/DELETE/EXTEND TO ACCOMPLISTH YOUR TASK
 - You have full power to regenerate data when you need to, except for raw data. Do not modify or delete or change raw data.
 - YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 15 seconds so you can exit it something is not working. 
