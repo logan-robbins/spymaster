@@ -8,7 +8,6 @@ import pandas as pd
 PRICE_SCALE = 1e-9
 TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
-GRID_ALIGN_TICKS = 20  # $5.00 grid for ES
 WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
 HUD_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
@@ -50,6 +49,7 @@ DEPTH_FLOW_COLUMNS = [
     "side",
     "spot_ref_price_int",
     "rel_ticks",
+    "rel_ticks_side",
     "depth_qty_start",
     "depth_qty_end",
     "add_qty",
@@ -142,6 +142,9 @@ class FuturesBookEngine:
         self.window_orders_start: Dict[int, OrderState] = {}
         self.window_depth_start_bid: Dict[int, int] = {}
         self.window_depth_start_ask: Dict[int, int] = {}
+        self.window_spot_ref_price_int = 0
+        self.window_best_bid_start = 0
+        self.window_best_ask_start = 0
 
         self.acc_add_bid: Dict[int, float] = {}
         self.acc_add_ask: Dict[int, float] = {}
@@ -226,6 +229,13 @@ class FuturesBookEngine:
         self.window_orders_start = _clone_orders(self.orders)
         self.window_depth_start_bid = dict(self.depth_bid)
         self.window_depth_start_ask = dict(self.depth_ask)
+        self.window_spot_ref_price_int = _resolve_spot_ref(
+            last_trade=self.last_trade_price_int,
+            depth_bid=self.depth_bid,
+            depth_ask=self.depth_ask,
+        )
+        self.window_best_bid_start, _ = _best_level(self.window_depth_start_bid, is_bid=True)
+        self.window_best_ask_start, _ = _best_level(self.window_depth_start_ask, is_bid=False)
         self._reset_accumulators()
 
     def _flush_until(self, target_window_id: int) -> None:
@@ -244,14 +254,7 @@ class FuturesBookEngine:
             mid_price = (best_bid_price + best_ask_price) * 0.5 * PRICE_SCALE
             mid_price_int = int(round((best_bid_price + best_ask_price) * 0.5))
 
-        spot_ref = self.last_trade_price_int
-        if spot_ref == 0 and self.book_valid and best_bid_price > 0:
-            spot_ref = best_bid_price
-
-        # Snap ref to grid
-        grid_step = GRID_ALIGN_TICKS * self.tick_int
-        if spot_ref > 0:
-            spot_ref = int(round(spot_ref / grid_step)) * grid_step
+        spot_ref = self.window_spot_ref_price_int
 
         # DEBUG: Print order book size
         if len(self.snap_rows) % 100 == 0:
@@ -285,6 +288,18 @@ class FuturesBookEngine:
         min_price = spot_ref - self.hud_max_ticks * self.tick_int
         max_price = spot_ref + self.hud_max_ticks * self.tick_int
 
+        bid_anchor = self.window_best_bid_start
+        if bid_anchor <= 0:
+            bid_anchor, _ = _best_level(self.depth_bid, is_bid=True)
+        if bid_anchor <= 0:
+            bid_anchor = spot_ref
+
+        ask_anchor = self.window_best_ask_start
+        if ask_anchor <= 0:
+            ask_anchor, _ = _best_level(self.depth_ask, is_bid=False)
+        if ask_anchor <= 0:
+            ask_anchor = spot_ref
+
         bid_prices = _collect_prices(self.depth_bid, self.acc_add_bid, self.acc_pull_bid, self.acc_fill_bid, min_price, max_price)
         ask_prices = _collect_prices(self.depth_ask, self.acc_add_ask, self.acc_pull_ask, self.acc_fill_ask, min_price, max_price)
 
@@ -301,6 +316,7 @@ class FuturesBookEngine:
             if depth_start < 0:
                 depth_start = 0.0
             rel_ticks = int(round((price - spot_ref) / self.tick_int))
+            rel_ticks_side = int(round((price - bid_anchor) / self.tick_int))
             # Simple State Track: Current Depth
             self.prev_depth_bid[price] = depth_end
             
@@ -312,6 +328,7 @@ class FuturesBookEngine:
                     "side": SIDE_BID,
                     "spot_ref_price_int": spot_ref,
                     "rel_ticks": rel_ticks,
+                    "rel_ticks_side": rel_ticks_side,
                     "depth_qty_start": float(depth_start),
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
@@ -333,6 +350,7 @@ class FuturesBookEngine:
             if depth_start < 0:
                 depth_start = 0.0
             rel_ticks = int(round((price - spot_ref) / self.tick_int))
+            rel_ticks_side = int(round((price - ask_anchor) / self.tick_int))
             # Simple State Track: Current Depth
             self.prev_depth_ask[price] = depth_end
             
@@ -344,6 +362,7 @@ class FuturesBookEngine:
                     "side": SIDE_ASK,
                     "spot_ref_price_int": spot_ref,
                     "rel_ticks": rel_ticks,
+                    "rel_ticks_side": rel_ticks_side,
                     "depth_qty_start": float(depth_start),
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
@@ -572,6 +591,31 @@ def _best_level(depth: Dict[int, int], is_bid: bool) -> Tuple[int, int]:
     else:
         price = min(depth.keys())
     return price, depth.get(price, 0)
+
+
+def _resolve_spot_ref(
+    last_trade: int,
+    depth_bid: Dict[int, int],
+    depth_ask: Dict[int, int],
+) -> int:
+    if last_trade > 0 and (last_trade in depth_bid or last_trade in depth_ask):
+        return last_trade
+
+    best_bid, _ = _best_level(depth_bid, is_bid=True)
+    best_ask, _ = _best_level(depth_ask, is_bid=False)
+
+    if best_bid > 0 and best_ask > 0:
+        if last_trade > 0:
+            if abs(last_trade - best_bid) <= abs(best_ask - last_trade):
+                return best_bid
+            return best_ask
+        return best_bid
+
+    if best_bid > 0:
+        return best_bid
+    if best_ask > 0:
+        return best_ask
+    return last_trade if last_trade > 0 else 0
 
 
 def _resting_depth(orders: Dict[int, OrderState], side: str, min_price: int, max_price: int, window_end: int, rest_ns: int) -> Dict[int, float]:

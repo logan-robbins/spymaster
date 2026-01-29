@@ -1,6 +1,6 @@
 {
   "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/future_mbo/depth_and_flow_1s.avsc",
-  "contract_sha256": "276835038f7a28210f0081873cd1b35d9e3b690daf654dfaec63425d3c02d274",
+  "contract_sha256": "1d611050180a52ff00aceed14cf11e046c7a59b6c176d1f3e707516a9a746382",
   "dataset": "silver.future_mbo.depth_and_flow_1s",
   "dt": "2026-01-06",
   "hour": null,
@@ -11,6 +11,6 @@
       "manifest_sha256": "4630f60c34bc651dbae7928fc71faeb2bd0dce0831eba5fba4229fc1c9c3dcbf"
     }
   ],
-  "row_count": 206467,
+  "row_count": 205445,
   "stage": "silver_compute_book_states_1s"
 }

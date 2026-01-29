@@ -175,11 +175,17 @@ def _build_tasks(
 
 def _clear_stage_output(cfg, stage, symbol: str, dt: str) -> None:
     dataset_key = stage.io.output
-    if dataset_key.startswith("bronze."):
-        raise ValueError(f"Refusing to clear bronze output: {dataset_key}")
-    out_ref = partition_ref(cfg, dataset_key, symbol, dt)
-    if out_ref.dir.exists():
-        shutil.rmtree(out_ref.dir)
+    if isinstance(dataset_key, list):
+        dataset_keys = dataset_key
+    else:
+        dataset_keys = [dataset_key]
+
+    for key in dataset_keys:
+        if key.startswith("bronze."):
+            raise ValueError(f"Refusing to clear bronze output: {key}")
+        out_ref = partition_ref(cfg, key, symbol, dt)
+        if out_ref.dir.exists():
+            shutil.rmtree(out_ref.dir)
 
 
 def run_single_date(

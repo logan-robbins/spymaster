@@ -62,6 +62,17 @@ Gold: GoldComputePhysicsBands1s [PENDING_REDESIGN]
    ↓ gold.future_mbo.physics_bands_1s
 ```
 
+## Validation Snapshot (future_mbo, 2026-01-06)
+
+- `gold.future_mbo.physics_surface_1s` present under `backend/lake` for `ESH6`
+- Window coverage: 09:30:00-09:40:00 ET (601 windows)
+- Rows: 205,445; rel_ticks range -200 to 200; sides A/B; no nulls
+- Intensities non-negative; liquidity_velocity has neg/zero/pos mix (13,414 / 176,937 / 15,094)
+- `event_ts_ns` equals `window_end_ts_ns`; spot_ref not grid-snapped (24 / 601 at 20-tick multiples); rel_ticks consistent with price/spot
+- rel_ticks_side=0 has depth_qty_start > 0 on both sides for all windows
+- Use rel_ticks_side for liquidity modeling; keep rel_ticks for spot-anchored views
+- Gold intensities match silver depth/flow formula exactly; `window_valid` all true
+
 ## Key Files
 
 | Purpose | File |
@@ -82,7 +93,8 @@ Gold: GoldComputePhysicsBands1s [PENDING_REDESIGN]
 
 - **X-axis**: time (1s windows)
 - **Y-axis**: rel_ticks (price levels relative to spot_ref_price_int)
-- **Spot anchor**: 20-tick ($5.00) grid alignment
+- **Side anchor**: rel_ticks_side (price levels relative to best bid/ask at window start)
+- **Spot anchor**: window-start last_trade_price_int if on-book; else nearest best_bid/ask at window start
 - **Tick size**: $0.25 (TICK_INT = 250,000,000 in scaled int)
 - **Range**: ±200 ticks ($50) from spot
 

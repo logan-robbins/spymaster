@@ -74,11 +74,9 @@ No code in summaries. Skip summaries for simple questions.
 - We are ONLY working the first hour of RTH (0930AM EST - 1030AM EST) so limit ALL data loads and data engineering to that for speed/efficiency. 
 - Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
 - Always follow the workflow backward from the entry point to find the most current implementation.
-- If ANY changes are made to the features or data pipeline, **MUST** update the avro contracts, datasets.yaml, backend_data.json,frontend_data.json to match current state.
-- When you are done, you MUST update README.md and/or DOCS_FRONTEND.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
+- If ANY changes are made to the features or data pipeline, **MUST** update the avro contracts, datasets.yaml, futures_data.json to match current state.
+- When you are done, you MUST update README.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
 
 **MUST READ IN ENTIRETY**
 - @README.md
-- @backend_data.json 
-- @DOCS_FRONTEND.md 
-- @frontend_data.json 
+- @futures_data.json 

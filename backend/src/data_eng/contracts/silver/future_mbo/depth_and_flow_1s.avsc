@@ -9,6 +9,7 @@
     {"name": "side", "type": "string"},
     {"name": "spot_ref_price_int", "type": "long"},
     {"name": "rel_ticks", "type": "int"},
+    {"name": "rel_ticks_side", "type": "int"},
     {"name": "depth_qty_start", "type": "double"},
     {"name": "depth_qty_end", "type": "double"},
     {"name": "add_qty", "type": "double"},

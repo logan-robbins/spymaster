@@ -168,7 +168,9 @@
                             "last_trade_price_int"
                         ],
                         "transformation_steps": [
-                            "Round last_trade_price_int to nearest 20-tick ($5.00) grid anchor"
+                            "Use last_trade_price_int if present on-book at window start",
+                            "If not on-book, fallback to nearest of best_bid_price_int/best_ask_price_int at window start",
+                            "If last_trade_price_int is 0, fallback to best_bid_price_int (else best_ask_price_int)"
                         ]
                     },
                     "book_valid": {
@@ -209,7 +211,7 @@
                             "last_trade_price (internal state)"
                         ],
                         "transformation_steps": [
-                            "From internal engine state (same as snapshot)"
+                            "From internal engine state (window-start anchor, same as snapshot)"
                         ]
                     },
                     "rel_ticks": {
@@ -220,7 +222,22 @@
                         "transformation_steps": [
                             "(price_int - spot_ref_price_int) / TICK_INT",
                             "Round to integer"
-                        ]
+                        ],
+                        "note": "Spot-anchored coordinate; keep for spot-based views"
+                    },
+                    "rel_ticks_side": {
+                        "built_from": [
+                            "price_int",
+                            "side",
+                            "best_bid_price_int (window start)",
+                            "best_ask_price_int (window start)"
+                        ],
+                        "transformation_steps": [
+                            "If side='B': (price_int - best_bid_price_int_start) / TICK_INT",
+                            "If side='A': (price_int - best_ask_price_int_start) / TICK_INT",
+                            "Round to integer"
+                        ],
+                        "note": "Primary coordinate for liquidity modeling (side-anchored)"
                     },
                     "depth_qty_start": {
                         "built_from": [
@@ -284,6 +301,14 @@
         "gold": {
             "GoldComputePhysicsSurface1s": {
                 "physics_surface_1s": {
+                    "rel_ticks_side": {
+                        "built_from": [
+                            "silver.future_mbo.depth_and_flow_1s.rel_ticks_side"
+                        ],
+                        "transformation_steps": [
+                            "Pass through"
+                        ]
+                    },
                     "add_intensity": {
                         "built_from": [
                             "silver.future_mbo.depth_and_flow_1s.add_qty",
