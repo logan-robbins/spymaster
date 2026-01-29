@@ -165,14 +165,14 @@ export class VelocityGrid {
     // Update uniforms
     this.material.uniforms.uHead.value = this.head;
     this.material.uniforms.uCount.value = this.count;
-    this.material.uniforms.uCurrentSpot.value = currentSpotTickIndex;
   }
 
   /**
-   * Set current spot reference for view centering (no-op, kept for API compatibility)
+   * Set the mesh center for rendering (should match camera Y position)
+   * This is separate from current spot - the mesh is centered on the camera view.
    */
-  setSpotRef(_spotTickIndex: number): void {
-    // No longer needed - handled in advance()
+  setMeshCenter(meshCenterTick: number): void {
+    this.material.uniforms.uCurrentSpot.value = meshCenterTick;
   }
 
   /**

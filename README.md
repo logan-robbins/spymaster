@@ -34,11 +34,11 @@
 - `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer gold --symbol ES --dt 2026-01-06 --workers 1`
 - add `--overwrite` for silver/gold rebuilds
 
-### Velocity stream server
+### Unified stream server (futures + options)
 - `cd backend`
 - `uv run python -m src.serving.velocity_main`
 - `ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06`
-- `ws://localhost:8001/v1/velocity/stream?symbol=ES&dt=2026-01-06&product_type=future_option_mbo`
+- params: `speed` (playback multiplier), `skip_minutes` (skip N minutes at start)
 
 ### Frontend2 (primary)
 - `cd frontend2`
@@ -69,6 +69,21 @@
 - `silver.future_option_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/future_option_mbo/depth_and_flow_1s.avsc`
 - `gold.future_option_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc`
 
+## Streaming protocol (unified)
+Per 1-second window, server sends:
+1. JSON `{"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options"]}`
+2. JSON `{"type": "surface_header", "surface": "snap"}` + Arrow IPC (futures spot reference)
+3. JSON `{"type": "surface_header", "surface": "velocity"}` + Arrow IPC (futures liquidity_velocity at $0.25)
+4. JSON `{"type": "surface_header", "surface": "options"}` + Arrow IPC (aggregated options liquidity_velocity at $5)
+
+Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, rel_ticks) — NET velocity per strike level
+
+## Visualization (frontend2)
+- Futures grid (VelocityGrid): green=building, red=eroding, $0.25 resolution
+- Options grid (OptionsGrid): cyan=building, magenta=eroding, horizontal bars at $5 increments
+- Options bar positioning: strikes above spot → bars render above strike line; below spot → below
+- Spot line: turquoise line tracking price history
+
 ## Key files
 - `backend/src/data_eng/pipeline.py`
 - `backend/src/data_eng/stages/silver/future_mbo/book_engine.py`
@@ -80,9 +95,11 @@
 - `futures_data.json`
 - `backend/src/serving/velocity_streaming.py`
 - `backend/src/serving/velocity_main.py`
+- `backend/src/serving/routers/velocity.py`
 - `frontend2/src/main.ts`
 - `frontend2/src/ws-client.ts`
 - `frontend2/src/velocity-grid.ts`
+- `frontend2/src/options-grid.ts`
 - `frontend2/src/spot-line.ts`
 - `frontend2/src/price-axis.ts`
 

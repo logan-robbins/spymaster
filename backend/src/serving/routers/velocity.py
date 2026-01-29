@@ -1,4 +1,4 @@
-"""Minimal WebSocket router for velocity streaming to frontend2."""
+"""Unified WebSocket router for velocity + options streaming to frontend2."""
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +25,13 @@ VELOCITY_SCHEMA = pa.schema([
     ("spot_ref_price_int", pa.int64()),
     ("rel_ticks", pa.int32()),
     ("side", pa.string()),
+    ("liquidity_velocity", pa.float64()),
+])
+
+OPTIONS_SCHEMA = pa.schema([
+    ("window_end_ts_ns", pa.int64()),
+    ("spot_ref_price_int", pa.int64()),
+    ("rel_ticks", pa.int32()),
     ("liquidity_velocity", pa.float64()),
 ])
 
@@ -58,32 +65,32 @@ async def velocity_stream(
     websocket: WebSocket,
     symbol: str = "ESH6",
     dt: str = "2026-01-06",
-    product_type: str = "future_mbo",
     speed: float = 1.0,
     skip_minutes: int = 5,
 ):
-    """WebSocket endpoint for velocity streaming.
+    """Unified WebSocket endpoint for futures + options streaming.
 
-    Protocol:
-    1. JSON: {"type": "batch_start", "window_end_ts_ns": "123456789", "surfaces": ["snap", "velocity"]}
+    Protocol per 1-second window:
+    1. JSON: {"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options"]}
     2. JSON: {"type": "surface_header", "surface": "snap"}
-    3. Binary: Arrow IPC bytes for snap
+    3. Binary: Arrow IPC bytes for snap (futures spot reference)
     4. JSON: {"type": "surface_header", "surface": "velocity"}
-    5. Binary: Arrow IPC bytes for velocity
+    5. Binary: Arrow IPC bytes for velocity (futures liquidity at $0.25 resolution)
+    6. JSON: {"type": "surface_header", "surface": "options"}
+    7. Binary: Arrow IPC bytes for options (aggregated options velocity at $5 resolution)
     ... repeat for each window
     """
     await websocket.accept()
     print(
-        "Velocity stream connected: "
-        f"symbol={symbol}, dt={dt}, product_type={product_type}, "
-        f"speed={speed}, skip_minutes={skip_minutes}"
+        "Unified stream connected: "
+        f"symbol={symbol}, dt={dt}, speed={speed}, skip_minutes={skip_minutes}"
     )
 
     try:
         last_window_ts = None
         skip_count = skip_minutes * 60  # Skip N minutes worth of 1s windows
         skipped = 0
-        for window_id, batch in service.iter_batches(symbol, dt, product_type):
+        for window_id, batch in service.iter_batches(symbol, dt):
             # Skip initial windows
             if skipped < skip_count:
                 skipped += 1
@@ -101,20 +108,25 @@ async def velocity_stream(
             await websocket.send_text(json.dumps({
                 "type": "batch_start",
                 "window_end_ts_ns": str(window_id),
-                "surfaces": ["snap", "velocity"],
+                "surfaces": ["snap", "velocity", "options"],
             }))
 
-            # Send snap
+            # Send snap (futures spot reference)
             await websocket.send_text(json.dumps({"type": "surface_header", "surface": "snap"}))
             snap_bytes = _df_to_arrow_bytes(batch["snap"], SNAP_SCHEMA)
             await websocket.send_bytes(snap_bytes)
 
-            # Send velocity
+            # Send velocity (futures liquidity)
             await websocket.send_text(json.dumps({"type": "surface_header", "surface": "velocity"}))
             velocity_bytes = _df_to_arrow_bytes(batch["velocity"], VELOCITY_SCHEMA)
             await websocket.send_bytes(velocity_bytes)
 
+            # Send options (aggregated options liquidity)
+            await websocket.send_text(json.dumps({"type": "surface_header", "surface": "options"}))
+            options_bytes = _df_to_arrow_bytes(batch["options"], OPTIONS_SCHEMA)
+            await websocket.send_bytes(options_bytes)
+
     except Exception as e:
-        print(f"Velocity stream error: {e}")
+        print(f"Unified stream error: {e}")
     finally:
-        print("Velocity stream disconnected")
+        print("Unified stream disconnected")

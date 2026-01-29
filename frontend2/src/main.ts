@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import { connectStream, type SnapRow, type VelocityRow } from './ws-client';
+import { connectStream, type SnapRow, type VelocityRow, type OptionsRow } from './ws-client';
 import { VelocityGrid, spotToTickIndex } from './velocity-grid';
+import { OptionsGrid } from './options-grid';
 import { SpotLine } from './spot-line';
 import { PriceAxis } from './price-axis';
 
 // Configuration
 const SYMBOL = 'ESH6';
 const DATE = '2026-01-06';
-const SURFACES = 'snap,velocity';
 
 const GRID_WIDTH = 1800;   // 30 minutes @ 1s/col
 const GRID_HEIGHT = 801;   // ±400 ticks from spot
 const VIEW_SECONDS = 300;  // Show 5 minutes of history
-const VIEW_TICKS = 100;    // Show ±50 ticks around spot
+const VIEW_TICKS = 100;    // Show ±50 ticks around center
 const PREDICTION_MARGIN = 0.30; // 30% right margin for predictions
 
 // DOM elements
@@ -26,13 +26,15 @@ const zoomLabel = document.getElementById('zoom-label')!
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0a);
 
-// Orthographic camera
-// X: time in seconds (negative = past, 0 = now, positive = predictions area)
-// Y: price in ticks (centered on current spot)
-const PREDICTION_SECONDS = VIEW_SECONDS * PREDICTION_MARGIN / (1 - PREDICTION_MARGIN); // ~75s for 20% margin
+// Camera state - FIXED position, only moves with zoom/pan
+// Y position set once we receive first spot price
+let cameraYCenter = 0;  // Absolute tick index for camera center
+let cameraInitialized = false;
+
+const PREDICTION_SECONDS = VIEW_SECONDS * PREDICTION_MARGIN / (1 - PREDICTION_MARGIN);
 const camera = new THREE.OrthographicCamera(
-  -VIEW_SECONDS, PREDICTION_SECONDS,  // X: -300s to +75s (predictions on right)
-  VIEW_TICKS / 2, -VIEW_TICKS / 2,    // Y: ±50 ticks from center
+  -VIEW_SECONDS, PREDICTION_SECONDS,
+  VIEW_TICKS / 2, -VIEW_TICKS / 2,
   0.1, 100
 );
 camera.position.z = 10;
@@ -41,24 +43,32 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 
-// Velocity grid overlay (behind spot line)
+// Futures velocity grid (green/red, fine-grained at $0.25)
 const velocityGrid = new VelocityGrid(GRID_WIDTH, GRID_HEIGHT);
-const gridMesh = velocityGrid.getMesh();
-gridMesh.renderOrder = 0;
-scene.add(gridMesh);
+const velocityMesh = velocityGrid.getMesh();
+velocityMesh.renderOrder = 0;
+scene.add(velocityMesh);
 
-// Spot price line (turquoise, in front)
+// Options velocity grid (cyan/magenta, horizontal bars at FIXED $5 increments)
+const optionsGrid = new OptionsGrid(GRID_WIDTH);
+const optionsMesh = optionsGrid.getMesh();
+optionsMesh.renderOrder = 0.5;
+scene.add(optionsMesh);
+
+// Spot price line (turquoise with glow, in front)
 const spotLine = new SpotLine();
-spotLine.getLine().renderOrder = 1;
-scene.add(spotLine.getLine());
+const spotLineGroup = spotLine.getLine();
+spotLineGroup.renderOrder = 1;
+scene.add(spotLineGroup);
 
-// Price axis labels
+// Price axis labels and grid lines (dynamic based on zoom)
 const priceAxis = new PriceAxis('price-axis', 20, VIEW_TICKS);
+scene.add(priceAxis.getGridGroup());
 
 // Zoom state
 let zoomLevel = 1.0;
-const MIN_ZOOM = 0.25;  // Zoom out 4x
-const MAX_ZOOM = 4.0;   // Zoom in 4x
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4.0;
 const ZOOM_SPEED = 0.1;
 
 // State
@@ -66,19 +76,32 @@ let currentSpotTickIndex = 0;
 let lastTs: bigint = 0n;
 let frameCount = 0;
 let pendingVelocityRows: VelocityRow[] = [];
-let batchReady = false;
+let pendingOptionsRows: OptionsRow[] = [];
+let velocityReady = false;
+let optionsReady = false;
 
 // WebSocket callbacks
 function onTick(ts: bigint, _surfaces: string[]): void {
   lastTs = ts;
-  batchReady = false;
+  velocityReady = false;
+  optionsReady = false;
   pendingVelocityRows = [];
+  pendingOptionsRows = [];
 }
 
 function onSnap(row: SnapRow): void {
   if (row.spot_ref_price_int <= 0n) return;
 
   currentSpotTickIndex = spotToTickIndex(row.spot_ref_price_int);
+
+  // Initialize camera center on first spot (and anchor options grid)
+  if (!cameraInitialized) {
+    cameraYCenter = currentSpotTickIndex;
+    camera.position.y = cameraYCenter;
+    optionsGrid.setReferenceStrike(currentSpotTickIndex);
+    cameraInitialized = true;
+    console.log(`Camera initialized at tick ${cameraYCenter.toFixed(0)}`);
+  }
 
   // Add to spot line history
   spotLine.addPrice(currentSpotTickIndex);
@@ -90,50 +113,75 @@ function onSnap(row: SnapRow): void {
 
 function onVelocity(rows: VelocityRow[]): void {
   pendingVelocityRows = rows;
-  batchReady = true;
-  processBatch();
+  velocityReady = true;
+  tryProcessBatch();
 }
 
-function processBatch(): void {
-  if (!batchReady || currentSpotTickIndex === 0) return;
+function onOptions(rows: OptionsRow[]): void {
+  pendingOptionsRows = rows;
+  optionsReady = true;
+  tryProcessBatch();
+}
 
-  // Advance velocity grid ring buffer
+function tryProcessBatch(): void {
+  // Wait for both surfaces before processing
+  if (!velocityReady || !optionsReady || currentSpotTickIndex === 0) return;
+
+  // Advance both grids
   velocityGrid.advance(currentSpotTickIndex);
+  optionsGrid.advance();
 
-  // Write velocity data
-  let writeCount = 0;
+  // Write futures velocity data
+  let velocityWriteCount = 0;
   for (const row of pendingVelocityRows) {
     const relTicks = row.rel_ticks;
     const velocity = row.liquidity_velocity;
     if (velocity !== 0) {
       velocityGrid.write(relTicks, velocity);
-      writeCount++;
+      velocityWriteCount++;
     }
   }
   velocityGrid.flush();
 
+  // Write options velocity data (converted to absolute positions)
+  let optionsWriteCount = 0;
+  for (const row of pendingOptionsRows) {
+    const relTicks = row.rel_ticks;
+    const velocity = row.liquidity_velocity;
+    if (velocity !== 0) {
+      optionsGrid.write(currentSpotTickIndex, relTicks, velocity);
+      optionsWriteCount++;
+    }
+  }
+  optionsGrid.flush();
+
   // Update spot line geometry
-  // X: newest point at x=0, older points at negative x (1 unit = 1 second)
   spotLine.updateGeometry(1, 0);
 
-  // Position velocity grid mesh to align with spot line:
-  // The mesh is a unit square that gets scaled/positioned
-  // Shader maps vUv.x (0..1) to columns in ring buffer
-  // Mesh right edge should be at x=0 (newest data)
+  // Position grids - camera is FIXED, grids are in absolute coordinates
   const count = velocityGrid.getCount();
   if (count > 1) {
-    const timeSpan = count - 1; // Seconds from oldest to newest
-    gridMesh.scale.set(timeSpan, GRID_HEIGHT, 1);
-    gridMesh.position.x = -timeSpan / 2; // Center mesh (left edge at -timeSpan, right at 0)
-    gridMesh.position.y = currentSpotTickIndex; // Center on current spot
-    gridMesh.position.z = 0; // Same plane as spot line
+    const timeSpan = count - 1;
+    
+    // Futures velocity grid - centered on CAMERA position (which is fixed)
+    velocityGrid.setMeshCenter(cameraYCenter);  // Tell shader where mesh is centered
+    velocityMesh.scale.set(timeSpan, GRID_HEIGHT, 1);
+    velocityMesh.position.x = -timeSpan / 2;
+    velocityMesh.position.y = cameraYCenter;  // Use camera center, not current spot
+    velocityMesh.position.z = 0;
+    
+    // Options grid - covers the visible range at absolute tick positions
+    const viewTicks = VIEW_TICKS / zoomLevel;
+    const meshBottom = cameraYCenter - viewTicks / 2 - 100;  // Extra buffer
+    const meshHeight = viewTicks + 200;
+    optionsGrid.updateMesh(timeSpan, meshBottom, meshHeight);
   }
 
-  // Camera follows spot price vertically (Y tracks spot)
-  camera.position.y = currentSpotTickIndex;
+  // NOTE: Camera position.y does NOT change - it stays at cameraYCenter
+  // The spot line moves UP/DOWN relative to the fixed camera view
 
-  // Update price axis labels
-  priceAxis.update(currentSpotTickIndex, camera);
+  // Update price axis labels (fixed at absolute $5 prices)
+  priceAxis.update(cameraYCenter, camera);
 
   // Update labels
   frameCount++;
@@ -143,18 +191,24 @@ function processBatch(): void {
   frameLabel.textContent = `Frame: ${frameCount}`;
 
   if (frameCount <= 5) {
-    console.log(`Frame ${frameCount}: wrote ${writeCount} velocity values, spot=${currentSpotTickIndex.toFixed(0)}, count=${count}`);
+    console.log(
+      `Frame ${frameCount}: futures=${velocityWriteCount}, options=${optionsWriteCount}, ` +
+      `spot=${currentSpotTickIndex.toFixed(0)}, camera=${cameraYCenter.toFixed(0)}`
+    );
   }
 
-  batchReady = false;
+  velocityReady = false;
+  optionsReady = false;
   pendingVelocityRows = [];
+  pendingOptionsRows = [];
 }
 
-// Connect WebSocket
-connectStream(SYMBOL, DATE, SURFACES, {
+// Connect unified WebSocket stream
+connectStream(SYMBOL, DATE, {
   onTick,
   onSnap,
-  onVelocity
+  onVelocity,
+  onOptions
 });
 
 // Update camera based on zoom level
@@ -163,23 +217,23 @@ function updateCamera(): void {
   const height = canvas.clientHeight;
   const aspect = width / height;
 
-  // Base view dimensions adjusted by zoom
   const viewTicks = VIEW_TICKS / zoomLevel;
-  // viewSeconds could be used for X-axis zoom (future enhancement)
 
-  // Calculate camera bounds maintaining prediction margin
   const totalViewWidth = viewTicks * aspect;
   const dataWidth = totalViewWidth * (1 - PREDICTION_MARGIN);
   const predictionWidth = totalViewWidth * PREDICTION_MARGIN;
 
+  // Camera bounds are RELATIVE to camera.position.y (which is cameraYCenter)
   camera.left = -dataWidth;
   camera.right = predictionWidth;
   camera.top = viewTicks / 2;
   camera.bottom = -viewTicks / 2;
   camera.updateProjectionMatrix();
 
-  // Update price axis with new visible range
-  priceAxis.update(currentSpotTickIndex, camera);
+  // Update price axis with fixed center
+  if (cameraInitialized) {
+    priceAxis.update(cameraYCenter, camera);
+  }
 }
 
 // Handle resize
@@ -195,7 +249,6 @@ window.addEventListener('resize', onResize);
 function onWheel(event: WheelEvent): void {
   event.preventDefault();
 
-  // Zoom in on scroll up, out on scroll down
   const delta = event.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
   zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel * (1 + delta)));
 
@@ -211,5 +264,5 @@ function animate(): void {
 }
 animate();
 
-console.log('Frontend2 initialized');
+console.log('Frontend2 initialized (unified futures + options stream)');
 console.log(`Connecting to ws://localhost:8001/v1/velocity/stream?symbol=${SYMBOL}&dt=${DATE}`);

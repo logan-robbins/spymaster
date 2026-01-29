@@ -15,16 +15,23 @@ export interface VelocityRow {
   liquidity_velocity: number;
 }
 
+export interface OptionsRow {
+  window_end_ts_ns: bigint;
+  spot_ref_price_int: bigint;
+  rel_ticks: number;  // Always multiples of 20 ($5 increments)
+  liquidity_velocity: number;  // Aggregated across C/P and A/B
+}
+
 export interface StreamCallbacks {
   onTick: (ts: bigint, surfaces: string[]) => void;
   onSnap: (row: SnapRow) => void;
   onVelocity: (rows: VelocityRow[]) => void;
+  onOptions: (rows: OptionsRow[]) => void;
 }
 
 export function connectStream(
   symbol: string,
   dt: string,
-  _surfaces: string,
   callbacks: StreamCallbacks
 ): WebSocket {
   const wsUrl = `ws://localhost:8001/v1/velocity/stream?symbol=${symbol}&dt=${dt}`;
@@ -89,6 +96,21 @@ export function connectStream(
               }
             }
             callbacks.onVelocity(rows);
+          } else if (surface === 'options') {
+            const rows: OptionsRow[] = [];
+            for (let i = 0; i < table.numRows; i++) {
+              const row = table.get(i);
+              if (row) {
+                const json = row.toJSON() as Record<string, unknown>;
+                rows.push({
+                  window_end_ts_ns: BigInt(json.window_end_ts_ns as string),
+                  spot_ref_price_int: BigInt(json.spot_ref_price_int as string),
+                  rel_ticks: Number(json.rel_ticks),
+                  liquidity_velocity: json.liquidity_velocity as number,
+                });
+              }
+            }
+            callbacks.onOptions(rows);
           }
 
           pendingSurface = null;

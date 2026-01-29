@@ -3,21 +3,22 @@ import * as THREE from 'three';
 const MAX_POINTS = 1800; // 30 minutes at 1s/point
 
 /**
- * Turquoise line chart showing spot price history over time.
- * X-axis: time (0 = oldest, MAX_POINTS-1 = newest)
- * Y-axis: price in ticks
+ * Glowing blue spot price line.
+ * Creates a soft glow effect using multiple semi-transparent layers.
  */
 export class SpotLine {
   private positions: Float32Array;
   private geometry: THREE.BufferGeometry;
-  private material: THREE.LineBasicMaterial;
   private line: THREE.Line;
+  private group: THREE.Group;
 
   private head: number = 0;
   private count: number = 0;
   private priceHistory: Float32Array;
 
   constructor() {
+    this.group = new THREE.Group();
+
     // Store price history (in tick units)
     this.priceHistory = new Float32Array(MAX_POINTS);
 
@@ -27,18 +28,86 @@ export class SpotLine {
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
     this.geometry.setDrawRange(0, 0);
 
-    // Turquoise line
-    this.material = new THREE.LineBasicMaterial({
-      color: 0x00d4aa,
-      linewidth: 2,
-    });
+    // Outer glow layers (soft blue haze)
+    const glowLayers = [
+      { yOffset: 1.0, opacity: 0.08, color: 0x0044aa },
+      { yOffset: 0.7, opacity: 0.12, color: 0x0066cc },
+      { yOffset: 0.5, opacity: 0.18, color: 0x0088dd },
+      { yOffset: 0.3, opacity: 0.25, color: 0x00aaee },
+      { yOffset: 0.15, opacity: 0.4, color: 0x00ccff },
+    ];
 
-    this.line = new THREE.Line(this.geometry, this.material);
-    this.line.frustumCulled = false;
+    for (const layer of glowLayers) {
+      // Upper glow
+      this.addGlowLine(layer.yOffset, layer.opacity, layer.color);
+      // Lower glow
+      this.addGlowLine(-layer.yOffset, layer.opacity, layer.color);
+    }
+
+    // Core line (bright white-blue, multiple for thickness)
+    const coreOffsets = [-0.08, -0.04, 0, 0.04, 0.08];
+    for (const offset of coreOffsets) {
+      const coreMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          color: { value: new THREE.Color(0x44ddff) },
+          yOffset: { value: offset },
+        },
+        vertexShader: `
+          uniform float yOffset;
+          void main() {
+            vec3 pos = position;
+            pos.y += yOffset;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 color;
+          void main() {
+            gl_FragColor = vec4(color, 1.0);
+          }
+        `,
+      });
+      const coreLine = new THREE.Line(this.geometry, coreMaterial);
+      coreLine.frustumCulled = false;
+      this.group.add(coreLine);
+    }
+
+    this.line = this.group.children[this.group.children.length - 1] as THREE.Line;
   }
 
-  getLine(): THREE.Line {
-    return this.line;
+  private addGlowLine(yOffset: number, opacity: number, color: number): void {
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        color: { value: new THREE.Color(color) },
+        opacity: { value: opacity },
+        yOffset: { value: yOffset },
+      },
+      vertexShader: `
+        uniform float yOffset;
+        void main() {
+          vec3 pos = position;
+          pos.y += yOffset;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 color;
+        uniform float opacity;
+        void main() {
+          gl_FragColor = vec4(color, opacity);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const line = new THREE.Line(this.geometry, material);
+    line.frustumCulled = false;
+    this.group.add(line);
+  }
+
+  getLine(): THREE.Group {
+    return this.group;
   }
 
   /**
@@ -65,18 +134,13 @@ export class SpotLine {
     const posAttr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
 
     // Draw from oldest to newest
-    // Oldest is at (head - count + MAX_POINTS) % MAX_POINTS
-    // Newest is at (head - 1 + MAX_POINTS) % MAX_POINTS
-
     for (let i = 0; i < this.count; i++) {
       const histIdx = (this.head - this.count + i + MAX_POINTS) % MAX_POINTS;
       const price = this.priceHistory[histIdx];
 
-      // X: time position (newest on right)
-      // i=0 is oldest, i=count-1 is newest
       const x = (i - this.count + 1) * xScale + xOffset;
       const y = price;
-      const z = 0.1; // Slightly in front of grid
+      const z = 0.5; // In front of grids
 
       this.positions[i * 3] = x;
       this.positions[i * 3 + 1] = y;
