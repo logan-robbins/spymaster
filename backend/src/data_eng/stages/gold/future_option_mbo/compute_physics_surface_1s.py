@@ -121,8 +121,13 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         # Note: 'strike_price_int' identifies the absolute level.
         g = df.groupby(["strike_price_int", "right", "side"])["liquidity_velocity"]
         
-        df["u_opt_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(0, drop=True)
-        df["u_opt_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(0, drop=True)
+        # Compute EWM and reset MultiIndex to align with df index
+        u_opt_ema_8 = g.ewm(alpha=alpha_8, adjust=False).mean()
+        u_opt_ema_32 = g.ewm(alpha=alpha_32, adjust=False).mean()
+        
+        # Drop the groupby index levels to get a Series with the original df index
+        df["u_opt_ema_8"] = u_opt_ema_8.reset_index(level=[0, 1, 2], drop=True)
+        df["u_opt_ema_32"] = u_opt_ema_32.reset_index(level=[0, 1, 2], drop=True)
         
         # u_opt_p_slow
         df["u_opt_p_slow"] = df["phi_rest_opt"] * df["u_opt_ema_32"]

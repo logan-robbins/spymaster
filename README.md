@@ -77,8 +77,14 @@ uv run python scripts/batch_download_futures.py poll --log-file logs/futures.log
 uv run python scripts/batch_download_equities.py poll --log-file logs/equities.log
 ```
 
+### MBO Contract Selection (prerequisite for silver/gold with symbol=ES)
+- `cd backend`
+- `uv run python -m src.data_eng.retrieval.mbo_contract_day_selector --dates 2026-01-06 --output-path lake/selection/mbo_contract_day_selection.parquet`
+- Creates: `lake/selection/mbo_contract_day_selection.parquet` (maps session_date -> front-month contract)
+
 ### Data pipeline
 - `cd backend`
+- `uv run python -m src.data_eng.runner --product-type future_mbo --layer bronze --symbol ES --dt 2026-01-06 --workers 1`
 - `uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06 --workers 1`
 - `uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06 --workers 1`
 - `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ES --dt 2026-01-06 --workers 1`
@@ -153,14 +159,24 @@ Per 1-second window, server sends:
 Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, rel_ticks) — NET velocity per strike level
 
 ## Visualization (frontend2)
-- Futures grid (VelocityGrid): green=building, red=eroding, $0.25 resolution
-- Options grid (OptionsGrid): cyan=building, magenta=eroding, horizontal bars at $5 increments
-- Options bar positioning: strikes above spot → bars render above strike line; below spot → below
+- **Unified Pressure vs Obstacles view**: Single composite shader showing liquidity dynamics
+  - Amber/orange = Upward pressure (bid support building)
+  - Teal/cyan = Downward pressure (ask resistance building)
+  - Dark maroon = Eroding liquidity (vacuum zones)
+  - Ice-white highlights = Strong walls (high omega + building velocity)
+- **Forecast line**: Projects from current spot into 30% right margin
+  - Amber = Upward prediction (high confidence)
+  - Teal = Downward prediction (high confidence)
+  - Direction cone at endpoint shows predicted direction
+- Options grid (OptionsGrid): horizontal bars at $5 increments showing options flow
 - Spot line: turquoise line tracking price history
+- Diagnostic HUD: RunScore up/down, wall distances, forecast confidence
 
 ## Key files
 - `backend/scripts/batch_download_futures.py` (raw data download: futures + futures options from GLBX.MDP3)
 - `backend/scripts/batch_download_equities.py` (raw data download: equities + equity options from XNAS.ITCH + OPRA.PILLAR)
+- `backend/src/data_eng/retrieval/mbo_contract_day_selector.py` (generates selection parquet for silver/gold)
+- `backend/lake/selection/mbo_contract_day_selection.parquet` (contract selection map - required for --symbol ES)
 - `backend/src/data_eng/pipeline.py`
 - `backend/src/data_eng/stages/silver/future_mbo/book_engine.py`
 - `backend/src/data_eng/stages/gold/future_mbo/compute_physics_surface_1s.py`

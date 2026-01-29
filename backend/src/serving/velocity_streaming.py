@@ -174,27 +174,33 @@ class ForecastEngine:
             v_eff = g_dir / (denom + 1e-6)
             v_eff[mask_gap] = g_dir[mask_gap] # ballistic in gaps
             
+            # CRITICAL: Clamp v_eff to reasonable range
+            # Pressure gradients are typically small (-1 to +1 range)
+            # Without clamping, numerical issues can cause huge velocities
+            v_eff = np.clip(v_eff, -5.0, 5.0)  # Max 5 ticks/sec drift
+            
             # Simulation
             # Particles start at x=0 (relative to spot)
             # We simulate in "tick space".
-            # v_eff is "intensity units".
-            # Need to map intensity to "ticks/sec".
-            # Calibration factor needed? Spec doesn't say.
-            # Assuming v_eff is in ticks/sec (since u is velocity).
+            # v_eff represents directional drift in ticks/sec
             
             p_x = np.zeros(self.n_particles)
-            sigma_brownian = 1.0 # Diffusion noise
+            sigma_brownian = 0.5 # Reduced noise for cleaner predictions
             
             for t in range(self.horizon_s):
-                # Interpolate v_eff at p_x
-                # Clip p_x to grid
+                # Interpolate v_eff at p_x (particle positions)
                 vals = np.interp(p_x, full_ticks, v_eff)
                 
-                # Update
+                # Update position: drift + noise
                 noise = np.random.normal(0, sigma_brownian, self.n_particles)
                 p_x += vals * self.dt + noise
+                
+                # Keep particles in reasonable bounds
+                p_x = np.clip(p_x, -150, 150)
             
             mean_delta = np.mean(p_x)
+            # Ensure delta is reasonable
+            mean_delta = np.clip(mean_delta, -100, 100)
             
             results.append({
                 "window_end_ts_ns": window_id,

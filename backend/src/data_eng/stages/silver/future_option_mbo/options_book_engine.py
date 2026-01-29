@@ -65,6 +65,9 @@ class OptionsBookEngine:
         # Scratch dict for active keys (Set replacement)
         active_keys = NumbaDict.empty(dt, int8)
 
+        # Pre-allocated dict for resting depth calculation
+        local_depth_rest = NumbaDict.empty(dt, int64)
+        
         (
             out_win_end, out_iid, out_side, out_px, 
             out_depth_total, out_depth_rest, out_add_qty, out_pull_qty, out_pull_rest, out_fill_qty,
@@ -74,7 +77,7 @@ class OptionsBookEngine:
             self.orders_meta, self.depth, 
             win_acc_add, win_acc_pull, win_acc_pull_rest, win_acc_fill, active_keys,
             self.levels_bid, self.levels_ask, self.known_iids,
-            self.window_ns, self.rest_ns
+            self.window_ns, self.rest_ns, local_depth_rest
         )
         
         # Flow DF
@@ -117,7 +120,7 @@ def _process_options_mbo(
     orders_meta, depth, 
     win_acc_add, win_acc_pull, win_acc_pull_rest, win_acc_fill, active_keys,
     levels_bid, levels_ask, known_iids,
-    window_ns, rest_ns
+    window_ns, rest_ns, local_depth_rest
 ):
     out_win_end = NumbaList.empty_list(int64)
     # ... (rest of lists)
@@ -163,8 +166,7 @@ def _process_options_mbo(
                     active_keys[k] = 1
 
             # Compute resting depth for this window end
-            dt = types.Tuple((int64, int8, int64))
-            local_depth_rest = NumbaDict.empty(dt, int64)
+            local_depth_rest.clear()
             for oid in orders_meta:
                  _iid, _side, _px, _qty, _ts = orders_meta[oid]
                  if window_end - _ts >= rest_ns:
@@ -361,8 +363,7 @@ def _process_options_mbo(
                 active_keys[k] = 1
         
         # Compute resting depth
-        dt = types.Tuple((int64, int8, int64))
-        local_depth_rest = NumbaDict.empty(dt, int64)
+        local_depth_rest.clear()
         for oid in orders_meta:
              _iid, _side, _px, _qty, _ts = orders_meta[oid]
              if window_end - _ts >= rest_ns:

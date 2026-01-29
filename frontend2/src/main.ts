@@ -22,15 +22,19 @@ const spotLabel = document.getElementById('spot-label')!;
 const tsLabel = document.getElementById('ts-label')!;
 const frameLabel = document.getElementById('frame-label')!;
 const zoomLabel = document.getElementById('zoom-label')!;
-const fieldSelect = document.getElementById('field-select') as HTMLSelectElement;
+
+// Diagnostic HUD elements
+const runScoreUpLabel = document.getElementById('run-score-up')!;
+const runScoreDownLabel = document.getElementById('run-score-down')!;
+const wallDistLabel = document.getElementById('wall-dist')!;
+const confidenceLabel = document.getElementById('confidence-label')!;
 
 // Three.js setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f); // Dark blue/black background
 
 // Camera state - FIXED position, only moves with zoom/pan
-// Y position set once we receive first spot price
-let cameraYCenter = 0;  // Absolute tick index for camera center
+let cameraYCenter = 0;
 let cameraInitialized = false;
 
 const PREDICTION_SECONDS = VIEW_SECONDS * PREDICTION_MARGIN / (1 - PREDICTION_MARGIN);
@@ -45,7 +49,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 
-// Futures velocity grid (green/red, fine-grained at $0.25)
+// Futures velocity grid - UNIFIED composite view (pressure vs obstacles)
 const velocityGrid = new VelocityGrid(GRID_WIDTH, GRID_HEIGHT);
 const velocityMesh = velocityGrid.getMesh();
 velocityMesh.renderOrder = 0;
@@ -66,7 +70,7 @@ const spotLineGroup = spotLine.getLine();
 spotLineGroup.renderOrder = 1;
 scene.add(spotLineGroup);
 
-// Price axis labels and grid lines (dynamic based on zoom)
+// Price axis labels and grid lines
 const priceAxis = new PriceAxis('price-axis', 20, VIEW_TICKS);
 scene.add(priceAxis.getGridGroup());
 
@@ -85,6 +89,13 @@ let pendingOptionsRows: OptionsRow[] = [];
 let velocityReady = false;
 let optionsReady = false;
 
+// Diagnostic state
+let latestRunScoreUp = 0;
+let latestRunScoreDown = 0;
+let latestDUp = 0;
+let latestDDown = 0;
+let latestConfidence = 0;
+
 // WebSocket callbacks
 function onTick(ts: bigint, _surfaces: string[]): void {
   lastTs = ts;
@@ -99,11 +110,12 @@ function onSnap(row: SnapRow): void {
 
   currentSpotTickIndex = spotToTickIndex(row.spot_ref_price_int);
 
-  // Initialize camera center on first spot (and anchor options grid)
+  // Initialize camera center on first spot
   if (!cameraInitialized) {
     cameraYCenter = currentSpotTickIndex;
     camera.position.y = cameraYCenter;
     optionsGrid.setReferenceStrike(currentSpotTickIndex);
+    forecastOverlay.setCameraCenter(cameraYCenter);
     cameraInitialized = true;
     console.log(`Camera initialized at tick ${cameraYCenter.toFixed(0)}`);
   }
@@ -129,33 +141,58 @@ function onOptions(rows: OptionsRow[]): void {
 }
 
 function onForecast(rows: ForecastRow[]): void {
-  // Forecast usually arrives last or is separate.
-  // We can update overlay immediately if we have currentSpot from snap
-  if (cameraInitialized) {
-    forecastOverlay.update(rows, currentSpotTickIndex);
+  if (!cameraInitialized) return;
+  forecastOverlay.update(rows, currentSpotTickIndex);
+  
+  // Extract diagnostics from forecast rows
+  for (const row of rows) {
+    if (row.horizon_s === 0) {
+      // Diagnostic row
+      latestRunScoreUp = row.run_score_up ?? 0;
+      latestRunScoreDown = row.run_score_down ?? 0;
+      latestDUp = row.d_up ?? 0;
+      latestDDown = row.d_down ?? 0;
+    } else if (row.horizon_s === 30) {
+      latestConfidence = row.confidence ?? 0;
+    }
   }
+  
+  // Update HUD
+  updateDiagnosticHUD();
+}
+
+function updateDiagnosticHUD(): void {
+  // Run scores: positive = vacuum corridor open, negative = wall reinforcing
+  const upColor = latestRunScoreUp > 0.1 ? '#ffaa00' : (latestRunScoreUp < -0.1 ? '#00aaff' : '#666');
+  const downColor = latestRunScoreDown > 0.1 ? '#00aaff' : (latestRunScoreDown < -0.1 ? '#ffaa00' : '#666');
+  
+  runScoreUpLabel.style.color = upColor;
+  runScoreUpLabel.textContent = `↑ Run: ${latestRunScoreUp.toFixed(2)}`;
+  
+  runScoreDownLabel.style.color = downColor;
+  runScoreDownLabel.textContent = `↓ Run: ${latestRunScoreDown.toFixed(2)}`;
+  
+  // Wall distances
+  wallDistLabel.textContent = `Walls: ↑${latestDUp.toFixed(0)} ↓${latestDDown.toFixed(0)} ticks`;
+  
+  // Confidence
+  const confColor = latestConfidence > 0.5 ? '#00ff88' : (latestConfidence > 0.2 ? '#ffaa00' : '#666');
+  confidenceLabel.style.color = confColor;
+  confidenceLabel.textContent = `Conf: ${(latestConfidence * 100).toFixed(0)}%`;
 }
 
 function tryProcessBatch(): void {
-  // Wait for both surfaces before processing
   if (!velocityReady || !optionsReady || currentSpotTickIndex === 0) return;
 
   // Advance both grids
   velocityGrid.advance(currentSpotTickIndex);
   optionsGrid.advance();
 
-  // Write futures velocity data (including new physics fields)
+  // Write futures velocity data
   let velocityWriteCount = 0;
   for (const row of pendingVelocityRows) {
     const relTicks = row.rel_ticks;
     const velocity = row.liquidity_velocity;
-
-    // Always write even if velocity is 0, because other fields might be non-zero?
-    // Wait, optimization: if ALL fields are zero, skip?
-    // Fields default to 0.
-    // If we only iterate sparse rows, we write sparse.
-    // But backend sends dense grid (-200..200).
-    // So we iterate 401 rows.
 
     if (velocity !== 0 || row.u_wave_energy !== 0 || row.pressure_grad !== 0 || row.nu !== 0 || row.Omega !== 0) {
       velocityGrid.write(
@@ -171,7 +208,7 @@ function tryProcessBatch(): void {
   }
   velocityGrid.flush();
 
-  // Write options velocity data (converted to absolute positions)
+  // Write options velocity data
   let optionsWriteCount = 0;
   for (const row of pendingOptionsRows) {
     const relTicks = row.rel_ticks;
@@ -186,29 +223,24 @@ function tryProcessBatch(): void {
   // Update spot line geometry
   spotLine.updateGeometry(1, 0);
 
-  // Position grids - camera is FIXED, grids are in absolute coordinates
+  // Position grids
   const count = velocityGrid.getCount();
   if (count > 1) {
     const timeSpan = count - 1;
 
-    // Futures velocity grid - centered on CAMERA position (which is fixed)
-    velocityGrid.setMeshCenter(cameraYCenter);  // Tell shader where mesh is centered
+    velocityGrid.setMeshCenter(cameraYCenter);
     velocityMesh.scale.set(timeSpan, GRID_HEIGHT, 1);
     velocityMesh.position.x = -timeSpan / 2;
-    velocityMesh.position.y = cameraYCenter;  // Use camera center, not current spot
+    velocityMesh.position.y = cameraYCenter;
     velocityMesh.position.z = 0;
 
-    // Options grid - covers the visible range at absolute tick positions
     const viewTicks = VIEW_TICKS / zoomLevel;
-    const meshBottom = cameraYCenter - viewTicks / 2 - 100;  // Extra buffer
+    const meshBottom = cameraYCenter - viewTicks / 2 - 100;
     const meshHeight = viewTicks + 200;
     optionsGrid.updateMesh(timeSpan, meshBottom, meshHeight);
   }
 
-  // NOTE: Camera position.y does NOT change - it stays at cameraYCenter
-  // The spot line moves UP/DOWN relative to the fixed camera view
-
-  // Update price axis labels (fixed at absolute $5 prices)
+  // Update price axis labels
   priceAxis.update(cameraYCenter, camera);
 
   // Update labels
@@ -240,12 +272,6 @@ connectStream(SYMBOL, DATE, {
   onForecast
 });
 
-// Field Selector Logic
-fieldSelect.addEventListener('change', (e) => {
-  const mode = (e.target as HTMLSelectElement).value as any;
-  velocityGrid.setDisplayMode(mode);
-});
-
 // Update camera based on zoom level
 function updateCamera(): void {
   const width = canvas.clientWidth;
@@ -258,14 +284,12 @@ function updateCamera(): void {
   const dataWidth = totalViewWidth * (1 - PREDICTION_MARGIN);
   const predictionWidth = totalViewWidth * PREDICTION_MARGIN;
 
-  // Camera bounds are RELATIVE to camera.position.y (which is cameraYCenter)
   camera.left = -dataWidth;
   camera.right = predictionWidth;
   camera.top = viewTicks / 2;
   camera.bottom = -viewTicks / 2;
   camera.updateProjectionMatrix();
 
-  // Update price axis with fixed center
   if (cameraInitialized) {
     priceAxis.update(cameraYCenter, camera);
   }
@@ -299,5 +323,5 @@ function animate(): void {
 }
 animate();
 
-console.log('Frontend2 initialized (unified futures + options stream)');
+console.log('Frontend2 initialized - UNIFIED pressure vs obstacles view');
 console.log(`Connecting to ws://localhost:8001/v1/velocity/stream?symbol=${SYMBOL}&dt=${DATE}`);

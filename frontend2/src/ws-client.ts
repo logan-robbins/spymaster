@@ -31,15 +31,14 @@ export interface OptionsRow {
 export interface ForecastRow {
   window_end_ts_ns: bigint;
   horizon_s: number;
-  predicted_spot_tick: bigint; // Relative in contract? No, name implies absolute. Or is it delta?
-  // Schema says predicted_spot_tick (null, long).
-  // Also predicted_tick_delta.
+  predicted_spot_tick: bigint;
   predicted_tick_delta: bigint;
   confidence: number;
-  RunScore_up: number;
-  RunScore_down: number;
-  D_up: number | null;
-  D_down: number | null;
+  // Diagnostic fields (h=0 row)
+  run_score_up?: number;
+  run_score_down?: number;
+  d_up?: number;
+  d_down?: number;
 }
 
 export interface StreamCallbacks {
@@ -146,14 +145,14 @@ export function connectStream(
                 const json = row.toJSON() as Record<string, unknown>;
                 rows.push({
                   window_end_ts_ns: BigInt(json.window_end_ts_ns as string),
-                  horizon_s: json.horizon_s as number,
-                  predicted_spot_tick: BigInt(json.predicted_spot_tick as string),
-                  predicted_tick_delta: BigInt(json.predicted_tick_delta as string),
-                  confidence: json.confidence as number,
-                  RunScore_up: json.RunScore_up as number,
-                  RunScore_down: json.RunScore_down as number,
-                  D_up: json.D_up as number | null,
-                  D_down: json.D_down as number | null,
+                  horizon_s: (json.horizon_s ?? 0) as number,
+                  predicted_spot_tick: BigInt((json.predicted_spot_tick ?? '0') as string),
+                  predicted_tick_delta: BigInt((json.predicted_tick_delta ?? '0') as string),
+                  confidence: (json.confidence ?? 0) as number,
+                  run_score_up: (json.run_score_up ?? json.RunScore_up ?? 0) as number,
+                  run_score_down: (json.run_score_down ?? json.RunScore_down ?? 0) as number,
+                  d_up: (json.d_up ?? json.D_up ?? 0) as number,
+                  d_down: (json.d_down ?? json.D_down ?? 0) as number,
                 });
               }
             }

@@ -95,106 +95,128 @@ export class VelocityGrid {
       }
     `;
 
-    // Shader renders velocity as colored overlay
-    // World coordinates: X = seconds back from now (0 = now, negative = past)
-    //                    Y = absolute tick price
-    // The mesh is positioned/scaled so vUv maps to the visible time range
+    // UNIFIED COMPOSITE SHADER: Pressure vs Obstacles
+    // Key insight: Only show activity, not smoothed background fields
+    // - Velocity: The primary signal of liquidity change
+    // - Pressure: Directional force (persistence-weighted velocity)
+    // - Obstacles: Only where velocity shows building/depth (not smoothed omega)
     const fragmentShader = `
-      uniform sampler2D uData;
+      uniform sampler2D uVelocity;
+      uniform sampler2D uPressure;
+      uniform sampler2D uOmega;
+      uniform sampler2D uNu;
       uniform sampler2D uSpotHistory;
       uniform float uWidth;
       uniform float uHeight;
-      uniform float uHead;        // Current head column index
-      uniform float uCount;       // Number of valid columns
-      uniform float uCurrentSpot; // Current spot tick index
-      uniform int uMode;          // 0=vel, 1=energy, 2=pressure, 3=viscosity, 4=obstacle
+      uniform float uHead;
+      uniform float uCount;
+      uniform float uCurrentSpot;
       varying vec2 vUv;
 
+      // Color palette
+      const vec3 BUILD_UP = vec3(0.95, 0.55, 0.15);      // Amber - building bid (upward support)
+      const vec3 BUILD_DOWN = vec3(0.15, 0.7, 0.85);     // Teal - building ask (downward resistance)
+      const vec3 ERODE_COLOR = vec3(0.6, 0.15, 0.2);     // Dark red - eroding (vacuum)
+      const vec3 WALL_COLOR = vec3(0.85, 0.9, 0.95);     // Ice white - strong wall
+      
       void main() {
-        // vUv.x: 0 = left edge (oldest visible), 1 = right edge (newest)
-        // Map to column index in ring buffer
-        // Newest is at head, oldest visible is at (head - count + 1)
-
+        // Map UV to ring buffer coordinates
         float colsBack = (1.0 - vUv.x) * (uCount - 1.0);
         float colIndex = mod(uHead - colsBack + uWidth, uWidth);
         float texX = (floor(colIndex) + 0.5) / uWidth;
 
-        // Get historical spot for this column
         float historicalSpot = texture2D(uSpotHistory, vec2(texX, 0.5)).r;
+        if (historicalSpot == 0.0) discard;
 
-        // Skip if no historical data yet
-        if (historicalSpot == 0.0) {
-          discard;
-        }
-
-        // vUv.y maps to tick range around current spot
-        // 0 = bottom (currentSpot - height/2), 1 = top (currentSpot + height/2)
         float worldY = uCurrentSpot + (vUv.y - 0.5) * uHeight;
-
-        // Convert to texture row: what rel_ticks was this at the historical spot?
         float historicalRelTicks = worldY - historicalSpot;
-
-        // Texture Y: center row (height/2) is rel_ticks=0
         float texY = (historicalRelTicks + uHeight * 0.5) / uHeight;
+        if (texY < 0.0 || texY > 1.0) discard;
 
-        // Out of bounds check
-        if (texY < 0.0 || texY > 1.0) {
+        vec2 texCoord = vec2(texX, texY);
+
+        // Sample fields
+        float velocity = texture2D(uVelocity, texCoord).r;
+        float pressure = texture2D(uPressure, texCoord).r;
+        float omega = texture2D(uOmega, texCoord).r;
+
+        // Only render where there's actual activity
+        // velocity = add_intensity - pull_intensity - fill_intensity
+        // This is sparse - only non-zero where order flow happened
+        if (abs(velocity) < 0.005 && abs(pressure) < 0.005) {
           discard;
         }
 
-        vec4 data = texture2D(uData, vec2(texX, texY));
-        float value = data.r;
+        vec3 finalColor = vec3(0.0);
+        float finalAlpha = 0.0;
 
-        vec3 color = vec3(0.0);
-        float alpha = 0.0;
+        // ===========================================
+        // PRIMARY: Velocity determines the story
+        // ===========================================
+        // Positive velocity = liquidity building (support/resistance forming)
+        // Negative velocity = liquidity eroding (vacuum opening)
         
-        if (uMode == 0) { // Velocity
-            if (abs(value) < 0.001) discard;
-            if (value > 0.0) color = vec3(0.0, 1.0, 0.6); // Green
-            else color = vec3(1.0, 0.27, 0.13); // Red
-            alpha = tanh(abs(value) * 2.0) * 0.8;
-            
-        } else if (uMode == 1) { // Energy
-            if (value < 0.001) discard;
-            // Hot heatmap (Black -> Red -> Yellow -> White)
-            color = vec3(min(value * 5.0, 1.0), min(max(value * 5.0 - 1.0, 0.0), 1.0), min(max(value * 5.0 - 2.0, 0.0), 1.0));
-            alpha = min(value * 5.0, 0.8);
-            
-        } else if (uMode == 2) { // Pressure
-             if (abs(value) < 0.001) discard;
-             // Blue (neg) to Red (pos)
-             if (value > 0.0) color = vec3(1.0, 0.2, 0.2);
-             else color = vec3(0.2, 0.2, 1.0);
-             alpha = tanh(abs(value) * 10.0) * 0.8;
-             
-        } else if (uMode == 3) { // Viscosity
-             if (value <= 1.001) discard; // nu starts at 1
-             // Purple haze
-             float intensity = (value - 1.0) * 0.5;
-             color = vec3(0.6, 0.0, 0.8);
-             alpha = tanh(intensity) * 0.6;
-             
-        } else if (uMode == 4) { // Obstacle (Omega)
-             if (value < 0.1) discard;
-             // White/Grey walls
-             color = vec3(0.8, 0.8, 0.9);
-             alpha = min(value * 0.3, 0.9);
+        if (velocity > 0.01) {
+          // BUILDING liquidity - color by pressure direction
+          float intensity = tanh(velocity * 3.0);
+          
+          if (pressure > 0.0) {
+            // Building bid support (upward pressure) = amber/orange
+            finalColor = mix(vec3(0.8, 0.4, 0.1), BUILD_UP, intensity);
+          } else {
+            // Building ask resistance (downward pressure) = teal/cyan
+            finalColor = mix(vec3(0.1, 0.5, 0.6), BUILD_DOWN, intensity);
+          }
+          finalAlpha = intensity * 0.85;
+          
+          // Strong walls get highlighted (high omega + building = solid wall)
+          if (omega > 2.0 && velocity > 0.1) {
+            float wallBoost = min((omega - 2.0) / 3.0, 0.5);
+            finalColor = mix(finalColor, WALL_COLOR, wallBoost);
+            finalAlpha = min(finalAlpha + wallBoost * 0.3, 0.95);
+          }
+          
+        } else if (velocity < -0.01) {
+          // ERODING liquidity - vacuum/thin zones
+          float intensity = tanh(abs(velocity) * 3.0);
+          
+          // Dark maroon/red for erosion - shows where liquidity is leaving
+          finalColor = mix(vec3(0.15, 0.05, 0.08), ERODE_COLOR, intensity);
+          finalAlpha = intensity * 0.7;
         }
 
-        gl_FragColor = vec4(color, alpha);
+        // ===========================================  
+        // SECONDARY: Pure pressure with no velocity
+        // ===========================================
+        // Shows persistent force even without immediate flow
+        if (finalAlpha < 0.1 && abs(pressure) > 0.02) {
+          float pMag = tanh(abs(pressure) * 5.0);
+          if (pressure > 0.0) {
+            finalColor = vec3(0.7, 0.4, 0.15) * pMag;  // Dim amber
+          } else {
+            finalColor = vec3(0.15, 0.45, 0.55) * pMag;  // Dim teal
+          }
+          finalAlpha = pMag * 0.4;
+        }
+
+        if (finalAlpha < 0.03) discard;
+
+        gl_FragColor = vec4(finalColor, finalAlpha);
       }
     `;
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
-        uData: { value: this.texture },
+        uVelocity: { value: this.texture },
+        uPressure: { value: this.pressureTexture },
+        uOmega: { value: this.omegaTexture },
+        uNu: { value: this.nuTexture },
         uSpotHistory: { value: this.spotHistoryTexture },
         uWidth: { value: this.width },
         uHeight: { value: this.height },
         uHead: { value: 0.0 },
         uCount: { value: 0.0 },
         uCurrentSpot: { value: 0.0 },
-        uMode: { value: 0 },
       },
       vertexShader,
       fragmentShader,
@@ -206,20 +228,6 @@ export class VelocityGrid {
     const geometry = new THREE.PlaneGeometry(1, 1);
     this.mesh = new THREE.Mesh(geometry, this.material);
     this.mesh.frustumCulled = false;
-  }
-
-  setDisplayMode(mode: 'velocity' | 'energy' | 'pressure' | 'viscosity' | 'obstacle') {
-    let tex = this.texture;
-    let m = 0;
-    switch (mode) {
-      case 'velocity': tex = this.texture; m = 0; break;
-      case 'energy': tex = this.energyTexture; m = 1; break;
-      case 'pressure': tex = this.pressureTexture; m = 2; break;
-      case 'viscosity': tex = this.nuTexture; m = 3; break;
-      case 'obstacle': tex = this.omegaTexture; m = 4; break;
-    }
-    this.material.uniforms.uData.value = tex;
-    this.material.uniforms.uMode.value = m;
   }
 
   getMesh(): THREE.Mesh {
@@ -247,7 +255,6 @@ export class VelocityGrid {
 
   /**
    * Set the mesh center for rendering (should match camera Y position)
-   * This is separate from current spot - the mesh is centered on the camera view.
    */
   setMeshCenter(meshCenterTick: number): void {
     this.material.uniforms.uCurrentSpot.value = meshCenterTick;
@@ -273,7 +280,6 @@ export class VelocityGrid {
   }
 
   flush(): void {
-    // Force texture re-upload
     this.texture.needsUpdate = true;
     this.energyTexture.needsUpdate = true;
     this.pressureTexture.needsUpdate = true;
@@ -291,8 +297,6 @@ export class VelocityGrid {
       this.nuData[idx] = 0;
       this.omegaData[idx] = 0;
     }
-    // We only need to flag update if we are looking at it potentially?
-    // Safer to flag all.
     this.texture.needsUpdate = true;
     this.energyTexture.needsUpdate = true;
     this.pressureTexture.needsUpdate = true;

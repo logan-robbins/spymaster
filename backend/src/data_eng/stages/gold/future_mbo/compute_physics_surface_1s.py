@@ -188,68 +188,42 @@ class GoldComputePhysicsSurface1s(Stage):
         
         # We define a helper to apply spatial smoothing
         def apply_spatial_smoothing(df_in, target_col, sigma, n_ticks, out_col_name):
+            """Apply Gaussian spatial smoothing along rel_ticks dimension."""
+            import warnings
+            
             # Pivot to [ts, side] x [rel_ticks]
-            # We process each side separately to avoid index collision or weirdness
-            # Actually we can pivot on ["window_end_ts_ns", "side"] as index
-            
-            # Debug prints
-            print(f"DEBUG INPUT COLS: {df_in.columns.tolist()}")
-            if "side" not in df_in.columns:
-                 print("DEBUG WARNING: 'side' not in columns!")
-            
             # Use groupby().unstack() to enforce MultiIndex and handle duplicates via mean
-            # This ensures we don't lose 'side' or 'window_end_ts_ns' even if they look redundant
             pivoted = df_in.groupby(["window_end_ts_ns", "side", "rel_ticks"])[target_col].mean().unstack("rel_ticks")
             
-            # Debug traces (optional, can remove later)
-            # print(f"DEBUG PIVOT IDX NAMES: {pivoted.index.names}")
-            
             # Reindex to dense grid -200 to +200
-            # Assuming standard tick range
             full_ticks = np.arange(-200, 201)
             pivoted = pivoted.reindex(columns=full_ticks, fill_value=0.0)
             
-            # Apply rolling gaussian
-            # Window width must cover +/- N_ticks. width = 2*N + 1?
-            # Pandas rolling window size is M. Center=True.
-            # Truncation at +/- N means we want kernel radius N.
-            # 6 sigma should cover enough.
-            # N=16, window ~ 33
+            # Apply rolling gaussian along columns (rel_ticks dimension)
             win_size = int(2 * n_ticks + 1)
             
-            # axis=1 is deprecated in future pandas, use transpose
-            # T: [rel_ticks] x [ts, side]
-            smoothed_T = pivoted.T.rolling(
-                window=win_size, 
-                win_type='gaussian', 
-                center=True, 
-                axis=0
-            ).mean(std=sigma)
+            # Use apply with rolling on each row to avoid deprecated axis param
+            # Or use the deprecated axis=1 with suppressed warning for now
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)
+                smoothed = pivoted.rolling(
+                    window=win_size, 
+                    win_type='gaussian', 
+                    center=True, 
+                    axis=1
+                ).mean(std=sigma)
             
-            smoothed = smoothed_T.T # Back to [ts, side] x [rel_ticks]
+            # Stack back to long format - explicitly preserve MultiIndex
+            # First reset index to flatten MultiIndex to columns
+            smoothed = smoothed.reset_index()
             
-            # Melt back
-            melted = smoothed.stack().rename(out_col_name).reset_index()
+            # Melt from wide to long format
+            melted = smoothed.melt(
+                id_vars=["window_end_ts_ns", "side"],
+                var_name="rel_ticks",
+                value_name=out_col_name
+            )
             
-            # Check if we got 3 columns (tuple key) or 4 columns (MultiIndex)
-            if melted.shape[1] == 4:
-                 melted.columns = ["rel_ticks", "window_end_ts_ns", "side", out_col_name]
-            elif melted.shape[1] == 3:
-                 # Tuple index case
-                 melted.columns = ["rel_ticks", "key_tuple", out_col_name]
-                 # Expand tuple
-                 # Provide explicit columns to avoid mismatch
-                 keys = pd.DataFrame(melted["key_tuple"].tolist(), index=melted.index)
-                 if keys.shape[1] == 2:
-                     melted["window_end_ts_ns"] = keys[0]
-                     melted["side"] = keys[1]
-                 else:
-                     # Fallback if unexpeted
-                     raise ValueError(f"Unexpected key tuple shape: {keys.shape}")
-                 melted = melted.drop(columns=["key_tuple"])
-            else:
-                 raise ValueError(f"Unexpected melted shape: {melted.shape}")
-
             return melted
 
         # Apply smoothing
@@ -306,8 +280,8 @@ class GoldComputePhysicsSurface1s(Stage):
         # Fill spot_ref_price_int?
         # It's constant per window_end_ts_ns.
         # We need to backfill it from existing info.
-        # Map timestamp -> spot_ref
-        spot_map = df[["window_end_ts_ns", "spot_ref_price_int", "event_ts_ns"]].drop_duplicates()
+        # Map timestamp -> spot_ref (window_end_ts_ns is our event reference)
+        spot_map = df[["window_end_ts_ns", "spot_ref_price_int"]].drop_duplicates()
         # If duplicated timestamps have diff spot (unlikely given grain), take first.
         spot_map = spot_map.drop_duplicates("window_end_ts_ns")
         
@@ -318,7 +292,7 @@ class GoldComputePhysicsSurface1s(Stage):
         # It's an informational column.
         # Let's just drop spot_ref_price_int from merge and re-join it.
         if "spot_ref_price_int" in df_merged.columns:
-             df_merged = df_merged.drop(columns=["spot_ref_price_int", "event_ts_ns"])
+             df_merged = df_merged.drop(columns=["spot_ref_price_int"])
              
         df_merged = df_merged.merge(spot_map, on="window_end_ts_ns", how="left")
         

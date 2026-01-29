@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Liquidity Velocity</title>
+  <title>Liquidity Physics</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; overflow: hidden; font-family: monospace; }
+    body { background: #0a0a0f; overflow: hidden; font-family: 'SF Mono', 'Monaco', 'Consolas', monospace; }
     #canvas { width: 100vw; height: 100vh; display: block; }
     #price-axis {
       position: absolute;
@@ -17,35 +17,146 @@
       pointer-events: none;
       z-index: 50;
     }
+    
+    /* Main info overlay - top left */
     #overlay {
       position: absolute;
-      top: 10px;
-      left: 10px;
+      top: 12px;
+      left: 12px;
       color: #00ffaa;
-      font-size: 12px;
+      font-size: 11px;
       z-index: 100;
+      background: rgba(10, 10, 15, 0.7);
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(0, 255, 170, 0.2);
     }
-    #overlay div { margin-bottom: 4px; }
+    #overlay div { margin-bottom: 3px; }
+    #spot-label { font-size: 13px; font-weight: 600; color: #00ffcc; }
+    
+    /* Diagnostic HUD - bottom left */
+    #diagnostic-hud {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      color: #aaa;
+      font-size: 11px;
+      z-index: 100;
+      background: rgba(10, 10, 15, 0.85);
+      padding: 12px 16px;
+      border-radius: 6px;
+      border: 1px solid rgba(100, 100, 120, 0.3);
+      min-width: 160px;
+    }
+    #diagnostic-hud .hud-title {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid rgba(100, 100, 120, 0.3);
+      padding-bottom: 4px;
+    }
+    #diagnostic-hud .hud-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    #diagnostic-hud .hud-label {
+      color: #888;
+    }
+    #diagnostic-hud .hud-value {
+      font-weight: 500;
+    }
+    
+    /* Legend - bottom right */
+    #legend {
+      position: absolute;
+      bottom: 12px;
+      right: 100px;
+      font-size: 10px;
+      z-index: 100;
+      background: rgba(10, 10, 15, 0.7);
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(100, 100, 120, 0.2);
+    }
+    #legend .legend-title {
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+      font-size: 9px;
+    }
+    #legend .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    #legend .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      margin-right: 8px;
+    }
+    #legend .legend-text {
+      color: #999;
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="price-axis"></div>
+  
+  <!-- Main info overlay -->
   <div id="overlay">
     <div id="spot-label">Spot: --</div>
     <div id="ts-label">TS: --</div>
     <div id="frame-label">Frame: --</div>
     <div id="zoom-label">Zoom: 1.0x</div>
-    <div style="margin-top: 10px;">
-      <select id="field-select" style="background: #000; color: #00ffaa; border: 1px solid #00ffaa; padding: 4px;">
-        <option value="velocity">Velocity</option>
-        <option value="energy">Wave Energy</option>
-        <option value="pressure">Pressure Grad</option>
-        <option value="viscosity">Viscosity</option>
-        <option value="obstacle">Obstacles</option>
-      </select>
+  </div>
+  
+  <!-- Diagnostic HUD -->
+  <div id="diagnostic-hud">
+    <div class="hud-title">Forecast Diagnostics</div>
+    <div class="hud-row">
+      <span class="hud-label">Run Score</span>
+    </div>
+    <div class="hud-row">
+      <span id="run-score-up" class="hud-value">↑ Run: 0.00</span>
+    </div>
+    <div class="hud-row">
+      <span id="run-score-down" class="hud-value">↓ Run: 0.00</span>
+    </div>
+    <div class="hud-row" style="margin-top: 6px;">
+      <span id="wall-dist" class="hud-value" style="color: #aaa;">Walls: ↑0 ↓0 ticks</span>
+    </div>
+    <div class="hud-row" style="margin-top: 6px;">
+      <span id="confidence-label" class="hud-value">Conf: 0%</span>
     </div>
   </div>
+  
+  <!-- Legend -->
+  <div id="legend">
+    <div class="legend-title">Pressure vs Obstacles</div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: linear-gradient(90deg, #ff9922, #ffcc44);"></div>
+      <span class="legend-text">Upward Pressure</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: linear-gradient(90deg, #22aacc, #44ccdd);"></div>
+      <span class="legend-text">Downward Pressure</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: linear-gradient(90deg, #aabbcc, #ddeeff);"></div>
+      <span class="legend-text">Obstacle / Wall</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: #050508;"></div>
+      <span class="legend-text">Vacuum / Thin</span>
+    </div>
+  </div>
+  
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
