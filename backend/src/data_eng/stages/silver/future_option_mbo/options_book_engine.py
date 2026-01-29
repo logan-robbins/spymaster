@@ -149,13 +149,16 @@ def _process_options_mbo(
         
         if w_id > curr_window:
             # Emit Window Data
-            # active_keys = NumbaDict.empty(types.Tuple((int64, int8, int64)), int8) # REMOVED
-            # Use passed active_keys
-            # Clear it first? No, it's accumulated.
-            # Wait, populate it now.
-            for k in win_acc_add: active_keys[k] = 1
-            for k in win_acc_pull: active_keys[k] = 1
-            for k in win_acc_fill: active_keys[k] = 1
+            # Build active keys from flow + depth to ensure we capture resting liquidity.
+            for k in win_acc_add:
+                active_keys[k] = 1
+            for k in win_acc_pull:
+                active_keys[k] = 1
+            for k in win_acc_fill:
+                active_keys[k] = 1
+            for k in depth:
+                if depth.get(k, 0) > 0:
+                    active_keys[k] = 1
             
             for k in active_keys:
                 iid_k, side_k, px_k = k
@@ -165,6 +168,8 @@ def _process_options_mbo(
                 fill = win_acc_fill.get(k, 0)
                 
                 d_total = depth.get(k, 0)
+                if d_total <= 0 and add == 0 and pull == 0 and pull_rest == 0 and fill == 0:
+                    continue
                 
                 out_win_end.append(window_end)
                 out_iid.append(iid_k)
@@ -331,9 +336,15 @@ def _process_options_mbo(
     # Emit Last Window
     if curr_window != -1:
         # Use passed active_keys (it was cleared)
-        for k in win_acc_add: active_keys[k] = 1
-        for k in win_acc_pull: active_keys[k] = 1
-        for k in win_acc_fill: active_keys[k] = 1
+        for k in win_acc_add:
+            active_keys[k] = 1
+        for k in win_acc_pull:
+            active_keys[k] = 1
+        for k in win_acc_fill:
+            active_keys[k] = 1
+        for k in depth:
+            if depth.get(k, 0) > 0:
+                active_keys[k] = 1
         
         for k in active_keys:
             iid_k, side_k, px_k = k
@@ -342,6 +353,8 @@ def _process_options_mbo(
             pull_rest = win_acc_pull_rest.get(k, 0)
             fill = win_acc_fill.get(k, 0)
             d_total = depth.get(k, 0)
+            if d_total <= 0 and add == 0 and pull == 0 and pull_rest == 0 and fill == 0:
+                continue
             
             out_win_end.append(window_end)
             out_iid.append(iid_k)

@@ -1,8 +1,8 @@
 Plan (living)
 1) Discovery: map future_mbo semantics + current future_option_mbo stages/contracts/consumers (hud_streaming, bucket_radar, calibration). [done]
 2) Lock scope decisions: exact ±$50 (±200 ticks) spot-anchored $5 strike grid; remove future_option_mbo dependencies from HUD, bucket_radar, and HUD calibration. [done]
-3) Update silver contracts + stage to emit only facts on the $5 grid (spot_ref, rel_ticks, per-strike depth_start/end, add/pull/fill, window bounds). Retire gex_5s and any feature fields from silver. [pending]
-4) Add gold stages/contracts to compute option physics features from silver facts (add/fill/pull intensities, liquidity_velocity, optional derivatives) and any needed normalization. [pending]
-5) Rewire pipeline + datasets.yaml + consumers to use new gold outputs; delete future_option_mbo references in hud_streaming, bucket_radar, and HUD calibration inputs. [pending]
-6) Update futures_data.json + README to current state; remove obsolete future_option_mbo files/contracts. [pending]
-7) Verify on 2026-01-06 first hour with uv run pipeline + integrity checks. [pending]
+3) Update silver contracts + stage to emit only facts on the $5 grid (spot_ref, rel_ticks, per-strike depth_start/end, add/pull/fill, window bounds). Retire gex_5s and any feature fields from silver. [done]
+4) Add gold stages/contracts to compute option physics features from silver facts (add/fill/pull intensities, liquidity_velocity). [done]
+5) Rewire pipeline + datasets.yaml + consumers to use new gold outputs; delete future_option_mbo references in hud_streaming, bucket_radar, and HUD calibration inputs. [done]
+6) Update futures_data.json + README to current state; remove obsolete future_option_mbo files/contracts/scripts. [done]
+7) Verify on 2026-01-06 first hour with uv run pipeline + integrity checks. [done]

@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
 
 repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root))
@@ -31,63 +30,70 @@ def check_integrity_v2(dt: str) -> None:
     print(f"Checking integrity (V2) for {symbol} on {dt}")
 
     # =========================================================================
-    # GEX SURFACE CHECKS
+    # OPTION DEPTH/FLOW CHECKS
     # =========================================================================
-    print("\n[checking GEX Surface...]")
-    gex_ref = partition_ref(cfg, "silver.future_option_mbo.gex_surface_1s", symbol, dt)
-    if not gex_ref.dir.exists():
-        print(f"SKIPPING: GEX partition missing at {gex_ref.dir}")
+    print("\n[checking Option Depth+Flow Surface...]")
+    opt_ref = partition_ref(cfg, "silver.future_option_mbo.depth_and_flow_1s", symbol, dt)
+    if not opt_ref.dir.exists():
+        print(f"SKIPPING: Option depth/flow partition missing at {opt_ref.dir}")
     else:
-        df_gex = pd.read_parquet(gex_ref.dir)
-        print(f"Loaded {len(df_gex)} rows.")
+        df_opt = pd.read_parquet(opt_ref.dir)
+        print(f"Loaded {len(df_opt)} rows.")
 
-        if df_gex.empty:
-            print("WARNING: GEX dataframe is empty.")
+        if df_opt.empty:
+            print("WARNING: Option depth/flow dataframe is empty.")
         else:
-            # 1. 25 Rows per Window
-            counts = df_gex.groupby("window_end_ts_ns").size()
-            invalid_counts = counts[counts != 25]
+            # Expect 21 strikes * 2 rights * 2 sides = 84 rows per window
+            counts = df_opt.groupby("window_end_ts_ns").size()
+            invalid_counts = counts[counts != 84]
             if not invalid_counts.empty:
-                print(f"FAIL: Found {len(invalid_counts)} windows without exactly 25 strike rows.")
+                print(f"FAIL: Found {len(invalid_counts)} windows without exactly 84 rows.")
                 print(invalid_counts.head())
             else:
-                print("PASS: All windows have 25 strike rows.")
+                print("PASS: All windows have 84 strike/right/side rows.")
 
-            # 2. Rel Ticks Alignment (Must be multiples of 20)
-            # Assuming 'rel_ticks' column exists as float or int
-            if "rel_ticks" in df_gex.columns:
-                fails = df_gex[df_gex["rel_ticks"] % 20 != 0]
+            if "rel_ticks" in df_opt.columns:
+                fails = df_opt[df_opt["rel_ticks"] % 20 != 0]
                 if not fails.empty:
                     print(f"FAIL: Found {len(fails)} rows where rel_ticks is not a multiple of 20.")
                     print(fails[["window_end_ts_ns", "rel_ticks"]].head())
                 else:
                     print("PASS: All rel_ticks are multiples of 20 ($5 strikes).")
-                
-                # Check range +/- 240
-                range_fails = df_gex[df_gex["rel_ticks"].abs() > 240]
-                if not range_fails.empty:
-                    print(f"FAIL: Found {len(range_fails)} rows where rel_ticks > 240.")
-                else:
-                    print("PASS: All rel_ticks within ±240 range.")
-            else:
-                print("WARNING: 'rel_ticks' column not found in GEX data.")
 
-            # 3. Strike Monotonicity
-            # Check that within each window, strike_price_int is sorted
-            # This is expensive to check loop-wise.
-            # Vectorized: sort by ts, strike. diff().
-            df_curr = df_gex.sort_values(["window_end_ts_ns", "strike_price_int"])
-            # The diff of strike_price_int should be uniform within a window
-            # But between windows it might jump.
-            # We can check simple uniqueness per window?
-            # Or just rely on the count check.
-            pass
+                range_fails = df_opt[df_opt["rel_ticks"].abs() > 200]
+                if not range_fails.empty:
+                    print(f"FAIL: Found {len(range_fails)} rows where rel_ticks > 200.")
+                else:
+                    print("PASS: All rel_ticks within ±200 range.")
+            else:
+                print("WARNING: 'rel_ticks' column not found in option depth/flow data.")
+
+    # =========================================================================
+    # OPTION PHYSICS CHECKS
+    # =========================================================================
+    print("\n[checking Option Physics Surface...]")
+    opt_phys_ref = partition_ref(cfg, "gold.future_option_mbo.physics_surface_1s", symbol, dt)
+    if not opt_phys_ref.dir.exists():
+        print(f"SKIPPING: Option physics partition missing at {opt_phys_ref.dir}")
+    else:
+        df_opt_phys = pd.read_parquet(opt_phys_ref.dir)
+        print(f"Loaded {len(df_opt_phys)} rows.")
+
+        if df_opt_phys.empty:
+            print("WARNING: Option physics dataframe is empty.")
+        else:
+            required_cols = {"add_intensity", "pull_intensity", "fill_intensity", "liquidity_velocity"}
+            missing = required_cols.difference(df_opt_phys.columns)
+            if missing:
+                print(f"FAIL: Missing option physics columns: {sorted(missing)}")
+            else:
+                print("PASS: Option physics columns present.")
 
     # =========================================================================
     # PHYSICS SURFACE CHECKS
     # =========================================================================
     print("\n[checking Physics Surface...]")
-    phys_ref = partition_ref(cfg, "silver.future_mbo.physics_surface_1s", symbol, dt)
+    phys_ref = partition_ref(cfg, "gold.future_mbo.physics_surface_1s", symbol, dt)
     if not phys_ref.dir.exists():
         print(f"SKIPPING: Physics partition missing at {phys_ref.dir}")
     else:

@@ -300,6 +300,10 @@
         },
         "gold": {
             "GoldComputePhysicsSurface1s": {
+                "_inputs": [
+                    "silver.future_mbo.book_snapshot_1s",
+                    "silver.future_mbo.depth_and_flow_1s"
+                ],
                 "physics_surface_1s": {
                     "rel_ticks_side": {
                         "built_from": [
@@ -348,21 +352,310 @@
                         "note": "True net change in liquidity. Positive = building, Negative = eroding (pulls + fills > adds)"
                     }
                 }
-            },
-            "GoldComputePhysicsBands1s": {
-                "_status": "PENDING_REDESIGN",
-                "_note": "Stage 4 needs update - wall_strength removed from Stage 3. User to address in next task.",
-                "physics_bands_1s": {
-                    "features": [
-                        "add_intensity",
-                        "fill_intensity",
-                        "pull_intensity",
-                        "liquidity_velocity"
+            }
+        }
+    },
+    "future_option_mbo": {
+        "bronze": {
+            "BronzeIngestFutureOptionMbo": {
+                "ts_event": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.ts_event"
                     ],
                     "transformation_steps": [
-                        "Band aggregation from physics_surface_1s (At: 0-2, Near: 3-5, Mid: 6-14, Far: 15-20)",
-                        "Compute Mean of each intensity metric per Band per Direction"
+                        "Cast to int64",
+                        "Output filtered to session window (09:30-09:40 ET for dev)"
                     ]
+                },
+                "price": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.price"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64",
+                        "Handle NULL_PRICE (replace with 0 if action is Add/Modify)"
+                    ]
+                },
+                "size": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.size"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "action": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.action"
+                    ],
+                    "transformation_steps": [
+                        "Pass through"
+                    ]
+                },
+                "side": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.side"
+                    ],
+                    "transformation_steps": [
+                        "Pass through"
+                    ]
+                },
+                "order_id": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.order_id"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "flags": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.flags"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "instrument_id": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.instrument_id"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "strike": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.strike"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                },
+                "right": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.instrument_class"
+                    ],
+                    "transformation_steps": [
+                        "Map to right ('C' or 'P') from instrument definitions"
+                    ]
+                },
+                "expiration": {
+                    "built_from": [
+                        "raw.market_by_order_dbn.expiration"
+                    ],
+                    "transformation_steps": [
+                        "Cast to int64"
+                    ]
+                }
+            }
+        },
+        "silver": {
+            "SilverComputeOptionBookStates1s": {
+                "book_snapshot_1s": {
+                    "window_start_ts_ns": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.ts_event"
+                        ],
+                        "transformation_steps": [
+                            "Floor ts_event to 1s bucket (start of window)"
+                        ]
+                    },
+                    "window_end_ts_ns": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.ts_event"
+                        ],
+                        "transformation_steps": [
+                            "Ceil ts_event to 1s bucket (end of window)"
+                        ]
+                    },
+                    "bid_price_int": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.price",
+                            "bronze.future_option_mbo.mbo.side",
+                            "bronze.future_option_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Stateful order map per instrument",
+                            "Select maximum price with quantity > 0 where side='B' at window_end_ts"
+                        ]
+                    },
+                    "ask_price_int": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.price",
+                            "bronze.future_option_mbo.mbo.side",
+                            "bronze.future_option_mbo.mbo.action"
+                        ],
+                        "transformation_steps": [
+                            "Stateful order map per instrument",
+                            "Select minimum price with quantity > 0 where side='A' at window_end_ts"
+                        ]
+                    },
+                    "mid_price_int": {
+                        "built_from": [
+                            "bid_price_int",
+                            "ask_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Round(Avg(Best Bid, Best Ask))"
+                        ]
+                    },
+                    "mid_price": {
+                        "built_from": [
+                            "mid_price_int"
+                        ],
+                        "transformation_steps": [
+                            "mid_price_int * PRICE_SCALE (1e-9)"
+                        ]
+                    },
+                    "spot_ref_price_int": {
+                        "built_from": [
+                            "silver.future_mbo.book_snapshot_1s.spot_ref_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Spot anchor from futures MBO snapshot at window_end_ts"
+                        ]
+                    },
+                    "book_valid": {
+                        "built_from": [
+                            "internal_state"
+                        ],
+                        "transformation_steps": [
+                            "True if book state is initialized per instrument"
+                        ]
+                    }
+                },
+                "depth_and_flow_1s": {
+                    "_description": "Option MBO depth and flow aggregated to $5 strike buckets, spot-anchored.",
+                    "_shape": "Long Format (Panel Data)",
+                    "_grain": "1 Second x Strike Bucket x Right x Side",
+                    "_primary_key": [
+                        "window_end_ts_ns",
+                        "strike_price_int",
+                        "right",
+                        "side"
+                    ],
+                    "strike_price_int": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.strike"
+                        ],
+                        "transformation_steps": [
+                            "Bucket strikes every $5 and align to spot grid ±$50"
+                        ]
+                    },
+                    "spot_ref_price_int": {
+                        "built_from": [
+                            "silver.future_mbo.book_snapshot_1s.spot_ref_price_int"
+                        ],
+                        "transformation_steps": [
+                            "Spot anchor from futures MBO snapshot at window_end_ts"
+                        ]
+                    },
+                    "rel_ticks": {
+                        "built_from": [
+                            "strike_price_int",
+                            "spot_ref_price_int"
+                        ],
+                        "transformation_steps": [
+                            "(strike_price_int - spot_ref_price_int) / TICK_INT",
+                            "Round to integer (multiples of 20 ticks)"
+                        ]
+                    },
+                    "depth_qty_start": {
+                        "built_from": [
+                            "book_state"
+                        ],
+                        "transformation_steps": [
+                            "calculated as: depth_qty_end - add_qty + pull_qty_total + fill_qty"
+                        ]
+                    },
+                    "depth_qty_end": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Quantity remaining at strike bucket at end of window"
+                        ]
+                    },
+                    "add_qty": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.action=A"
+                        ],
+                        "transformation_steps": [
+                            "Sum of added volume at strike bucket in window"
+                        ]
+                    },
+                    "pull_qty_total": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.action=C|M"
+                        ],
+                        "transformation_steps": [
+                            "Sum of cancelled/reduced volume at strike bucket in window"
+                        ]
+                    },
+                    "pull_qty_rest": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Sum of cancelled volume from orders resting > 500ms"
+                        ]
+                    },
+                    "fill_qty": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo.action=F"
+                        ],
+                        "transformation_steps": [
+                            "Sum of filled volume at strike bucket in window"
+                        ]
+                    }
+                }
+            }
+        },
+        "gold": {
+            "GoldComputeOptionPhysicsSurface1s": {
+                "_inputs": [
+                    "silver.future_option_mbo.depth_and_flow_1s"
+                ],
+                "physics_surface_1s": {
+                    "add_intensity": {
+                        "built_from": [
+                            "silver.future_option_mbo.depth_and_flow_1s.add_qty",
+                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                        ],
+                        "transformation_steps": [
+                            "add_qty / (depth_qty_start + 1.0)"
+                        ]
+                    },
+                    "fill_intensity": {
+                        "built_from": [
+                            "silver.future_option_mbo.depth_and_flow_1s.fill_qty",
+                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                        ],
+                        "transformation_steps": [
+                            "fill_qty / (depth_qty_start + 1.0)"
+                        ]
+                    },
+                    "pull_intensity": {
+                        "built_from": [
+                            "silver.future_option_mbo.depth_and_flow_1s.pull_qty_total",
+                            "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"
+                        ],
+                        "transformation_steps": [
+                            "pull_qty_total / (depth_qty_start + 1.0)"
+                        ]
+                    },
+                    "liquidity_velocity": {
+                        "built_from": [
+                            "add_intensity",
+                            "pull_intensity",
+                            "fill_intensity"
+                        ],
+                        "transformation_steps": [
+                            "add_intensity - pull_intensity - fill_intensity"
+                        ],
+                        "note": "True net change in liquidity at the strike bucket"
+                    }
                 }
             }
         }

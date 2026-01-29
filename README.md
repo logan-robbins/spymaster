@@ -1,154 +1,83 @@
-# Spymaster - AI Agent Reference
+# Spymaster - LLM Ops Reference
 
 ## Constraints
-- **Date**: 2026-01-06 (only date with full MBO data)
-- **Session**: 09:30-09:40 ET (10 min for dev), 09:30-10:30 ET (prod)
-- **Symbol**: ESH6 (ES March 2026 futures)
-- **Session config**: `backend/src/data_eng/stages/silver/future_mbo/mbo_batches.py:first_hour_window_ns()`
+- product_types: future_mbo, future_option_mbo
+- dt: 2026-01-06
+- session window: 09:30-09:40 ET (dev); config: `backend/src/data_eng/stages/silver/future_mbo/mbo_batches.py` (first_hour_window_ns)
+- symbol: ESH6
+- tick size: $0.25 (TICK_INT = 250_000_000)
+- grid: ±200 ticks from spot_ref_price_int
+- spot_ref_price_int: window-start on-book anchor (last trade if on-book, else nearest best bid/ask)
+- rel_ticks: spot-anchored
+- rel_ticks_side: side-anchored (best bid/ask at window start)
+- option strike grid: $5 buckets, ±$50 from spot_ref_price_int (rel_ticks multiples of 20)
 
-## Launch Commands
+## Commands
+### Data pipeline
+- `cd backend`
+- `uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ES --dt 2026-01-06 --workers 1`
+- `uv run python -m src.data_eng.runner --product-type future_option_mbo --layer gold --symbol ES --dt 2026-01-06 --workers 1`
+- add `--overwrite` for silver/gold rebuilds
 
-### Backend WebSocket Server
-```bash
-cd backend
-uv run python -m src.serving.main
-# WebSocket: ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06
-```
+### Velocity stream server
+- `cd backend`
+- `uv run python -m src.serving.velocity_main`
+- `ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06`
 
-### Frontend (Full HUD)
-```bash
-cd frontend
-npm run dev
-# http://localhost:5173
-```
+### Frontend2 (primary)
+- `cd frontend2`
+- `npm install && npm run dev`
+- `http://localhost:5174`
 
-### Frontend2 (Velocity Grid)
-```bash
-cd frontend2
-npm install && npm run dev
-# http://localhost:5174
-```
+### Process checks
+- `lsof -iTCP:8001 -sTCP:LISTEN`
+- `lsof -iTCP:5174 -sTCP:LISTEN`
 
-### Velocity Stream Server (for frontend2)
-```bash
-cd backend
-uv run python -m src.serving.velocity_main
-# WebSocket: ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06
-```
+## Pipeline (future_mbo)
+- BronzeIngestFutureMbo -> `bronze.future_mbo.mbo`
+- SilverComputeBookStates1s -> `silver.future_mbo.book_snapshot_1s`, `silver.future_mbo.depth_and_flow_1s`
+- GoldComputePhysicsSurface1s -> `gold.future_mbo.physics_surface_1s`
 
-### Pipeline Runner
-```bash
-cd backend
-# future_mbo pipeline (Bronze → Silver → Gold)
-uv run python -m src.data_eng.runner --product-type future_mbo --layer all --symbol ESH6 --dt 2026-01-06 --workers 1
+## Pipeline (future_option_mbo)
+- BronzeIngestFutureOptionMbo -> `bronze.future_option_mbo.mbo`
+- SilverComputeOptionBookStates1s -> `silver.future_option_mbo.book_snapshot_1s`, `silver.future_option_mbo.depth_and_flow_1s`
+- GoldComputeOptionPhysicsSurface1s -> `gold.future_option_mbo.physics_surface_1s`
 
-# Single layer
-uv run python -m src.data_eng.runner --product-type future_mbo --layer bronze --symbol ESH6 --dt 2026-01-06
-uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06
-uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06
-```
+## Data products
+- `bronze.future_mbo.mbo` -> `backend/src/data_eng/contracts/bronze/future_mbo/mbo.avsc`
+- `silver.future_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc`
+- `silver.future_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/future_mbo/depth_and_flow_1s.avsc` (rel_ticks, rel_ticks_side)
+- `gold.future_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/future_mbo/physics_surface_1s.avsc` (rel_ticks, rel_ticks_side, liquidity_velocity)
+- `bronze.future_option_mbo.mbo` -> `backend/src/data_eng/contracts/bronze/future_option_mbo/mbo.avsc`
+- `silver.future_option_mbo.book_snapshot_1s` -> `backend/src/data_eng/contracts/silver/future_option_mbo/book_snapshot_1s.avsc`
+- `silver.future_option_mbo.depth_and_flow_1s` -> `backend/src/data_eng/contracts/silver/future_option_mbo/depth_and_flow_1s.avsc`
+- `gold.future_option_mbo.physics_surface_1s` -> `backend/src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc`
 
-## Pipeline Structure (future_mbo)
+## Key files
+- `backend/src/data_eng/pipeline.py`
+- `backend/src/data_eng/stages/silver/future_mbo/book_engine.py`
+- `backend/src/data_eng/stages/gold/future_mbo/compute_physics_surface_1s.py`
+- `backend/src/data_eng/stages/silver/future_option_mbo/options_book_engine.py`
+- `backend/src/data_eng/stages/silver/future_option_mbo/compute_book_states_1s.py`
+- `backend/src/data_eng/stages/gold/future_option_mbo/compute_physics_surface_1s.py`
+- `backend/src/data_eng/config/datasets.yaml`
+- `futures_data.json`
+- `backend/src/serving/velocity_streaming.py`
+- `backend/src/serving/velocity_main.py`
+- `frontend2/src/main.ts`
+- `frontend2/src/ws-client.ts`
+- `frontend2/src/velocity-grid.ts`
+- `frontend2/src/spot-line.ts`
+- `frontend2/src/price-axis.ts`
 
-```
-Bronze: BronzeIngestFutureMbo
-   ↓ bronze.future_mbo.mbo
-Silver: SilverComputeBookStates1s
-   ↓ silver.future_mbo.book_snapshot_1s (time series)
-   ↓ silver.future_mbo.depth_and_flow_1s (panel: time × price_level)
-Gold: GoldComputePhysicsSurface1s
-   ↓ gold.future_mbo.physics_surface_1s (panel: time × rel_ticks)
-Gold: GoldComputePhysicsBands1s [PENDING_REDESIGN]
-   ↓ gold.future_mbo.physics_bands_1s
-```
+## Deprecations
+- `frontend/` (removed)
+- `DOCS_FRONTEND.md` (legacy)
 
-## Validation Snapshot (future_mbo, 2026-01-06)
-
-- `gold.future_mbo.physics_surface_1s` present under `backend/lake` for `ESH6`
-- Window coverage: 09:30:00-09:40:00 ET (601 windows)
-- Rows: 205,445; rel_ticks range -200 to 200; sides A/B; no nulls
-- Intensities non-negative; liquidity_velocity has neg/zero/pos mix (13,414 / 176,937 / 15,094)
-- `event_ts_ns` equals `window_end_ts_ns`; spot_ref not grid-snapped (24 / 601 at 20-tick multiples); rel_ticks consistent with price/spot
-- rel_ticks_side=0 has depth_qty_start > 0 on both sides for all windows
-- Use rel_ticks_side for liquidity modeling; keep rel_ticks for spot-anchored views
-- Gold intensities match silver depth/flow formula exactly; `window_valid` all true
-
-## Key Files
-
-| Purpose | File |
-|---------|------|
-| Pipeline definition | `backend/src/data_eng/pipeline.py` |
-| Stage implementations | `backend/src/data_eng/stages/{bronze,silver,gold}/` |
-| Avro contracts | `backend/src/data_eng/contracts/` |
-| Book engine (stateful) | `backend/src/data_eng/stages/silver/future_mbo/book_engine.py` |
-| Feature lineage (future_mbo) | `futures_data.json` |
-| Backend schema reference | `backend_data.json` |
-| Frontend schema reference | `frontend_data.json` |
-| Frontend docs | `DOCS_FRONTEND.md` |
-| Velocity streaming | `backend/src/serving/velocity_streaming.py` |
-| Velocity router | `backend/src/serving/routers/velocity.py` |
-| Frontend2 velocity grid | `frontend2/src/velocity-grid.ts` |
-
-## Grid Coordinates
-
-- **X-axis**: time (1s windows)
-- **Y-axis**: rel_ticks (price levels relative to spot_ref_price_int)
-- **Side anchor**: rel_ticks_side (price levels relative to best bid/ask at window start)
-- **Spot anchor**: window-start last_trade_price_int if on-book; else nearest best_bid/ask at window start
-- **Tick size**: $0.25 (TICK_INT = 250,000,000 in scaled int)
-- **Range**: ±200 ticks ($50) from spot
-
-## Process Management
-```bash
-# Check if main backend running (port 8000)
-lsof -iTCP:8000 -sTCP:LISTEN
-pgrep -fl "src.serving.main"
-
-# Check if velocity server running (port 8001)
-lsof -iTCP:8001 -sTCP:LISTEN
-pgrep -fl "src.serving.velocity_main"
-
-# Check if frontend2 running (port 5174)
-lsof -iTCP:5174 -sTCP:LISTEN
-```
-
-## Frontend2 Architecture
-
-Frontend2 is a TradingView-style visualization streaming from `gold.future_mbo.physics_surface_1s`.
-
-**Display:**
-- Turquoise line chart showing spot price over time
-- Semi-transparent velocity heatmap overlay (green=building, red=eroding)
-- Camera follows spot price vertically
-- 30% right margin reserved for predictions
-- Price tick labels on Y-axis ($5.00 intervals)
-- Mouse wheel zoom (0.25x to 4x)
-
-**Data Sources:**
-- `silver.future_mbo.book_snapshot_1s` → snap (mid_price, spot_ref_price_int)
-- `gold.future_mbo.physics_surface_1s` → velocity (rel_ticks, liquidity_velocity)
-
-**Key Files:**
-- `frontend2/src/main.ts` - Scene setup, WebSocket handlers, camera follow, zoom
-- `frontend2/src/spot-line.ts` - Turquoise price line chart
-- `frontend2/src/velocity-grid.ts` - Velocity heatmap with rectification shader
-- `frontend2/src/price-axis.ts` - Price tick labels (HTML overlay)
-- `frontend2/src/ws-client.ts` - WebSocket client with Arrow IPC parsing
-
-**Grid:**
-- Width: 1800 columns (30 min @ 1s/col)
-- Height: 801 rows (±400 ticks from spot)
-- Default view: 300 seconds visible, ±50 ticks around spot
-- Color: Green (velocity > 0) / Red (velocity < 0)
-- Alpha: |liquidity_velocity| normalized via tanh(velocity * 2) * 0.8
-
-**Controls:**
-- Mouse wheel: Zoom in/out (0.25x to 4x)
-
-**WebSocket Protocol:**
-```
-batch_start (JSON) → surface_header (JSON) → Arrow IPC (binary)
-```
-
-**Query Parameters:**
-- `skip_minutes` (default: 5) - Skip initial minutes of stream for faster testing
+## Required updates when pipeline/features change
+- `backend/src/data_eng/contracts/`
+- `backend/src/data_eng/config/datasets.yaml`
+- `futures_data.json`
+- `README.md`

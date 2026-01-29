@@ -10,7 +10,7 @@ TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
-HUD_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
+GRID_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
 
 F_SNAPSHOT = 128
 F_LAST = 256
@@ -117,13 +117,13 @@ class FuturesBookEngine:
         tick_int: int = TICK_INT,
         window_ns: int = WINDOW_NS,
         rest_ns: int = REST_NS,
-        hud_max_ticks: int = HUD_MAX_TICKS,
+        grid_max_ticks: int = GRID_MAX_TICKS,
         compute_depth_flow: bool = True,
     ) -> None:
         self.tick_int = tick_int
         self.window_ns = window_ns
         self.rest_ns = rest_ns
-        self.hud_max_ticks = hud_max_ticks
+        self.grid_max_ticks = grid_max_ticks
         self.compute_depth_flow = compute_depth_flow
 
         self.orders: Dict[int, OrderState] = {}
@@ -285,8 +285,8 @@ class FuturesBookEngine:
         self._reset_accumulators()
 
     def _emit_depth_flow_rows(self, spot_ref: int, window_valid: bool) -> None:
-        min_price = spot_ref - self.hud_max_ticks * self.tick_int
-        max_price = spot_ref + self.hud_max_ticks * self.tick_int
+        min_price = spot_ref - self.grid_max_ticks * self.tick_int
+        max_price = spot_ref + self.grid_max_ticks * self.tick_int
 
         bid_anchor = self.window_best_bid_start
         if bid_anchor <= 0:
