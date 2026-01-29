@@ -143,10 +143,10 @@ class GoldComputePhysicsSurface1s(Stage):
         
         # Compute EMAs
         # adjust=False corresponds to the recursive definition in spec
-        df["u_ema_2"] = g.ewm(alpha=alpha_2, adjust=False).mean().reset_index(0, drop=True)
-        df["u_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(0, drop=True)
-        df["u_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(0, drop=True)
-        df["u_ema_128"] = g.ewm(alpha=alpha_128, adjust=False).mean().reset_index(0, drop=True)
+        df["u_ema_2"] = g.ewm(alpha=alpha_2, adjust=False).mean().reset_index(level=[0, 1], drop=True)
+        df["u_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(level=[0, 1], drop=True)
+        df["u_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(level=[0, 1], drop=True)
+        df["u_ema_128"] = g.ewm(alpha=alpha_128, adjust=False).mean().reset_index(level=[0, 1], drop=True)
         
         # Bands
         df["u_band_fast"] = df["u_ema_2"] - df["u_ema_8"]
@@ -192,11 +192,17 @@ class GoldComputePhysicsSurface1s(Stage):
             # We process each side separately to avoid index collision or weirdness
             # Actually we can pivot on ["window_end_ts_ns", "side"] as index
             
-            pivoted = df_in.pivot_table(
-                index=["window_end_ts_ns", "side"], 
-                columns="rel_ticks", 
-                values=target_col
-            )
+            # Debug prints
+            print(f"DEBUG INPUT COLS: {df_in.columns.tolist()}")
+            if "side" not in df_in.columns:
+                 print("DEBUG WARNING: 'side' not in columns!")
+            
+            # Use groupby().unstack() to enforce MultiIndex and handle duplicates via mean
+            # This ensures we don't lose 'side' or 'window_end_ts_ns' even if they look redundant
+            pivoted = df_in.groupby(["window_end_ts_ns", "side", "rel_ticks"])[target_col].mean().unstack("rel_ticks")
+            
+            # Debug traces (optional, can remove later)
+            # print(f"DEBUG PIVOT IDX NAMES: {pivoted.index.names}")
             
             # Reindex to dense grid -200 to +200
             # Assuming standard tick range
@@ -224,8 +230,26 @@ class GoldComputePhysicsSurface1s(Stage):
             
             # Melt back
             melted = smoothed.stack().rename(out_col_name).reset_index()
-            # melted columns: window_end_ts_ns, side, rel_ticks, {out_col_name}
             
+            # Check if we got 3 columns (tuple key) or 4 columns (MultiIndex)
+            if melted.shape[1] == 4:
+                 melted.columns = ["rel_ticks", "window_end_ts_ns", "side", out_col_name]
+            elif melted.shape[1] == 3:
+                 # Tuple index case
+                 melted.columns = ["rel_ticks", "key_tuple", out_col_name]
+                 # Expand tuple
+                 # Provide explicit columns to avoid mismatch
+                 keys = pd.DataFrame(melted["key_tuple"].tolist(), index=melted.index)
+                 if keys.shape[1] == 2:
+                     melted["window_end_ts_ns"] = keys[0]
+                     melted["side"] = keys[1]
+                 else:
+                     # Fallback if unexpeted
+                     raise ValueError(f"Unexpected key tuple shape: {keys.shape}")
+                 melted = melted.drop(columns=["key_tuple"])
+            else:
+                 raise ValueError(f"Unexpected melted shape: {melted.shape}")
+
             return melted
 
         # Apply smoothing
