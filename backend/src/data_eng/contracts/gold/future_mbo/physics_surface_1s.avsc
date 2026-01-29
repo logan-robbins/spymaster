@@ -11,7 +11,6 @@
     {"name": "add_intensity", "type": "double"},
     {"name": "fill_intensity", "type": "double"},
     {"name": "pull_intensity", "type": "double"},
-    {"name": "liquidity_velocity", "type": "double"},
-    {"name": "wall_strength", "type": "double"}
+    {"name": "liquidity_velocity", "type": "double"}
   ]
 }

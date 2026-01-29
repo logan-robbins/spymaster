@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 
 PRICE_SCALE = 1e-9
-TICK_SIZE = 0.25
 TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 GRID_ALIGN_TICKS = 20  # $5.00 grid for ES
@@ -29,27 +27,7 @@ ACTION_NONE = "N"
 SIDE_ASK = "A"
 SIDE_BID = "B"
 
-DELTA_TICKS = 20
-AT_TICKS = 2
-NEAR_TICKS = 5
-FAR_TICKS_LOW = 15
-
 EPS_QTY = 1.0
-EPS_DIST_TICKS = 1.0
-TINY_TOL = 1e-9
-
-BUCKET_OUT = "OUT"
-ASK_ABOVE_AT = "ASK_ABOVE_AT"
-ASK_ABOVE_NEAR = "ASK_ABOVE_NEAR"
-ASK_ABOVE_MID = "ASK_ABOVE_MID"
-ASK_ABOVE_FAR = "ASK_ABOVE_FAR"
-BID_BELOW_AT = "BID_BELOW_AT"
-BID_BELOW_NEAR = "BID_BELOW_NEAR"
-BID_BELOW_MID = "BID_BELOW_MID"
-BID_BELOW_FAR = "BID_BELOW_FAR"
-
-ASK_INFLUENCE = {ASK_ABOVE_AT, ASK_ABOVE_NEAR, ASK_ABOVE_MID, ASK_ABOVE_FAR}
-BID_INFLUENCE = {BID_BELOW_AT, BID_BELOW_NEAR, BID_BELOW_MID, BID_BELOW_FAR}
 
 SNAP_COLUMNS = [
     "window_start_ts_ns",
@@ -303,48 +281,6 @@ class FuturesBookEngine:
 
         self._reset_accumulators()
 
-# ... (omitted methods) ...
-
-def compute_futures_surfaces_1s_from_batches(
-    batches: Iterable[pd.DataFrame],
-    compute_depth_flow: bool = True,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    engine = FuturesBookEngine(compute_depth_flow=compute_depth_flow)
-    seen = False
-
-    for batch in batches:
-        if batch.empty:
-            continue
-        seen = True
-        required = {"ts_event", "action", "side", "price", "size", "order_id", "sequence", "flags"}
-        missing = required.difference(batch.columns)
-        if missing:
-            raise ValueError(f"Missing required columns: {sorted(missing)}")
-        for row in batch.itertuples(index=False):
-            engine.apply_event(
-                int(row.ts_event),
-                str(row.action),
-                str(row.side),
-                int(row.price),
-                int(row.size),
-                int(row.order_id),
-                int(row.flags),
-            )
-
-    if not seen:
-        return (
-            pd.DataFrame(columns=SNAP_COLUMNS),
-            pd.DataFrame(columns=DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame(),
-            pd.DataFrame(),
-        )
-
-    engine.flush_final()
-
-    df_snap = _rows_to_df(engine.snap_rows, SNAP_COLUMNS)
-    df_depth_flow = _rows_to_df(engine.depth_flow_rows, DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame()
-    
-    return df_snap, df_depth_flow, pd.DataFrame()
-
     def _emit_depth_flow_rows(self, spot_ref: int, window_valid: bool) -> None:
         min_price = spot_ref - self.hud_max_ticks * self.tick_int
         max_price = spot_ref + self.hud_max_ticks * self.tick_int
@@ -557,8 +493,10 @@ def compute_futures_surfaces_1s_from_batches(
 
 def compute_futures_surfaces_1s_from_batches(
     batches: Iterable[pd.DataFrame],
+    compute_depth_flow: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    engine = FuturesBookEngine()
+    """Compute book snapshots and depth/flow from MBO event batches."""
+    engine = FuturesBookEngine(compute_depth_flow=compute_depth_flow)
     seen = False
 
     for batch in batches:
@@ -583,17 +521,16 @@ def compute_futures_surfaces_1s_from_batches(
     if not seen:
         return (
             pd.DataFrame(columns=SNAP_COLUMNS),
-            pd.DataFrame(columns=WALL_COLUMNS),
-            pd.DataFrame(columns=RADAR_COLUMNS),
+            pd.DataFrame(columns=DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame(),
+            pd.DataFrame(),
         )
 
     engine.flush_final()
 
     df_snap = _rows_to_df(engine.snap_rows, SNAP_COLUMNS)
-    df_wall = _rows_to_df(engine.wall_rows, WALL_COLUMNS)
-    df_radar = _rows_to_df(engine.radar_rows, RADAR_COLUMNS)
+    df_depth_flow = _rows_to_df(engine.depth_flow_rows, DEPTH_FLOW_COLUMNS) if compute_depth_flow else pd.DataFrame()
 
-    return df_snap, df_wall, df_radar
+    return df_snap, df_depth_flow, pd.DataFrame()
 
 
 def compute_futures_surfaces_1s(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -648,407 +585,3 @@ def _resting_depth(orders: Dict[int, OrderState], side: str, min_price: int, max
             continue
         result[order.price_int] = result.get(order.price_int, 0.0) + float(order.qty)
     return result
-
-
-
-
-
-def _bucket_for(side: str, price_int: int, spot_ref: int) -> str:
-    if side == SIDE_ASK and price_int >= spot_ref:
-        ticks = int(round((price_int - spot_ref) / TICK_INT))
-        if ticks < 0 or ticks > DELTA_TICKS:
-            return BUCKET_OUT
-        if ticks <= AT_TICKS:
-            return ASK_ABOVE_AT
-        if ticks <= NEAR_TICKS:
-            return ASK_ABOVE_NEAR
-        if ticks >= FAR_TICKS_LOW:
-            return ASK_ABOVE_FAR
-        return ASK_ABOVE_MID
-    if side == SIDE_BID and price_int <= spot_ref:
-        ticks = int(round((spot_ref - price_int) / TICK_INT))
-        if ticks < 0 or ticks > DELTA_TICKS:
-            return BUCKET_OUT
-        if ticks <= AT_TICKS:
-            return BID_BELOW_AT
-        if ticks <= NEAR_TICKS:
-            return BID_BELOW_NEAR
-        if ticks >= FAR_TICKS_LOW:
-            return BID_BELOW_FAR
-        return BID_BELOW_MID
-    return BUCKET_OUT
-
-
-def snapshot_from_orders(orders: Dict[int, OrderState], spot_ref: int) -> Dict[str, float]:
-    depth_bid: Dict[int, int] = {}
-    depth_ask: Dict[int, int] = {}
-    for order in orders.values():
-        if order.side == SIDE_BID:
-            depth_bid[order.price_int] = depth_bid.get(order.price_int, 0) + order.qty
-        elif order.side == SIDE_ASK:
-            depth_ask[order.price_int] = depth_ask.get(order.price_int, 0) + order.qty
-    return _snapshot_from_depth(depth_bid, depth_ask, spot_ref)
-
-
-def _snapshot_from_depth(depth_bid: Dict[int, int], depth_ask: Dict[int, int], spot_ref: int) -> Dict[str, float]:
-    data = {
-        "ask_depth_total": 0.0,
-        "ask_depth_at": 0.0,
-        "ask_depth_near": 0.0,
-        "ask_depth_far": 0.0,
-        "bid_depth_total": 0.0,
-        "bid_depth_at": 0.0,
-        "bid_depth_near": 0.0,
-        "bid_depth_far": 0.0,
-    }
-
-    ask_com_num = 0.0
-    bid_com_num = 0.0
-    min_ask = None
-    max_bid = None
-
-    for price_int, qty in depth_ask.items():
-        bucket = _bucket_for(SIDE_ASK, price_int, spot_ref)
-        if bucket == BUCKET_OUT:
-            continue
-        qty_f = float(qty)
-        data["ask_depth_total"] += qty_f
-        ask_com_num += float(price_int) * qty_f
-        if bucket == ASK_ABOVE_AT:
-            data["ask_depth_at"] += qty_f
-        elif bucket == ASK_ABOVE_NEAR:
-            data["ask_depth_near"] += qty_f
-        elif bucket == ASK_ABOVE_FAR:
-            data["ask_depth_far"] += qty_f
-        if min_ask is None or price_int < min_ask:
-            min_ask = price_int
-
-    for price_int, qty in depth_bid.items():
-        bucket = _bucket_for(SIDE_BID, price_int, spot_ref)
-        if bucket == BUCKET_OUT:
-            continue
-        qty_f = float(qty)
-        data["bid_depth_total"] += qty_f
-        bid_com_num += float(price_int) * qty_f
-        if bucket == BID_BELOW_AT:
-            data["bid_depth_at"] += qty_f
-        elif bucket == BID_BELOW_NEAR:
-            data["bid_depth_near"] += qty_f
-        elif bucket == BID_BELOW_FAR:
-            data["bid_depth_far"] += qty_f
-        if max_bid is None or price_int > max_bid:
-            max_bid = price_int
-
-    if data["ask_depth_total"] < TINY_TOL:
-        data["d_ask_ticks"] = float(DELTA_TICKS)
-    else:
-        com_price = ask_com_num / data["ask_depth_total"]
-        data["d_ask_ticks"] = max((com_price - spot_ref) / TICK_INT, 0.0)
-
-    if data["bid_depth_total"] < TINY_TOL:
-        data["d_bid_ticks"] = float(DELTA_TICKS)
-    else:
-        com_price = bid_com_num / data["bid_depth_total"]
-        data["d_bid_ticks"] = max((spot_ref - com_price) / TICK_INT, 0.0)
-
-    if min_ask is None:
-        data["bbo_ask_ticks"] = float(DELTA_TICKS)
-    else:
-        data["bbo_ask_ticks"] = max((min_ask - spot_ref) / TICK_INT, 0.0)
-
-    if max_bid is None:
-        data["bbo_bid_ticks"] = float(DELTA_TICKS)
-    else:
-        data["bbo_bid_ticks"] = max((spot_ref - max_bid) / TICK_INT, 0.0)
-
-    return data
-
-
-def _radar_accumulators(
-    orders_start: Dict[int, OrderState],
-    events: List[Tuple[int, str, str, int, int, int]],
-    spot_ref: int,
-    rest_ns: int,
-) -> Dict[str, float]:
-    orders = _clone_orders(orders_start)
-    accum = _new_radar_accumulators()
-
-    for ts, action, side, price, size, order_id in events:
-        if action == ACTION_CLEAR:
-            orders.clear()
-            accum = _new_radar_accumulators()
-            continue
-        if action == ACTION_TRADE:
-            continue
-        if action == ACTION_NONE:
-            continue
-
-        old = orders.get(order_id)
-        if old:
-            old_side = old.side
-            old_price = old.price_int
-            old_qty = old.qty
-            old_bucket = _bucket_for(old_side, old_price, spot_ref)
-            old_ts_enter = old.ts_enter_price
-        else:
-            old_side = ""
-            old_price = 0
-            old_qty = 0
-            old_bucket = BUCKET_OUT
-            old_ts_enter = 0
-
-        old_in_ask = old_side == SIDE_ASK and old_bucket in ASK_INFLUENCE
-        old_in_bid = old_side == SIDE_BID and old_bucket in BID_INFLUENCE
-
-        new_side = old_side
-        new_price = old_price
-        new_qty = old_qty
-        new_bucket = old_bucket
-        new_ts_enter = old_ts_enter
-        has_new = False
-
-        if action == ACTION_ADD:
-            new_side = side
-            new_price = price
-            new_qty = size
-            new_bucket = _bucket_for(new_side, new_price, spot_ref)
-            new_ts_enter = ts
-            has_new = True
-            orders[order_id] = OrderState(new_side, new_price, new_qty, new_ts_enter)
-        elif action == ACTION_CANCEL:
-            orders.pop(order_id, None)
-            has_new = False
-        elif action == ACTION_MODIFY:
-            new_price = price
-            new_qty = size
-            new_bucket = _bucket_for(old_side, new_price, spot_ref)
-            if new_price != old_price:
-                new_ts_enter = ts
-            has_new = True
-            orders[order_id] = OrderState(old_side, new_price, new_qty, new_ts_enter)
-        elif action == ACTION_FILL:
-            fill_qty = size
-            new_qty = old_qty - fill_qty
-            if new_qty > 0:
-                orders[order_id].qty = new_qty
-                has_new = True
-            else:
-                orders.pop(order_id, None)
-                has_new = False
-
-        new_in_ask = has_new and new_side == SIDE_ASK and new_bucket in ASK_INFLUENCE
-        new_in_bid = has_new and new_side == SIDE_BID and new_bucket in BID_INFLUENCE
-
-        q_old_ask = old_qty if old_in_ask else 0
-        q_new_ask = new_qty if new_in_ask else 0
-        q_old_bid = old_qty if old_in_bid else 0
-        q_new_bid = new_qty if new_in_bid else 0
-
-        delta_ask = q_new_ask - q_old_ask
-        delta_bid = q_new_bid - q_old_bid
-
-        if delta_ask > 0:
-            accum["ask_add_qty"] += float(delta_ask)
-        if delta_bid > 0:
-            accum["bid_add_qty"] += float(delta_bid)
-
-        if delta_ask < 0 and action in {ACTION_CANCEL, ACTION_MODIFY}:
-            age = ts - old_ts_enter
-            if age >= rest_ns:
-                pull = float(-delta_ask)
-                accum["ask_pull_rest_qty"] += pull
-                if old_bucket == ASK_ABOVE_AT:
-                    accum["ask_pull_rest_qty_at"] += pull
-                elif old_bucket == ASK_ABOVE_NEAR:
-                    accum["ask_pull_rest_qty_near"] += pull
-
-        if delta_bid < 0 and action in {ACTION_CANCEL, ACTION_MODIFY}:
-            age = ts - old_ts_enter
-            if age >= rest_ns:
-                pull = float(-delta_bid)
-                accum["bid_pull_rest_qty"] += pull
-                if old_bucket == BID_BELOW_AT:
-                    accum["bid_pull_rest_qty_at"] += pull
-                elif old_bucket == BID_BELOW_NEAR:
-                    accum["bid_pull_rest_qty_near"] += pull
-
-        if action == ACTION_MODIFY:
-            if old_side == SIDE_ASK and old_in_ask:
-                age = ts - old_ts_enter
-                if age >= rest_ns:
-                    dist_old = old_price - spot_ref
-                    dist_new = new_price - spot_ref
-                    if new_price <= spot_ref:
-                        accum["ask_reprice_toward_rest_qty"] += float(old_qty)
-                    else:
-                        if dist_new > dist_old:
-                            accum["ask_reprice_away_rest_qty"] += float(old_qty)
-                        elif dist_new < dist_old:
-                            accum["ask_reprice_toward_rest_qty"] += float(old_qty)
-            if old_side == SIDE_BID and old_in_bid:
-                age = ts - old_ts_enter
-                if age >= rest_ns:
-                    dist_old = spot_ref - old_price
-                    dist_new = spot_ref - new_price
-                    if new_price >= spot_ref:
-                        accum["bid_reprice_toward_rest_qty"] += float(old_qty)
-                    else:
-                        if dist_new > dist_old:
-                            accum["bid_reprice_away_rest_qty"] += float(old_qty)
-                        elif dist_new < dist_old:
-                            accum["bid_reprice_toward_rest_qty"] += float(old_qty)
-
-    return accum
-
-
-def _new_radar_accumulators() -> Dict[str, float]:
-    return {
-        "ask_add_qty": 0.0,
-        "ask_pull_rest_qty": 0.0,
-        "ask_pull_rest_qty_at": 0.0,
-        "ask_pull_rest_qty_near": 0.0,
-        "ask_reprice_away_rest_qty": 0.0,
-        "ask_reprice_toward_rest_qty": 0.0,
-        "bid_add_qty": 0.0,
-        "bid_pull_rest_qty": 0.0,
-        "bid_pull_rest_qty_at": 0.0,
-        "bid_pull_rest_qty_near": 0.0,
-        "bid_reprice_away_rest_qty": 0.0,
-        "bid_reprice_toward_rest_qty": 0.0,
-    }
-
-
-def _compute_base_features(start: dict, end: dict, acc: dict) -> dict:
-    f1_ask_com_disp_log = math.log((end["d_ask_ticks"] + EPS_DIST_TICKS) / (start["d_ask_ticks"] + EPS_DIST_TICKS))
-    f1_ask_slope_convex_log = math.log((end["ask_depth_far"] + EPS_QTY) / (end["ask_depth_near"] + EPS_QTY))
-    f1_ask_slope_inner_log = math.log((end["ask_depth_near"] + EPS_QTY) / (end["ask_depth_at"] + EPS_QTY))
-    at_share_start = start["ask_depth_at"] / (start["ask_depth_total"] + EPS_QTY)
-    at_share_end = end["ask_depth_at"] / (end["ask_depth_total"] + EPS_QTY)
-    f1_ask_at_share_delta = at_share_end - at_share_start
-    near_share_start = start["ask_depth_near"] / (start["ask_depth_total"] + EPS_QTY)
-    near_share_end = end["ask_depth_near"] / (end["ask_depth_total"] + EPS_QTY)
-    f1_ask_near_share_delta = near_share_end - near_share_start
-
-    den_ask_reprice = acc["ask_reprice_away_rest_qty"] + acc["ask_reprice_toward_rest_qty"]
-    if den_ask_reprice == 0:
-        f1_ask_reprice_away_share_rest = 0.5
-    else:
-        f1_ask_reprice_away_share_rest = acc["ask_reprice_away_rest_qty"] / (den_ask_reprice + EPS_QTY)
-
-    f2_ask_pull_add_log_rest = math.log((acc["ask_pull_rest_qty"] + EPS_QTY) / (acc["ask_add_qty"] + EPS_QTY))
-    f2_ask_pull_intensity_log_rest = math.log1p(
-        acc["ask_pull_rest_qty"] / (start["ask_depth_total"] + EPS_QTY)
-    )
-    f2_ask_at_pull_share_rest = acc["ask_pull_rest_qty_at"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
-    f2_ask_near_pull_share_rest = acc["ask_pull_rest_qty_near"] / (acc["ask_pull_rest_qty"] + EPS_QTY)
-
-    f3_bid_com_disp_log = math.log((end["d_bid_ticks"] + EPS_DIST_TICKS) / (start["d_bid_ticks"] + EPS_DIST_TICKS))
-    f3_bid_slope_convex_log = math.log((end["bid_depth_far"] + EPS_QTY) / (end["bid_depth_near"] + EPS_QTY))
-    f3_bid_slope_inner_log = math.log((end["bid_depth_near"] + EPS_QTY) / (end["bid_depth_at"] + EPS_QTY))
-    at_share_start = start["bid_depth_at"] / (start["bid_depth_total"] + EPS_QTY)
-    at_share_end = end["bid_depth_at"] / (end["bid_depth_total"] + EPS_QTY)
-    f3_bid_at_share_delta = at_share_end - at_share_start
-    near_share_start = start["bid_depth_near"] / (start["bid_depth_total"] + EPS_QTY)
-    near_share_end = end["bid_depth_near"] / (end["bid_depth_total"] + EPS_QTY)
-    f3_bid_near_share_delta = near_share_end - near_share_start
-
-    den_bid_reprice = acc["bid_reprice_away_rest_qty"] + acc["bid_reprice_toward_rest_qty"]
-    if den_bid_reprice == 0:
-        f3_bid_reprice_away_share_rest = 0.5
-    else:
-        f3_bid_reprice_away_share_rest = acc["bid_reprice_away_rest_qty"] / (den_bid_reprice + EPS_QTY)
-
-    f4_bid_pull_add_log_rest = math.log((acc["bid_pull_rest_qty"] + EPS_QTY) / (acc["bid_add_qty"] + EPS_QTY))
-    f4_bid_pull_intensity_log_rest = math.log1p(
-        acc["bid_pull_rest_qty"] / (start["bid_depth_total"] + EPS_QTY)
-    )
-    f4_bid_at_pull_share_rest = acc["bid_pull_rest_qty_at"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
-    f4_bid_near_pull_share_rest = acc["bid_pull_rest_qty_near"] / (acc["bid_pull_rest_qty"] + EPS_QTY)
-
-    f5_vacuum_expansion_log = f1_ask_com_disp_log + f3_bid_com_disp_log
-    f6_vacuum_decay_log = f2_ask_pull_add_log_rest + f4_bid_pull_add_log_rest
-    f7_vacuum_total_log = f5_vacuum_expansion_log + f6_vacuum_decay_log
-
-    return {
-        "f1_ask_com_disp_log": float(f1_ask_com_disp_log),
-        "f1_ask_slope_convex_log": float(f1_ask_slope_convex_log),
-        "f1_ask_slope_inner_log": float(f1_ask_slope_inner_log),
-        "f1_ask_at_share_delta": float(f1_ask_at_share_delta),
-        "f1_ask_near_share_delta": float(f1_ask_near_share_delta),
-        "f1_ask_reprice_away_share_rest": float(f1_ask_reprice_away_share_rest),
-        "f2_ask_pull_add_log_rest": float(f2_ask_pull_add_log_rest),
-        "f2_ask_pull_intensity_log_rest": float(f2_ask_pull_intensity_log_rest),
-        "f2_ask_at_pull_share_rest": float(f2_ask_at_pull_share_rest),
-        "f2_ask_near_pull_share_rest": float(f2_ask_near_pull_share_rest),
-        "f3_bid_com_disp_log": float(f3_bid_com_disp_log),
-        "f3_bid_slope_convex_log": float(f3_bid_slope_convex_log),
-        "f3_bid_slope_inner_log": float(f3_bid_slope_inner_log),
-        "f3_bid_at_share_delta": float(f3_bid_at_share_delta),
-        "f3_bid_near_share_delta": float(f3_bid_near_share_delta),
-        "f3_bid_reprice_away_share_rest": float(f3_bid_reprice_away_share_rest),
-        "f4_bid_pull_add_log_rest": float(f4_bid_pull_add_log_rest),
-        "f4_bid_pull_intensity_log_rest": float(f4_bid_pull_intensity_log_rest),
-        "f4_bid_at_pull_share_rest": float(f4_bid_at_pull_share_rest),
-        "f4_bid_near_pull_share_rest": float(f4_bid_near_pull_share_rest),
-        "f5_vacuum_expansion_log": float(f5_vacuum_expansion_log),
-        "f6_vacuum_decay_log": float(f6_vacuum_decay_log),
-        "f7_vacuum_total_log": float(f7_vacuum_total_log),
-        "f8_ask_bbo_dist_ticks": float(end["bbo_ask_ticks"]),
-        "f9_bid_bbo_dist_ticks": float(end["bbo_bid_ticks"]),
-    }
-
-
-def _compute_up_features(base: dict, start: dict, acc: dict) -> dict:
-    u1_ask_com_disp_log = base["f1_ask_com_disp_log"]
-    u2_ask_slope_convex_log = base["f1_ask_slope_convex_log"]
-    u2_ask_slope_inner_log = base["f1_ask_slope_inner_log"]
-    u3_ask_at_share_decay = -base["f1_ask_at_share_delta"]
-    u3_ask_near_share_decay = -base["f1_ask_near_share_delta"]
-    u4_ask_reprice_away_share_rest = base["f1_ask_reprice_away_share_rest"]
-    u5_ask_pull_add_log_rest = base["f2_ask_pull_add_log_rest"]
-    u6_ask_pull_intensity_log_rest = base["f2_ask_pull_intensity_log_rest"]
-    u7_ask_at_pull_share_rest = base["f2_ask_at_pull_share_rest"]
-    u7_ask_near_pull_share_rest = base["f2_ask_near_pull_share_rest"]
-
-    u8_bid_com_approach_log = -base["f3_bid_com_disp_log"]
-    u9_bid_slope_support_log = -base["f3_bid_slope_convex_log"]
-    u9_bid_slope_inner_log = -base["f3_bid_slope_inner_log"]
-    u10_bid_at_share_rise = base["f3_bid_at_share_delta"]
-    u10_bid_near_share_rise = base["f3_bid_near_share_delta"]
-    u11_bid_reprice_toward_share_rest = 1.0 - base["f3_bid_reprice_away_share_rest"]
-    u12_bid_add_pull_log_rest = -base["f4_bid_pull_add_log_rest"]
-    u13_bid_add_intensity_log = math.log1p(
-        acc["bid_add_qty"] / (start["bid_depth_total"] + EPS_QTY)
-    )
-    u14_bid_far_pull_share_rest = 1.0 - base["f4_bid_at_pull_share_rest"] - base["f4_bid_near_pull_share_rest"]
-
-    u15_up_expansion_log = u1_ask_com_disp_log + u8_bid_com_approach_log
-    u16_up_flow_log = u5_ask_pull_add_log_rest + u12_bid_add_pull_log_rest
-    u17_up_total_log = u15_up_expansion_log + u16_up_flow_log
-
-    return {
-        "u1_ask_com_disp_log": float(u1_ask_com_disp_log),
-        "u2_ask_slope_convex_log": float(u2_ask_slope_convex_log),
-        "u2_ask_slope_inner_log": float(u2_ask_slope_inner_log),
-        "u3_ask_at_share_decay": float(u3_ask_at_share_decay),
-        "u3_ask_near_share_decay": float(u3_ask_near_share_decay),
-        "u4_ask_reprice_away_share_rest": float(u4_ask_reprice_away_share_rest),
-        "u5_ask_pull_add_log_rest": float(u5_ask_pull_add_log_rest),
-        "u6_ask_pull_intensity_log_rest": float(u6_ask_pull_intensity_log_rest),
-        "u7_ask_at_pull_share_rest": float(u7_ask_at_pull_share_rest),
-        "u7_ask_near_pull_share_rest": float(u7_ask_near_pull_share_rest),
-        "u8_bid_com_approach_log": float(u8_bid_com_approach_log),
-        "u9_bid_slope_support_log": float(u9_bid_slope_support_log),
-        "u9_bid_slope_inner_log": float(u9_bid_slope_inner_log),
-        "u10_bid_at_share_rise": float(u10_bid_at_share_rise),
-        "u10_bid_near_share_rise": float(u10_bid_near_share_rise),
-        "u11_bid_reprice_toward_share_rest": float(u11_bid_reprice_toward_share_rest),
-        "u12_bid_add_pull_log_rest": float(u12_bid_add_pull_log_rest),
-        "u13_bid_add_intensity_log": float(u13_bid_add_intensity_log),
-        "u14_bid_far_pull_share_rest": float(u14_bid_far_pull_share_rest),
-        "u15_up_expansion_log": float(u15_up_expansion_log),
-        "u16_up_flow_log": float(u16_up_flow_log),
-        "u17_up_total_log": float(u17_up_total_log),
-        "u18_ask_bbo_dist_ticks": float(base["f8_ask_bbo_dist_ticks"]),
-        "u19_bid_bbo_dist_ticks": float(base["f9_bid_bbo_dist_ticks"]),
-    }

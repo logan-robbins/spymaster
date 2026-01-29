@@ -137,6 +137,12 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc
 
+  silver.future_mbo.depth_and_flow_1s:
+    path: silver/product_type=future_mbo/symbol={symbol}/table=depth_and_flow_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/silver/future_mbo/depth_and_flow_1s.avsc
+
   silver.future_mbo.wall_surface_1s:
     path: silver/product_type=future_mbo/symbol={symbol}/table=wall_surface_1s
     format: parquet

@@ -53,8 +53,7 @@ class SilverComputeBookStates1s(Stage):
         # Compute BOTH snapshot and depth/flow in one pass
         df_snap, df_flow, _ = compute_futures_surfaces_1s_from_batches(
             iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS),
-            compute_depth_flow=True,  # Enable detailed flow accumulation
-            compute_radar=False,
+            compute_depth_flow=True,
         )
 
         # Filter out warmup data from output
@@ -107,7 +106,6 @@ class SilverComputeBookStates1s(Stage):
         _, df_flow, _ = compute_futures_surfaces_1s_from_batches(
             [df],
             compute_depth_flow=True,
-            compute_radar=False,
         )
         if df_flow.empty:
             df_flow = pd.DataFrame(columns=DEPTH_FLOW_COLUMNS)

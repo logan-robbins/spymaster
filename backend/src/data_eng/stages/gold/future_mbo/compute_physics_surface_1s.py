@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Tuple
 
-import numpy as np
 import pandas as pd
 
 from ...base import Stage, StageIO
@@ -100,7 +98,6 @@ class GoldComputePhysicsSurface1s(Stage):
                     "fill_intensity",
                     "pull_intensity",
                     "liquidity_velocity",
-                    "wall_strength",
                 ]
             )
 
@@ -111,7 +108,6 @@ class GoldComputePhysicsSurface1s(Stage):
 
         # Inputs
         depth_start = df["depth_qty_start"].astype(float).to_numpy()
-        depth_rest = df["depth_qty_rest"].astype(float).to_numpy() # Not used for intensity?
         
         # Quantities
         add_qty = df["add_qty"].astype(float).to_numpy()
@@ -126,11 +122,12 @@ class GoldComputePhysicsSurface1s(Stage):
         df["add_intensity"] = add_qty / denom
         df["fill_intensity"] = fill_qty / denom
         df["pull_intensity"] = pull_qty_total / denom
-        
-        df["wall_strength"] = depth_rest 
 
-        # Net Velocity (Add - Pull)
-        df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"]
+        # Net Velocity (Add - Pull - Fill)
+        # True net change in liquidity at this level
+        # Positive = building (adds outpace removals)
+        # Negative = eroding (pulls + fills outpace adds)
+        df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"] - df["fill_intensity"]
 
         df["event_ts_ns"] = df["window_end_ts_ns"] 
 
@@ -144,15 +141,6 @@ class GoldComputePhysicsSurface1s(Stage):
             "fill_intensity",
             "pull_intensity",
             "liquidity_velocity",
-            "wall_strength"
         ]]
 
 
-def _load_calibration(df_cal: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
-    # Calibration no longer needed for raw intensities
-    return {}
-
-
-def _norm(values: np.ndarray, bounds: Tuple[float, float]) -> np.ndarray:
-    lo, hi = bounds
-    return np.clip((values - lo) / (hi - lo), 0.0, 1.0)

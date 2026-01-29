@@ -49,7 +49,8 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         from .stages.bronze.future_mbo.ingest import BronzeIngestFutureMbo
         from .stages.silver.future_mbo.compute_book_states_1s import SilverComputeBookStates1s
         from .stages.gold.future_mbo.compute_physics_surface_1s import GoldComputePhysicsSurface1s
-        from .stages.gold.future_mbo.compute_physics_bands_1s import GoldComputePhysicsBands1s
+        # GoldComputePhysicsBands1s disabled - pending redesign (wall_strength removed)
+        # from .stages.gold.future_mbo.compute_physics_bands_1s import GoldComputePhysicsBands1s
 
         if layer == "bronze":
             return [BronzeIngestFutureMbo()]
@@ -60,14 +61,14 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
         elif layer == "gold":
             return [
                 GoldComputePhysicsSurface1s(),
-                GoldComputePhysicsBands1s(),
+                # GoldComputePhysicsBands1s(),  # DISABLED - pending redesign
             ]
         elif layer == "all":
             return [
                 BronzeIngestFutureMbo(),
                 SilverComputeBookStates1s(),
                 GoldComputePhysicsSurface1s(),
-                GoldComputePhysicsBands1s(),
+                # GoldComputePhysicsBands1s(),  # DISABLED - pending redesign
             ]
 
     elif product_type == "equity_mbo":

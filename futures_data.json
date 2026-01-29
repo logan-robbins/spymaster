@@ -8,7 +8,7 @@
                     ],
                     "transformation_steps": [
                         "Cast to int64",
-                        "Filter for session window (09:30-10:30 ET)"
+                        "Output filtered to session window (09:30-09:40 ET for dev)"
                     ]
                 },
                 "price": {
@@ -314,220 +314,30 @@
                     "liquidity_velocity": {
                         "built_from": [
                             "add_intensity",
-                            "pull_intensity"
+                            "pull_intensity",
+                            "fill_intensity"
                         ],
                         "transformation_steps": [
-                            "add_intensity - pull_intensity"
-                        ]
-                    },
-                    "wall_strength": {
-                        "built_from": [
-                            "silver.future_mbo.depth_and_flow_1s.depth_qty_rest"
+                            "add_intensity - pull_intensity - fill_intensity"
                         ],
-                        "transformation_steps": [
-                            "Pass through"
-                        ]
+                        "note": "True net change in liquidity. Positive = building, Negative = eroding (pulls + fills > adds)"
                     }
                 }
             },
             "GoldComputePhysicsBands1s": {
+                "_status": "PENDING_REDESIGN",
+                "_note": "Stage 4 needs update - wall_strength removed from Stage 3. User to address in next task.",
                 "physics_bands_1s": {
                     "features": [
                         "add_intensity",
                         "fill_intensity",
                         "pull_intensity",
-                        "liquidity_velocity",
-                        "wall_strength"
+                        "liquidity_velocity"
                     ],
                     "transformation_steps": [
                         "Band aggregation from physics_surface_1s (At: 0-2, Near: 3-5, Mid: 6-14, Far: 15-20)",
                         "Compute Mean of each intensity metric per Band per Direction"
                     ]
-                }
-            }
-        }
-    },
-    "future_option_mbo": {
-        "bronze": {
-            "BronzeIngestInstrumentDefinitions": {
-                "instrument_definitions": {
-                    "built_from": [
-                        "raw.source=databento.dataset=definition"
-                    ],
-                    "transformation_steps": [
-                        "Load definition DBN files",
-                        "Extract underlying, strike, expiration, instrument_id"
-                    ]
-                }
-            },
-            "BronzeIngestFutureOptionStatistics": {
-                "statistics": {
-                    "built_from": [
-                        "raw.source=databento.table=statistics",
-                        "raw.source=databento.dataset=definition"
-                    ],
-                    "transformation_steps": [
-                        "Load statistics DBN files",
-                        "Filter for stat_type=1 (Open Interest)",
-                        "Join with definitions to get metadata (symbol, strike, etc.)",
-                        "Filter for 0DTE options"
-                    ]
-                }
-            },
-            "BronzeIngestFutureOptionMbo": {
-                "mbo": {
-                    "built_from": [
-                        "raw.source=databento.table=market_by_order_dbn",
-                        "raw.source=databento.dataset=definition"
-                    ],
-                    "transformation_steps": [
-                        "Load MBO DBN files",
-                        "Filter for options (Right Class C/P)",
-                        "Filter for 0DTE options using definitions",
-                        "Join with definitions to attach strike, expiration, underlying",
-                        "Handle NULL_PRICE"
-                    ]
-                }
-            }
-        },
-        "silver": {
-            "SilverComputeStatisticsClean": {
-                "statistics_clean": {
-                    "built_from": [
-                        "bronze.future_option.statistics"
-                    ],
-                    "transformation_steps": [
-                        "Sort by timestamp",
-                        "Group by option_symbol and take last value (deduplicate)",
-                        "Add ts_event_est string"
-                    ]
-                }
-            },
-            "SilverComputeGexSurface1s": {
-                "gex_surface_1s": {
-                    "gex_val": {
-                        "built_from": [
-                            "bronze.future_option_mbo.mbo.price (Mid)",
-                            "silver.future_mbo.book_snapshot_1s.spot_ref_price (Underlying)",
-                            "bronze.shared.instrument_definitions.strike_price",
-                            "bronze.shared.instrument_definitions.expiration",
-                            "bronze.future_option.statistics.open_interest"
-                        ],
-                        "transformation_steps": [
-                            "Compute Implied Volatility (IV) via Newton-Raphson inversion of Black-Scholes using Market Mid Price",
-                            "Compute Gamma using Black-Scholes formula with derived IV",
-                            "Multiply Gamma * Open Interest * Contract Multiplier (50)"
-                        ]
-                    },
-                    "gex": {
-                        "built_from": [
-                            "gex_call_abs",
-                            "gex_put_abs"
-                        ],
-                        "transformation_steps": [
-                            "Sum GEX at strike: Call GEX - Put GEX"
-                        ]
-                    },
-                    "gex_abs": {
-                        "built_from": [
-                            "gex_call_abs",
-                            "gex_put_abs"
-                        ],
-                        "transformation_steps": [
-                            "Call GEX + Put GEX"
-                        ]
-                    },
-                    "gex_imbalance_ratio": {
-                        "built_from": [
-                            "gex",
-                            "gex_abs"
-                        ],
-                        "transformation_steps": [
-                            "gex / (gex_abs + 1e-6)"
-                        ]
-                    },
-                    "d1_gex": {
-                        "built_from": [
-                            "gex"
-                        ],
-                        "transformation_steps": [
-                            "First derivative along strike"
-                        ]
-                    },
-                    "d2_gex": {
-                        "built_from": [
-                            "d1_gex"
-                        ],
-                        "transformation_steps": [
-                            "Second derivative along strike"
-                        ]
-                    },
-                    "d3_gex": {
-                        "built_from": [
-                            "d2_gex"
-                        ],
-                        "transformation_steps": [
-                            "Third derivative along strike"
-                        ]
-                    }
-                },
-                "gex_flow_surface_1s": {
-                    "flow_abs": {
-                        "built_from": [
-                            "add_qty",
-                            "pull_qty",
-                            "fill_qty"
-                        ],
-                        "transformation_steps": [
-                            "Sum of all activity"
-                        ]
-                    },
-                    "flow_reinforce": {
-                        "built_from": [
-                            "add_qty",
-                            "pull_qty",
-                            "fill_qty"
-                        ],
-                        "transformation_steps": [
-                            "add - pull - fill"
-                        ]
-                    },
-                    "pull_rest_intensity": {
-                        "built_from": [
-                            "pull_rest_qty",
-                            "depth_total"
-                        ],
-                        "transformation_steps": [
-                            "pull_rest_qty / (depth_total + 1)"
-                        ]
-                    },
-                    "flow_abs_norm": {
-                        "built_from": [
-                            "flow_abs",
-                            "calibration"
-                        ],
-                        "transformation_steps": [
-                            "Normalize"
-                        ]
-                    },
-                    "flow_reinforce_norm": {
-                        "built_from": [
-                            "flow_reinforce",
-                            "calibration"
-                        ],
-                        "transformation_steps": [
-                            "Normalize"
-                        ]
-                    },
-                    "pull_rest_intensity_norm": {
-                        "built_from": [
-                            "pull_rest_intensity",
-                            "calibration"
-                        ],
-                        "transformation_steps": [
-                            "Normalize"
-                        ]
-                    }
                 }
             }
         }
