@@ -26,6 +26,54 @@
 - option strike grid: $5 buckets, ±$50 from spot_ref_price_int (rel_ticks multiples of 20)
 
 ## Commands
+
+### Raw data download (Databento batch API)
+Two canonical scripts download ALL raw data needed for pipelines. Both use batch job lifecycle: submit -> poll -> download.
+
+**Futures + Futures Options (GLBX.MDP3):**
+```bash
+cd backend
+nohup uv run python scripts/batch_download_futures.py daemon \
+    --start 2026-01-06 --end 2026-01-06 \
+    --symbols ES \
+    --include-futures \
+    --options-schemas definition,mbo,statistics \
+    --poll-interval 60 \
+    --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
+```
+- Downloads: futures MBO (`ES.FUT`), options definitions, 0DTE options MBO, 0DTE options statistics
+- Raw output: `lake/raw/source=databento/product_type=future_mbo/`, `lake/raw/source=databento/product_type=future_option_mbo/`, `lake/raw/source=databento/dataset=definition/`
+- Job tracker: `logs/futures_jobs.json`
+
+**Equities + Equity Options (XNAS.ITCH + OPRA.PILLAR):**
+```bash
+cd backend
+nohup uv run python scripts/batch_download_equities.py daemon \
+    --start 2026-01-06 --end 2026-01-06 \
+    --symbols SPY,QQQ \
+    --equity-schemas mbo \
+    --options-schemas definition,cmbp-1,statistics \
+    --poll-interval 60 \
+    --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
+```
+- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options CMBP-1, 0DTE options statistics
+- Raw output: `lake/raw/source=databento/product_type=equity_mbo/`, `lake/raw/source=databento/product_type=equity_option_cmbp_1/`, `lake/raw/source=databento/dataset=definition/venue=opra/`
+- Job tracker: `logs/equity_options_jobs.json`
+
+**Monitor daemon progress:**
+```bash
+tail -f logs/futures.log
+tail -f logs/equities.log
+cat logs/futures_jobs.json | jq '.jobs | to_entries | map({key: .key, state: .value.state}) | group_by(.state) | map({state: .[0].state, count: length})'
+```
+
+**Poll/download only (if daemon stopped):**
+```bash
+cd backend
+uv run python scripts/batch_download_futures.py poll --log-file logs/futures.log
+uv run python scripts/batch_download_equities.py poll --log-file logs/equities.log
+```
+
 ### Data pipeline
 - `cd backend`
 - `uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06 --workers 1`
@@ -85,6 +133,8 @@ Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, r
 - Spot line: turquoise line tracking price history
 
 ## Key files
+- `backend/scripts/batch_download_futures.py` (raw data download: futures + futures options from GLBX.MDP3)
+- `backend/scripts/batch_download_equities.py` (raw data download: equities + equity options from XNAS.ITCH + OPRA.PILLAR)
 - `backend/src/data_eng/pipeline.py`
 - `backend/src/data_eng/stages/silver/future_mbo/book_engine.py`
 - `backend/src/data_eng/stages/gold/future_mbo/compute_physics_surface_1s.py`

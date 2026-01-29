@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/Users/loganrobbins/research/qmachina/spymaster/backend/scripts/validate_stage_00_load_bronze.py", line 29, in <module>
-    from src.pipeline.pipelines.es_pipeline import build_es_pipeline
-ModuleNotFoundError: No module named 'src'
