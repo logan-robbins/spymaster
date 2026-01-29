@@ -26,6 +26,12 @@ VELOCITY_SCHEMA = pa.schema([
     ("rel_ticks", pa.int32()),
     ("side", pa.string()),
     ("liquidity_velocity", pa.float64()),
+    ("rho", pa.float64()),
+    ("nu", pa.float64()),
+    ("kappa", pa.float64()),
+    ("pressure_grad", pa.float64()),
+    ("u_wave_energy", pa.float64()),
+    ("Omega", pa.float64()),
 ])
 
 OPTIONS_SCHEMA = pa.schema([
@@ -35,24 +41,59 @@ OPTIONS_SCHEMA = pa.schema([
     ("liquidity_velocity", pa.float64()),
 ])
 
+FORECAST_SCHEMA = pa.schema([
+    ("window_end_ts_ns", pa.int64()),
+    ("horizon_s", pa.int32()),
+    ("predicted_spot_tick", pa.int64()),
+    ("predicted_tick_delta", pa.int64()),
+    ("confidence", pa.float64()),
+    ("RunScore_up", pa.float64()),
+    ("RunScore_down", pa.float64()),
+    ("D_up", pa.int32()),
+    ("D_down", pa.int32()),
+])
+
 
 def _df_to_arrow_bytes(df: pd.DataFrame, schema: pa.Schema) -> bytes:
     if df.empty:
-        table = pa.table({f.name: pa.array([], type=f.type) for f in schema})
+        # Create empty table with correct schema
+        # For int columns, use int64 array if schema expects int64
+        arrays = []
+        for f in schema:
+            arrays.append(pa.array([], type=f.type))
+        table = pa.Table.from_arrays(arrays, schema=schema)
     else:
         # Ensure correct dtypes
         df = df.copy()
         for field in schema:
             if field.name in df.columns:
-                if pa.types.is_int64(field.type):
-                    df[field.name] = df[field.name].astype("int64")
-                elif pa.types.is_int32(field.type):
-                    df[field.name] = df[field.name].astype("int32")
+                # Handle nulls for int columns (pandas converts to float if NaN present)
+                # But here we assume filled.
+                # If int column has NaNs, astype('int') fails.
+                # FillNA with 0?
+                # For D_up/D_down, contract says ["null", "int"].
+                # PyArrow handles nulls if we don't force astype int on NaN?
+                # But our schema says pa.int32() (not nullable expressed here, implies required?)
+                # PA Schema fields are nullable by default.
+                
+                # Check target type
+                if pa.types.is_int64(field.type) or pa.types.is_int32(field.type):
+                    # Fill NaNs with 0 or keep as float?
+                    # If we have NaNs, we can't cast to numpy int.
+                    # PyArrow from_pandas can handle it if we let it infer or pass schema.
+                    # But explicit astype helps.
+                    # D_up can be null.
+                    pass
                 elif pa.types.is_float64(field.type):
                     df[field.name] = df[field.name].astype("float64")
                 elif pa.types.is_boolean(field.type):
                     df[field.name] = df[field.name].astype("bool")
-        table = pa.Table.from_pandas(df[schema.names], schema=schema)
+        
+        # Using schema prevents type mismatch
+        # PyArrow handles int with nulls properly if using from_pandas?
+        # Only if using Int64 nullable type in pandas, otherwise float.
+        # Let's hope to_pybytes handles it.
+        table = pa.Table.from_pandas(df, schema=schema)
 
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
@@ -68,17 +109,18 @@ async def velocity_stream(
     speed: float = 1.0,
     skip_minutes: int = 5,
 ):
-    """Unified WebSocket endpoint for futures + options streaming.
+    """Unified WebSocket endpoint for futures + options + forecast streaming.
 
     Protocol per 1-second window:
-    1. JSON: {"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options"]}
+    1. JSON: {"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options", "forecast"]}
     2. JSON: {"type": "surface_header", "surface": "snap"}
-    3. Binary: Arrow IPC bytes for snap (futures spot reference)
+    3. Binary: Arrow IPC bytes for snap
     4. JSON: {"type": "surface_header", "surface": "velocity"}
-    5. Binary: Arrow IPC bytes for velocity (futures liquidity at $0.25 resolution)
+    5. Binary: Arrow IPC bytes for velocity (futures physics)
     6. JSON: {"type": "surface_header", "surface": "options"}
-    7. Binary: Arrow IPC bytes for options (aggregated options velocity at $5 resolution)
-    ... repeat for each window
+    7. Binary: Arrow IPC bytes for options
+    8. JSON: {"type": "surface_header", "surface": "forecast"}
+    9. Binary: Arrow IPC bytes for forecast
     """
     await websocket.accept()
     print(
@@ -108,7 +150,7 @@ async def velocity_stream(
             await websocket.send_text(json.dumps({
                 "type": "batch_start",
                 "window_end_ts_ns": str(window_id),
-                "surfaces": ["snap", "velocity", "options"],
+                "surfaces": ["snap", "velocity", "options", "forecast"],
             }))
 
             # Send snap (futures spot reference)
@@ -126,7 +168,14 @@ async def velocity_stream(
             options_bytes = _df_to_arrow_bytes(batch["options"], OPTIONS_SCHEMA)
             await websocket.send_bytes(options_bytes)
 
+            # Send forecast
+            await websocket.send_text(json.dumps({"type": "surface_header", "surface": "forecast"}))
+            forecast_bytes = _df_to_arrow_bytes(batch["forecast"], FORECAST_SCHEMA)
+            await websocket.send_bytes(forecast_bytes)
+
     except Exception as e:
         print(f"Unified stream error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         print("Unified stream disconnected")

@@ -14,6 +14,12 @@
     {"name": "add_intensity", "type": "double"},
     {"name": "fill_intensity", "type": "double"},
     {"name": "pull_intensity", "type": "double"},
-    {"name": "liquidity_velocity", "type": "double"}
+    {"name": "liquidity_velocity", "type": "double"},
+    {"name": "rho_opt", "type": "double"},
+    {"name": "phi_rest_opt", "type": "double"},
+    {"name": "u_opt_ema_8", "type": "double"},
+    {"name": "u_opt_ema_32", "type": "double"},
+    {"name": "u_opt_p_slow", "type": "double"},
+    {"name": "Omega_opt", "type": "double"}
   ]
 }

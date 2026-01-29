@@ -11,6 +11,19 @@ export class VelocityGrid {
   private texture: THREE.DataTexture;
   private data: Float32Array;
 
+  // Additional fields
+  private energyTexture: THREE.DataTexture;
+  private energyData: Float32Array;
+
+  private pressureTexture: THREE.DataTexture;
+  private pressureData: Float32Array;
+
+  private nuTexture: THREE.DataTexture;
+  private nuData: Float32Array;
+
+  private omegaTexture: THREE.DataTexture;
+  private omegaData: Float32Array;
+
   // Spot history for rectification - stores tick index per column
   private spotHistoryTexture: THREE.DataTexture;
   private spotHistoryData: Float32Array;
@@ -22,17 +35,46 @@ export class VelocityGrid {
     this.width = width;
     this.height = height;
 
-    // Main data texture: RGBA Float32
-    // R = velocity (signed), G/B unused, A = computed alpha
-    this.data = new Float32Array(width * height * 4);
-    this.texture = new THREE.DataTexture(this.data, width, height);
-    this.texture.format = THREE.RGBAFormat;
-    this.texture.type = THREE.FloatType;
-    this.texture.minFilter = THREE.NearestFilter;
-    this.texture.magFilter = THREE.NearestFilter;
-    this.texture.wrapS = THREE.RepeatWrapping;
-    this.texture.wrapT = THREE.ClampToEdgeWrapping;
-    this.texture.needsUpdate = true;
+    const size = width * height * 4;
+
+    // Helper to create texture
+    const createTex = () => {
+      const d = new Float32Array(size);
+      const t = new THREE.DataTexture(d, width, height);
+      t.format = THREE.RGBAFormat;
+      t.type = THREE.FloatType;
+      t.minFilter = THREE.NearestFilter;
+      t.magFilter = THREE.NearestFilter;
+      t.wrapS = THREE.RepeatWrapping;
+      t.wrapT = THREE.ClampToEdgeWrapping;
+      t.needsUpdate = true;
+      return { data: d, texture: t };
+    };
+
+    // Velocity (Main)
+    const vel = createTex();
+    this.data = vel.data;
+    this.texture = vel.texture;
+
+    // Energy
+    const en = createTex();
+    this.energyData = en.data;
+    this.energyTexture = en.texture;
+
+    // Pressure
+    const pr = createTex();
+    this.pressureData = pr.data;
+    this.pressureTexture = pr.texture;
+
+    // Viscosity (nu)
+    const nu = createTex();
+    this.nuData = nu.data;
+    this.nuTexture = nu.texture;
+
+    // Obstacle (Omega)
+    const om = createTex();
+    this.omegaData = om.data;
+    this.omegaTexture = om.texture;
 
     // Spot history texture: 1D ring buffer of spot prices (tick index)
     this.spotHistoryData = new Float32Array(width);
@@ -65,6 +107,7 @@ export class VelocityGrid {
       uniform float uHead;        // Current head column index
       uniform float uCount;       // Number of valid columns
       uniform float uCurrentSpot; // Current spot tick index
+      uniform int uMode;          // 0=vel, 1=energy, 2=pressure, 3=viscosity, 4=obstacle
       varying vec2 vUv;
 
       void main() {
@@ -100,23 +143,43 @@ export class VelocityGrid {
         }
 
         vec4 data = texture2D(uData, vec2(texX, texY));
-        float velocity = data.r;
+        float value = data.r;
 
-        // Skip near-zero velocity
-        if (abs(velocity) < 0.001) {
-          discard;
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+        
+        if (uMode == 0) { // Velocity
+            if (abs(value) < 0.001) discard;
+            if (value > 0.0) color = vec3(0.0, 1.0, 0.6); // Green
+            else color = vec3(1.0, 0.27, 0.13); // Red
+            alpha = tanh(abs(value) * 2.0) * 0.8;
+            
+        } else if (uMode == 1) { // Energy
+            if (value < 0.001) discard;
+            // Hot heatmap (Black -> Red -> Yellow -> White)
+            color = vec3(min(value * 5.0, 1.0), min(max(value * 5.0 - 1.0, 0.0), 1.0), min(max(value * 5.0 - 2.0, 0.0), 1.0));
+            alpha = min(value * 5.0, 0.8);
+            
+        } else if (uMode == 2) { // Pressure
+             if (abs(value) < 0.001) discard;
+             // Blue (neg) to Red (pos)
+             if (value > 0.0) color = vec3(1.0, 0.2, 0.2);
+             else color = vec3(0.2, 0.2, 1.0);
+             alpha = tanh(abs(value) * 10.0) * 0.8;
+             
+        } else if (uMode == 3) { // Viscosity
+             if (value <= 1.001) discard; // nu starts at 1
+             // Purple haze
+             float intensity = (value - 1.0) * 0.5;
+             color = vec3(0.6, 0.0, 0.8);
+             alpha = tanh(intensity) * 0.6;
+             
+        } else if (uMode == 4) { // Obstacle (Omega)
+             if (value < 0.1) discard;
+             // White/Grey walls
+             color = vec3(0.8, 0.8, 0.9);
+             alpha = min(value * 0.3, 0.9);
         }
-
-        // Color based on sign
-        vec3 color;
-        if (velocity > 0.0) {
-          color = vec3(0.0, 1.0, 0.6); // Green - building
-        } else {
-          color = vec3(1.0, 0.27, 0.13); // Red - eroding
-        }
-
-        // Alpha from velocity magnitude (tanh normalization)
-        float alpha = tanh(abs(velocity) * 2.0) * 0.8;
 
         gl_FragColor = vec4(color, alpha);
       }
@@ -131,6 +194,7 @@ export class VelocityGrid {
         uHead: { value: 0.0 },
         uCount: { value: 0.0 },
         uCurrentSpot: { value: 0.0 },
+        uMode: { value: 0 },
       },
       vertexShader,
       fragmentShader,
@@ -142,6 +206,20 @@ export class VelocityGrid {
     const geometry = new THREE.PlaneGeometry(1, 1);
     this.mesh = new THREE.Mesh(geometry, this.material);
     this.mesh.frustumCulled = false;
+  }
+
+  setDisplayMode(mode: 'velocity' | 'energy' | 'pressure' | 'viscosity' | 'obstacle') {
+    let tex = this.texture;
+    let m = 0;
+    switch (mode) {
+      case 'velocity': tex = this.texture; m = 0; break;
+      case 'energy': tex = this.energyTexture; m = 1; break;
+      case 'pressure': tex = this.pressureTexture; m = 2; break;
+      case 'viscosity': tex = this.nuTexture; m = 3; break;
+      case 'obstacle': tex = this.omegaTexture; m = 4; break;
+    }
+    this.material.uniforms.uData.value = tex;
+    this.material.uniforms.uMode.value = m;
   }
 
   getMesh(): THREE.Mesh {
@@ -177,26 +255,30 @@ export class VelocityGrid {
 
   /**
    * Write velocity data to current column
-   * @param relTicks - Relative tick offset from spot
-   * @param velocity - Liquidity velocity value (can be negative)
    */
-  write(relTicks: number, velocity: number): void {
+  write(relTicks: number, velocity: number, energy: number, pressure: number, nu: number, omega: number): void {
     const centerY = Math.floor(this.height / 2);
     const y = centerY + relTicks;
 
     if (y < 0 || y >= this.height) return;
 
     const idx = (y * this.width + this.head) * 4;
-    this.data[idx] = velocity;     // R = velocity
-    this.data[idx + 1] = 0;        // G unused
-    this.data[idx + 2] = 0;        // B unused
-    this.data[idx + 3] = 1;        // A = 1 (computed in shader)
+
+    // Write to all arrays
+    this.data[idx] = velocity;
+    this.energyData[idx] = energy;
+    this.pressureData[idx] = pressure;
+    this.nuData[idx] = nu;
+    this.omegaData[idx] = omega;
   }
 
   flush(): void {
     // Force texture re-upload
     this.texture.needsUpdate = true;
-    this.texture.version++;
+    this.energyTexture.needsUpdate = true;
+    this.pressureTexture.needsUpdate = true;
+    this.nuTexture.needsUpdate = true;
+    this.omegaTexture.needsUpdate = true;
   }
 
   private clearColumn(colIdx: number): void {
@@ -204,11 +286,18 @@ export class VelocityGrid {
     for (let y = 0; y < this.height; y++) {
       const idx = y * stride + colIdx * 4;
       this.data[idx] = 0;
-      this.data[idx + 1] = 0;
-      this.data[idx + 2] = 0;
-      this.data[idx + 3] = 0;
+      this.energyData[idx] = 0;
+      this.pressureData[idx] = 0;
+      this.nuData[idx] = 0;
+      this.omegaData[idx] = 0;
     }
+    // We only need to flag update if we are looking at it potentially?
+    // Safer to flag all.
     this.texture.needsUpdate = true;
+    this.energyTexture.needsUpdate = true;
+    this.pressureTexture.needsUpdate = true;
+    this.nuTexture.needsUpdate = true;
+    this.omegaTexture.needsUpdate = true;
   }
 
   getHead(): number {

@@ -350,6 +350,52 @@
                             "add_intensity - pull_intensity - fill_intensity"
                         ],
                         "note": "True net change in liquidity. Positive = building, Negative = eroding (pulls + fills > adds)"
+                    },
+                    "temporal_awareness": {
+                        "fields": [
+                            "u_ema_2",
+                            "u_ema_8",
+                            "u_ema_32",
+                            "u_ema_128",
+                            "u_band_fast",
+                            "u_band_mid",
+                            "u_band_slow",
+                            "u_wave_energy",
+                            "du_dt",
+                            "d2u_dt2"
+                        ],
+                        "description": "Multi-scale causal liquidity waves and derivatives"
+                    },
+                    "spatial_awareness": {
+                        "fields": [
+                            "u_near",
+                            "u_far",
+                            "u_prom",
+                            "du_dx",
+                            "d2u_dx2"
+                        ],
+                        "description": "Spatial smoothing and prominence (relative strengthening)"
+                    },
+                    "obstacles": {
+                        "fields": [
+                            "rho",
+                            "phi_rest",
+                            "u_p",
+                            "u_p_slow",
+                            "Omega",
+                            "Omega_near",
+                            "Omega_far",
+                            "Omega_prom",
+                            "nu",
+                            "kappa"
+                        ],
+                        "description": "Porous-media mapping: density, persistence, obstacle strength, and effective viscosity"
+                    },
+                    "pressure": {
+                        "fields": [
+                            "pressure_grad"
+                        ],
+                        "description": "Market-aligned pressure gradient force"
                     }
                 }
             }
@@ -608,6 +654,14 @@
                         "transformation_steps": [
                             "Sum of filled volume at strike bucket in window"
                         ]
+                    },
+                    "depth_qty_rest": {
+                        "built_from": [
+                            "bronze.future_option_mbo.mbo"
+                        ],
+                        "transformation_steps": [
+                            "Quantity of orders resting for > 500ms"
+                        ]
                     }
                 }
             }
@@ -655,6 +709,17 @@
                             "add_intensity - pull_intensity - fill_intensity"
                         ],
                         "note": "True net change in liquidity at the strike bucket"
+                    },
+                    "option_obstacles": {
+                        "fields": [
+                            "rho_opt",
+                            "phi_rest_opt",
+                            "u_opt_ema_8",
+                            "u_opt_ema_32",
+                            "u_opt_p_slow",
+                            "Omega_opt"
+                        ],
+                        "description": "Option-specific density, persistence, and obstacle fields mapped to the strike lattice."
                     }
                 }
             }

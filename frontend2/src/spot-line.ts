@@ -9,7 +9,6 @@ const MAX_POINTS = 1800; // 30 minutes at 1s/point
 export class SpotLine {
   private positions: Float32Array;
   private geometry: THREE.BufferGeometry;
-  private line: THREE.Line;
   private group: THREE.Group;
 
   private head: number = 0;
@@ -72,7 +71,6 @@ export class SpotLine {
       this.group.add(coreLine);
     }
 
-    this.line = this.group.children[this.group.children.length - 1] as THREE.Line;
   }
 
   private addGlowLine(yOffset: number, opacity: number, color: number): void {

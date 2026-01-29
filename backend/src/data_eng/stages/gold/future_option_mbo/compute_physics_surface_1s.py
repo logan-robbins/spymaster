@@ -84,6 +84,8 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         df = df_flow.copy()
 
         depth_start = df["depth_qty_start"].astype(float).to_numpy()
+        depth_end = df["depth_qty_end"].astype(float).to_numpy() # Need end for rho
+        depth_rest = df["depth_qty_rest"].astype(float).to_numpy()
         add_qty = df["add_qty"].astype(float).to_numpy()
         fill_qty = df["fill_qty"].astype(float).to_numpy()
         pull_qty = df["pull_qty_total"].astype(float).to_numpy()
@@ -94,6 +96,42 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         df["fill_intensity"] = fill_qty / denom
         df["pull_intensity"] = pull_qty / denom
         df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"] - df["fill_intensity"]
+
+        # -------------------------------------------------------------------------
+        # 8.2 Options obstacle field on strike lattice
+        # -------------------------------------------------------------------------
+        import numpy as np
+        
+        # rho_opt
+        df["rho_opt"] = np.log(1.0 + depth_end)
+        
+        # phi_rest_opt
+        df["phi_rest_opt"] = depth_rest / (depth_end + 1.0)
+        
+        # EMAs
+        # Sort to ensure time ordering for EWM
+        df = df.sort_values(["strike_price_int", "right", "side", "window_end_ts_ns"])
+        
+        # Define alphas
+        # alpha = 1 - exp(-dt/tau), dt=1s
+        alpha_8 = 1.0 - np.exp(-1.0 / 8.0)
+        alpha_32 = 1.0 - np.exp(-1.0 / 32.0)
+        
+        # Group by buckets (strike/right/side)
+        # Note: 'strike_price_int' identifies the absolute level.
+        g = df.groupby(["strike_price_int", "right", "side"])["liquidity_velocity"]
+        
+        df["u_opt_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(0, drop=True)
+        df["u_opt_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(0, drop=True)
+        
+        # u_opt_p_slow
+        df["u_opt_p_slow"] = df["phi_rest_opt"] * df["u_opt_ema_32"]
+        
+        # Omega_opt
+        # Omega_opt = rho_opt * (0.5 + 0.5*phi_rest_opt) * (1 + max(0, u_opt_p_slow))
+        term_rest = 0.5 + 0.5 * df["phi_rest_opt"]
+        term_reinforce = 1.0 + np.maximum(0.0, df["u_opt_p_slow"])
+        df["Omega_opt"] = df["rho_opt"] * term_rest * term_reinforce
 
         df["event_ts_ns"] = df["window_end_ts_ns"]
 
@@ -111,5 +149,11 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
                 "fill_intensity",
                 "pull_intensity",
                 "liquidity_velocity",
+                "rho_opt",
+                "phi_rest_opt",
+                "u_opt_ema_8",
+                "u_opt_ema_32",
+                "u_opt_p_slow",
+                "Omega_opt",
             ]
         ]

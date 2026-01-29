@@ -13,6 +13,12 @@ export interface VelocityRow {
   rel_ticks: number;
   side: string;
   liquidity_velocity: number;
+  rho: number;
+  nu: number;
+  kappa: number;
+  pressure_grad: number;
+  u_wave_energy: number;
+  Omega: number;
 }
 
 export interface OptionsRow {
@@ -22,11 +28,26 @@ export interface OptionsRow {
   liquidity_velocity: number;  // Aggregated across C/P and A/B
 }
 
+export interface ForecastRow {
+  window_end_ts_ns: bigint;
+  horizon_s: number;
+  predicted_spot_tick: bigint; // Relative in contract? No, name implies absolute. Or is it delta?
+  // Schema says predicted_spot_tick (null, long).
+  // Also predicted_tick_delta.
+  predicted_tick_delta: bigint;
+  confidence: number;
+  RunScore_up: number;
+  RunScore_down: number;
+  D_up: number | null;
+  D_down: number | null;
+}
+
 export interface StreamCallbacks {
   onTick: (ts: bigint, surfaces: string[]) => void;
   onSnap: (row: SnapRow) => void;
   onVelocity: (rows: VelocityRow[]) => void;
   onOptions: (rows: OptionsRow[]) => void;
+  onForecast: (rows: ForecastRow[]) => void;
 }
 
 export function connectStream(
@@ -92,6 +113,12 @@ export function connectStream(
                   rel_ticks: Number(json.rel_ticks),
                   side: json.side as string,
                   liquidity_velocity: json.liquidity_velocity as number,
+                  rho: (json.rho ?? 0) as number,
+                  nu: (json.nu ?? 0) as number,
+                  kappa: (json.kappa ?? 0) as number,
+                  pressure_grad: (json.pressure_grad ?? 0) as number,
+                  u_wave_energy: (json.u_wave_energy ?? 0) as number,
+                  Omega: (json.Omega ?? 0) as number,
                 });
               }
             }
@@ -111,6 +138,26 @@ export function connectStream(
               }
             }
             callbacks.onOptions(rows);
+          } else if (surface === 'forecast') {
+            const rows: ForecastRow[] = [];
+            for (let i = 0; i < table.numRows; i++) {
+              const row = table.get(i);
+              if (row) {
+                const json = row.toJSON() as Record<string, unknown>;
+                rows.push({
+                  window_end_ts_ns: BigInt(json.window_end_ts_ns as string),
+                  horizon_s: json.horizon_s as number,
+                  predicted_spot_tick: BigInt(json.predicted_spot_tick as string),
+                  predicted_tick_delta: BigInt(json.predicted_tick_delta as string),
+                  confidence: json.confidence as number,
+                  RunScore_up: json.RunScore_up as number,
+                  RunScore_down: json.RunScore_down as number,
+                  D_up: json.D_up as number | null,
+                  D_down: json.D_down as number | null,
+                });
+              }
+            }
+            callbacks.onForecast(rows);
           }
 
           pendingSurface = null;

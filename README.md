@@ -144,10 +144,11 @@ uv run python scripts/batch_download_equities.py poll --log-file logs/equities.l
 
 ## Streaming protocol (unified)
 Per 1-second window, server sends:
-1. JSON `{"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options"]}`
+1. JSON `{"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options", "forecast"]}`
 2. JSON `{"type": "surface_header", "surface": "snap"}` + Arrow IPC (futures spot reference)
-3. JSON `{"type": "surface_header", "surface": "velocity"}` + Arrow IPC (futures liquidity_velocity at $0.25)
-4. JSON `{"type": "surface_header", "surface": "options"}` + Arrow IPC (aggregated options liquidity_velocity at $5)
+3. JSON `{"type": "surface_header", "surface": "velocity"}` + Arrow IPC (futures liquidity_velocity at $0.25 + physics fields)
+4. JSON `{"type": "surface_header", "surface": "options"}` + Arrow IPC (aggregated options liquidity_velocity at $5 + physics fields)
+5. JSON `{"type": "surface_header", "surface": "forecast"}` + Arrow IPC (causal lookahead 1-30s + diagnostics)
 
 Options aggregation: C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, rel_ticks) — NET velocity per strike level
 

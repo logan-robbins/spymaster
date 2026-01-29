@@ -221,6 +221,7 @@ def _build_option_flow_surface(
         as_index=False,
     ).agg(
         depth_qty_end=("depth_total", "sum"),
+        depth_qty_rest=("depth_rest", "sum"),
         add_qty=("add_qty", "sum"),
         pull_qty_total=("pull_qty", "sum"),
         pull_qty_rest=("pull_rest_qty", "sum"),
@@ -249,6 +250,7 @@ def _build_option_flow_surface(
 
     fill_cols = [
         "depth_qty_end",
+        "depth_qty_rest",
         "add_qty",
         "pull_qty_total",
         "pull_qty_rest",
@@ -280,6 +282,7 @@ def _build_option_flow_surface(
             "pull_qty_total",
             "pull_qty_rest",
             "fill_qty",
+            "depth_qty_rest",
             "window_valid",
         ]
     ]

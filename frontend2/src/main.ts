@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { connectStream, type SnapRow, type VelocityRow, type OptionsRow } from './ws-client';
+import { connectStream, type SnapRow, type VelocityRow, type OptionsRow, type ForecastRow } from './ws-client';
 import { VelocityGrid, spotToTickIndex } from './velocity-grid';
 import { OptionsGrid } from './options-grid';
 import { SpotLine } from './spot-line';
 import { PriceAxis } from './price-axis';
+import { ForecastOverlay } from './forecast-overlay';
 
 // Configuration
 const SYMBOL = 'ESH6';
@@ -20,11 +21,12 @@ const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const spotLabel = document.getElementById('spot-label')!;
 const tsLabel = document.getElementById('ts-label')!;
 const frameLabel = document.getElementById('frame-label')!;
-const zoomLabel = document.getElementById('zoom-label')!
+const zoomLabel = document.getElementById('zoom-label')!;
+const fieldSelect = document.getElementById('field-select') as HTMLSelectElement;
 
 // Three.js setup
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0a);
+scene.background = new THREE.Color(0x0a0a0f); // Dark blue/black background
 
 // Camera state - FIXED position, only moves with zoom/pan
 // Y position set once we receive first spot price
@@ -54,6 +56,9 @@ const optionsGrid = new OptionsGrid(GRID_WIDTH);
 const optionsMesh = optionsGrid.getMesh();
 optionsMesh.renderOrder = 0.5;
 scene.add(optionsMesh);
+
+// Forecast Overlay
+const forecastOverlay = new ForecastOverlay(scene);
 
 // Spot price line (turquoise with glow, in front)
 const spotLine = new SpotLine();
@@ -123,6 +128,14 @@ function onOptions(rows: OptionsRow[]): void {
   tryProcessBatch();
 }
 
+function onForecast(rows: ForecastRow[]): void {
+  // Forecast usually arrives last or is separate.
+  // We can update overlay immediately if we have currentSpot from snap
+  if (cameraInitialized) {
+    forecastOverlay.update(rows, currentSpotTickIndex);
+  }
+}
+
 function tryProcessBatch(): void {
   // Wait for both surfaces before processing
   if (!velocityReady || !optionsReady || currentSpotTickIndex === 0) return;
@@ -131,13 +144,28 @@ function tryProcessBatch(): void {
   velocityGrid.advance(currentSpotTickIndex);
   optionsGrid.advance();
 
-  // Write futures velocity data
+  // Write futures velocity data (including new physics fields)
   let velocityWriteCount = 0;
   for (const row of pendingVelocityRows) {
     const relTicks = row.rel_ticks;
     const velocity = row.liquidity_velocity;
-    if (velocity !== 0) {
-      velocityGrid.write(relTicks, velocity);
+
+    // Always write even if velocity is 0, because other fields might be non-zero?
+    // Wait, optimization: if ALL fields are zero, skip?
+    // Fields default to 0.
+    // If we only iterate sparse rows, we write sparse.
+    // But backend sends dense grid (-200..200).
+    // So we iterate 401 rows.
+
+    if (velocity !== 0 || row.u_wave_energy !== 0 || row.pressure_grad !== 0 || row.nu !== 0 || row.Omega !== 0) {
+      velocityGrid.write(
+        relTicks,
+        velocity,
+        row.u_wave_energy,
+        row.pressure_grad,
+        row.nu,
+        row.Omega
+      );
       velocityWriteCount++;
     }
   }
@@ -162,14 +190,14 @@ function tryProcessBatch(): void {
   const count = velocityGrid.getCount();
   if (count > 1) {
     const timeSpan = count - 1;
-    
+
     // Futures velocity grid - centered on CAMERA position (which is fixed)
     velocityGrid.setMeshCenter(cameraYCenter);  // Tell shader where mesh is centered
     velocityMesh.scale.set(timeSpan, GRID_HEIGHT, 1);
     velocityMesh.position.x = -timeSpan / 2;
     velocityMesh.position.y = cameraYCenter;  // Use camera center, not current spot
     velocityMesh.position.z = 0;
-    
+
     // Options grid - covers the visible range at absolute tick positions
     const viewTicks = VIEW_TICKS / zoomLevel;
     const meshBottom = cameraYCenter - viewTicks / 2 - 100;  // Extra buffer
@@ -208,7 +236,14 @@ connectStream(SYMBOL, DATE, {
   onTick,
   onSnap,
   onVelocity,
-  onOptions
+  onOptions,
+  onForecast
+});
+
+// Field Selector Logic
+fieldSelect.addEventListener('change', (e) => {
+  const mode = (e.target as HTMLSelectElement).value as any;
+  velocityGrid.setDisplayMode(mode);
 });
 
 // Update camera based on zoom level

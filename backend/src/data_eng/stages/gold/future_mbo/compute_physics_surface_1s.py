@@ -102,6 +102,8 @@ class GoldComputePhysicsSurface1s(Stage):
 
         # Inputs
         depth_start = df["depth_qty_start"].astype(float).to_numpy()
+        depth_end = df["depth_qty_end"].astype(float).to_numpy()
+        depth_rest = df["depth_qty_rest"].astype(float).to_numpy()
         
         # Quantities
         add_qty = df["add_qty"].astype(float).to_numpy()
@@ -109,23 +111,258 @@ class GoldComputePhysicsSurface1s(Stage):
         pull_qty_total = df["pull_qty_total"].astype(float).to_numpy()
         
         # Intensities = Qty / (Depth + Epsilon)
-        # We use depth_start as the baseline for "Impact relative to what was there"
-        
         denom = depth_start + EPS_QTY
         
         df["add_intensity"] = add_qty / denom
         df["fill_intensity"] = fill_qty / denom
         df["pull_intensity"] = pull_qty_total / denom
 
-        # Net Velocity (Add - Pull - Fill)
-        # True net change in liquidity at this level
-        # Positive = building (adds outpace removals)
-        # Negative = eroding (pulls + fills outpace adds)
+        # Net Velocity (add - pull - fill)
         df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"] - df["fill_intensity"]
 
-        df["event_ts_ns"] = df["window_end_ts_ns"] 
+        # -------------------------------------------------------------
+        # 4. Obstacles basic fields (rho, phi_rest)
+        # -------------------------------------------------------------
+        import numpy as np
+        df["rho"] = np.log(1.0 + depth_end)
+        df["phi_rest"] = depth_rest / (depth_end + 1.0)
 
-        return df[[
+        # -------------------------------------------------------------
+        # 2. Temporal Awareness (EMAs) per cell (rel_ticks, side)
+        # -------------------------------------------------------------
+        # Sort for EWM
+        df = df.sort_values(["rel_ticks", "side", "window_end_ts_ns"])
+        
+        g = df.groupby(["rel_ticks", "side"])["liquidity_velocity"]
+        
+        # Alphas
+        alpha_2 = 1.0 - np.exp(-1.0 / 2.0)
+        alpha_8 = 1.0 - np.exp(-1.0 / 8.0)
+        alpha_32 = 1.0 - np.exp(-1.0 / 32.0)
+        alpha_128 = 1.0 - np.exp(-1.0 / 128.0)
+        
+        # Compute EMAs
+        # adjust=False corresponds to the recursive definition in spec
+        df["u_ema_2"] = g.ewm(alpha=alpha_2, adjust=False).mean().reset_index(0, drop=True)
+        df["u_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(0, drop=True)
+        df["u_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(0, drop=True)
+        df["u_ema_128"] = g.ewm(alpha=alpha_128, adjust=False).mean().reset_index(0, drop=True)
+        
+        # Bands
+        df["u_band_fast"] = df["u_ema_2"] - df["u_ema_8"]
+        df["u_band_mid"] = df["u_ema_8"] - df["u_ema_32"]
+        df["u_band_slow"] = df["u_ema_32"] - df["u_ema_128"]
+        
+        # Energy
+        df["u_wave_energy"] = np.sqrt(
+            df["u_band_fast"]**2 + df["u_band_mid"]**2 + df["u_band_slow"]**2
+        )
+        
+        # Temporal Derivatives (du_dt, d2u_dt2) based on u_ema_2
+        # We need to take diff per group
+        # Since df is sorted, we can use shift/diff but must respect groups (or use optimized diff if groups contiguous)
+        # Using groupby shift is safer
+        u2_curr = df["u_ema_2"]
+        u2_prev = df.groupby(["rel_ticks", "side"])["u_ema_2"].shift(1)
+        df["du_dt"] = (u2_curr - u2_prev).fillna(0.0) # Delta t = 1s
+        
+        du_curr = df["du_dt"]
+        du_prev = df.groupby(["rel_ticks", "side"])["du_dt"].shift(1)
+        df["d2u_dt2"] = (du_curr - du_prev).fillna(0.0)
+
+        # Persistence-weighted velocity
+        df["u_p"] = df["phi_rest"] * df["u_ema_8"]
+        df["u_p_slow"] = df["phi_rest"] * df["u_ema_32"]
+        
+        # Obstacle Strength Omega
+        # Omega = rho * (0.5 + 0.5*phi_rest) * (1 + max(0, u_p_slow))
+        term_rest = 0.5 + 0.5 * df["phi_rest"]
+        term_reinforce = 1.0 + np.maximum(0.0, df["u_p_slow"])
+        df["Omega"] = df["rho"] * term_rest * term_reinforce
+
+        # -------------------------------------------------------------
+        # 3. Spatial Awareness (Smoothing) per frame (ts, side)
+        # -------------------------------------------------------------
+        # We need to smooth 'u_ema_8' -> 'u_near', 'u_ema_32' -> 'u_far'
+        # Also 'Omega' -> 'Omega_near', 'Omega_far'
+        
+        # We define a helper to apply spatial smoothing
+        def apply_spatial_smoothing(df_in, target_col, sigma, n_ticks, out_col_name):
+            # Pivot to [ts, side] x [rel_ticks]
+            # We process each side separately to avoid index collision or weirdness
+            # Actually we can pivot on ["window_end_ts_ns", "side"] as index
+            
+            pivoted = df_in.pivot_table(
+                index=["window_end_ts_ns", "side"], 
+                columns="rel_ticks", 
+                values=target_col
+            )
+            
+            # Reindex to dense grid -200 to +200
+            # Assuming standard tick range
+            full_ticks = np.arange(-200, 201)
+            pivoted = pivoted.reindex(columns=full_ticks, fill_value=0.0)
+            
+            # Apply rolling gaussian
+            # Window width must cover +/- N_ticks. width = 2*N + 1?
+            # Pandas rolling window size is M. Center=True.
+            # Truncation at +/- N means we want kernel radius N.
+            # 6 sigma should cover enough.
+            # N=16, window ~ 33
+            win_size = int(2 * n_ticks + 1)
+            
+            # axis=1 is deprecated in future pandas, use transpose
+            # T: [rel_ticks] x [ts, side]
+            smoothed_T = pivoted.T.rolling(
+                window=win_size, 
+                win_type='gaussian', 
+                center=True, 
+                axis=0
+            ).mean(std=sigma)
+            
+            smoothed = smoothed_T.T # Back to [ts, side] x [rel_ticks]
+            
+            # Melt back
+            melted = smoothed.stack().rename(out_col_name).reset_index()
+            # melted columns: window_end_ts_ns, side, rel_ticks, {out_col_name}
+            
+            return melted
+
+        # Apply smoothing
+        # u_near: sigma=6, N=16, source=u_ema_8
+        u_near_df = apply_spatial_smoothing(df, "u_ema_8", 6, 16, "u_near")
+        # u_far: sigma=24, N=64, source=u_ema_32
+        u_far_df = apply_spatial_smoothing(df, "u_ema_32", 24, 64, "u_far")
+        
+        # Omega_near: sigma=6, N=16
+        omega_near_df = apply_spatial_smoothing(df, "Omega", 6, 16, "Omega_near")
+        # Omega_far: sigma=24, N=64
+        omega_far_df = apply_spatial_smoothing(df, "Omega", 24, 64, "Omega_far")
+        
+        # Merge back
+        # We merge on keys. Note that Pivot filled missing with 0, so we might have new rows (0-filled).
+        # We should perform Left Join if we only want original rows, OR Outer Join if we want the full field.
+        # Physics field should arguably be dense.
+        # Gold layer usually assumes we output what we got from Silver.
+        # But if we want 0s in vacuous regions, we should keep them.
+        # For efficiency, let's keep only rows that existed in silver (+ rows that were filled by smoothing near boundaries?)
+        # Let's Left Merge to df. This implies we discard smoothed values in empty regions?
+        # If the grid is sparse, derivatives might be wrong if we don't have neighbors.
+        # But `apply_spatial_smoothing` *created* a dense grid intermediate.
+        # If we discard rows, we lose the density.
+        # However, writing Dense 401 ticks * 2 sides * 3600 seconds = 2.8M rows. That's fine for Gold Parquet.
+        # It ensures downstream (stream server) doesn't have holes.
+        # Let's use the dense grid from smoothing as the base!
+        
+        # Base frame from u_near (dense)
+        df_dense = u_near_df.merge(u_far_df, on=["window_end_ts_ns", "side", "rel_ticks"], how="outer")
+        df_dense = df_dense.merge(omega_near_df, on=["window_end_ts_ns", "side", "rel_ticks"], how="outer")
+        df_dense = df_dense.merge(omega_far_df, on=["window_end_ts_ns", "side", "rel_ticks"], how="outer")
+        
+        # Merge original data
+        # "right" merge to keep dense, or "left" to keep sparse. 
+        # Using "right" merge means we get the dense grid. original cols will be NaN where missing.
+        df_merged = df.merge(
+            df_dense, 
+            on=["window_end_ts_ns", "side", "rel_ticks"], 
+            how="right"
+        )
+        
+        # Fill NaNs in original fields with 0 (since they were empty in silver)
+        fill_cols = [
+            "add_intensity", "fill_intensity", "pull_intensity", "liquidity_velocity",
+            "rho", "phi_rest", "u_ema_2", "u_ema_8", "u_ema_32", "u_ema_128", 
+            "u_band_fast", "u_band_mid", "u_band_slow", "u_wave_energy", 
+            "du_dt", "d2u_dt2", "u_p", "u_p_slow", "Omega"
+        ]
+        for c in fill_cols:
+            if c in df_merged.columns:
+                df_merged[c] = df_merged[c].fillna(0.0)
+                
+        # Fill spot_ref_price_int?
+        # It's constant per window_end_ts_ns.
+        # We need to backfill it from existing info.
+        # Map timestamp -> spot_ref
+        spot_map = df[["window_end_ts_ns", "spot_ref_price_int", "event_ts_ns"]].drop_duplicates()
+        # If duplicated timestamps have diff spot (unlikely given grain), take first.
+        spot_map = spot_map.drop_duplicates("window_end_ts_ns")
+        
+        # Determine rel_ticks_side for new rows?
+        # rel_ticks_side depends on bid/ask anchor.
+        # We can't easily reconstruct it without book state.
+        # Just fill with 0 or rel_ticks?
+        # It's an informational column.
+        # Let's just drop spot_ref_price_int from merge and re-join it.
+        if "spot_ref_price_int" in df_merged.columns:
+             df_merged = df_merged.drop(columns=["spot_ref_price_int", "event_ts_ns"])
+             
+        df_merged = df_merged.merge(spot_map, on="window_end_ts_ns", how="left")
+        
+        # -------------------------------------------------------------
+        # Derived Spatial Fields
+        # -------------------------------------------------------------
+        # Prominence
+        df_merged["u_prom"] = df_merged["u_near"] - df_merged["u_far"]
+        df_merged["Omega_prom"] = df_merged["Omega_near"] - df_merged["Omega_far"]
+        
+        # Spatial Derivatives on u_near
+        # Sort by rel_ticks
+        df_merged = df_merged.sort_values(["window_end_ts_ns", "side", "rel_ticks"])
+        
+        # Group by frame to differentiate ticks
+        g_space = df_merged.groupby(["window_end_ts_ns", "side"])
+        
+        # Central difference: (x+1 - x-1)/2
+        # Use shift(-1) - shift(1) / 2
+        u_near = df_merged["u_near"]
+        df_merged["du_dx"] = (g_space["u_near"].shift(-1) - g_space["u_near"].shift(1)) * 0.5
+        df_merged["du_dx"] = df_merged["du_dx"].fillna(0.0) # Boundaries
+        
+        # d2u_dx2 = x+1 - 2x + x-1
+        df_merged["d2u_dx2"] = g_space["u_near"].shift(-1) - 2.0 * u_near + g_space["u_near"].shift(1)
+        df_merged["d2u_dx2"] = df_merged["d2u_dx2"].fillna(0.0)
+        
+        # -------------------------------------------------------------
+        # 4.6 Effective Viscosity, Resistance, Permeability
+        # -------------------------------------------------------------
+        # R = 1 + Omega_near + 2*max(0, Omega_prom)
+        # nu = R
+        # kappa = 1 / nu
+        Omega_near = df_merged["Omega_near"]
+        Omega_prom = df_merged["Omega_prom"]
+        
+        R = 1.0 + Omega_near + 2.0 * np.maximum(0.0, Omega_prom)
+        df_merged["nu"] = R
+        df_merged["kappa"] = 1.0 / R
+        
+        # -------------------------------------------------------------
+        # 5. Pressure Gradient Force
+        # -------------------------------------------------------------
+        # Bid side: +u_p
+        # Ask side: -u_p
+        # u_p is persistence weighted u_ema_8.
+        # We need u_p (which was filled with 0 for new rows).
+        # Wait, if we use dense grid, we should probably recompute u_p from smoothed u??
+        # Spec says: "Using the persistence-weighted mid-scale velocity u_p: ... = +/- u_p"
+        # u_p = phi_rest * u_ema_8.
+        # Is u_p smoothed? Spec doesn't say "u_p_near".
+        # It implies local cell value.
+        # But we filled u_p with 0 in empty regions.
+        # This is correct: no persistence -> no pressure source.
+        
+        u_p = df_merged["u_p"]
+        side_cond = (df_merged["side"] == "B")
+        df_merged["pressure_grad"] = np.where(side_cond, u_p, -u_p)
+        
+        # Fill missing informational columns
+        if "rel_ticks_side" in df_merged.columns:
+            df_merged["rel_ticks_side"] = df_merged["rel_ticks_side"].fillna(0).astype(int)
+        else:
+            df_merged["rel_ticks_side"] = 0
+
+        df_merged["event_ts_ns"] = df_merged["window_end_ts_ns"]
+
+        return df_merged[[
             "window_end_ts_ns", 
             "event_ts_ns", 
             "spot_ref_price_int", 
@@ -136,6 +373,16 @@ class GoldComputePhysicsSurface1s(Stage):
             "fill_intensity",
             "pull_intensity",
             "liquidity_velocity",
+            # New Fields
+            "u_ema_2", "u_ema_8", "u_ema_32", "u_ema_128", 
+            "u_band_fast", "u_band_mid", "u_band_slow", "u_wave_energy",
+            "du_dt", "d2u_dt2",
+            "u_near", "u_far", "u_prom",
+            "du_dx", "d2u_dx2",
+            "rho", "phi_rest", "u_p", "u_p_slow",
+            "Omega", "Omega_near", "Omega_far", "Omega_prom",
+            "nu", "kappa",
+            "pressure_grad"
         ]]
 
 

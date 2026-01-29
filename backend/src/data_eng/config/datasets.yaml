@@ -260,3 +260,10 @@ datasets:
     format: parquet
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_option/statistics_first3h.avsc
+
+  # Stream
+  stream.forecast_1s:
+    path: stream/product_type=forecast/symbol={symbol}/table=forecast_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/stream/forecast_1s.avsc

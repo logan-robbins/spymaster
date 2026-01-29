@@ -67,7 +67,7 @@ class OptionsBookEngine:
 
         (
             out_win_end, out_iid, out_side, out_px, 
-            out_depth_total, out_add_qty, out_pull_qty, out_pull_rest, out_fill_qty,
+            out_depth_total, out_depth_rest, out_add_qty, out_pull_qty, out_pull_rest, out_fill_qty,
             bbo_ts, bbo_iid, bbo_bid, bbo_ask, bbo_mid
         ) = _process_options_mbo(
             ts_arr, iid_arr, act_arr, side_arr, px_arr, sz_arr, oid_arr, flags_arr,
@@ -85,6 +85,7 @@ class OptionsBookEngine:
                 "side_int": list(out_side),
                 "price_int": list(out_px),
                 "depth_total": list(out_depth_total),
+                "depth_rest": list(out_depth_rest),
                 "add_qty": list(out_add_qty),
                 "pull_qty": list(out_pull_qty),
                 "pull_rest_qty": list(out_pull_rest),
@@ -124,6 +125,7 @@ def _process_options_mbo(
     out_side = NumbaList.empty_list(int8)
     out_px = NumbaList.empty_list(int64)
     out_depth_total = NumbaList.empty_list(int64)
+    out_depth_rest = NumbaList.empty_list(int64)
     out_add_qty = NumbaList.empty_list(int64)
     out_pull_qty = NumbaList.empty_list(int64)
     out_pull_rest = NumbaList.empty_list(int64)
@@ -159,6 +161,15 @@ def _process_options_mbo(
             for k in depth:
                 if depth.get(k, 0) > 0:
                     active_keys[k] = 1
+
+            # Compute resting depth for this window end
+            dt = types.Tuple((int64, int8, int64))
+            local_depth_rest = NumbaDict.empty(dt, int64)
+            for oid in orders_meta:
+                 _iid, _side, _px, _qty, _ts = orders_meta[oid]
+                 if window_end - _ts >= rest_ns:
+                     k_ord = (_iid, _side, _px)
+                     local_depth_rest[k_ord] = local_depth_rest.get(k_ord, 0) + _qty
             
             for k in active_keys:
                 iid_k, side_k, px_k = k
@@ -168,6 +179,8 @@ def _process_options_mbo(
                 fill = win_acc_fill.get(k, 0)
                 
                 d_total = depth.get(k, 0)
+                d_rest = local_depth_rest.get(k, 0)
+                
                 if d_total <= 0 and add == 0 and pull == 0 and pull_rest == 0 and fill == 0:
                     continue
                 
@@ -176,6 +189,7 @@ def _process_options_mbo(
                 out_side.append(side_k)
                 out_px.append(px_k)
                 out_depth_total.append(d_total)
+                out_depth_rest.append(d_rest)
                 out_add_qty.append(add)
                 out_pull_qty.append(pull)
                 out_pull_rest.append(pull_rest)
@@ -346,6 +360,15 @@ def _process_options_mbo(
             if depth.get(k, 0) > 0:
                 active_keys[k] = 1
         
+        # Compute resting depth
+        dt = types.Tuple((int64, int8, int64))
+        local_depth_rest = NumbaDict.empty(dt, int64)
+        for oid in orders_meta:
+             _iid, _side, _px, _qty, _ts = orders_meta[oid]
+             if window_end - _ts >= rest_ns:
+                 k_ord = (_iid, _side, _px)
+                 local_depth_rest[k_ord] = local_depth_rest.get(k_ord, 0) + _qty
+
         for k in active_keys:
             iid_k, side_k, px_k = k
             add = win_acc_add.get(k, 0)
@@ -353,6 +376,8 @@ def _process_options_mbo(
             pull_rest = win_acc_pull_rest.get(k, 0)
             fill = win_acc_fill.get(k, 0)
             d_total = depth.get(k, 0)
+            d_rest = local_depth_rest.get(k, 0)
+            
             if d_total <= 0 and add == 0 and pull == 0 and pull_rest == 0 and fill == 0:
                 continue
             
@@ -361,6 +386,7 @@ def _process_options_mbo(
             out_side.append(side_k)
             out_px.append(px_k)
             out_depth_total.append(d_total)
+            out_depth_rest.append(d_rest)
             out_add_qty.append(add)
             out_pull_qty.append(pull)
             out_pull_rest.append(pull_rest)
@@ -385,7 +411,7 @@ def _process_options_mbo(
 
     return (
         out_win_end, out_iid, out_side, out_px, 
-        out_depth_total, out_add_qty, out_pull_qty, out_pull_rest, out_fill_qty,
+        out_depth_total, out_depth_rest, out_add_qty, out_pull_qty, out_pull_rest, out_fill_qty,
         bbo_ts, bbo_iid, bbo_bid, bbo_ask, bbo_mid
     )
 
