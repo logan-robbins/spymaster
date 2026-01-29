@@ -101,79 +101,43 @@ class GoldComputePhysicsBands1s(Stage):
                     "spot_ref_price_int",
                     "mid_price",
                     "mid_price_int",
-                    "above_at_wall_strength_norm",
-                    "above_at_wall_erosion_norm",
-                    "above_at_vacuum_norm",
-                    "above_at_ease",
-                    "above_near_wall_strength_norm",
-                    "above_near_wall_erosion_norm",
-                    "above_near_vacuum_norm",
-                    "above_near_ease",
-                    "above_mid_wall_strength_norm",
-                    "above_mid_wall_erosion_norm",
-                    "above_mid_vacuum_norm",
-                    "above_mid_ease",
-                    "above_far_wall_strength_norm",
-                    "above_far_wall_erosion_norm",
-                    "above_far_vacuum_norm",
-                    "above_far_ease",
-                    "below_at_wall_strength_norm",
-                    "below_at_wall_erosion_norm",
-                    "below_at_vacuum_norm",
-                    "below_at_ease",
-                    "below_near_wall_strength_norm",
-                    "below_near_wall_erosion_norm",
-                    "below_near_vacuum_norm",
-                    "below_near_ease",
-                    "below_mid_wall_strength_norm",
-                    "below_mid_wall_erosion_norm",
-                    "below_mid_vacuum_norm",
-                    "below_mid_ease",
-                    "below_far_wall_strength_norm",
-                    "below_far_wall_erosion_norm",
-                    "below_far_vacuum_norm",
-                    "below_far_ease",
-                    "above_score",
-                    "below_score",
-                    "vacuum_total_score",
+                    # Add Intensity
+                    "above_at_add_intensity", "above_near_add_intensity", "above_mid_add_intensity", "above_far_add_intensity",
+                    "below_at_add_intensity", "below_near_add_intensity", "below_mid_add_intensity", "below_far_add_intensity",
+                    # Fill Intensity
+                    "above_at_fill_intensity", "above_near_fill_intensity", "above_mid_fill_intensity", "above_far_fill_intensity",
+                    "below_at_fill_intensity", "below_near_fill_intensity", "below_mid_fill_intensity", "below_far_fill_intensity",
+                    # Pull Intensity
+                    "above_at_pull_intensity", "above_near_pull_intensity", "above_mid_pull_intensity", "above_far_pull_intensity",
+                    "below_at_pull_intensity", "below_near_pull_intensity", "below_mid_pull_intensity", "below_far_pull_intensity",
+                    # Liquidity Velocity
+                    "above_at_liquidity_velocity", "above_near_liquidity_velocity", "above_mid_liquidity_velocity", "above_far_liquidity_velocity",
+                    "below_at_liquidity_velocity", "below_near_liquidity_velocity", "below_mid_liquidity_velocity", "below_far_liquidity_velocity",
+                    # Wall Strength
+                    "above_at_wall_strength", "above_near_wall_strength", "above_mid_wall_strength", "above_far_wall_strength",
+                    "below_at_wall_strength", "below_near_wall_strength", "below_mid_wall_strength", "below_far_wall_strength",
                 ]
             )
 
-        # NOTE: df_surf already has normalized metrics [0, 1]
-        # wall_strength_norm, wall_erosion_norm, vacuum_score (vacuum_norm)
+        # -----------------------------
+        # Aggregation
+        # -----------------------------
+        # We group by Band -> Mean(Intensity)
         
-        # We process Surface -> Bands by grouping and taking mean.
-        
-        # Filter into bands
-        # We need rel_ticks, side from df_surf
         surf = _band_filter(df_surf.copy())
         
-        # Rename for clarity/aggregation
-        # vacuum_score -> vacuum_norm
-        surf = surf.rename(columns={"vacuum_score": "vacuum_norm"})
+        metrics = ["add_intensity", "fill_intensity", "pull_intensity", "liquidity_velocity", "wall_strength"]
         
-        # Aggregate
-        # Group by Time, Direction, Band and Mean the NORMALIZED metrics.
-        # This is a behavior change from Silver (which mean'd Log metrics then normalized),
-        # but Architecturally preferred for Gold layer: "Average Physics" vs "Physics of Average".
         agg = (
-            surf.groupby(["window_end_ts_ns", "direction", "band"], as_index=False)[
-                ["wall_strength_norm", "wall_erosion_norm", "vacuum_norm"]
-            ]
+            surf.groupby(["window_end_ts_ns", "direction", "band"], as_index=False)[metrics]
             .mean()
         )
         
-        # Compute Ease on the Aggregated Band
-        agg["ease"] = (
-            0.50 * agg["vacuum_norm"]
-            + 0.35 * agg["wall_erosion_norm"]
-            + 0.15 * (1.0 - agg["wall_strength_norm"])
-        )
-
+        # Pivot
         wide = agg.pivot_table(
             index="window_end_ts_ns",
             columns=["direction", "band"],
-            values=["wall_strength_norm", "wall_erosion_norm", "vacuum_norm", "ease"],
+            values=metrics,
             fill_value=0.0,
         )
         wide.columns = [
@@ -188,11 +152,7 @@ class GoldComputePhysicsBands1s(Stage):
 
         out = base.merge(wide, on="window_end_ts_ns", how="left")
         out = out.fillna(0.0)
-        out = _ensure_columns(out)
-
-        out["above_score"] = 0.60 * out["above_at_ease"] + 0.40 * out["above_near_ease"]
-        out["below_score"] = 0.60 * out["below_at_ease"] + 0.40 * out["below_near_ease"]
-        out["vacuum_total_score"] = (out["above_score"] + out["below_score"]) / 2.0
+        out = _ensure_columns_mechanics(out)
 
         return out[
             [
@@ -201,41 +161,21 @@ class GoldComputePhysicsBands1s(Stage):
                 "spot_ref_price_int",
                 "mid_price",
                 "mid_price_int",
-                "above_at_wall_strength_norm",
-                "above_at_wall_erosion_norm",
-                "above_at_vacuum_norm",
-                "above_at_ease",
-                "above_near_wall_strength_norm",
-                "above_near_wall_erosion_norm",
-                "above_near_vacuum_norm",
-                "above_near_ease",
-                "above_mid_wall_strength_norm",
-                "above_mid_wall_erosion_norm",
-                "above_mid_vacuum_norm",
-                "above_mid_ease",
-                "above_far_wall_strength_norm",
-                "above_far_wall_erosion_norm",
-                "above_far_vacuum_norm",
-                "above_far_ease",
-                "below_at_wall_strength_norm",
-                "below_at_wall_erosion_norm",
-                "below_at_vacuum_norm",
-                "below_at_ease",
-                "below_near_wall_strength_norm",
-                "below_near_wall_erosion_norm",
-                "below_near_vacuum_norm",
-                "below_near_ease",
-                "below_mid_wall_strength_norm",
-                "below_mid_wall_erosion_norm",
-                "below_mid_vacuum_norm",
-                "below_mid_ease",
-                "below_far_wall_strength_norm",
-                "below_far_wall_erosion_norm",
-                "below_far_vacuum_norm",
-                "below_far_ease",
-                "above_score",
-                "below_score",
-                "vacuum_total_score",
+                # Add
+                "above_at_add_intensity", "above_near_add_intensity", "above_mid_add_intensity", "above_far_add_intensity",
+                "below_at_add_intensity", "below_near_add_intensity", "below_mid_add_intensity", "below_far_add_intensity",
+                # Fill
+                "above_at_fill_intensity", "above_near_fill_intensity", "above_mid_fill_intensity", "above_far_fill_intensity",
+                "below_at_fill_intensity", "below_near_fill_intensity", "below_mid_fill_intensity", "below_far_fill_intensity",
+                # Pull
+                "above_at_pull_intensity", "above_near_pull_intensity", "above_mid_pull_intensity", "above_far_pull_intensity",
+                "below_at_pull_intensity", "below_near_pull_intensity", "below_mid_pull_intensity", "below_far_pull_intensity",
+                # Liquidity Velocity
+                "above_at_liquidity_velocity", "above_near_liquidity_velocity", "above_mid_liquidity_velocity", "above_far_liquidity_velocity",
+                "below_at_liquidity_velocity", "below_near_liquidity_velocity", "below_mid_liquidity_velocity", "below_far_liquidity_velocity",
+                # Strength
+                "above_at_wall_strength", "above_near_wall_strength", "above_mid_wall_strength", "above_far_wall_strength",
+                "below_at_wall_strength", "below_near_wall_strength", "below_mid_wall_strength", "below_far_wall_strength",
             ]
         ]
 
@@ -259,18 +199,14 @@ def _band_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _ensure_columns_mechanics(df: pd.DataFrame) -> pd.DataFrame:
+    metrics = ["add_intensity", "fill_intensity", "pull_intensity", "liquidity_velocity", "wall_strength"]
     targets = []
     for direction in ("above", "below"):
         for band, _, _ in BANDS:
-            targets.extend(
-                [
-                    f"{direction}_{band}_wall_strength_norm",
-                    f"{direction}_{band}_wall_erosion_norm",
-                    f"{direction}_{band}_vacuum_norm",
-                    f"{direction}_{band}_ease",
-                ]
-            )
+            for metric in metrics:
+                targets.append(f"{direction}_{band}_{metric}")
+                
     for col in targets:
         if col not in df.columns:
             df[col] = 0.0
