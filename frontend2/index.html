@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liquidity Velocity</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; overflow: hidden; font-family: monospace; }
+    #canvas { width: 100vw; height: 100vh; display: block; }
+    #price-axis {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 80px;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 50;
+    }
+    #overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #00ffaa;
+      font-size: 12px;
+      z-index: 100;
+    }
+    #overlay div { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="price-axis"></div>
+  <div id="overlay">
+    <div id="spot-label">Spot: --</div>
+    <div id="ts-label">TS: --</div>
+    <div id="frame-label">Frame: --</div>
+    <div id="zoom-label">Zoom: 1.0x</div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

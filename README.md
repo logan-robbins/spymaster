@@ -15,11 +15,25 @@ uv run python -m src.serving.main
 # WebSocket: ws://localhost:8000/v1/hud/stream?symbol=ESH6&dt=2026-01-06
 ```
 
-### Frontend
+### Frontend (Full HUD)
 ```bash
 cd frontend
 npm run dev
 # http://localhost:5173
+```
+
+### Frontend2 (Velocity Grid)
+```bash
+cd frontend2
+npm install && npm run dev
+# http://localhost:5174
+```
+
+### Velocity Stream Server (for frontend2)
+```bash
+cd backend
+uv run python -m src.serving.velocity_main
+# WebSocket: ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06
 ```
 
 ### Pipeline Runner
@@ -60,6 +74,9 @@ Gold: GoldComputePhysicsBands1s [PENDING_REDESIGN]
 | Backend schema reference | `backend_data.json` |
 | Frontend schema reference | `frontend_data.json` |
 | Frontend docs | `DOCS_FRONTEND.md` |
+| Velocity streaming | `backend/src/serving/velocity_streaming.py` |
+| Velocity router | `backend/src/serving/routers/velocity.py` |
+| Frontend2 velocity grid | `frontend2/src/velocity-grid.ts` |
 
 ## Grid Coordinates
 
@@ -71,7 +88,55 @@ Gold: GoldComputePhysicsBands1s [PENDING_REDESIGN]
 
 ## Process Management
 ```bash
-# Check if backend running
+# Check if main backend running (port 8000)
 lsof -iTCP:8000 -sTCP:LISTEN
 pgrep -fl "src.serving.main"
+
+# Check if velocity server running (port 8001)
+lsof -iTCP:8001 -sTCP:LISTEN
+pgrep -fl "src.serving.velocity_main"
+
+# Check if frontend2 running (port 5174)
+lsof -iTCP:5174 -sTCP:LISTEN
 ```
+
+## Frontend2 Architecture
+
+Frontend2 is a TradingView-style visualization streaming from `gold.future_mbo.physics_surface_1s`.
+
+**Display:**
+- Turquoise line chart showing spot price over time
+- Semi-transparent velocity heatmap overlay (green=building, red=eroding)
+- Camera follows spot price vertically
+- 30% right margin reserved for predictions
+- Price tick labels on Y-axis ($5.00 intervals)
+- Mouse wheel zoom (0.25x to 4x)
+
+**Data Sources:**
+- `silver.future_mbo.book_snapshot_1s` → snap (mid_price, spot_ref_price_int)
+- `gold.future_mbo.physics_surface_1s` → velocity (rel_ticks, liquidity_velocity)
+
+**Key Files:**
+- `frontend2/src/main.ts` - Scene setup, WebSocket handlers, camera follow, zoom
+- `frontend2/src/spot-line.ts` - Turquoise price line chart
+- `frontend2/src/velocity-grid.ts` - Velocity heatmap with rectification shader
+- `frontend2/src/price-axis.ts` - Price tick labels (HTML overlay)
+- `frontend2/src/ws-client.ts` - WebSocket client with Arrow IPC parsing
+
+**Grid:**
+- Width: 1800 columns (30 min @ 1s/col)
+- Height: 801 rows (±400 ticks from spot)
+- Default view: 300 seconds visible, ±50 ticks around spot
+- Color: Green (velocity > 0) / Red (velocity < 0)
+- Alpha: |liquidity_velocity| normalized via tanh(velocity * 2) * 0.8
+
+**Controls:**
+- Mouse wheel: Zoom in/out (0.25x to 4x)
+
+**WebSocket Protocol:**
+```
+batch_start (JSON) → surface_header (JSON) → Arrow IPC (binary)
+```
+
+**Query Parameters:**
+- `skip_minutes` (default: 5) - Skip initial minutes of stream for faster testing
