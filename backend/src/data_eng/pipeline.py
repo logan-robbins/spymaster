@@ -48,28 +48,26 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     elif product_type == "future_mbo":
         from .stages.bronze.future_mbo.ingest import BronzeIngestFutureMbo
         from .stages.silver.future_mbo.compute_book_states_1s import SilverComputeBookStates1s
-        from .stages.silver.future_mbo.compute_vacuum_surface_1s import SilverComputeVacuumSurface1s
-        from .stages.silver.future_mbo.compute_physics_bands_1s import SilverComputePhysicsBands1s
-        from .stages.silver.future_mbo.compute_physics_surface_1s import SilverComputePhysicsSurface1s
+        from .stages.gold.future_mbo.compute_physics_surface_1s import GoldComputePhysicsSurface1s
+        from .stages.gold.future_mbo.compute_physics_bands_1s import GoldComputePhysicsBands1s
 
         if layer == "bronze":
             return [BronzeIngestFutureMbo()]
         elif layer == "silver":
             return [
                 SilverComputeBookStates1s(),
-                SilverComputeVacuumSurface1s(),
-                SilverComputePhysicsBands1s(),
-                SilverComputePhysicsSurface1s(),
             ]
         elif layer == "gold":
-            return []
+            return [
+                GoldComputePhysicsSurface1s(),
+                GoldComputePhysicsBands1s(),
+            ]
         elif layer == "all":
             return [
                 BronzeIngestFutureMbo(),
                 SilverComputeBookStates1s(),
-                SilverComputeVacuumSurface1s(),
-                SilverComputePhysicsBands1s(),
-                SilverComputePhysicsSurface1s(),
+                GoldComputePhysicsSurface1s(),
+                GoldComputePhysicsBands1s(),
             ]
 
     elif product_type == "equity_mbo":

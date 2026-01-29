@@ -143,17 +143,9 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/wall_surface_1s.avsc
 
-  silver.future_mbo.vacuum_surface_1s:
-    path: silver/product_type=future_mbo/symbol={symbol}/table=vacuum_surface_1s
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future_mbo/vacuum_surface_1s.avsc
 
-  silver.future_mbo.physics_bands_1s:
-    path: silver/product_type=future_mbo/symbol={symbol}/table=physics_bands_1s
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future_mbo/physics_bands_1s.avsc
+
+
 
   silver.future_mbo.radar_vacuum_1s:
     path: silver/product_type=future_mbo/symbol={symbol}/table=radar_vacuum_1s
@@ -161,11 +153,7 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_mbo/radar_vacuum_1s.avsc
 
-  silver.future_mbo.physics_surface_1s:
-    path: silver/product_type=future_mbo/symbol={symbol}/table=physics_surface_1s
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future_mbo/physics_surface_1s.avsc
+
 
   # Silver - Equity MBO
   silver.equity_mbo.book_snapshot_1s:
@@ -262,6 +250,18 @@ datasets:
     contract: src/data_eng/contracts/gold/hud/physics_norm_calibration.avsc
 
   # Gold - Future MBO
+  gold.future_mbo.physics_surface_1s:
+    path: gold/product_type=future_mbo/symbol={symbol}/table=physics_surface_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future_mbo/physics_surface_1s.avsc
+
+  gold.future_mbo.physics_bands_1s:
+    path: gold/product_type=future_mbo/symbol={symbol}/table=physics_bands_1s
+    format: parquet
+    partition_keys: [symbol, dt]
+    contract: src/data_eng/contracts/gold/future_mbo/physics_bands_1s.avsc
+
   gold.future_mbo.mbo_trigger_vectors:
     path: gold/product_type=future_mbo/symbol={symbol}/table=mbo_trigger_vectors
     format: parquet

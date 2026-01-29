@@ -1,13 +1,18 @@
 {
+  "namespace": "gold.future_mbo",
   "type": "record",
   "name": "physics_surface_1s",
-  "namespace": "silver.future_mbo",
   "fields": [
     {"name": "window_end_ts_ns", "type": "long"},
     {"name": "event_ts_ns", "type": "long"},
     {"name": "spot_ref_price_int", "type": "long"},
     {"name": "rel_ticks", "type": "int"},
     {"name": "side", "type": "string"},
+    {"name": "pull_intensity_rest", "type": "double"},
+    {"name": "pull_add_log", "type": "double"},
+    {"name": "wall_strength_norm", "type": "double"},
+    {"name": "wall_erosion_norm", "type": "double"},
+    {"name": "vacuum_score", "type": "double"},
     {"name": "physics_score", "type": "double"},
     {"name": "physics_score_signed", "type": "double"}
   ]

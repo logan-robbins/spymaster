@@ -17,8 +17,6 @@ from ....io import (
     write_partition,
 )
 
-EPS_QTY = 1.0
-
 BANDS: List[Tuple[str, int, int]] = [
     ("at", 0, 2),
     ("near", 3, 5),
@@ -27,18 +25,17 @@ BANDS: List[Tuple[str, int, int]] = [
 ]
 
 
-class SilverComputePhysicsBands1s(Stage):
+class GoldComputePhysicsBands1s(Stage):
     def __init__(self) -> None:
         super().__init__(
-            name="silver_compute_physics_bands_1s",
+            name="gold_compute_physics_bands_1s",
             io=StageIO(
                 inputs=[
                     "silver.future_mbo.book_snapshot_1s",
-                    "silver.future_mbo.depth_and_flow_1s",
-                    "silver.future_mbo.vacuum_surface_1s",
+                    "gold.future_mbo.physics_surface_1s",
                     "gold.hud.physics_norm_calibration",
                 ],
-                output="silver.future_mbo.physics_bands_1s",
+                output="gold.future_mbo.physics_bands_1s",
             ),
         )
 
@@ -48,31 +45,26 @@ class SilverComputePhysicsBands1s(Stage):
             return
 
         snap_key = "silver.future_mbo.book_snapshot_1s"
-        snap_key = "silver.future_mbo.book_snapshot_1s"
-        flow_key = "silver.future_mbo.depth_and_flow_1s"
-        vac_key = "silver.future_mbo.vacuum_surface_1s"
+        surf_key = "gold.future_mbo.physics_surface_1s"
         cal_key = "gold.hud.physics_norm_calibration"
 
         snap_ref = partition_ref(cfg, snap_key, symbol, dt)
-        flow_ref = partition_ref(cfg, flow_key, symbol, dt)
-        vac_ref = partition_ref(cfg, vac_key, symbol, dt)
+        surf_ref = partition_ref(cfg, surf_key, symbol, dt)
         cal_ref = partition_ref(cfg, cal_key, symbol, dt)
 
-        for ref in (snap_ref, flow_ref, vac_ref, cal_ref):
+        for ref in (snap_ref, surf_ref, cal_ref):
             if not is_partition_complete(ref):
                 raise FileNotFoundError(f"Input not ready: {ref.dataset_key} dt={dt}")
 
         snap_contract = load_avro_contract(repo_root / cfg.dataset(snap_key).contract)
-        flow_contract = load_avro_contract(repo_root / cfg.dataset(flow_key).contract)
-        vac_contract = load_avro_contract(repo_root / cfg.dataset(vac_key).contract)
+        surf_contract = load_avro_contract(repo_root / cfg.dataset(surf_key).contract)
         cal_contract = load_avro_contract(repo_root / cfg.dataset(cal_key).contract)
 
         df_snap = enforce_contract(read_partition(snap_ref), snap_contract)
-        df_flow = enforce_contract(read_partition(flow_ref), flow_contract)
-        df_vac = enforce_contract(read_partition(vac_ref), vac_contract)
+        df_surf = enforce_contract(read_partition(surf_ref), surf_contract)
         df_cal = enforce_contract(read_partition(cal_ref), cal_contract)
 
-        df_out = self.transform_multi(df_snap, df_flow, df_vac, df_cal)
+        df_out = self.transform(df_snap, df_surf, df_cal)
 
         out_contract_path = repo_root / cfg.dataset(self.io.output).contract
         out_contract = load_avro_contract(out_contract_path)
@@ -80,8 +72,7 @@ class SilverComputePhysicsBands1s(Stage):
 
         lineage = [
             {"dataset": snap_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(snap_ref)},
-            {"dataset": flow_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(flow_ref)},
-            {"dataset": vac_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(vac_ref)},
+            {"dataset": surf_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(surf_ref)},
             {"dataset": cal_ref.dataset_key, "dt": dt, "manifest_sha256": read_manifest_hash(cal_ref)},
         ]
 
@@ -96,14 +87,13 @@ class SilverComputePhysicsBands1s(Stage):
             stage=self.name,
         )
 
-    def transform_multi(
+    def transform(
         self,
         df_snap: pd.DataFrame,
-        df_flow: pd.DataFrame,
-        df_vac: pd.DataFrame,
+        df_surf: pd.DataFrame,
         df_cal: pd.DataFrame,
     ) -> pd.DataFrame:
-        if df_snap.empty:
+        if df_snap.empty or df_surf.empty:
             return pd.DataFrame(
                 columns=[
                     "window_start_ts_ns",
@@ -114,62 +104,66 @@ class SilverComputePhysicsBands1s(Stage):
                     "above_at_wall_strength_norm",
                     "above_at_wall_erosion_norm",
                     "above_at_vacuum_norm",
+                    "above_at_ease",
                     "above_near_wall_strength_norm",
                     "above_near_wall_erosion_norm",
                     "above_near_vacuum_norm",
+                    "above_near_ease",
                     "above_mid_wall_strength_norm",
                     "above_mid_wall_erosion_norm",
                     "above_mid_vacuum_norm",
+                    "above_mid_ease",
                     "above_far_wall_strength_norm",
                     "above_far_wall_erosion_norm",
                     "above_far_vacuum_norm",
+                    "above_far_ease",
                     "below_at_wall_strength_norm",
                     "below_at_wall_erosion_norm",
                     "below_at_vacuum_norm",
+                    "below_at_ease",
                     "below_near_wall_strength_norm",
                     "below_near_wall_erosion_norm",
                     "below_near_vacuum_norm",
+                    "below_near_ease",
                     "below_mid_wall_strength_norm",
                     "below_mid_wall_erosion_norm",
                     "below_mid_vacuum_norm",
+                    "below_mid_ease",
                     "below_far_wall_strength_norm",
                     "below_far_wall_erosion_norm",
                     "below_far_vacuum_norm",
+                    "below_far_ease",
                     "above_score",
                     "below_score",
                     "vacuum_total_score",
                 ]
             )
 
-        cal = _load_calibration(df_cal)
-
-        wall = df_flow.copy()
-        wall["wall_strength_log"] = np.log(wall["depth_qty_rest"].astype(float) + 1.0)
-        wall_erosion = np.maximum(-wall["d1_depth_qty"].astype(float), 0.0)
-        wall["log1p_erosion_norm"] = np.log1p(wall_erosion / (wall["depth_qty_start"].astype(float) + EPS_QTY))
-
-        wall = _band_filter(wall)
-        vac = _band_filter(df_vac.copy())
-
-        wall_agg = (
-            wall.groupby(["window_end_ts_ns", "direction", "band"], as_index=False)[
-                ["wall_strength_log", "log1p_erosion_norm"]
+        # NOTE: df_surf already has normalized metrics [0, 1]
+        # wall_strength_norm, wall_erosion_norm, vacuum_score (vacuum_norm)
+        
+        # We process Surface -> Bands by grouping and taking mean.
+        
+        # Filter into bands
+        # We need rel_ticks, side from df_surf
+        surf = _band_filter(df_surf.copy())
+        
+        # Rename for clarity/aggregation
+        # vacuum_score -> vacuum_norm
+        surf = surf.rename(columns={"vacuum_score": "vacuum_norm"})
+        
+        # Aggregate
+        # Group by Time, Direction, Band and Mean the NORMALIZED metrics.
+        # This is a behavior change from Silver (which mean'd Log metrics then normalized),
+        # but Architecturally preferred for Gold layer: "Average Physics" vs "Physics of Average".
+        agg = (
+            surf.groupby(["window_end_ts_ns", "direction", "band"], as_index=False)[
+                ["wall_strength_norm", "wall_erosion_norm", "vacuum_norm"]
             ]
             .mean()
         )
-        vac_agg = (
-            vac.groupby(["window_end_ts_ns", "direction", "band"], as_index=False)[["vacuum_score"]]
-            .mean()
-            .rename(columns={"vacuum_score": "vacuum_norm"})
-        )
-
-        agg = wall_agg.merge(vac_agg, on=["window_end_ts_ns", "direction", "band"], how="outer")
-        agg["wall_strength_log"] = agg["wall_strength_log"].fillna(0.0)
-        agg["log1p_erosion_norm"] = agg["log1p_erosion_norm"].fillna(0.0)
-        agg["vacuum_norm"] = agg["vacuum_norm"].fillna(0.0)
-
-        agg["wall_strength_norm"] = _norm(agg["wall_strength_log"].to_numpy(), cal["wall_strength_log"])
-        agg["wall_erosion_norm"] = _norm(agg["log1p_erosion_norm"].to_numpy(), cal["log1p_erosion_norm"])
+        
+        # Compute Ease on the Aggregated Band
         agg["ease"] = (
             0.50 * agg["vacuum_norm"]
             + 0.35 * agg["wall_erosion_norm"]
@@ -210,58 +204,40 @@ class SilverComputePhysicsBands1s(Stage):
                 "above_at_wall_strength_norm",
                 "above_at_wall_erosion_norm",
                 "above_at_vacuum_norm",
+                "above_at_ease",
                 "above_near_wall_strength_norm",
                 "above_near_wall_erosion_norm",
                 "above_near_vacuum_norm",
+                "above_near_ease",
                 "above_mid_wall_strength_norm",
                 "above_mid_wall_erosion_norm",
                 "above_mid_vacuum_norm",
+                "above_mid_ease",
                 "above_far_wall_strength_norm",
                 "above_far_wall_erosion_norm",
                 "above_far_vacuum_norm",
+                "above_far_ease",
                 "below_at_wall_strength_norm",
                 "below_at_wall_erosion_norm",
                 "below_at_vacuum_norm",
+                "below_at_ease",
                 "below_near_wall_strength_norm",
                 "below_near_wall_erosion_norm",
                 "below_near_vacuum_norm",
+                "below_near_ease",
                 "below_mid_wall_strength_norm",
                 "below_mid_wall_erosion_norm",
                 "below_mid_vacuum_norm",
+                "below_mid_ease",
                 "below_far_wall_strength_norm",
                 "below_far_wall_erosion_norm",
                 "below_far_vacuum_norm",
+                "below_far_ease",
                 "above_score",
                 "below_score",
                 "vacuum_total_score",
             ]
         ]
-
-
-def _load_calibration(df_cal: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
-    required = {
-        "wall_strength_log",
-        "log1p_erosion_norm",
-    }
-    cal: Dict[str, Tuple[float, float]] = {}
-    for row in df_cal.itertuples(index=False):
-        cal[str(row.metric_name)] = (float(row.q05), float(row.q95))
-    missing = required.difference(cal.keys())
-    if missing:
-        raise ValueError(f"Missing calibration metrics: {sorted(missing)}")
-    for name, (lo, hi) in cal.items():
-        if hi <= lo:
-            if lo == hi:
-                hi = lo + 1.0
-            else:
-                raise ValueError(f"Invalid calibration bounds for {name}: {lo} {hi}")
-        cal[name] = (lo, hi)
-    return cal
-
-
-def _norm(values: np.ndarray, bounds: Tuple[float, float]) -> np.ndarray:
-    lo, hi = bounds
-    return np.clip((values - lo) / (hi - lo), 0.0, 1.0)
 
 
 def _band_filter(df: pd.DataFrame) -> pd.DataFrame:

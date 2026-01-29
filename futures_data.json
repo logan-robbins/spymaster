@@ -279,13 +279,16 @@
                         ]
                     }
                 }
-            },
-            "SilverComputeVacuumSurface1s": {
-                "vacuum_surface_1s": {
+            }
+        },
+        "gold": {
+            "GoldComputePhysicsSurface1s": {
+                "physics_surface_1s": {
+                    "_description": "Combined Physics metrics (Vacuum, Erosion, Strength) and Composite Scores.",
                     "pull_intensity_rest": {
                         "built_from": [
-                            "wall_surface_1s.pull_qty_rest",
-                            "wall_surface_1s.depth_qty_start"
+                            "silver.future_mbo.depth_and_flow_1s.pull_qty_rest",
+                            "silver.future_mbo.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "pull_qty_rest / (depth_qty_start + 1.0)"
@@ -293,8 +296,8 @@
                     },
                     "pull_add_log": {
                         "built_from": [
-                            "wall_surface_1s.pull_qty_rest",
-                            "wall_surface_1s.add_qty"
+                            "silver.future_mbo.depth_and_flow_1s.pull_qty_rest",
+                            "silver.future_mbo.depth_and_flow_1s.add_qty"
                         ],
                         "transformation_steps": [
                             "log((pull_qty_rest + 1) / (add_qty + 1))"
@@ -302,7 +305,7 @@
                     },
                     "wall_erosion": {
                         "built_from": [
-                            "wall_surface_1s.d1_depth_qty"
+                            "silver.future_mbo.depth_and_flow_1s.d1_depth_qty"
                         ],
                         "transformation_steps": [
                             "max(-d1_depth_qty, 0)"
@@ -310,34 +313,10 @@
                     },
                     "wall_strength_log": {
                         "built_from": [
-                            "wall_surface_1s.depth_qty_rest"
+                            "silver.future_mbo.depth_and_flow_1s.depth_qty_rest"
                         ],
                         "transformation_steps": [
                             "log(depth_qty_rest + 1)"
-                        ]
-                    },
-                    "d1_pull_add_log": {
-                        "built_from": [
-                            "pull_add_log"
-                        ],
-                        "transformation_steps": [
-                            "diff of pull_add_log"
-                        ]
-                    },
-                    "d2_pull_add_log": {
-                        "built_from": [
-                            "d1_pull_add_log"
-                        ],
-                        "transformation_steps": [
-                            "diff of d1"
-                        ]
-                    },
-                    "d3_pull_add_log": {
-                        "built_from": [
-                            "d2_pull_add_log"
-                        ],
-                        "transformation_steps": [
-                            "diff of d2"
                         ]
                     },
                     "vacuum_score": {
@@ -345,56 +324,21 @@
                             "pull_add_log",
                             "pull_intensity_rest",
                             "wall_erosion",
-                            "d2_pull_add_log",
                             "gold.hud.physics_norm_calibration"
                         ],
                         "transformation_steps": [
                             "Normalize each component with calibration bounds",
-                            "Mean of 4 normalized components"
+                            "Mean of components"
                         ]
-                    }
-                }
-            },
-            "SilverComputePhysicsBands1s": {
-                "physics_bands_1s": {
-                    "features": [
-                        "above_at_wall_strength_norm",
-                        "above_at_wall_erosion_norm",
-                        "above_at_vacuum_norm",
-                        "above_at_ease",
-                        "above_near_wall_strength_norm",
-                        "above_near_wall_erosion_norm",
-                        "above_near_vacuum_norm",
-                        "above_near_ease",
-                        "above_mid_wall_strength_norm",
-                        "...",
-                        "below_at_...",
-                        "below_near_...",
-                        "below_mid_...",
-                        "below_far_...",
-                        "above_score",
-                        "below_score",
-                        "vacuum_total_score"
-                    ],
-                    "transformation_steps": [
-                        "Band aggregation (At: 0-2, Near: 3-5, Mid: 6-14, Far: 15-20)",
-                        "Ease = 0.5*Vac + 0.35*Erosion + 0.15*(1-Strength)",
-                        "Above Score = 0.6*Above_At_Ease + 0.4*Above_Near_Ease",
-                        "Below Score = 0.6*Below_At_Ease + 0.4*Below_Near_Ease",
-                        "Total = Mean(Above, Below)"
-                    ]
-                }
-            },
-            "SilverComputePhysicsSurface1s": {
-                "physics_surface_1s": {
+                    },
                     "physics_score": {
                         "built_from": [
-                            "vacuum_norm",
+                            "vacuum_score",
                             "wall_erosion_norm",
                             "wall_strength_norm"
                         ],
                         "transformation_steps": [
-                            "0.50 * vacuum_norm + 0.35 * erosion_norm + 0.15 * (1 - strength_norm)"
+                            "0.50 * vacuum_score + 0.35 * erosion_norm + 0.15 * (1 - strength_norm)"
                         ]
                     },
                     "physics_score_signed": {
@@ -409,6 +353,29 @@
                             "0 otherwise"
                         ]
                     }
+                }
+            },
+            "GoldComputePhysicsBands1s": {
+                "physics_bands_1s": {
+                    "features": [
+                        "above_at_wall_strength_norm",
+                        "above_at_wall_erosion_norm",
+                        "above_at_vacuum_norm",
+                        "above_at_ease",
+                        "above_near_wall_strength_norm",
+                        "below_at_...",
+                        "below_near_...",
+                        "above_score",
+                        "below_score",
+                        "vacuum_total_score"
+                    ],
+                    "transformation_steps": [
+                        "Band aggregation from physics_surface_1s (At: 0-2, Near: 3-5, Mid: 6-14, Far: 15-20)",
+                        "Ease = 0.5*Vac + 0.35*Erosion + 0.15*(1-Strength)",
+                        "Above Score = 0.6*Above_At_Ease + 0.4*Above_Near_Ease",
+                        "Below Score = 0.6*Below_At_Ease + 0.4*Below_Near_Ease",
+                        "Total = Mean(Above, Below)"
+                    ]
                 }
             }
         }
