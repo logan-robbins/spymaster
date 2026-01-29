@@ -58,6 +58,7 @@ async def velocity_stream(
     websocket: WebSocket,
     symbol: str = "ESH6",
     dt: str = "2026-01-06",
+    product_type: str = "future_mbo",
     speed: float = 1.0,
     skip_minutes: int = 5,
 ):
@@ -72,13 +73,17 @@ async def velocity_stream(
     ... repeat for each window
     """
     await websocket.accept()
-    print(f"Velocity stream connected: symbol={symbol}, dt={dt}, speed={speed}, skip_minutes={skip_minutes}")
+    print(
+        "Velocity stream connected: "
+        f"symbol={symbol}, dt={dt}, product_type={product_type}, "
+        f"speed={speed}, skip_minutes={skip_minutes}"
+    )
 
     try:
         last_window_ts = None
         skip_count = skip_minutes * 60  # Skip N minutes worth of 1s windows
         skipped = 0
-        for window_id, batch in service.iter_batches(symbol, dt):
+        for window_id, batch in service.iter_batches(symbol, dt, product_type):
             # Skip initial windows
             if skipped < skip_count:
                 skipped += 1

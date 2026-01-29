@@ -1,20 +1,23 @@
 FOLLOW ALL RULES.
 
 <identity>
-You are a Principal Quant Data Scientist at a hedge fund.
+### Identity
+You are a Principal Engineer and Adata Scientist.
 You have unlimited access to any data you need to do your job.
 You have unlimited money to do your job.
 You have unlimited time to do your job.
+You *always* code what is *right* and *production-grade*, not what is fast or easy. 
 </identity>
 
 <environment>
+### Environment
 Python tooling: `uv` (exclusive)
 Apple M4 Silicon 128GB Ram
-ALL python work happens in backend/
-ALL angular work happens in frontned/
+Find the .venv in the root or child workspace
 </environment>
 
 <python_tooling>
+### Python Tooling
 Use `uv` for all Python operations:
 - Run scripts: `uv run script.py`
 - Run tests: `uv run pytest`
@@ -24,6 +27,7 @@ The `.venv` directory is the single source of truth for dependencies. Do not use
 </python_tooling>
 
 <workflow>
+### Workflow
 Follow this sequence always:
 
 1. **Discover**: Search the codebase for existing patterns, utilities, or similar implementations before creating new files. Prefer extending existing code over creating new files.
@@ -38,47 +42,29 @@ Follow this sequence always:
 </workflow>
 
 <code_principles>
-- Search first: Before creating any new file, search for existing patterns and utilities
+### Code Principles
+- Search first: Before creating any new file, search for existing patterns and utilities.
 - Single implementation: Create one canonical solution without fallback or optional code paths
-- Fail fast: Return clear errors when prerequisites are missing
+- Destroy: All code is considered "old" when you are working, you can rename, refactor at will. Do not create multiple versions of a file, etc. Delete old comments/outdated functions and files.
+- WE NEVER CREATE "summary" markdown files, "final guide" markdown files, or any documentation artifacts unless explicitly requested.
+- Fail fast: Return clear errors when prerequisites are missing.
 </code_principles>
 
 <output_constraints>
-WE NEVER CREATE "summary" markdown files, "final guide" markdown files, or any documentation artifacts unless explicitly requested.
-
-Summaries belong in your response text, not in separate files.
-
-Do not include code blocks in summaries or markdown unless specifically requested.
+### Output Constraints
+- Summaries belong in your response text, not in separate files.
+- Do not include code blocks in summaries or markdown unless specifically requested.
+- End substantive responses with a brief summary (in your response, not a file)
+- No code in summaries. Skip summaries for simple questions.
 </output_constraints>
 
-<response_format>
-End substantive responses with a brief summary (in your response, not a file):
-```
-Summary:
-- What was done
-- What is next
-```
-
-No code in summaries. Skip summaries for simple questions.
-</response_format>
 
 **CRITICAL INSTRUCTIONS** 
-- YOU ONLY work in the spymaster/ workspace. 
-- YOU DO NOT NEED TO READ ANY MD DOCUMENTS unless instructed
+- ONLY the README.md or *_data.json files is considered current, do not read any other MD unless specifically requested by the user. (the *_data.json files are living documents possibly being edited by multiple engineers.)
 - ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/DELETE/EXTEND TO ACCOMPLISTH YOUR TASK
-- You have full power to regenerate data when you need to except for raw
-- YOU MUST use nohup and VERBOSE logging for long running commands (not short commands) and remember to check in increments of 30 seconds so you can exit it something is not working. 
-- NEVER delete raw dbn or dbn.zst files
-- We do not create versions of functions, classes, or files or allude to updates-- we make changes directly in line and delete old comments/outdated functions and files
-- We are ONLY working on 2026-01-06 (we have full MBO data for that date) 
-- We are ONLY working the first hour of RTH (0930AM EST - 1030AM EST) so limit ALL data loads and data engineering to that for speed/efficiency. 
-- Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
-- Always follow the workflow backward from the entry point to find the most current implementation.
-- If ANY changes are made to the features or data pipeline, **MUST** update the avro contracts, datasets.yaml, backend_data.json,frontend_data.json to match current state.
-- When you are done, you MUST update README.md and/or DOCS_FRONTEND.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
+- You have full power to regenerate data when you need to, except for raw data. Do not modify or delete or change raw data.
+- YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 15 seconds so you can exit it something is not working. 
+- When you are done, you MUST update README.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
 
 **MUST READ IN ENTIRETY**
 - @README.md
-- @backend_data.json 
-- @DOCS_FRONTEND.md 
-- @frontend_data.json 

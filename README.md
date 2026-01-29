@@ -1,5 +1,18 @@
 # Spymaster - LLM Ops Reference
 
+**CRITICAL INSTRUCTIONS** 
+- ONLY the README.md or *_data.json files is considered current, do not read any other MD unless specifically requested by the user. (the *_data.json files are living documents possibly being edited by multiple engineers.)
+- ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/DELETE/EXTEND TO ACCOMPLISTH YOUR TASK
+- You have full power to regenerate data when you need to, except for raw data. Do not modify or delete or change raw data.
+- YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 15 seconds so you can exit it something is not working. 
+- We do not create versions of functions, classes, or files or allude to updates-- we make changes directly in line and delete old comments/outdated functions and files
+- We are ONLY working on 2026-01-06 (we have full MBO data for that date) 
+- We are ONLY working the first hour of RTH (0930AM EST - 1030AM EST) so limit ALL data loads and data engineering to that for speed/efficiency. 
+- Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
+- Always follow the workflow backward from the entry point to find the most current implementation.
+- If ANY changes are made to the features or data pipeline, **MUST** update the avro contracts, datasets.yaml, futures_data.json to match current state.
+- When you are done, you MUST update README.md to reflect the CURRENT state *note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
+
 ## Constraints
 - product_types: future_mbo, future_option_mbo
 - dt: 2026-01-06
@@ -25,6 +38,7 @@
 - `cd backend`
 - `uv run python -m src.serving.velocity_main`
 - `ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06`
+- `ws://localhost:8001/v1/velocity/stream?symbol=ES&dt=2026-01-06&product_type=future_option_mbo`
 
 ### Frontend2 (primary)
 - `cd frontend2`

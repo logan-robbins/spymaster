@@ -1,8 +1,7 @@
 """Minimal streaming service for frontend2 velocity visualization.
 
-Only serves snap + velocity surfaces from:
-- silver.future_mbo.book_snapshot_1s
-- gold.future_mbo.physics_surface_1s
+Serves snap + velocity surfaces. Snap always comes from futures to anchor the grid.
+Velocity can come from futures or options depending on product_type.
 """
 from __future__ import annotations
 
@@ -15,6 +14,7 @@ import pandas as pd
 from src.data_eng.config import load_config
 from src.data_eng.contracts import enforce_contract, load_avro_contract
 from src.data_eng.io import is_partition_complete, partition_ref, read_partition
+from src.data_eng.retrieval.mbo_contract_day_selector import load_selection
 
 WINDOW_NS = 1_000_000_000
 MAX_HISTORY_WINDOWS = 1800
@@ -37,22 +37,31 @@ class VelocityStreamService:
     """Minimal streaming service for velocity visualization."""
 
     def __init__(self) -> None:
-        self.cache: Dict[Tuple[str, str], VelocityStreamCache] = {}
+        self.cache: Dict[Tuple[str, str, str], VelocityStreamCache] = {}
         self.repo_root = Path(__file__).resolve().parents[2]
         self.cfg = load_config(self.repo_root, self.repo_root / "src" / "data_eng" / "config" / "datasets.yaml")
 
-    def load_cache(self, symbol: str, dt: str) -> VelocityStreamCache:
-        key = (symbol, dt)
+    def load_cache(self, symbol: str, dt: str, product_type: str = "future_mbo") -> VelocityStreamCache:
+        resolved_symbol = _resolve_contract_symbol(self.repo_root, symbol, dt)
+        key = (product_type, resolved_symbol, dt)
         if key in self.cache:
             return self.cache[key]
 
+        if product_type not in {"future_mbo", "future_option_mbo"}:
+            raise ValueError(f"Unsupported product_type: {product_type}")
+
         snap_key = "silver.future_mbo.book_snapshot_1s"
-        velocity_key = "gold.future_mbo.physics_surface_1s"
+        if product_type == "future_mbo":
+            velocity_key = "gold.future_mbo.physics_surface_1s"
+        else:
+            velocity_key = "gold.future_option_mbo.physics_surface_1s"
 
         def _load(ds_key: str) -> pd.DataFrame:
-            ref = partition_ref(self.cfg, ds_key, symbol, dt)
+            ref = partition_ref(self.cfg, ds_key, resolved_symbol, dt)
             if not is_partition_complete(ref):
-                raise FileNotFoundError(f"Input not ready: {ds_key} dt={dt}")
+                raise FileNotFoundError(
+                    f"Input not ready: {ds_key} symbol={resolved_symbol} dt={dt}"
+                )
             contract = load_avro_contract(self.repo_root / self.cfg.dataset(ds_key).contract)
             return enforce_contract(read_partition(ref), contract)
 
@@ -64,7 +73,18 @@ class VelocityStreamService:
 
         # Filter velocity to required columns and tick range
         df_velocity = df_velocity.loc[:, VELOCITY_COLUMNS].copy()
+        if product_type == "future_option_mbo":
+            df_velocity = (
+                df_velocity.groupby(
+                    ["window_end_ts_ns", "spot_ref_price_int", "rel_ticks", "side"],
+                    as_index=False,
+                )
+                .agg(liquidity_velocity=("liquidity_velocity", "sum"))
+            )
         df_velocity = df_velocity.loc[df_velocity["rel_ticks"].between(-MAX_TICKS, MAX_TICKS)]
+        if product_type == "future_option_mbo":
+            if (df_velocity["rel_ticks"] % 20 != 0).any():
+                raise ValueError("Option velocity rel_ticks not aligned to $5 grid")
 
         # Get window IDs from snap (reference time series)
         window_ids = df_snap["window_end_ts_ns"].sort_values().unique().astype(int).tolist()
@@ -87,10 +107,11 @@ class VelocityStreamService:
         self,
         symbol: str,
         dt: str,
+        product_type: str = "future_mbo",
         start_ts_ns: int | None = None,
     ) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
         """Iterate over time windows yielding snap + velocity batches."""
-        cache = self.load_cache(symbol, dt)
+        cache = self.load_cache(symbol, dt, product_type)
 
         for window_id in cache.window_ids:
             if start_ts_ns is not None and window_id < start_ts_ns:
@@ -108,17 +129,18 @@ class VelocityStreamService:
         self,
         symbol: str,
         dt: str,
+        product_type: str = "future_mbo",
         start_ts_ns: int | None = None,
         speed: float = 1.0,
     ) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
         """Yield batches with simulated delay."""
         import time
 
-        cache = self.load_cache(symbol, dt)
+        cache = self.load_cache(symbol, dt, product_type)
         if not cache.window_ids:
             return
 
-        iterator = self.iter_batches(symbol, dt, start_ts_ns)
+        iterator = self.iter_batches(symbol, dt, product_type, start_ts_ns)
         last_window_ts = None
 
         for window_id, batch in iterator:
@@ -140,3 +162,18 @@ def _group_by_window(df: pd.DataFrame) -> Dict[int, pd.DataFrame]:
     for window_id, group in df.groupby("window_end_ts_ns"):
         grouped[int(window_id)] = group
     return grouped
+
+
+def _resolve_contract_symbol(repo_root: Path, symbol: str, dt: str) -> str:
+    if symbol != "ES":
+        return symbol
+    selection_path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
+    df = load_selection(selection_path)
+    df["session_date"] = df["session_date"].astype(str)
+    row = df.loc[df["session_date"] == dt]
+    if row.empty:
+        raise ValueError(f"No selection map entry for dt={dt}")
+    selected = str(row.iloc[0]["selected_symbol"]).strip()
+    if not selected:
+        raise ValueError(f"Selection map has empty symbol for dt={dt}")
+    return selected
