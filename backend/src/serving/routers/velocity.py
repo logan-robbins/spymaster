@@ -39,6 +39,10 @@ OPTIONS_SCHEMA = pa.schema([
     ("spot_ref_price_int", pa.int64()),
     ("rel_ticks", pa.int32()),
     ("liquidity_velocity", pa.float64()),
+    ("pressure_grad", pa.float64()),
+    ("u_wave_energy", pa.float64()),
+    ("nu", pa.float64()),
+    ("Omega", pa.float64()),
 ])
 
 FORECAST_SCHEMA = pa.schema([

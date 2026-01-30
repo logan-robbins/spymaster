@@ -63,10 +63,10 @@ export class PriceAxis {
    */
   private getTickSpacing(viewHeight: number): { major: number; minor: number | null; micro: number | null } {
     // viewHeight is total ticks visible
-    if (viewHeight > 80) {
+    if (viewHeight > 60) {
       // Zoomed out: show only $5 increments
       return { major: SPACING_5_DOLLAR, minor: null, micro: null };
-    } else if (viewHeight > 30) {
+    } else if (viewHeight > 25) {
       // Medium zoom: show $5 major, $1 minor
       return { major: SPACING_5_DOLLAR, minor: SPACING_1_DOLLAR, micro: null };
     } else {
@@ -98,12 +98,28 @@ export class PriceAxis {
 
     let labelIdx = 0;
 
-    // Render micro ticks ($0.25) if visible
+    // Render micro ticks ($0.25) if visible - with labels when very zoomed
     if (spacing.micro !== null) {
       for (let tick = Math.floor(minTick); tick <= maxTick; tick += spacing.micro) {
         // Skip if this is a minor or major tick
         if (tick % SPACING_1_DOLLAR === 0) continue;
         this.addGridLine(tick, camera, this.gridMaterial025);
+        
+        // Add label for $0.25 ticks when very zoomed in (viewHeight < 20)
+        if (viewHeight < 20 && labelIdx < this.labels.length) {
+          const priceValue = tick * TICK_SIZE;
+          const screenY = this.tickToScreenY(tick, centerTickIndex, camera, containerHeight);
+          
+          if (screenY >= -20 && screenY <= containerHeight + 20) {
+            const label = this.labels[labelIdx];
+            label.style.display = 'block';
+            label.style.top = `${screenY}px`;
+            label.style.color = '#444';
+            label.style.fontSize = '8px';
+            label.textContent = `$${priceValue.toFixed(2)}`;
+            labelIdx++;
+          }
+        }
       }
     }
 

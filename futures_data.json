@@ -496,6 +496,15 @@
                         "transformation_steps": ["depth_qty_rest / (depth_qty_end + 1.0)"],
                         "note": "Persistence fraction for options"
                     },
+                    "u_opt_ema_2": {
+                        "built_from": ["liquidity_velocity"],
+                        "transformation_steps": [
+                            "Sort by (strike_price_int, right, side, window_end_ts_ns)",
+                            "GroupBy (strike_price_int, right, side)",
+                            "EWM(alpha=1-exp(-1/2), adjust=False)"
+                        ],
+                        "note": "Fast EMA (2s decay) for options"
+                    },
                     "u_opt_ema_8": {
                         "built_from": ["liquidity_velocity"],
                         "transformation_steps": [
@@ -510,15 +519,113 @@
                         "transformation_steps": ["GroupBy (strike_price_int, right, side)", "EWM(alpha=1-exp(-1/32), adjust=False)"],
                         "note": "Slow EMA (32s decay) for options"
                     },
+                    "u_opt_ema_128": {
+                        "built_from": ["liquidity_velocity"],
+                        "transformation_steps": ["GroupBy (strike_price_int, right, side)", "EWM(alpha=1-exp(-1/128), adjust=False)"],
+                        "note": "Slowest EMA (128s decay) for options"
+                    },
+                    "u_opt_band_fast": {
+                        "built_from": ["u_opt_ema_2", "u_opt_ema_8"],
+                        "transformation_steps": ["u_opt_ema_2 - u_opt_ema_8"]
+                    },
+                    "u_opt_band_mid": {
+                        "built_from": ["u_opt_ema_8", "u_opt_ema_32"],
+                        "transformation_steps": ["u_opt_ema_8 - u_opt_ema_32"]
+                    },
+                    "u_opt_band_slow": {
+                        "built_from": ["u_opt_ema_32", "u_opt_ema_128"],
+                        "transformation_steps": ["u_opt_ema_32 - u_opt_ema_128"]
+                    },
+                    "u_opt_wave_energy": {
+                        "built_from": ["u_opt_band_fast", "u_opt_band_mid", "u_opt_band_slow"],
+                        "transformation_steps": ["sqrt(u_opt_band_fast^2 + u_opt_band_mid^2 + u_opt_band_slow^2)"],
+                        "note": "Total wave energy across time scales (options)"
+                    },
+                    "du_opt_dt": {
+                        "built_from": ["u_opt_ema_2"],
+                        "transformation_steps": ["GroupBy (strike_price_int, right, side)", "diff(u_opt_ema_2) with dt=1s"],
+                        "note": "First temporal derivative (options)"
+                    },
+                    "d2u_opt_dt2": {
+                        "built_from": ["du_opt_dt"],
+                        "transformation_steps": ["GroupBy (strike_price_int, right, side)", "diff(du_opt_dt) with dt=1s"],
+                        "note": "Second temporal derivative (options)"
+                    },
+                    "u_opt_p": {
+                        "built_from": ["phi_rest_opt", "u_opt_ema_8"],
+                        "transformation_steps": ["phi_rest_opt * u_opt_ema_8"],
+                        "note": "Persistence-weighted mid velocity (options)"
+                    },
                     "u_opt_p_slow": {
                         "built_from": ["phi_rest_opt", "u_opt_ema_32"],
                         "transformation_steps": ["phi_rest_opt * u_opt_ema_32"],
                         "note": "Persistence-weighted slow velocity for options"
                     },
+                    "u_opt_near": {
+                        "built_from": ["u_opt_ema_8"],
+                        "transformation_steps": [
+                            "Map to rel_strike = rel_ticks/20 (bucket index)",
+                            "Gaussian rolling on strike grid (n_strikes=round(16/20), sigma=max(1, 6/20))",
+                            "Melt back to rel_ticks multiples of 20"
+                        ],
+                        "note": "Near-field spatial smoothing on $5 strikes"
+                    },
+                    "u_opt_far": {
+                        "built_from": ["u_opt_ema_32"],
+                        "transformation_steps": [
+                            "Map to rel_strike = rel_ticks/20 (bucket index)",
+                            "Gaussian rolling on strike grid (n_strikes=round(64/20), sigma=max(1, 24/20))",
+                            "Melt back to rel_ticks multiples of 20"
+                        ],
+                        "note": "Far-field spatial smoothing on $5 strikes"
+                    },
+                    "u_opt_prom": {
+                        "built_from": ["u_opt_near", "u_opt_far"],
+                        "transformation_steps": ["u_opt_near - u_opt_far"],
+                        "note": "Prominence on strike lattice"
+                    },
+                    "du_opt_dx": {
+                        "built_from": ["u_opt_near"],
+                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - shift(1)) / (2 * 20)"],
+                        "note": "Spatial derivative scaled to tick units"
+                    },
+                    "d2u_opt_dx2": {
+                        "built_from": ["u_opt_near"],
+                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - 2*u_opt_near + shift(1)) / (20^2)"],
+                        "note": "Second spatial derivative scaled to tick units"
+                    },
                     "Omega_opt": {
                         "built_from": ["rho_opt", "phi_rest_opt", "u_opt_p_slow"],
                         "transformation_steps": ["rho_opt * (0.5 + 0.5*phi_rest_opt) * (1 + max(0, u_opt_p_slow))"],
                         "note": "Option obstacle strength at strike level"
+                    },
+                    "Omega_opt_near": {
+                        "built_from": ["Omega_opt"],
+                        "transformation_steps": ["Gaussian rolling on strike grid (n_strikes=round(16/20), sigma=max(1, 6/20))"]
+                    },
+                    "Omega_opt_far": {
+                        "built_from": ["Omega_opt"],
+                        "transformation_steps": ["Gaussian rolling on strike grid (n_strikes=round(64/20), sigma=max(1, 24/20))"]
+                    },
+                    "Omega_opt_prom": {
+                        "built_from": ["Omega_opt_near", "Omega_opt_far"],
+                        "transformation_steps": ["Omega_opt_near - Omega_opt_far"],
+                        "note": "Obstacle prominence on strike lattice"
+                    },
+                    "nu_opt": {
+                        "built_from": ["Omega_opt_near", "Omega_opt_prom"],
+                        "transformation_steps": ["1 + Omega_opt_near + 2*max(0, Omega_opt_prom)"],
+                        "note": "Effective viscosity (options)"
+                    },
+                    "kappa_opt": {
+                        "built_from": ["nu_opt"],
+                        "transformation_steps": ["1 / nu_opt"],
+                        "note": "Permeability (options)"
+                    },
+                    "pressure_grad_opt": {
+                        "built_from": ["u_opt_p", "side"],
+                        "transformation_steps": ["If side='B': +u_opt_p, If side='A': -u_opt_p"],
+                        "note": "Directional pressure gradient (options)"
                     }
                 }
             }

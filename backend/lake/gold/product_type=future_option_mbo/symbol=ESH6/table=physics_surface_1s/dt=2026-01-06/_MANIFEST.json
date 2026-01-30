@@ -1,6 +1,6 @@
 {
   "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc",
-  "contract_sha256": "e08b2e421e31ee8f80b283191c28d334aec802bfc50463e869520a715c613352",
+  "contract_sha256": "27cc449d4f3384bf8f853b7a0118bd19a4333f2bdb93a2b225e85e13067d00ca",
   "dataset": "gold.future_option_mbo.physics_surface_1s",
   "dt": "2026-01-06",
   "hour": null,

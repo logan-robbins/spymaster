@@ -113,10 +113,10 @@ export class VelocityGrid {
       uniform float uCurrentSpot;
       varying vec2 vUv;
 
-      // Color palette
-      const vec3 BUILD_UP = vec3(0.95, 0.55, 0.15);      // Amber - building bid (upward support)
-      const vec3 BUILD_DOWN = vec3(0.15, 0.7, 0.85);     // Teal - building ask (downward resistance)
-      const vec3 ERODE_COLOR = vec3(0.6, 0.15, 0.2);     // Dark red - eroding (vacuum)
+      // Color palette (red/green directional)
+      const vec3 BUILD_UP = vec3(0.2, 0.9, 0.45);        // Green - building bid (upward support)
+      const vec3 BUILD_DOWN = vec3(0.9, 0.2, 0.2);       // Red - building ask (downward resistance)
+      const vec3 ERODE_COLOR = vec3(0.25, 0.05, 0.06);   // Dark maroon - eroding (vacuum)
       const vec3 WALL_COLOR = vec3(0.85, 0.9, 0.95);     // Ice white - strong wall
       
       void main() {
@@ -157,49 +157,50 @@ export class VelocityGrid {
         // Negative velocity = liquidity eroding (vacuum opening)
         
         if (velocity > 0.01) {
-          // BUILDING liquidity - color by pressure direction
-          float intensity = tanh(velocity * 3.0);
+          // BUILDING liquidity - color by NET pressure direction
+          // After bid/ask aggregation: positive pressure = net bullish, negative = net bearish
+          float intensity = tanh(velocity * 2.0);  // Slower saturation = more gradation
           
           if (pressure > 0.0) {
-            // Building bid support (upward pressure) = amber/orange
-            finalColor = mix(vec3(0.8, 0.4, 0.1), BUILD_UP, intensity);
+            // Net bid pressure = bullish = green
+            finalColor = mix(vec3(0.1, 0.5, 0.25), BUILD_UP, intensity);
           } else {
-            // Building ask resistance (downward pressure) = teal/cyan
-            finalColor = mix(vec3(0.1, 0.5, 0.6), BUILD_DOWN, intensity);
+            // Net ask pressure = bearish = red  
+            finalColor = mix(vec3(0.5, 0.1, 0.1), BUILD_DOWN, intensity);
           }
-          finalAlpha = intensity * 0.85;
+          finalAlpha = 0.5 + intensity * 0.45;  // Range: 0.5 to 0.95 (more vibrant)
           
           // Strong walls get highlighted (high omega + building = solid wall)
           if (omega > 2.0 && velocity > 0.1) {
-            float wallBoost = min((omega - 2.0) / 3.0, 0.5);
+            float wallBoost = min((omega - 2.0) / 3.0, 0.6);
             finalColor = mix(finalColor, WALL_COLOR, wallBoost);
-            finalAlpha = min(finalAlpha + wallBoost * 0.3, 0.95);
+            finalAlpha = min(finalAlpha + wallBoost * 0.2, 0.98);
           }
           
         } else if (velocity < -0.01) {
           // ERODING liquidity - vacuum/thin zones
-          float intensity = tanh(abs(velocity) * 3.0);
+          float intensity = tanh(abs(velocity) * 2.0);
           
-          // Dark maroon/red for erosion - shows where liquidity is leaving
+          // Dark maroon for erosion - shows where liquidity is leaving
           finalColor = mix(vec3(0.15, 0.05, 0.08), ERODE_COLOR, intensity);
-          finalAlpha = intensity * 0.7;
+          finalAlpha = 0.3 + intensity * 0.5;  // Range: 0.3 to 0.8
         }
 
         // ===========================================  
         // SECONDARY: Pure pressure with no velocity
         // ===========================================
         // Shows persistent force even without immediate flow
-        if (finalAlpha < 0.1 && abs(pressure) > 0.02) {
-          float pMag = tanh(abs(pressure) * 5.0);
+        if (finalAlpha < 0.1 && abs(pressure) > 0.01) {
+          float pMag = tanh(abs(pressure) * 4.0);
           if (pressure > 0.0) {
-            finalColor = vec3(0.7, 0.4, 0.15) * pMag;  // Dim amber
+            finalColor = vec3(0.15, 0.55, 0.3) * pMag;  // Dim green
           } else {
-            finalColor = vec3(0.15, 0.45, 0.55) * pMag;  // Dim teal
+            finalColor = vec3(0.55, 0.15, 0.15) * pMag;  // Dim red
           }
-          finalAlpha = pMag * 0.4;
+          finalAlpha = 0.2 + pMag * 0.35;  // Range: 0.2 to 0.55
         }
 
-        if (finalAlpha < 0.03) discard;
+        if (finalAlpha < 0.02) discard;
 
         gl_FragColor = vec4(finalColor, finalAlpha);
       }
@@ -318,6 +319,23 @@ export class VelocityGrid {
 
   getHeight(): number {
     return this.height;
+  }
+
+  clear(): void {
+    this.head = 0;
+    this.count = 0;
+    this.data.fill(0);
+    this.energyData.fill(0);
+    this.pressureData.fill(0);
+    this.nuData.fill(0);
+    this.omegaData.fill(0);
+    this.spotHistoryData.fill(0);
+    this.texture.needsUpdate = true;
+    this.energyTexture.needsUpdate = true;
+    this.pressureTexture.needsUpdate = true;
+    this.nuTexture.needsUpdate = true;
+    this.omegaTexture.needsUpdate = true;
+    this.spotHistoryTexture.needsUpdate = true;
   }
 }
 

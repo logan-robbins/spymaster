@@ -16,6 +16,8 @@ from ....io import (
 )
 
 EPS_QTY = 1.0
+STRIKE_TICKS = 20  # $5 strike buckets at $0.25 tick size
+MAX_STRIKE_TICKS = 200  # ±$50 from spot -> ±200 ticks
 
 
 class GoldComputeOptionPhysicsSurface1s(Stage):
@@ -78,6 +80,32 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
                     "fill_intensity",
                     "pull_intensity",
                     "liquidity_velocity",
+                    "rho_opt",
+                    "phi_rest_opt",
+                    "u_opt_ema_2",
+                    "u_opt_ema_8",
+                    "u_opt_ema_32",
+                    "u_opt_ema_128",
+                    "u_opt_band_fast",
+                    "u_opt_band_mid",
+                    "u_opt_band_slow",
+                    "u_opt_wave_energy",
+                    "du_opt_dt",
+                    "d2u_opt_dt2",
+                    "u_opt_p",
+                    "u_opt_p_slow",
+                    "u_opt_near",
+                    "u_opt_far",
+                    "u_opt_prom",
+                    "du_opt_dx",
+                    "d2u_opt_dx2",
+                    "Omega_opt",
+                    "Omega_opt_near",
+                    "Omega_opt_far",
+                    "Omega_opt_prom",
+                    "nu_opt",
+                    "kappa_opt",
+                    "pressure_grad_opt",
                 ]
             )
 
@@ -98,45 +126,137 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"] - df["fill_intensity"]
 
         # -------------------------------------------------------------------------
-        # 8.2 Options obstacle field on strike lattice
+        # Options physics fields on strike lattice (bucketed at $5 / 20 ticks)
         # -------------------------------------------------------------------------
         import numpy as np
-        
+
         # rho_opt
         df["rho_opt"] = np.log(1.0 + depth_end)
-        
+
         # phi_rest_opt
         df["phi_rest_opt"] = depth_rest / (depth_end + 1.0)
-        
-        # EMAs
-        # Sort to ensure time ordering for EWM
+
+        # Temporal EMAs (per strike/right/side)
         df = df.sort_values(["strike_price_int", "right", "side", "window_end_ts_ns"])
-        
-        # Define alphas
-        # alpha = 1 - exp(-dt/tau), dt=1s
+
+        alpha_2 = 1.0 - np.exp(-1.0 / 2.0)
         alpha_8 = 1.0 - np.exp(-1.0 / 8.0)
         alpha_32 = 1.0 - np.exp(-1.0 / 32.0)
-        
-        # Group by buckets (strike/right/side)
-        # Note: 'strike_price_int' identifies the absolute level.
+        alpha_128 = 1.0 - np.exp(-1.0 / 128.0)
+
         g = df.groupby(["strike_price_int", "right", "side"])["liquidity_velocity"]
-        
-        # Compute EWM and reset MultiIndex to align with df index
-        u_opt_ema_8 = g.ewm(alpha=alpha_8, adjust=False).mean()
-        u_opt_ema_32 = g.ewm(alpha=alpha_32, adjust=False).mean()
-        
-        # Drop the groupby index levels to get a Series with the original df index
-        df["u_opt_ema_8"] = u_opt_ema_8.reset_index(level=[0, 1, 2], drop=True)
-        df["u_opt_ema_32"] = u_opt_ema_32.reset_index(level=[0, 1, 2], drop=True)
-        
-        # u_opt_p_slow
+        df["u_opt_ema_2"] = g.ewm(alpha=alpha_2, adjust=False).mean().reset_index(level=[0, 1, 2], drop=True)
+        df["u_opt_ema_8"] = g.ewm(alpha=alpha_8, adjust=False).mean().reset_index(level=[0, 1, 2], drop=True)
+        df["u_opt_ema_32"] = g.ewm(alpha=alpha_32, adjust=False).mean().reset_index(level=[0, 1, 2], drop=True)
+        df["u_opt_ema_128"] = g.ewm(alpha=alpha_128, adjust=False).mean().reset_index(level=[0, 1, 2], drop=True)
+
+        # Bands + wave energy
+        df["u_opt_band_fast"] = df["u_opt_ema_2"] - df["u_opt_ema_8"]
+        df["u_opt_band_mid"] = df["u_opt_ema_8"] - df["u_opt_ema_32"]
+        df["u_opt_band_slow"] = df["u_opt_ema_32"] - df["u_opt_ema_128"]
+        df["u_opt_wave_energy"] = np.sqrt(
+            df["u_opt_band_fast"] ** 2 + df["u_opt_band_mid"] ** 2 + df["u_opt_band_slow"] ** 2
+        )
+
+        # Temporal derivatives (per strike/right/side)
+        u2_prev = df.groupby(["strike_price_int", "right", "side"])["u_opt_ema_2"].shift(1)
+        df["du_opt_dt"] = (df["u_opt_ema_2"] - u2_prev).fillna(0.0)
+        du_prev = df.groupby(["strike_price_int", "right", "side"])["du_opt_dt"].shift(1)
+        df["d2u_opt_dt2"] = (df["du_opt_dt"] - du_prev).fillna(0.0)
+
+        # Persistence-weighted velocities
+        df["u_opt_p"] = df["phi_rest_opt"] * df["u_opt_ema_8"]
         df["u_opt_p_slow"] = df["phi_rest_opt"] * df["u_opt_ema_32"]
-        
+
         # Omega_opt
-        # Omega_opt = rho_opt * (0.5 + 0.5*phi_rest_opt) * (1 + max(0, u_opt_p_slow))
         term_rest = 0.5 + 0.5 * df["phi_rest_opt"]
         term_reinforce = 1.0 + np.maximum(0.0, df["u_opt_p_slow"])
         df["Omega_opt"] = df["rho_opt"] * term_rest * term_reinforce
+
+        # Spatial smoothing on strike buckets (rel_ticks multiples of 20)
+        max_strike_steps = int(round(MAX_STRIKE_TICKS / STRIKE_TICKS))
+
+        def apply_strike_smoothing(
+            df_in: pd.DataFrame,
+            target_col: str,
+            sigma_ticks: float,
+            n_ticks: int,
+            out_col_name: str,
+        ) -> pd.DataFrame:
+            """Gaussian smoothing on the $5 strike lattice (bucket units)."""
+            import warnings
+
+            df_work = df_in.copy()
+            df_work["rel_strike"] = (df_work["rel_ticks"] / STRIKE_TICKS).round().astype(int)
+
+            pivoted = (
+                df_work.groupby(["window_end_ts_ns", "right", "side", "rel_strike"])[target_col]
+                .mean()
+                .unstack("rel_strike")
+            )
+
+            full_strikes = np.arange(-max_strike_steps, max_strike_steps + 1)
+            pivoted = pivoted.reindex(columns=full_strikes, fill_value=0.0)
+
+            n_strikes = max(1, int(round(n_ticks / STRIKE_TICKS)))
+            sigma_strikes = max(1.0, sigma_ticks / STRIKE_TICKS)
+            win_size = int(2 * n_strikes + 1)
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)
+                smoothed = pivoted.rolling(
+                    window=win_size,
+                    win_type="gaussian",
+                    center=True,
+                    axis=1,
+                ).mean(std=sigma_strikes)
+
+            smoothed = smoothed.reset_index()
+            smoothed = smoothed.melt(
+                id_vars=["window_end_ts_ns", "right", "side"],
+                var_name="rel_strike",
+                value_name=out_col_name,
+            )
+            smoothed["rel_ticks"] = smoothed["rel_strike"].astype(int) * STRIKE_TICKS
+            return smoothed[["window_end_ts_ns", "right", "side", "rel_ticks", out_col_name]]
+
+        u_near_df = apply_strike_smoothing(df, "u_opt_ema_8", 6.0, 16, "u_opt_near")
+        u_far_df = apply_strike_smoothing(df, "u_opt_ema_32", 24.0, 64, "u_opt_far")
+        omega_near_df = apply_strike_smoothing(df, "Omega_opt", 6.0, 16, "Omega_opt_near")
+        omega_far_df = apply_strike_smoothing(df, "Omega_opt", 24.0, 64, "Omega_opt_far")
+
+        df = df.merge(u_near_df, on=["window_end_ts_ns", "right", "side", "rel_ticks"], how="left")
+        df = df.merge(u_far_df, on=["window_end_ts_ns", "right", "side", "rel_ticks"], how="left")
+        df = df.merge(omega_near_df, on=["window_end_ts_ns", "right", "side", "rel_ticks"], how="left")
+        df = df.merge(omega_far_df, on=["window_end_ts_ns", "right", "side", "rel_ticks"], how="left")
+
+        df["u_opt_near"] = df["u_opt_near"].fillna(0.0)
+        df["u_opt_far"] = df["u_opt_far"].fillna(0.0)
+        df["Omega_opt_near"] = df["Omega_opt_near"].fillna(0.0)
+        df["Omega_opt_far"] = df["Omega_opt_far"].fillna(0.0)
+
+        df["u_opt_prom"] = df["u_opt_near"] - df["u_opt_far"]
+        df["Omega_opt_prom"] = df["Omega_opt_near"] - df["Omega_opt_far"]
+
+        # Spatial derivatives on strike lattice (scaled to tick units)
+        df = df.sort_values(["window_end_ts_ns", "right", "side", "rel_ticks"])
+        g_space = df.groupby(["window_end_ts_ns", "right", "side"])
+        u_near = df["u_opt_near"]
+        df["du_opt_dx"] = (
+            g_space["u_opt_near"].shift(-1) - g_space["u_opt_near"].shift(1)
+        ) / (2.0 * STRIKE_TICKS)
+        df["d2u_opt_dx2"] = (
+            g_space["u_opt_near"].shift(-1) - 2.0 * u_near + g_space["u_opt_near"].shift(1)
+        ) / float(STRIKE_TICKS ** 2)
+        df["du_opt_dx"] = df["du_opt_dx"].fillna(0.0)
+        df["d2u_opt_dx2"] = df["d2u_opt_dx2"].fillna(0.0)
+
+        # Viscosity + permeability (options lattice)
+        df["nu_opt"] = 1.0 + df["Omega_opt_near"] + 2.0 * np.maximum(0.0, df["Omega_opt_prom"])
+        df["kappa_opt"] = 1.0 / df["nu_opt"]
+
+        # Pressure gradient (directional)
+        df["pressure_grad_opt"] = np.where(df["side"] == "B", df["u_opt_p"], -df["u_opt_p"])
 
         df["event_ts_ns"] = df["window_end_ts_ns"]
 
@@ -156,9 +276,29 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
                 "liquidity_velocity",
                 "rho_opt",
                 "phi_rest_opt",
+                "u_opt_ema_2",
                 "u_opt_ema_8",
                 "u_opt_ema_32",
+                "u_opt_ema_128",
+                "u_opt_band_fast",
+                "u_opt_band_mid",
+                "u_opt_band_slow",
+                "u_opt_wave_energy",
+                "du_opt_dt",
+                "d2u_opt_dt2",
+                "u_opt_p",
                 "u_opt_p_slow",
+                "u_opt_near",
+                "u_opt_far",
+                "u_opt_prom",
+                "du_opt_dx",
+                "d2u_opt_dx2",
                 "Omega_opt",
+                "Omega_opt_near",
+                "Omega_opt_far",
+                "Omega_opt_prom",
+                "nu_opt",
+                "kappa_opt",
+                "pressure_grad_opt",
             ]
         ]

@@ -43,6 +43,11 @@ npm run build && npm run preview &
 - Browser: http://localhost:5174
 - WebSocket: ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06
 
+### Validation (Manual)
+- Confirm Spot/TS/Frame update continuously for ~30 seconds
+- Console should show WebSocket connected; GPU stall warnings may appear during screenshots
+- Favicon 404 is expected in dev
+
 ## Constraints
 - product_types: future_mbo, future_option_mbo, equity_mbo, equity_option_mbo
 - dt: 2026-01-06
@@ -150,6 +155,15 @@ npm run dev       # Development (hot reload)
 npm run build     # Production build
 ```
 - URL: http://localhost:5174
+- **Restart Stream button**: Top-left overlay, reconnects WebSocket and clears grid state
+- **Zoom controls**: 
+  - Regular scroll = vertical (price) zoom
+  - Cmd/Ctrl+scroll = horizontal (time) zoom
+  - Trackpad horizontal swipe also works for horizontal zoom
+  - Independent V/H zoom up to 8x
+  - At high zoom (e.g., 6x+) individual $0.25 tick × 1 second cells are clearly visible
+- **Pan controls**: Click and drag to pan the view vertically
+- **Price axis**: Shows $5 increments at normal zoom, $1 at medium zoom, $0.25 at high zoom (V5x+)
 
 ### Process Checks
 ```bash
@@ -211,11 +225,13 @@ Per 1-second window, server sends:
 ## Visualization (frontend2)
 
 ### Unified Pressure vs Obstacles View
-Single composite shader showing liquidity dynamics:
-- **Amber/orange** = Upward pressure (bid support building)
-- **Teal/cyan** = Downward pressure (ask resistance building)
+Composite shader using velocity + pressure_grad + Omega (activity-gated by velocity/pressure):
+- **Green** = Upward pressure (bid support building)
+- **Red** = Downward pressure (ask resistance building)
 - **Dark maroon** = Eroding liquidity (vacuum zones)
 - **Ice-white highlights** = Strong walls (high omega + building velocity)
+- **Side gating**: Aggregation uses bid rows at rel_ticks <= 0 and ask rows at rel_ticks > 0 to prevent cross-side smoothing bleed
+- Note: u_wave_energy and nu are ingested but not rendered
 
 ### Forecast Line
 Projects from current spot into 30% right margin:
@@ -225,7 +241,10 @@ Projects from current spot into 30% right margin:
 - X = horizon_s (seconds forward), Y = predicted tick delta
 
 ### Options Grid
-Horizontal bars at $5 increments showing aggregate options liquidity velocity
+Thin horizontal bars (~$0.75 height) at $5 strike increments, **rendered behind futures** to avoid occluding tick-level detail.
+- Shows composite options pressure vs obstacles (velocity + pressure_grad + Omega, aggregated across C/P and A/B)
+- Green/red directional coloring matches futures semantics
+- Lower opacity (50% base) so futures pressure bleeds through at strike levels
 
 ### Spot Line
 Turquoise line tracking price history through the spatiotemporal grid
@@ -310,11 +329,11 @@ npm run build
 ### Data Issues
 ```bash
 # Verify parquet exists
-ls -la backend/lake/gold/future_mbo/physics_surface_1s/symbol=ESH6/dt=2026-01-06/
+ls -la backend/lake/gold/product_type=future_mbo/symbol=ESH6/table=physics_surface_1s/dt=2026-01-06/
 
 # Read parquet columns
 cd backend
-uv run python -c "import pandas as pd; df = pd.read_parquet('lake/gold/future_mbo/physics_surface_1s/symbol=ESH6/dt=2026-01-06/'); print(df.columns.tolist())"
+uv run python -c "import pandas as pd; df = pd.read_parquet('lake/gold/product_type=future_mbo/symbol=ESH6/table=physics_surface_1s/dt=2026-01-06/'); print(df.columns.tolist())"
 ```
 
 ## Physics Fields Reference (Gold Layer)

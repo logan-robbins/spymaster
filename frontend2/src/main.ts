@@ -22,6 +22,7 @@ const spotLabel = document.getElementById('spot-label')!;
 const tsLabel = document.getElementById('ts-label')!;
 const frameLabel = document.getElementById('frame-label')!;
 const zoomLabel = document.getElementById('zoom-label')!;
+const restartBtn = document.getElementById('restart-btn') as HTMLButtonElement;
 
 // Diagnostic HUD elements
 const runScoreUpLabel = document.getElementById('run-score-up')!;
@@ -58,7 +59,7 @@ scene.add(velocityMesh);
 // Options velocity grid (cyan/magenta, horizontal bars at FIXED $5 increments)
 const optionsGrid = new OptionsGrid(GRID_WIDTH);
 const optionsMesh = optionsGrid.getMesh();
-optionsMesh.renderOrder = 0.5;
+optionsMesh.renderOrder = -0.5;  // Render before (behind) futures
 scene.add(optionsMesh);
 
 // Forecast Overlay
@@ -74,10 +75,11 @@ scene.add(spotLineGroup);
 const priceAxis = new PriceAxis('price-axis', 20, VIEW_TICKS);
 scene.add(priceAxis.getGridGroup());
 
-// Zoom state
-let zoomLevel = 1.0;
+// Zoom state (independent vertical and horizontal)
+let verticalZoom = 1.0;   // Price axis zoom
+let horizontalZoom = 1.0; // Time axis zoom
 const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4.0;
+const MAX_ZOOM = 8.0;
 const ZOOM_SPEED = 0.1;
 
 // State
@@ -188,21 +190,52 @@ function tryProcessBatch(): void {
   velocityGrid.advance(currentSpotTickIndex);
   optionsGrid.advance();
 
-  // Write futures velocity data
-  let velocityWriteCount = 0;
+  // Aggregate bid/ask data by rel_ticks before writing
+  // (Gold layer has separate rows for Bid and Ask at same rel_ticks)
+  const aggregated = new Map<number, {
+    velocity: number;
+    energy: number;
+    pressure: number;
+    nu: number;
+    omega: number;
+  }>();
+
   for (const row of pendingVelocityRows) {
     const relTicks = row.rel_ticks;
-    const velocity = row.liquidity_velocity;
+    if (row.side === 'B') {
+      // Keep bid-side pressure at/below spot only
+      if (relTicks > 0) continue;
+    } else if (row.side === 'A') {
+      // Keep ask-side pressure strictly above spot
+      if (relTicks <= 0) continue;
+    } else {
+      continue;
+    }
+    const existing = aggregated.get(relTicks);
+    
+    if (existing) {
+      // Combine: sum velocities/pressure, max for obstacles
+      existing.velocity += row.liquidity_velocity;
+      existing.energy += row.u_wave_energy;
+      existing.pressure += row.pressure_grad;  // Net pressure (bid positive, ask negative)
+      existing.nu = Math.max(existing.nu, row.nu);
+      existing.omega = Math.max(existing.omega, row.Omega);
+    } else {
+      aggregated.set(relTicks, {
+        velocity: row.liquidity_velocity,
+        energy: row.u_wave_energy,
+        pressure: row.pressure_grad,
+        nu: row.nu,
+        omega: row.Omega,
+      });
+    }
+  }
 
-    if (velocity !== 0 || row.u_wave_energy !== 0 || row.pressure_grad !== 0 || row.nu !== 0 || row.Omega !== 0) {
-      velocityGrid.write(
-        relTicks,
-        velocity,
-        row.u_wave_energy,
-        row.pressure_grad,
-        row.nu,
-        row.Omega
-      );
+  // Write aggregated data to grid
+  let velocityWriteCount = 0;
+  for (const [relTicks, data] of aggregated) {
+    if (data.velocity !== 0 || data.energy !== 0 || data.pressure !== 0 || data.nu !== 0 || data.omega !== 0) {
+      velocityGrid.write(relTicks, data.velocity, data.energy, data.pressure, data.nu, data.omega);
       velocityWriteCount++;
     }
   }
@@ -213,8 +246,10 @@ function tryProcessBatch(): void {
   for (const row of pendingOptionsRows) {
     const relTicks = row.rel_ticks;
     const velocity = row.liquidity_velocity;
-    if (velocity !== 0) {
-      optionsGrid.write(currentSpotTickIndex, relTicks, velocity);
+    const pressure = row.pressure_grad;
+    const omega = row.Omega;
+    if (velocity !== 0 || pressure !== 0 || omega !== 0) {
+      optionsGrid.write(currentSpotTickIndex, relTicks, velocity, pressure, omega);
       optionsWriteCount++;
     }
   }
@@ -234,7 +269,7 @@ function tryProcessBatch(): void {
     velocityMesh.position.y = cameraYCenter;
     velocityMesh.position.z = 0;
 
-    const viewTicks = VIEW_TICKS / zoomLevel;
+    const viewTicks = VIEW_TICKS / verticalZoom;
     const meshBottom = cameraYCenter - viewTicks / 2 - 100;
     const meshHeight = viewTicks + 200;
     optionsGrid.updateMesh(timeSpan, meshBottom, meshHeight);
@@ -263,26 +298,56 @@ function tryProcessBatch(): void {
   pendingOptionsRows = [];
 }
 
-// Connect unified WebSocket stream
-connectStream(SYMBOL, DATE, {
-  onTick,
-  onSnap,
-  onVelocity,
-  onOptions,
-  onForecast
+// Stream connection management
+let ws: WebSocket | null = null;
+
+function startStream(): void {
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  // Reset state
+  frameCount = 0;
+  velocityGrid.clear();
+  optionsGrid.clear();
+  cameraInitialized = false;
+  currentSpotTickIndex = 0;
+  cameraYCenter = 0;
+
+  ws = connectStream(SYMBOL, DATE, {
+    onTick,
+    onSnap,
+    onVelocity,
+    onOptions,
+    onForecast
+  });
+
+  ws.onclose = () => {
+    console.log('WebSocket closed');
+    spotLabel.textContent = 'Spot: DISCONNECTED';
+  };
+}
+
+// Wire up restart button
+restartBtn.addEventListener('click', () => {
+  console.log('Restarting stream...');
+  startStream();
 });
 
-// Update camera based on zoom level
+// Initial connection
+startStream();
+
+// Update camera based on zoom levels
+// Vertical zoom affects price range, horizontal zoom affects time range
+// 30% prediction margin is always maintained
 function updateCamera(): void {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  const aspect = width / height;
+  const viewTicks = VIEW_TICKS / verticalZoom;
+  const viewSeconds = VIEW_SECONDS / horizontalZoom;
 
-  const viewTicks = VIEW_TICKS / zoomLevel;
-
-  const totalViewWidth = viewTicks * aspect;
-  const dataWidth = totalViewWidth * (1 - PREDICTION_MARGIN);
-  const predictionWidth = totalViewWidth * PREDICTION_MARGIN;
+  // Horizontal extent: scaled by horizontalZoom, with 30% margin for predictions
+  const dataWidth = viewSeconds;
+  const predictionWidth = viewSeconds * PREDICTION_MARGIN / (1 - PREDICTION_MARGIN);
 
   camera.left = -dataWidth;
   camera.right = predictionWidth;
@@ -305,16 +370,73 @@ function onResize(): void {
 window.addEventListener('resize', onResize);
 
 // Handle zoom with mouse wheel
+// Regular scroll = vertical (price) zoom
+// Cmd/Ctrl+scroll OR horizontal trackpad scroll = horizontal (time) zoom
 function onWheel(event: WheelEvent): void {
   event.preventDefault();
+  event.stopPropagation();
 
-  const delta = event.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
-  zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel * (1 + delta)));
+  // Horizontal zoom: Cmd (Mac) / Ctrl (Win) + scroll, OR native horizontal scroll (deltaX)
+  if (event.metaKey || event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+    const hDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const delta = hDelta > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
+    horizontalZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, horizontalZoom * (1 + delta)));
+  } else {
+    // Vertical zoom (price axis)
+    const delta = event.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
+    verticalZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, verticalZoom * (1 + delta)));
+  }
 
   updateCamera();
-  zoomLabel.textContent = `Zoom: ${zoomLevel.toFixed(1)}x`;
+  zoomLabel.textContent = `Zoom: V${verticalZoom.toFixed(1)}x H${horizontalZoom.toFixed(1)}x`;
 }
 canvas.addEventListener('wheel', onWheel, { passive: false });
+
+// Click-drag panning
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartCameraY = 0;
+
+function onMouseDown(event: MouseEvent): void {
+  // Only pan with left click (not right click for context menu)
+  if (event.button !== 0) return;
+  
+  isDragging = true;
+  dragStartX = event.clientX;
+  dragStartY = event.clientY;
+  dragStartCameraY = cameraYCenter;
+  canvas.style.cursor = 'grabbing';
+}
+
+function onMouseMove(event: MouseEvent): void {
+  if (!isDragging) return;
+  
+  const deltaY = event.clientY - dragStartY;
+  
+  // Convert pixel delta to tick delta based on current zoom
+  const viewTicks = VIEW_TICKS / verticalZoom;
+  const ticksPerPixel = viewTicks / canvas.clientHeight;
+  
+  // Move camera in opposite direction of drag (natural scrolling feel)
+  cameraYCenter = dragStartCameraY + deltaY * ticksPerPixel;
+  
+  // Update camera position
+  camera.position.y = cameraYCenter;
+  
+  // Update price axis
+  priceAxis.update(cameraYCenter, camera);
+}
+
+function onMouseUp(): void {
+  isDragging = false;
+  canvas.style.cursor = 'default';
+}
+
+canvas.addEventListener('mousedown', onMouseDown);
+canvas.addEventListener('mousemove', onMouseMove);
+canvas.addEventListener('mouseup', onMouseUp);
+canvas.addEventListener('mouseleave', onMouseUp);
 
 // Animation loop
 function animate(): void {

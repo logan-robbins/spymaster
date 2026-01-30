@@ -26,6 +26,10 @@ export interface OptionsRow {
   spot_ref_price_int: bigint;
   rel_ticks: number;  // Always multiples of 20 ($5 increments)
   liquidity_velocity: number;  // Aggregated across C/P and A/B
+  pressure_grad: number;
+  u_wave_energy: number;
+  nu: number;
+  Omega: number;
 }
 
 export interface ForecastRow {
@@ -133,6 +137,10 @@ export function connectStream(
                   spot_ref_price_int: BigInt(json.spot_ref_price_int as string),
                   rel_ticks: Number(json.rel_ticks),
                   liquidity_velocity: json.liquidity_velocity as number,
+                  pressure_grad: (json.pressure_grad ?? 0) as number,
+                  u_wave_energy: (json.u_wave_energy ?? 0) as number,
+                  nu: (json.nu ?? 0) as number,
+                  Omega: (json.Omega ?? 0) as number,
                 });
               }
             }

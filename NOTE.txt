@@ -8,3 +8,10 @@ You built Bronze/Silver/Gold so that **raw events → conserved primitives → n
 * a simple driven-damped particle model yields **interpretable lookahead**
 
 That’s exactly the bridge from “pretty velocity heatmap” to “actionable, explainable microstructure prediction.”  
+
+Task Plan - Frontend composite validation (2026-01-29)
+1) [x] Inspect futures composite shader inputs and logic
+2) [x] Trace websocket fields into grid buffers
+3) [x] Check options grid rendering for composite vs velocity-only
+4) [x] Update README to reflect current composite state
+5) [x] Deliver report with concrete code references and gaps

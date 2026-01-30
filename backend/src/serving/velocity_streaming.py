@@ -3,7 +3,7 @@
 Serves three surfaces in a single stream:
 - snap: spot reference from futures (anchors the grid)
 - velocity: futures liquidity velocity at $0.25 tick resolution
-- options: aggregated options liquidity velocity at $5 strike resolution
+- options: aggregated options composite fields at $5 strike resolution
 
 Options are aggregated across Call/Put and Bid/Ask to show NET liquidity
 velocity at each strike level - this captures the aggregate market maker
@@ -31,7 +31,16 @@ VELOCITY_COLUMNS = [
     "window_end_ts_ns", "spot_ref_price_int", "rel_ticks", "side", 
     "liquidity_velocity", "rho", "nu", "kappa", "pressure_grad", "u_wave_energy", "Omega"
 ]
-OPTIONS_COLUMNS = ["window_end_ts_ns", "spot_ref_price_int", "rel_ticks", "liquidity_velocity"]
+OPTIONS_COLUMNS = [
+    "window_end_ts_ns",
+    "spot_ref_price_int",
+    "rel_ticks",
+    "liquidity_velocity",
+    "pressure_grad",
+    "u_wave_energy",
+    "nu",
+    "Omega",
+]
 FORECAST_COLUMNS = [
     "window_end_ts_ns", "horizon_s", "predicted_spot_tick", "predicted_tick_delta", 
     "confidence", "RunScore_up", "RunScore_down", "D_up", "D_down"
@@ -363,14 +372,25 @@ def _aggregate_options(df: pd.DataFrame) -> pd.DataFrame:
     """
     if df.empty:
         return pd.DataFrame(columns=OPTIONS_COLUMNS)
-    
+
+    # Ensure optional physics columns exist for backward compatibility
+    for col in ("pressure_grad_opt", "u_opt_wave_energy", "nu_opt", "Omega_opt"):
+        if col not in df.columns:
+            df[col] = 0.0
+
     # Aggregate across right (C/P) and side (A/B)
     df_agg = (
         df.groupby(
             ["window_end_ts_ns", "spot_ref_price_int", "rel_ticks"],
             as_index=False,
         )
-        .agg(liquidity_velocity=("liquidity_velocity", "sum"))
+        .agg(
+            liquidity_velocity=("liquidity_velocity", "sum"),
+            pressure_grad=("pressure_grad_opt", "sum"),
+            u_wave_energy=("u_opt_wave_energy", "sum"),
+            nu=("nu_opt", "sum"),
+            Omega=("Omega_opt", "max"),
+        )
     )
     return df_agg[OPTIONS_COLUMNS]
 

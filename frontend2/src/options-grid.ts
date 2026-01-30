@@ -5,13 +5,14 @@ const STRIKE_TICKS = 20;  // $5 / $0.25 = 20 ticks per strike
 
 /**
  * Options physics overlay rendered as horizontal bars at FIXED $5 strike levels.
- * 
+ *
  * Key design: Options bars are at ABSOLUTE price levels (e.g., $6945, $6950, $6955).
- * They do NOT move when spot moves - only their COLOR changes based on velocity.
- * 
- * Color scheme (distinct from futures green/red):
- * - Cyan (#00FFFF): liquidity building (positive velocity)
- * - Magenta (#FF00FF): liquidity eroding (negative velocity)
+ * They do NOT move when spot moves - only their COLOR changes based on composite fields.
+ *
+ * Composite view mirrors futures (pressure vs obstacles):
+ * - Velocity drives build/erode intensity
+ * - Pressure sign sets direction (green up / red down)
+ * - Omega highlights strong walls
  */
 export class OptionsGrid {
   private width: number;      // columns = seconds of history
@@ -22,7 +23,7 @@ export class OptionsGrid {
   // Reference strike (tick index of center $5 strike, set on first data)
   private referenceStrikeTick: number = 0;
 
-  // Velocity data: ring buffer [width][numStrikes]
+  // Composite data: ring buffer [width][numStrikes]
   private velocityData: Float32Array;
   private texture: THREE.DataTexture;
 
@@ -30,12 +31,12 @@ export class OptionsGrid {
   private material: THREE.ShaderMaterial;
 
   // Bar rendering parameters
-  private barHeightTicks: number = 8;  // Height of each bar in ticks (~$2.00)
+  private barHeightTicks: number = 3;  // Height of each bar in ticks (~$0.75, thin accent)
 
   constructor(width: number = 1800) {
     this.width = width;
 
-    // Velocity texture: columns = time, rows = strikes
+    // Composite texture: columns = time, rows = strikes
     this.velocityData = new Float32Array(width * this.numStrikes * 4);
     this.texture = new THREE.DataTexture(this.velocityData, width, this.numStrikes);
     this.texture.format = THREE.RGBAFormat;
@@ -101,35 +102,44 @@ export class OptionsGrid {
 
         vec4 data = texture2D(uData, vec2(texX, texY));
         float velocity = data.r;
+        float pressure = data.g;
+        float omega = data.b;
 
-        // Skip near-zero velocity
-        if (abs(velocity) < 0.001) {
+        // Skip near-zero activity
+        if (abs(velocity) < 0.005 && abs(pressure) < 0.005) {
           discard;
         }
 
-        // DEBUG: Color by strike index to verify different rows are being read
-        // Remove this debug coloring once verified
-        float debugHue = mod(strikeIndex * 0.15 + 0.5, 1.0);
-        
-        // Cyan/Magenta color scheme (with debug tint based on strike)
-        vec3 baseColor;
-        if (velocity > 0.0) {
-          baseColor = vec3(0.0, 1.0, 1.0);  // Cyan - building
-        } else {
-          baseColor = vec3(1.0, 0.0, 1.0);  // Magenta - eroding
-        }
-        
-        // Mix with debug color to show different strikes
-        // Each strike will have a slightly different hue
-        vec3 debugColor = vec3(
-          0.5 + 0.5 * sin(strikeIndex * 0.8),
-          0.5 + 0.5 * sin(strikeIndex * 0.8 + 2.094),
-          0.5 + 0.5 * sin(strikeIndex * 0.8 + 4.189)
-        );
-        vec3 color = mix(baseColor, debugColor, 0.3);  // 30% debug tint
+        // Color palette (matches futures composite, red/green directional)
+        const vec3 BUILD_UP = vec3(0.2, 0.9, 0.45);
+        const vec3 BUILD_DOWN = vec3(0.9, 0.2, 0.2);
+        const vec3 ERODE_COLOR = vec3(0.25, 0.05, 0.06);
+        const vec3 WALL_COLOR = vec3(0.9, 0.95, 1.0);
 
-        // Alpha from velocity magnitude (adjusted for large values)
-        float alpha = tanh(abs(velocity) * 0.3) * 0.85;
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+
+        float dir = (abs(pressure) > 0.001) ? pressure : velocity;
+
+        if (velocity > 0.01) {
+          float intensity = tanh(velocity * 3.0);
+          if (dir >= 0.0) {
+            color = mix(vec3(0.1, 0.45, 0.2), BUILD_UP, intensity);
+          } else {
+            color = mix(vec3(0.45, 0.1, 0.1), BUILD_DOWN, intensity);
+          }
+          alpha = intensity * 0.50;  // Lower alpha so futures show through
+
+          if (omega > 2.0 && velocity > 0.1) {
+            float wallBoost = min((omega - 2.0) / 3.0, 0.5);
+            color = mix(color, WALL_COLOR, wallBoost);
+            alpha = min(alpha + wallBoost * 0.2, 0.65);
+          }
+        } else if (velocity < -0.01) {
+          float intensity = tanh(abs(velocity) * 3.0);
+          color = mix(vec3(0.12, 0.03, 0.04), ERODE_COLOR, intensity);
+          alpha = intensity * 0.45;
+        }
 
         // Edge fade for cleaner bars
         float edgeFade = 1.0 - smoothstep(uBarHeight * 0.35, uBarHeight * 0.5, distFromStrike);
@@ -196,11 +206,13 @@ export class OptionsGrid {
   }
 
   /**
-   * Write options velocity data to current column.
+   * Write options composite data to current column.
    * @param absoluteStrikeTick - Absolute tick index of the strike
    * @param velocity - Aggregated liquidity velocity
+   * @param pressure - Aggregated pressure gradient
+   * @param omega - Aggregated obstacle strength
    */
-  writeAbsolute(absoluteStrikeTick: number, velocity: number): void {
+  writeAbsolute(absoluteStrikeTick: number, velocity: number, pressure: number, omega: number): void {
     if (this.referenceStrikeTick === 0) return;
 
     // Compute strike index relative to reference
@@ -215,18 +227,20 @@ export class OptionsGrid {
 
     const idx = (row * this.width + this.head) * 4;
     this.velocityData[idx] = velocity;
-    this.velocityData[idx + 1] = 0;
-    this.velocityData[idx + 2] = 0;
+    this.velocityData[idx + 1] = pressure;
+    this.velocityData[idx + 2] = omega;
     this.velocityData[idx + 3] = 1;
   }
 
   /**
-   * Write options velocity using spot-relative ticks (converts to absolute internally)
+   * Write options composite data using spot-relative ticks (converts to absolute internally)
    * @param spotTickIndex - Current spot tick index
    * @param relTicks - Relative ticks from spot (must be multiple of 20)
    * @param velocity - Aggregated liquidity velocity
+   * @param pressure - Aggregated pressure gradient
+   * @param omega - Aggregated obstacle strength
    */
-  write(spotTickIndex: number, relTicks: number, velocity: number): void {
+  write(spotTickIndex: number, relTicks: number, velocity: number, pressure: number, omega: number): void {
     const absoluteStrikeTick = spotTickIndex + relTicks;
     // Round to nearest $5 strike
     const roundedStrike = Math.round(absoluteStrikeTick / STRIKE_TICKS) * STRIKE_TICKS;
@@ -240,7 +254,7 @@ export class OptionsGrid {
       console.log(`write: spotTick=${spotTickIndex.toFixed(0)}, relTicks=${relTicks}, absStrike=${roundedStrike}, refStrike=${this.referenceStrikeTick}, strikeIdx=${strikeIndex}, row=${row}`);
     }
     
-    this.writeAbsolute(roundedStrike, velocity);
+    this.writeAbsolute(roundedStrike, velocity, pressure, omega);
   }
 
   flush(): void {
@@ -255,7 +269,7 @@ export class OptionsGrid {
     this.mesh.scale.set(timeSpan, meshHeight, 1);
     this.mesh.position.x = -timeSpan / 2;
     this.mesh.position.y = meshBottom + meshHeight / 2;
-    this.mesh.position.z = 0.01;
+    this.mesh.position.z = -0.01;  // Behind futures
 
     this.material.uniforms.uMeshBottom.value = meshBottom;
     this.material.uniforms.uMeshHeight.value = meshHeight;
@@ -287,6 +301,15 @@ export class OptionsGrid {
 
   getReferenceStrike(): number {
     return this.referenceStrikeTick;
+  }
+
+  clear(): void {
+    this.head = 0;
+    this.count = 0;
+    this.referenceStrikeTick = 0;
+    this.referenceSet = false;
+    this.velocityData.fill(0);
+    this.texture.needsUpdate = true;
   }
 }
 
