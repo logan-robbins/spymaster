@@ -47,7 +47,7 @@ class BronzeIngestFutureOptionMbo(Stage):
             df_all = read_partition(checkpoint_ref)
             df_all = enforce_contract(df_all, checkpoint_contract)
         else:
-            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn"))
+            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn*"))
             if not dbn_files:
                 raise FileNotFoundError(f"No DBN files found for date {dt} in {raw_path}/")
 

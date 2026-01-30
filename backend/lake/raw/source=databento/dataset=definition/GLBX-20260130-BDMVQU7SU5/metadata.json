@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "job_id": "GLBX-20260130-BDMVQU7SU5",
+    "query": {
+        "dataset": "GLBX.MDP3",
+        "schema": "definition",
+        "symbols": [
+            "EW.OPT",
+            "EW1.OPT",
+            "EW2.OPT",
+            "EW3.OPT",
+            "EW4.OPT"
+        ],
+        "stype_in": "parent",
+        "stype_out": "instrument_id",
+        "start": 1769126400000000000,
+        "end": 1769212800000000000,
+        "limit": null,
+        "encoding": "dbn",
+        "compression": "zstd"
+    },
+    "customizations": {
+        "pretty_px": false,
+        "pretty_ts": false,
+        "map_symbols": false,
+        "split_symbols": false,
+        "split_duration": "day",
+        "split_size": null,
+        "packaging": null,
+        "delivery": "download"
+    }
+}

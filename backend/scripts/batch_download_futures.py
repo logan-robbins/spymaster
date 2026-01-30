@@ -278,7 +278,7 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     # Get all jobs from API
     try:
         api_jobs = client.batch.list_jobs(
-            states=["received", "queued", "processing", "done", "expired"],
+            states=["queued", "processing", "done", "expired"],
             since=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
         )
         job_states = {j["id"]: j for j in api_jobs}

@@ -1,0 +1,22 @@
+{
+    "result": {
+        "QQQ": [
+            {
+                "d0": "2026-01-21",
+                "d1": "2026-01-22",
+                "s": "13340"
+            }
+        ]
+    },
+    "symbols": [
+        "QQQ"
+    ],
+    "stype_in": "raw_symbol",
+    "stype_out": "instrument_id",
+    "start_date": "2026-01-21",
+    "end_date": "2026-01-22",
+    "partial": [],
+    "not_found": [],
+    "message": "OK",
+    "status": 0
+}

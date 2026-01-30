@@ -14,7 +14,8 @@ from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, read_partition, write_partition
 from ....utils import session_window_ns
 
-RTYPE_CMBP = 0
+# CMBP-1 schema uses rtype 177 (CBBO - Consolidated BBO)
+RTYPE_CMBP = 177
 NULL_PRICE = np.iinfo("int64").max
 
 RIGHT_CLASSES = {"C", "P"}
@@ -47,7 +48,7 @@ class BronzeIngestEquityOptionMbo(Stage):
             df_all = read_partition(checkpoint_ref)
             df_all = enforce_contract(df_all, checkpoint_contract)
         else:
-            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn"))
+            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn*"))
             if not dbn_files:
                 raise FileNotFoundError(f"No DBN files found for date {dt} in {raw_path}/")
 

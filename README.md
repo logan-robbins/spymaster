@@ -49,9 +49,10 @@ npm run build && npm run preview &
 - Favicon 404 is expected in dev
 
 ## Constraints
-- product_types: future_mbo, future_option_mbo, equity_mbo, equity_option_mbo
-- dt: 2026-01-06
-- session window: 09:30-09:40 ET (dev); config: `backend/src/data_eng/stages/silver/future_mbo/mbo_batches.py` (first_hour_window_ns)
+- product_types: future_mbo, future_option_mbo, equity_mbo, equity_option_mbo (bronze also: equity_option_cmbp_1)
+- dt: 2026-01-06 (bronze also available for 2026-01-05)
+- bronze session window: 06:00-13:00 ET (pre-market + morning RTH); config: `backend/src/data_eng/utils.py` (session_window_ns)
+- silver/gold session window: 09:30-09:40 ET (dev, 10 min); config: `backend/src/data_eng/stages/silver/future_mbo/mbo_batches.py` (first_hour_window_ns)
 - symbol: ESH6 (use ES for bronze, ESH6 for silver/gold)
 - tick size: $0.25 (TICK_INT = 250_000_000)
 - grid: ±200 ticks from spot_ref_price_int
@@ -94,9 +95,10 @@ nohup uv run python scripts/batch_download_equities.py daemon \
     --poll-interval 60 \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
-- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options CMBP-1, 0DTE options statistics
+- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options CMBP-1 (filtered to ~190 contracts per day), 0DTE options statistics
 - Raw output: `lake/raw/source=databento/product_type=equity_mbo/`, `lake/raw/source=databento/product_type=equity_option_cmbp_1/`, `lake/raw/source=databento/dataset=definition/venue=opra/`
 - Job tracker: `logs/equity_options_jobs.json`
+- Note: Uses `raw_symbol` from definition files to request only 0DTE contracts, not the entire options universe
 
 **Monitor daemon progress:**
 ```bash

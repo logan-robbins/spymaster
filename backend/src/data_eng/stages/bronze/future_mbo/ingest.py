@@ -38,7 +38,7 @@ class BronzeIngestFutureMbo(Stage):
             / f"symbol={symbol}"
             / "table=market_by_order_dbn"
         )
-        dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn"))
+        dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn*"))
         if not dbn_files:
             raise FileNotFoundError(f"No DBN files found for date {dt} in {raw_path}/")
 

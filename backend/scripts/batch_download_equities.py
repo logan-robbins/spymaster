@@ -117,8 +117,13 @@ def definition_path_options(symbol: str, date_str: str) -> Path:
 def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
     """Load 0DTE option assets from definition file"""
     def_path = definition_path_options(symbol, date_str)
+    # Check for both .dbn and .dbn.zst extensions
     if not def_path.exists():
-        raise FileNotFoundError(f"Definition file missing: {def_path}")
+        def_path_zst = def_path.parent / (def_path.name + ".zst")
+        if def_path_zst.exists():
+            def_path = def_path_zst
+        else:
+            raise FileNotFoundError(f"Definition file missing: {def_path} or {def_path_zst}")
     store = db.DBNStore.from_file(str(def_path))
     df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
     if df.empty:
@@ -138,10 +143,12 @@ def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
     if df.empty:
         raise ValueError(f"No {symbol} 0DTE definitions for {date_str}")
 
-    assets = sorted({str(a).strip() for a in df["asset"].dropna().unique()})
-    if not assets:
-        raise ValueError(f"No assets for {symbol} on {date_str}")
-    return assets
+    # Use raw_symbol for actual option contract identifiers (e.g., "QQQ   260106P00525000")
+    # NOT asset which is just the underlying ("QQQ")
+    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique()})
+    if not raw_symbols:
+        raise ValueError(f"No 0DTE raw_symbols for {symbol} on {date_str}")
+    return raw_symbols
 
 
 def submit_job(
@@ -164,8 +171,11 @@ def submit_job(
         if existing["state"] in ("done", "downloaded"):
             log_msg(log_path, f"SKIP {job_key} already {existing['state']}")
             return None
-        log_msg(log_path, f"REUSE {job_key} job={existing['job_id']} state={existing['state']}")
-        return existing["job_id"]
+        # Resubmit on error, otherwise reuse existing job
+        if existing["state"] != "error":
+            log_msg(log_path, f"REUSE {job_key} job={existing['job_id']} state={existing['state']}")
+            return existing["job_id"]
+        log_msg(log_path, f"RESUBMIT {job_key} (was error)")
 
     end_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -213,7 +223,7 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     # Get all jobs from API
     try:
         api_jobs = client.batch.list_jobs(
-            states=["received", "queued", "processing", "done", "expired"],
+            states=["queued", "processing", "done", "expired"],
             since=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
         )
         job_states = {j["id"]: j for j in api_jobs}
@@ -335,16 +345,15 @@ def cmd_submit(args: argparse.Namespace) -> None:
             def_info = tracker["jobs"].get(def_key, {})
             if def_info.get("state") == "downloaded":
                 try:
-                    assets = load_0dte_assets(symbol, date_str)
-                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(assets)} assets")
-                    parents_with_opt = [f"{a}.OPT" for a in assets]
+                    raw_symbols = load_0dte_assets(symbol, date_str)
+                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(raw_symbols)} contracts")
 
                     for schema in options_schemas:
                         if schema == "definition":
                             continue
                         submit_job(
                             client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
-                            parents_with_opt, "parent", log_path
+                            raw_symbols, "raw_symbol", log_path
                         )
                         time.sleep(args.pause_seconds)
                 except Exception as e:
@@ -428,8 +437,7 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                     continue
 
                 try:
-                    assets = load_0dte_assets(symbol, date_str)
-                    parents_with_opt = [f"{a}.OPT" for a in assets]
+                    raw_symbols = load_0dte_assets(symbol, date_str)
 
                     for schema in options_schemas:
                         if schema == "definition":
@@ -438,7 +446,7 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                         if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
                             submit_job(
                                 client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
-                                parents_with_opt, "parent", log_path
+                                raw_symbols, "raw_symbol", log_path
                             )
                             time.sleep(args.pause_seconds)
                 except Exception as e:

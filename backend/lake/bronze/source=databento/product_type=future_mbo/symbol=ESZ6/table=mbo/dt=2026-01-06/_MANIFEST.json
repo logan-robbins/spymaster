@@ -5,6 +5,6 @@
   "dt": "2026-01-06",
   "hour": null,
   "inputs": [],
-  "row_count": 36,
-  "stage": "bronze_ingest_mbo_preview"
+  "row_count": 30,
+  "stage": "bronze_ingest_future_mbo"
 }

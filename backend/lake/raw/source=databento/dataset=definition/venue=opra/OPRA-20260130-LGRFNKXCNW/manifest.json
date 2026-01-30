@@ -1,0 +1,41 @@
+{
+    "job_id": "OPRA-20260130-LGRFNKXCNW",
+    "files": [
+        {
+            "filename": "condition.json",
+            "size": 122,
+            "hash": "sha256:cc7706d28e0920dcf677d3e3c8a0281e81500c7d92dd780ac917cbdd05aafb8b",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/condition.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/condition.json"
+            }
+        },
+        {
+            "filename": "metadata.json",
+            "size": 694,
+            "hash": "sha256:a22ddb3460faa22a526b94563270464d9cbceb9a51436760906098c8745db8da",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/metadata.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/metadata.json"
+            }
+        },
+        {
+            "filename": "symbology.json",
+            "size": 1378698,
+            "hash": "sha256:45ecaf654446fd12c8a5051848e200cc912035577672c5da085682296007a93a",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/symbology.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/symbology.json"
+            }
+        },
+        {
+            "filename": "opra-pillar-20260120.definition.dbn.zst",
+            "size": 277109,
+            "hash": "sha256:5a33828badeab708cb2decbaca1ddf264de4090aeb7fc89aafeaedc03b192005",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/opra-pillar-20260120.definition.dbn.zst",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260130-LGRFNKXCNW/opra-pillar-20260120.definition.dbn.zst"
+            }
+        }
+    ]
+}
