@@ -1,372 +1,230 @@
 # Spymaster - LLM Ops Reference
 
-**CRITICAL INSTRUCTIONS** 
-- Do not read any MD unless specifically requested by the user.
-- ALL CODE IS CONSIDERED "OLD" YOU CAN OVERWRITE/DELETE/EXTEND TO ACCOMPLISH YOUR TASK
-- You have full power to regenerate data when you need to, except for raw data. Do not modify or delete or change raw data unless instructed by the user.
-- YOU MUST use nohup and VERBOSE logging for long running commands and remember to check in increments of 15 seconds so you can exit if something is not working. 
-- We do not create multiple versions of functions, classes, or files or allude to updates-- we make changes directly in line and delete old/outdated code and files.
-- Stage F calibration requires the last 20 trading days (09:30–12:30 ET) and will fail if fewer are available.
-- For quick local runs, keep data engineering within the first hour of RTH (09:30–10:30 ET) for speed.
-- Remember we are simulating/planning for REAL TIME MBO ingestion -> pipeline -> visualization
-- Always follow the workflow backward from the entry point (pipeline.py) to find the most current implementation.
-- If ANY changes are made to the features or data pipeline, **MUST** update the avro contracts, datasets.yaml, futures_data.json to match current state.*note that these documents are not meant to be human readable, they are for AI / LLMS to know specific commands and key information to be able to launch, run, and debug the system.*
+## Critical Rules
+- ALL CODE IS OLD: overwrite/delete/extend as needed
+- Do not modify raw data unless explicitly instructed
+- Use nohup + verbose logging for long-running commands, check every 15s
+- Work backward from entry points to find current implementation
+- If pipeline/features change: update avro contracts, datasets.yaml, {product}_data.json
 
-## Quick Start (LLM Reference)
+## Product Types
+- future_mbo, future_option_mbo, equity_mbo, equity_option_cmbp_1
 
-### 1. Check/Start Backend Server
-```bash
-# Check if backend is running
-lsof -iTCP:8001 -sTCP:LISTEN
+## Symbol Convention Gotcha
+- **Bronze layer**: Use parent symbol (ES)
+- **Silver/Gold layers**: Use full contract (ESH6)
+- Contract selection map required: run mbo_contract_day_selector before silver/gold with parent symbols
 
-# If not running, start it:
-cd /Users/loganrobbins/research/qmachina/spymaster/backend
-nohup uv run python -m src.serving.velocity_main > /tmp/backend.log 2>&1 &
-# Wait 3s, verify:
-sleep 3 && lsof -iTCP:8001 -sTCP:LISTEN
-```
+---
 
-### 2. Check/Start Frontend
-```bash
-# Check if frontend dev server is running
-lsof -iTCP:5174 -sTCP:LISTEN
+## 1. DOWNLOADING DATA
 
-# If not running:
-cd /Users/loganrobbins/research/qmachina/spymaster/frontend2
-npm run dev &
-# Or for production build:
-npm run build && npm run preview &
-```
+### Raw Data Scripts
+Location: `backend/scripts/batch_download_*.py`
 
-### 3. View Application
-- Browser: http://localhost:5174
-- WebSocket: ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06
-
-### Validation (Manual)
-- Confirm Spot/TS/Frame update continuously for ~30 seconds
-- Console should show WebSocket connected; GPU stall warnings may appear during screenshots
-- Favicon 404 is expected in dev
-
-## Constraints
-- product_types: future_mbo, future_option_mbo, equity_mbo, equity_option_cmbp_1
-- symbol: ESH6 (use ES for bronze, ESH6 for silver/gold)
-- tick size: $0.25 (TICK_INT = 250_000_000)
-- grid: ±200 ticks from spot_ref_price_int
-- spot_ref_price_int: window-start on-book anchor (last trade if on-book, else nearest best bid/ask)
-- rel_ticks: spot-anchored
-- rel_ticks_side: side-anchored (best bid/ask at window start)
-- option strike grid: $5 buckets, ±$50 from spot_ref_price_int (rel_ticks multiples of 20)
-- equity bucket size: $0.50 (BUCKET_INT = 500_000_000)
-- equity grid: ±$50 from spot_ref_price_int (100 buckets)
-- equity option strike grid: $1 buckets, ±$25 from spot_ref_price_int (rel_ticks multiples of 2)
-
-## Commands
-
-### Raw data download (Databento batch API)
-Two canonical scripts download ALL raw data needed for pipelines. Both use batch job lifecycle: submit -> poll -> download.
-
-**Futures + Futures Options (GLBX.MDP3):**
+**Futures + Futures Options:**
 ```bash
 cd backend
 nohup uv run python scripts/batch_download_futures.py daemon \
-    --start 2026-01-06 --end 2026-01-06 \
+    --start YYYY-MM-DD --end YYYY-MM-DD \
     --symbols ES \
     --include-futures \
     --options-schemas definition,mbo,statistics \
     --poll-interval 60 \
     --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
 ```
-- Downloads: futures MBO (`ES.FUT`), options definitions, 0DTE options MBO, 0DTE options statistics
-- Raw output: `lake/raw/source=databento/product_type=future_mbo/`, `lake/raw/source=databento/product_type=future_option_mbo/`, `lake/raw/source=databento/dataset=definition/`
-- Job tracker: `logs/futures_jobs.json`
-- Futures options 0DTE downloads use `raw_symbol` contracts (not parent roots) to avoid full-chain pulls.
+Output: `lake/raw/source=databento/product_type={future_mbo,future_option_mbo}/`
+Job tracker: `logs/futures_jobs.json`
 
-**Equities + Equity Options (XNAS.ITCH + OPRA.PILLAR):**
+**Equities + Equity Options:**
 ```bash
 cd backend
 nohup uv run python scripts/batch_download_equities.py daemon \
-    --start 2026-01-06 --end 2026-01-06 \
+    --start YYYY-MM-DD --end YYYY-MM-DD \
     --symbols SPY,QQQ \
     --equity-schemas mbo \
-    --options-schemas definition,cmbp-1,statistics \  # Note: cmbp-1 is Databento API schema name
+    --options-schemas definition,cmbp-1,statistics \
     --poll-interval 60 \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
-- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options cmbp_1 data via Databento CMBP-1 schema (filtered to ~190 contracts per day), 0DTE options statistics
-- Raw output: `lake/raw/source=databento/product_type=equity_mbo/`, `lake/raw/source=databento/product_type=equity_option_cmbp_1/`, `lake/raw/source=databento/dataset=definition/venue=opra/`
-- Job tracker: `logs/equity_options_jobs.json`
-- Note: Uses `raw_symbol` from definition files to request only 0DTE contracts, not the entire options universe
+Output: `lake/raw/source=databento/product_type={equity_mbo,equity_option_cmbp_1}/`
+Job tracker: `logs/equity_options_jobs.json`
 
-**Monitor daemon progress:**
+**Monitor/Resume:**
 ```bash
-tail -f logs/futures.log
-tail -f logs/equities.log
-cat logs/futures_jobs.json | jq '.jobs | to_entries | map({key: .key, state: .value.state}) | group_by(.state) | map({state: .[0].state, count: length})'
+tail -f logs/{futures,equities}.log
+uv run python scripts/batch_download_*.py poll --log-file logs/*.log
 ```
 
-**Poll/download only (if daemon stopped):**
+### Contract Selection (prerequisite)
 ```bash
 cd backend
-uv run python scripts/batch_download_futures.py poll --log-file logs/futures.log
-uv run python scripts/batch_download_equities.py poll --log-file logs/equities.log
+uv run python -m src.data_eng.mbo_contract_day_selector --dates YYYY-MM-DD --output-path lake/selection/mbo_contract_day_selection.parquet
 ```
+Maps session_date → front-month contract. Required before silver/gold with parent symbols.
 
+---
 
+## 2. DATA PIPELINE
 
-### MBO Contract Selection (prerequisite for silver/gold with symbol=ES)
-```bash
-cd backend
-uv run python -m src.data_eng.mbo_contract_day_selector --dates 2026-01-06 --output-path lake/selection/mbo_contract_day_selection.parquet
-```
-- Creates: `lake/selection/mbo_contract_day_selection.parquet` (maps session_date -> front-month contract)
-- Required before running silver/gold with --symbol ES
+### Entry Point
+`backend/src/data_eng/runner.py` - Orchestrates all stages
 
-### Data Pipeline
-```bash
-cd backend
+### Layer Flow
+Bronze (normalize) → Silver (book reconstruction) → Gold (feature engineering)
 
-# Bronze (raw -> normalized)
-uv run python -m src.data_eng.runner --product-type future_mbo --layer bronze --symbol ES --dt 2026-01-06 --workers 4
-uv run python -m src.data_eng.runner --product-type future_option_mbo --layer bronze --symbol ES --dt 2026-01-06 --workers 4
+### Stage Registry
+`backend/src/data_eng/pipeline.py` - Maps (product_type, layer) → stage classes
 
-# Silver (book reconstruction)
-uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol ESH6 --dt 2026-01-06 --workers 4
-uv run python -m src.data_eng.runner --product-type future_option_mbo --layer silver --symbol ES --dt 2026-01-06 --workers 4
+### Dataset Definitions
+`backend/src/data_eng/config/datasets.yaml` - Schema registry for all tables
 
-# Gold (physics fields)
-uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06 --workers 4
-uv run python -m src.data_eng.runner --product-type future_option_mbo --layer gold --symbol ES --dt 2026-01-06 --workers 4
+### Avro Contracts
+`backend/src/data_eng/contracts/` - Type definitions for all data products
 
-# Add --overwrite for silver/gold rebuilds
-```
-
-### Forecast Calibration (Stage F)
+### Commands
 ```bash
 cd backend
 
-# Fit beta/gamma from last 20 trading days (09:30–12:30 ET)
+# Bronze: parent symbol (ES)
+uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer bronze --symbol ES --dt YYYY-MM-DD --workers 4
+
+# Silver: full contract (ESH6)
+uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer silver --symbol ESH6 --dt YYYY-MM-DD --workers 4
+
+# Gold: full contract (ESH6)
+uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer gold --symbol ESH6 --dt YYYY-MM-DD --workers 4
+
+# Add --overwrite to rebuild
+```
+
+Output: `lake/{bronze,silver,gold}/product_type={PRODUCT_TYPE}/symbol={SYMBOL}/table={TABLE}/dt={DATE}/`
+
+### Stage Implementations
+- Bronze stages: `backend/src/data_eng/stages/bronze/{product_type}/`
+- Silver stages: `backend/src/data_eng/stages/silver/{product_type}/` (book engines)
+- Gold stages: `backend/src/data_eng/stages/gold/{product_type}/` (feature engineering)
+
+---
+
+## 3. ML
+
+### Calibration (Stage F)
+Requires: Last 20 trading days (09:30–12:30 ET) in gold layer
+
+**Fit parameters:**
+```bash
+cd backend
 uv run python -m scripts.fit_lookahead_beta_gamma
+```
+Output: `backend/data/physics/physics_beta_gamma.json`
 
-# Evaluate held-out days (confidence monotonicity required)
+**Evaluate:**
+```bash
+cd backend
 uv run python -m scripts.eval_lookahead_beta_gamma
 ```
-- Output params: `backend/data/physics/physics_beta_gamma.json`
-- Output eval: `backend/data/physics/physics_beta_gamma_eval.json`
+Output: `backend/data/physics/physics_beta_gamma_eval.json`
 
-### Unified Stream Server
+Requirement: Confidence monotonicity across horizons
+
+---
+
+## 4. SERVING
+
+### Backend Server
+Entry: `backend/src/serving/velocity_main.py`
+Stream service: `backend/src/serving/velocity_streaming.py`
+Endpoints: `backend/src/serving/routers/`
+
+**Start:**
 ```bash
 cd backend
-uv run python -m src.serving.velocity_main
+nohup uv run python -m src.serving.velocity_main > /tmp/backend.log 2>&1 &
+sleep 3 && lsof -iTCP:8001 -sTCP:LISTEN
 ```
-- Serves: ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=2026-01-06
-- Params: `speed` (playback multiplier), `skip_minutes` (skip N minutes at start)
-- Requires: `backend/data/physics/physics_beta_gamma.json` (fit Stage F first)
 
-### Frontend
+**WebSocket:**
+`ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=YYYY-MM-DD`
+Query params: `speed` (playback multiplier), `skip_minutes` (skip N minutes at start)
+
+**Protocol:**
+Per 1s window: batch_start → surface_header + Arrow IPC (snap, velocity, options, forecast)
+
+Requires: `backend/data/physics/physics_beta_gamma.json` (fit Stage F first)
+
+---
+
+## 5. UI
+
+### Frontend Location
+`frontend2/`
+
+### Main Files
+- Entry: `src/main.ts`
+- Grid renderers: `src/{velocity,options,forecast,spot}-*.ts`
+- WebSocket client: `src/ws-client.ts`
+- Layout: `index.html`
+
+### Commands
 ```bash
 cd frontend2
 npm install
-npm run dev       # Development (hot reload)
-npm run build     # Production build
+npm run dev        # Dev server: http://localhost:5174
+npm run build      # Production build
+npm run preview    # Preview production
 ```
-- URL: http://localhost:5174
-- **Restart Stream button**: Top-left overlay, reconnects WebSocket and clears grid state
-- **Zoom controls**: 
-  - Regular scroll = vertical (price) zoom
-  - Cmd/Ctrl+scroll = horizontal (time) zoom
-  - Trackpad horizontal swipe also works for horizontal zoom
-  - Independent V/H zoom up to 8x
-  - At high zoom (e.g., 6x+) individual $0.25 tick × 1 second cells are clearly visible
-- **Pan controls**: Click and drag to pan the view vertically
-- **Price axis**: Shows $5 increments at normal zoom, $1 at medium zoom, $0.25 at high zoom (V5x+)
 
-### Process Checks
+**Check Status:**
+```bash
+lsof -iTCP:5174 -sTCP:LISTEN
+```
+
+### Features
+- Restart Stream button (top-left): reconnect WebSocket, clear state
+- Zoom: vertical (scroll), horizontal (Cmd+scroll or trackpad swipe), independent up to 8x
+- Pan: click-drag vertically
+- Price axis: auto-scales with zoom level
+
+---
+
+## Feature Documentation
+
+**Canonical feature definitions:**
+- `futures_data.json` - Futures/futures options features
+- `equities_data.json` - Equities/equity options features
+
+These are LIVING DOCUMENTS. Reference these for current feature semantics, not this README.
+
+---
+
+## Process Management
+
+**Check running:**
 ```bash
 lsof -iTCP:8001 -sTCP:LISTEN   # Backend
-lsof -iTCP:5174 -sTCP:LISTEN   # Frontend dev server
+lsof -iTCP:5174 -sTCP:LISTEN   # Frontend
 ```
 
-### Kill Processes
+**Kill:**
 ```bash
-# Kill by port
 kill $(lsof -t -iTCP:8001)
 kill $(lsof -t -iTCP:5174)
 ```
 
-## Pipeline Architecture
-
-### future_mbo
-- BronzeIngestFutureMbo -> `bronze.future_mbo.mbo`
-- SilverComputeBookStates1s -> `silver.future_mbo.book_snapshot_1s`, `silver.future_mbo.depth_and_flow_1s`
-- GoldComputePhysicsSurface1s -> `gold.future_mbo.physics_surface_1s`
-
-### future_option_mbo
-- BronzeIngestFutureOptionMbo -> `bronze.future_option_mbo.mbo`
-- SilverComputeOptionBookStates1s -> `silver.future_option_mbo.book_snapshot_1s`, `silver.future_option_mbo.depth_and_flow_1s`
-- GoldComputeOptionPhysicsSurface1s -> `gold.future_option_mbo.physics_surface_1s`
-
-### equity_mbo
-- BronzeIngestEquityMbo -> `bronze.equity_mbo.mbo`
-- SilverComputeEquityBookStates1s -> `silver.equity_mbo.book_snapshot_1s`, `silver.equity_mbo.depth_and_flow_1s`
-- GoldComputeEquityPhysicsSurface1s -> `gold.equity_mbo.physics_surface_1s`
-
-### equity_option_cmbp_1
-- BronzeIngestEquityOptionCmbp1 -> `bronze.equity_option_cmbp_1.cmbp_1` (from Databento CMBP-1 schema)
-- SilverComputeEquityOptionBookStates1s -> `silver.equity_option_cmbp_1.book_snapshot_1s`, `silver.equity_option_cmbp_1.depth_and_flow_1s`
-- GoldComputeEquityOptionPhysicsSurface1s -> `gold.equity_option_cmbp_1.physics_surface_1s`
-
-## Data Products (Contracts)
-- backend/src/data_eng/contracts/
-
-## Streaming Protocol
-Per 1-second window, server sends:
-1. JSON `{"type": "batch_start", "window_end_ts_ns": "...", "surfaces": ["snap", "velocity", "options", "forecast"]}`
-2. JSON `{"type": "surface_header", "surface": "snap"}` + Arrow IPC (futures spot reference)
-3. JSON `{"type": "surface_header", "surface": "velocity"}` + Arrow IPC (futures physics fields)
-4. JSON `{"type": "surface_header", "surface": "options"}` + Arrow IPC (aggregated options velocity)
-5. JSON `{"type": "surface_header", "surface": "forecast"}` + Arrow IPC (30s prediction + diagnostics)
-
-**Options aggregation:** C+P+A+B summed per (window_end_ts_ns, spot_ref_price_int, rel_ticks) — NET velocity per strike level
-
-**Forecast fields:** horizon_s, predicted_tick_delta, confidence, RunScore_up, RunScore_down, D_up, D_down
-
-## Visualization (frontend2)
-
-### Unified Pressure vs Obstacles View
-Composite shader using velocity + pressure_grad + Omega (activity-gated by velocity/pressure):
-- **Green** = Upward pressure (bid support building)
-- **Red** = Downward pressure (ask resistance building)
-- **Dark maroon** = Eroding liquidity (vacuum zones)
-- **Ice-white highlights** = Strong walls (high omega + building velocity)
-- **Side gating**: Aggregation uses bid rows at rel_ticks <= 0 and ask rows at rel_ticks > 0 to prevent cross-side smoothing bleed
-- Note: u_wave_energy and nu are ingested but not rendered
-
-### Forecast Line
-Projects from current spot into 30% right margin:
-- **Amber** = Upward prediction (positive delta)
-- **Teal** = Downward prediction (negative delta)
-- Direction cone at endpoint shows predicted direction
-- X = horizon_s (seconds forward), Y = predicted tick delta
-
-### Options Grid
-Thin horizontal bars (~$0.75 height) at $5 strike increments, **rendered behind futures** to avoid occluding tick-level detail.
-- Shows composite options pressure vs obstacles (velocity + pressure_grad + Omega, aggregated across C/P and A/B)
-- Green/red directional coloring matches futures semantics
-- Lower opacity (50% base) so futures pressure bleeds through at strike levels
-
-### Spot Line
-Turquoise line tracking price history through the spatiotemporal grid
-
-### Diagnostic HUD
-- RunScore ↑/↓: Average pressure in free path toward wall
-- Wall distances (D_up, D_down): Ticks to nearest obstacle (Omega > 3.0)
-- Confidence: Forecast confidence level
-
-## Key Files
-
-### Pipeline
-- `backend/src/data_eng/runner.py` - Pipeline runner entry point
-- `backend/src/data_eng/pipeline.py` - Stage registry
-- `backend/src/data_eng/config/datasets.yaml` - Dataset definitions
-- `backend/src/data_eng/stages/gold/future_mbo/compute_physics_surface_1s.py` - Futures gold stage
-- `backend/src/data_eng/stages/gold/future_option_mbo/compute_physics_surface_1s.py` - Options gold stage
-- `backend/src/data_eng/stages/silver/future_mbo/book_engine.py` - Futures book reconstruction
-- `backend/src/data_eng/stages/silver/future_option_mbo/options_book_engine.py` - Options book reconstruction
-
-### Streaming
-- `backend/src/serving/velocity_main.py` - FastAPI server entry point
-- `backend/src/serving/velocity_streaming.py` - Stream service + ForecastEngine
-- `backend/src/serving/routers/velocity.py` - WebSocket endpoint
-
-### Frontend
-- `frontend2/src/main.ts` - Main entry point, callbacks, render loop
-- `frontend2/src/velocity-grid.ts` - VelocityGrid class, composite shader
-- `frontend2/src/options-grid.ts` - OptionsGrid class
-- `frontend2/src/forecast-overlay.ts` - ForecastOverlay class
-- `frontend2/src/ws-client.ts` - WebSocket client, Arrow parsing
-- `frontend2/src/spot-line.ts` - SpotLine class
-- `frontend2/index.html` - UI layout, HUD, legend
-
-### Data
-- `backend/scripts/batch_download_futures.py` - Raw data download (futures + options)
-- `backend/scripts/batch_download_equities.py` - Raw data download (equities + options)
-- `backend/src/data_eng/mbo_contract_day_selector.py` - Contract selection
-- `backend/lake/selection/mbo_contract_day_selection.parquet` - Contract selection map
-
-### Configuration
-- `futures_data.json` - Feature/transformation documentation (LIVING DOCUMENT)
-- `backend/src/data_eng/config/datasets.yaml` - Dataset registry
-
-## Debugging
-
-### Backend Not Starting
+**Debug backend:**
 ```bash
-# Check logs
 tail -20 /tmp/backend.log
-
-# Check if port in use
-lsof -iTCP:8001
-
-# Kill and restart
-kill $(lsof -t -iTCP:8001)
-cd backend && uv run python -m src.serving.velocity_main
 ```
 
-### Pipeline Fails
-```bash
-# Check specific stage
-cd backend
-uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol ESH6 --dt 2026-01-06 --workers 1 --overwrite
+---
 
-# Common issues:
-# - MBO selection not generated: run mbo_contract_day_selector first
-# - Silver data stale: add --overwrite to rebuild
-# - Missing columns: check avro contract matches code
-```
+## Quick Start
 
-### Frontend Issues
-```bash
-# Rebuild
-cd frontend2
-npm run build
-
-# Check console in browser for errors
-# Common: WebSocket connection failed -> check backend is running
-```
-
-### Data Issues
-```bash
-# Verify parquet exists
-ls -la backend/lake/gold/product_type=future_mbo/symbol=ESH6/table=physics_surface_1s/dt=2026-01-06/
-
-# Read parquet columns
-cd backend
-uv run python -c "import pandas as pd; df = pd.read_parquet('lake/gold/product_type=future_mbo/symbol=ESH6/table=physics_surface_1s/dt=2026-01-06/'); print(df.columns.tolist())"
-```
-
-## Physics Fields Reference (Gold Layer)
-
-### Temporal (per cell: rel_ticks, side)
-- `u_ema_{2,8,32,128}`: Multi-scale EMAs of liquidity_velocity
-- `u_band_{fast,mid,slow}`: Differences between adjacent EMAs
-- `u_wave_energy`: sqrt(sum of squared bands)
-- `du_dt`, `d2u_dt2`: Temporal derivatives of u_ema_2
-
-### Spatial (per frame: window_end_ts_ns, side)
-- `u_near`: Gaussian smoothed u_ema_8 (sigma=6, win=16 ticks)
-- `u_far`: Gaussian smoothed u_ema_32 (sigma=24, win=64 ticks)
-- `u_prom`: u_near - u_far (prominence)
-- `du_dx`, `d2u_dx2`: Spatial derivatives of u_near
-
-### Obstacles
-- `rho`: log(1 + depth_end) - density
-- `phi_rest`: depth_rest / (depth_end + 1) - persistence
-- `u_p`: phi_rest * u_ema_8 - persistence-weighted mid velocity
-- `u_p_slow`: phi_rest * u_ema_32 - persistence-weighted slow velocity
-- `Omega`: rho * (0.5 + 0.5*phi_rest) * (1 + max(0, u_p_slow)) - obstacle strength
-- `Omega_near`, `Omega_far`, `Omega_prom`: Spatially smoothed obstacle fields
-- `nu`: 1 + Omega_near + 2*max(0, Omega_prom) - effective viscosity
-- `kappa`: 1/nu - permeability
-
-### Pressure
-- `pressure_grad`: +u_p (Bid), -u_p (Ask) - directional pressure force
+1. Download data (section 1)
+2. Generate contract selection (section 1)
+3. Run pipeline: bronze → silver → gold (section 2)
+4. Fit Stage F (section 3)
+5. Start backend (section 4)
+6. Start frontend (section 5)
+7. Open: http://localhost:5174
