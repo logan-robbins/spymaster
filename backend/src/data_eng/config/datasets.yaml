@@ -67,7 +67,7 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/bronze/equity_mbo/mbo.avsc
 
-  # Bronze - Equity Option MBO (CMBP-1)
+  # Bronze - Equity Option cmbp_1 (Databento CMBP-1 schema)
   bronze.equity_option_cmbp_1.cmbp_1:
     path: bronze/source=databento/product_type=equity_option_cmbp_1/symbol={symbol}/table=cmbp_1
     format: parquet

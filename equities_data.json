@@ -467,7 +467,7 @@
                             "bronze.equity_option_cmbp_1.cmbp_1.bid_px_00"
                         ],
                         "transformation_steps": [
-                            "Use CMBP-1 bid price per instrument at window_end_ts"
+                            "Use cmbp_1 bid price per instrument at window_end_ts"
                         ]
                     },
                     "ask_price_int": {
@@ -475,7 +475,7 @@
                             "bronze.equity_option_cmbp_1.cmbp_1.ask_px_00"
                         ],
                         "transformation_steps": [
-                            "Use CMBP-1 ask price per instrument at window_end_ts"
+                            "Use cmbp_1 ask price per instrument at window_end_ts"
                         ]
                     },
                     "mid_price_int": {
@@ -513,7 +513,7 @@
                     }
                 },
                 "depth_and_flow_1s": {
-                    "_description": "Equity option depth/flow from CMBP-1, bucketed to $1 strikes.",
+                    "_description": "Equity option depth/flow from cmbp_1, bucketed to $1 strikes.",
                     "_shape": "Long Format (Panel Data)",
                     "_grain": "1 Second x Strike Bucket x Right x Side",
                     "_primary_key": [
@@ -550,7 +550,7 @@
                     },
                     "depth_qty_start": {
                         "built_from": [
-                            "CMBP-1 L1 state"
+                            "cmbp_1 L1 state"
                         ],
                         "transformation_steps": [
                             "calculated as: depth_qty_end - add_qty + pull_qty_total + fill_qty"
@@ -567,7 +567,7 @@
                     },
                     "add_qty": {
                         "built_from": [
-                            "CMBP-1 L1 size deltas"
+                            "cmbp_1 L1 size deltas"
                         ],
                         "transformation_steps": [
                             "Sum of size increases at strike bucket in window"
@@ -575,7 +575,7 @@
                     },
                     "pull_qty_total": {
                         "built_from": [
-                            "CMBP-1 L1 size deltas"
+                            "cmbp_1 L1 size deltas"
                         ],
                         "transformation_steps": [
                             "Sum of size decreases or price moves at strike bucket in window"
@@ -583,18 +583,18 @@
                     },
                     "pull_qty_rest": {
                         "built_from": [
-                            "CMBP-1 L1 updates"
+                            "cmbp_1 L1 updates"
                         ],
                         "transformation_steps": [
-                            "Set to 0.0 (resting age not observable in CMBP-1)"
+                            "Set to 0.0 (resting age not observable in cmbp_1)"
                         ]
                     },
                     "fill_qty": {
                         "built_from": [
-                            "CMBP-1 L1 updates"
+                            "cmbp_1 L1 updates"
                         ],
                         "transformation_steps": [
-                            "Set to 0.0 (fills not observable in CMBP-1)"
+                            "Set to 0.0 (fills not observable in cmbp_1)"
                         ]
                     }
                 }

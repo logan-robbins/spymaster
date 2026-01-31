@@ -14,7 +14,7 @@ from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, read_partition, write_partition
 from ....utils import session_window_ns
 
-# CMBP-1 schema uses rtype 177 (CBBO - Consolidated BBO)
+# Databento CMBP-1 schema uses rtype 177 (CBBO - Consolidated BBO)
 RTYPE_CMBP = 177
 NULL_PRICE = np.iinfo("int64").max
 
@@ -80,7 +80,7 @@ class BronzeIngestEquityOptionCmbp1(Stage):
                 all_dfs.append(df)
 
             if not all_dfs:
-                raise ValueError(f"No option CMBP-1 records found for {dt}")
+                raise ValueError(f"No option cmbp_1 records found for {dt}")
 
             df_all = pd.concat(all_dfs, ignore_index=True, copy=False)
             df_all["ts_event"] = df_all["ts_event"].astype("int64")
@@ -93,7 +93,7 @@ class BronzeIngestEquityOptionCmbp1(Stage):
                 (df_all["ts_event"] >= session_start_ns) & (df_all["ts_event"] < session_end_ns)
             ].copy()
             if df_all.empty:
-                raise ValueError(f"No option CMBP-1 records in session window for {dt}")
+                raise ValueError(f"No option cmbp_1 records in session window for {dt}")
 
             for col in ("price", "bid_px_00", "ask_px_00"):
                 if col in df_all.columns:
@@ -119,7 +119,7 @@ class BronzeIngestEquityOptionCmbp1(Stage):
             }
             missing_cols = required_cols.difference(df_all.columns)
             if missing_cols:
-                raise ValueError(f"Missing required CMBP-1 columns: {sorted(missing_cols)}")
+                raise ValueError(f"Missing required cmbp_1 columns: {sorted(missing_cols)}")
 
             df_all["publisher_id"] = df_all["publisher_id"].astype("int64")
             df_all["instrument_id"] = df_all["instrument_id"].astype("int64")
@@ -236,5 +236,5 @@ def _apply_definition_meta(df: pd.DataFrame, meta_map: Dict[int, Dict[str, objec
     df = df.merge(meta_df, on="instrument_id", how="left")
     missing = df["underlying"].isna() | df["right"].isna() | df["strike"].isna() | df["expiration"].isna()
     if missing.any():
-        raise ValueError("Missing instrument definitions for option CMBP-1 rows")
+        raise ValueError("Missing instrument definitions for option cmbp_1 rows")
     return df

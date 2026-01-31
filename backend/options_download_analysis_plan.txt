@@ -1,6 +1,0 @@
-Options Download Analysis Plan (Living)
-
-1) Inspect batch_download_* scripts for dataset selection logic - DONE
-2) Inventory raw data 2026-01-05..2026-01-28 and flag size outliers - DONE
-3) Compare futures vs equity options raw datasets for 0DTE patterns - DONE
-4) Summarize findings and update README with current state - DONE

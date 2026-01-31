@@ -88,11 +88,11 @@ nohup uv run python scripts/batch_download_equities.py daemon \
     --start 2026-01-06 --end 2026-01-06 \
     --symbols SPY,QQQ \
     --equity-schemas mbo \
-    --options-schemas definition,cmbp-1,statistics \
+    --options-schemas definition,cmbp-1,statistics \  # Note: cmbp-1 is Databento API schema name
     --poll-interval 60 \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
-- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options CMBP-1 (filtered to ~190 contracts per day), 0DTE options statistics
+- Downloads: equity MBO (`XNAS.ITCH`), options definitions (`OPRA.PILLAR`), 0DTE options cmbp_1 data via Databento CMBP-1 schema (filtered to ~190 contracts per day), 0DTE options statistics
 - Raw output: `lake/raw/source=databento/product_type=equity_mbo/`, `lake/raw/source=databento/product_type=equity_option_cmbp_1/`, `lake/raw/source=databento/dataset=definition/venue=opra/`
 - Job tracker: `logs/equity_options_jobs.json`
 - Note: Uses `raw_symbol` from definition files to request only 0DTE contracts, not the entire options universe
@@ -211,7 +211,7 @@ kill $(lsof -t -iTCP:5174)
 - GoldComputeEquityPhysicsSurface1s -> `gold.equity_mbo.physics_surface_1s`
 
 ### equity_option_cmbp_1
-- BronzeIngestEquityOptionCmbp1 -> `bronze.equity_option_cmbp_1.cmbp_1` (CMBP-1)
+- BronzeIngestEquityOptionCmbp1 -> `bronze.equity_option_cmbp_1.cmbp_1` (from Databento CMBP-1 schema)
 - SilverComputeEquityOptionBookStates1s -> `silver.equity_option_cmbp_1.book_snapshot_1s`, `silver.equity_option_cmbp_1.depth_and_flow_1s`
 - GoldComputeEquityOptionPhysicsSurface1s -> `gold.equity_option_cmbp_1.physics_surface_1s`
 

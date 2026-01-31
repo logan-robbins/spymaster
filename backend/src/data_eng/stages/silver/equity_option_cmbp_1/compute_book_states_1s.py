@@ -140,7 +140,7 @@ def _build_defs(df_cmbp: pd.DataFrame) -> pd.DataFrame:
     required = {"instrument_id", "strike", "right"}
     missing = required.difference(df_cmbp.columns)
     if missing:
-        raise ValueError(f"Missing option definition columns in CMBP-1: {sorted(missing)}")
+        raise ValueError(f"Missing option definition columns in cmbp_1: {sorted(missing)}")
 
     df_defs = df_cmbp[["instrument_id", "strike", "right"]].drop_duplicates().copy()
     df_defs = df_defs.loc[df_defs["right"].isin(RIGHTS)].copy()

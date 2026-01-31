@@ -1,7 +1,0 @@
-Stage F Calibration Plan (Living)
-
-1) Shared forecast math module - DONE
-2) Beta/Gamma fit script - DONE
-3) Persist/load params in server - DONE
-4) Held-out evaluation script - DONE
-5) Tests + README update - DONE

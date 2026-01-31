@@ -1,6 +1,0 @@
-Options Minimal Redownload Plan (Living)
-
-1) Scan raw downloads for existing OPRA QQQ CMBP-1 2026-01-07 - DONE
-2) Submit filtered 0DTE OPRA QQQ CMBP-1 for 2026-01-07 - DONE
-3) Verify download completion + manifest presence - DONE
-4) Update README with current state - DONE

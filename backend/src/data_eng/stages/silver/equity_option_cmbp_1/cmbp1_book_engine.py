@@ -48,7 +48,7 @@ class Cmbp1BookEngine:
         required = {"ts_event", "instrument_id", "bid_px_00", "bid_sz_00", "ask_px_00", "ask_sz_00"}
         missing = required.difference(df.columns)
         if missing:
-            raise ValueError(f"Missing required CMBP-1 columns: {sorted(missing)}")
+            raise ValueError(f"Missing required cmbp_1 columns: {sorted(missing)}")
 
         for row in df.itertuples(index=False):
             ts = int(row.ts_event)

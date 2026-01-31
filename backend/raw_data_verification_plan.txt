@@ -1,7 +1,0 @@
-Raw Data Verification Plan (Living)
-
-1) Inventory raw dbn files across product types and dates - DONE
-2) Validate job tracker filters (stype_in/raw_symbol) by product - DONE
-3) Flag size/contract-count outliers vs median - DONE
-4) Summarize current raw data completeness/coverage - DONE
-5) Update README with current state - DONE

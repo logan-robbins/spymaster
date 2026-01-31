@@ -3,7 +3,7 @@ Batch Download Equity + Equity Options Data (0DTE only)
 
 Downloads from two datasets:
 - XNAS.ITCH: Underlying equity MBO data (SPY, QQQ, etc.)
-- OPRA.PILLAR: Equity options CMBP-1 data (0DTE filtered)
+- OPRA.PILLAR: Equity options data via Databento CMBP-1 schema (0DTE filtered)
 
 Usage:
     # Submit jobs for a date range

@@ -1,6 +1,0 @@
-Options Outlier Resubmit Plan (Living)
-
-1) Locate 2026-01-05/06 outlier raw job artifacts - DONE
-2) Remove existing outlier artifacts to force re-download - DONE
-3) Resubmit 0DTE futures options MBO for 2026-01-05/06 - DONE
-4) Update README with current state - DONE
