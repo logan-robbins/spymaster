@@ -2,18 +2,18 @@
   "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/gold/future_mbo/physics_surface_1s.avsc",
   "contract_sha256": "37b1d29855ef036661f16922d20511b9164102f4eb78d2f3acf04a8b3095f8a2",
   "dataset": "gold.future_mbo.physics_surface_1s",
-  "dt": "2026-01-06",
+  "dt": "2026-01-05",
   "hour": null,
   "inputs": [
     {
       "dataset": "silver.future_mbo.book_snapshot_1s",
-      "dt": "2026-01-06",
-      "manifest_sha256": "72e10ab8e1c47b7db53e7405a375ffc10358d3fc2aaa758bc058e87d947ebbcb"
+      "dt": "2026-01-05",
+      "manifest_sha256": "225a2565eb44a3c83ca1457ab885e158afcff9302a987d13518e0c5d26094b67"
     },
     {
       "dataset": "silver.future_mbo.depth_and_flow_1s",
-      "dt": "2026-01-06",
-      "manifest_sha256": "bfaa274d889fb5b7f53855d493fc06aa39d66ff1756645a25dd61d15087023b1"
+      "dt": "2026-01-05",
+      "manifest_sha256": "c2ff0fa73ce34de602e08b7c08d46f9d9504f008425ab6641a5852c1b196c2c5"
     }
   ],
   "row_count": 8662402,

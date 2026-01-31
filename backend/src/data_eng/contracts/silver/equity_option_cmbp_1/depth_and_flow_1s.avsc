@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "depth_and_flow_1s",
+  "namespace": "silver.equity_option_cmbp_1",
+  "fields": [
+    {"name": "window_start_ts_ns", "type": "long"},
+    {"name": "window_end_ts_ns", "type": "long"},
+    {"name": "strike_price_int", "type": "long"},
+    {"name": "strike_points", "type": "double"},
+    {"name": "right", "type": "string"},
+    {"name": "side", "type": "string"},
+    {"name": "spot_ref_price_int", "type": "long"},
+    {"name": "rel_ticks", "type": "int"},
+    {"name": "depth_qty_start", "type": "double"},
+    {"name": "depth_qty_end", "type": "double"},
+    {"name": "add_qty", "type": "double"},
+    {"name": "pull_qty_total", "type": "double"},
+    {"name": "pull_qty_rest", "type": "double"},
+    {"name": "fill_qty", "type": "double"},
+    {"name": "window_valid", "type": "boolean"}
+  ]
+}

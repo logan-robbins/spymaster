@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "book_snapshot_1s",
+  "namespace": "silver.equity_option_cmbp_1",
+  "fields": [
+    {"name": "window_start_ts_ns", "type": "long"},
+    {"name": "window_end_ts_ns", "type": "long"},
+    {"name": "instrument_id", "type": "long"},
+    {"name": "right", "type": "string"},
+    {"name": "strike_price_int", "type": "long"},
+    {"name": "bid_price_int", "type": "long"},
+    {"name": "ask_price_int", "type": "long"},
+    {"name": "mid_price", "type": "double"},
+    {"name": "mid_price_int", "type": "double"},
+    {"name": "spot_ref_price_int", "type": "long"},
+    {"name": "book_valid", "type": "boolean"}
+  ]
+}

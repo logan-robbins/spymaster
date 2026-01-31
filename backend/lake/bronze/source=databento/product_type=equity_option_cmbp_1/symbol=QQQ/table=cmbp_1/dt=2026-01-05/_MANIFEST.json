@@ -1,10 +1,10 @@
 {
-  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/equity_option_mbo/cmbp_1.avsc",
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/equity_option_cmbp_1/cmbp_1.avsc",
   "contract_sha256": "8b136709e05fbac4413d8ca1b0bea3eaedfa57ac56e849222b1662ee4a9343ca",
-  "dataset": "bronze.equity_option_mbo.cmbp_1",
+  "dataset": "bronze.equity_option_cmbp_1.cmbp_1",
   "dt": "2026-01-05",
   "hour": null,
   "inputs": [],
   "row_count": 29061811,
-  "stage": "bronze_ingest_equity_option_mbo"
+  "stage": "bronze_ingest_equity_option_cmbp_1"
 }

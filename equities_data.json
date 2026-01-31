@@ -354,7 +354,7 @@
             }
         }
     },
-    "equity_option_mbo": {
+    "equity_option_cmbp_1": {
         "bronze": {
             "BronzeIngestEquityOptionMbo": {
                 "ts_event": {
@@ -448,7 +448,7 @@
                 "book_snapshot_1s": {
                     "window_start_ts_ns": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.ts_event"
+                            "bronze.equity_option_cmbp_1.cmbp_1.ts_event"
                         ],
                         "transformation_steps": [
                             "Floor ts_event to 1s bucket (start of window)"
@@ -456,7 +456,7 @@
                     },
                     "window_end_ts_ns": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.ts_event"
+                            "bronze.equity_option_cmbp_1.cmbp_1.ts_event"
                         ],
                         "transformation_steps": [
                             "Ceil ts_event to 1s bucket (end of window)"
@@ -464,7 +464,7 @@
                     },
                     "bid_price_int": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.bid_px_00"
+                            "bronze.equity_option_cmbp_1.cmbp_1.bid_px_00"
                         ],
                         "transformation_steps": [
                             "Use CMBP-1 bid price per instrument at window_end_ts"
@@ -472,7 +472,7 @@
                     },
                     "ask_price_int": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.ask_px_00"
+                            "bronze.equity_option_cmbp_1.cmbp_1.ask_px_00"
                         ],
                         "transformation_steps": [
                             "Use CMBP-1 ask price per instrument at window_end_ts"
@@ -524,7 +524,7 @@
                     ],
                     "strike_price_int": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.strike"
+                            "bronze.equity_option_cmbp_1.cmbp_1.strike"
                         ],
                         "transformation_steps": [
                             "Bucket strikes every $1 and align to spot grid +/- $25"
@@ -558,8 +558,8 @@
                     },
                     "depth_qty_end": {
                         "built_from": [
-                            "bronze.equity_option_mbo.cmbp_1.bid_sz_00",
-                            "bronze.equity_option_mbo.cmbp_1.ask_sz_00"
+                            "bronze.equity_option_cmbp_1.cmbp_1.bid_sz_00",
+                            "bronze.equity_option_cmbp_1.cmbp_1.ask_sz_00"
                         ],
                         "transformation_steps": [
                             "End-of-window L1 size at strike bucket"
@@ -603,13 +603,13 @@
         "gold": {
             "GoldComputeEquityOptionPhysicsSurface1s": {
                 "_inputs": [
-                    "silver.equity_option_mbo.depth_and_flow_1s"
+                    "silver.equity_option_cmbp_1.depth_and_flow_1s"
                 ],
                 "physics_surface_1s": {
                     "add_intensity": {
                         "built_from": [
-                            "silver.equity_option_mbo.depth_and_flow_1s.add_qty",
-                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.add_qty",
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "add_qty / (depth_qty_start + 1.0)"
@@ -617,8 +617,8 @@
                     },
                     "fill_intensity": {
                         "built_from": [
-                            "silver.equity_option_mbo.depth_and_flow_1s.fill_qty",
-                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.fill_qty",
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "fill_qty / (depth_qty_start + 1.0)"
@@ -626,8 +626,8 @@
                     },
                     "pull_intensity": {
                         "built_from": [
-                            "silver.equity_option_mbo.depth_and_flow_1s.pull_qty_total",
-                            "silver.equity_option_mbo.depth_and_flow_1s.depth_qty_start"
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.pull_qty_total",
+                            "silver.equity_option_cmbp_1.depth_and_flow_1s.depth_qty_start"
                         ],
                         "transformation_steps": [
                             "pull_qty_total / (depth_qty_start + 1.0)"

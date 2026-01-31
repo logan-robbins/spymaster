@@ -9,7 +9,7 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
     """Return the ordered list of stages for the given product_type and layer.
 
     Args:
-        product_type: One of 'future_mbo', 'future_option_mbo', 'equity_mbo', 'equity_option_mbo'
+        product_type: One of 'future_mbo', 'future_option_mbo', 'equity_mbo', 'equity_option_cmbp_1'
         layer: One of 'bronze', 'silver', 'gold', 'all'
 
     Returns:
@@ -55,20 +55,20 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
                 GoldComputePhysicsSurface1s(),
             ]
 
-    elif product_type == "equity_option_mbo":
-        from .stages.bronze.equity_option_mbo.ingest import BronzeIngestEquityOptionMbo
-        from .stages.silver.equity_option_mbo.compute_book_states_1s import SilverComputeEquityOptionBookStates1s
-        from .stages.gold.equity_option_mbo.compute_physics_surface_1s import GoldComputeEquityOptionPhysicsSurface1s
+    elif product_type == "equity_option_cmbp_1":
+        from .stages.bronze.equity_option_cmbp_1.ingest import BronzeIngestEquityOptionCmbp1
+        from .stages.silver.equity_option_cmbp_1.compute_book_states_1s import SilverComputeEquityOptionBookStates1s
+        from .stages.gold.equity_option_cmbp_1.compute_physics_surface_1s import GoldComputeEquityOptionPhysicsSurface1s
 
         if layer == "bronze":
-            return [BronzeIngestEquityOptionMbo()]
+            return [BronzeIngestEquityOptionCmbp1()]
         elif layer == "silver":
             return [SilverComputeEquityOptionBookStates1s()]
         elif layer == "gold":
             return [GoldComputeEquityOptionPhysicsSurface1s()]
         elif layer == "all":
             return [
-                BronzeIngestEquityOptionMbo(),
+                BronzeIngestEquityOptionCmbp1(),
                 SilverComputeEquityOptionBookStates1s(),
                 GoldComputeEquityOptionPhysicsSurface1s(),
             ]
@@ -96,5 +96,5 @@ def build_pipeline(product_type: str, layer: str = "all") -> List[Stage]:
 
     raise ValueError(
         f"Unknown product_type: {product_type}. "
-        f"Must be one of: future_mbo, future_option_mbo, equity_mbo, equity_option_mbo"
+        f"Must be one of: future_mbo, future_option_mbo, equity_mbo, equity_option_cmbp_1"
     )

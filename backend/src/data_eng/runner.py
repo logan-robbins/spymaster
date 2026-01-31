@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import load_config
 from .io import partition_ref
 from .pipeline import build_pipeline
-from .retrieval.mbo_contract_day_selector import discover_mbo_contracts, load_selection
+from .mbo_contract_day_selector import discover_mbo_contracts, load_selection
 from .utils import expand_date_range
 
 
@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--product-type",
         required=True,
-        choices=["future_mbo", "future_option_mbo", "equity_mbo", "equity_option_mbo"],
+        choices=["future_mbo", "future_option_mbo", "equity_mbo", "equity_option_cmbp_1"],
         help="Product type",
     )
     p.add_argument(

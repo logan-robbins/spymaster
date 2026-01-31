@@ -25,11 +25,10 @@ MBO_COLUMNS = [
 def first_hour_window_ns(session_date: str) -> Tuple[int, int]:
     """Return (start_ns, end_ns) for the session output window.
     
-    Currently set to first 10 minutes (09:30-09:40 ET) for fast iteration.
-    Production: change end to 10:30:00 for full first hour.
+    Stage F calibration requires the first 3 hours of RTH (09:30-12:30 ET).
     """
     start = pd.Timestamp(f"{session_date} 09:30:00", tz="US/Eastern")
-    end = pd.Timestamp(f"{session_date} 09:40:00", tz="US/Eastern")  # 10 min for dev
+    end = pd.Timestamp(f"{session_date} 12:30:00", tz="US/Eastern")
     return int(start.tz_convert("UTC").value), int(end.tz_convert("UTC").value)
 
 

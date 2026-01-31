@@ -1,0 +1,6 @@
+Raw Data Strict 0DTE Plan (Living)
+
+1) Scan job trackers for non-raw_symbol options jobs (2026-01-05..01-28) - DONE
+2) Validate options file size stability vs median - DONE
+3) Summarize whether any large non-0DTE files exist - DONE
+4) Update README with current state - DONE

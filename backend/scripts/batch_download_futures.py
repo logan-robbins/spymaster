@@ -3,7 +3,7 @@ Batch Download Futures MBO + Futures Options MBO Data (0DTE only)
 
 Downloads from GLBX.MDP3 dataset:
 - Futures MBO: ES, NQ underlying (using ES.FUT, NQ.FUT parent symbols)
-- Futures Options MBO: 0DTE filtered using date-specific parent logic
+- Futures Options MBO: 0DTE filtered by raw_symbol from definitions
 - Instrument Definitions: For 0DTE filtering
 - Statistics: Optional
 
@@ -177,8 +177,8 @@ def definition_path(date_str: str) -> Path:
     return target_path_options("definition", "", date_compact)
 
 
-def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
-    """Load 0DTE option assets from definition file."""
+def load_0dte_contracts(symbol: str, date_str: str) -> tuple[list[str], list[str]]:
+    """Load 0DTE option raw_symbols (contracts) and asset roots from definitions."""
     def_path = definition_path(date_str)
     if not def_path.exists():
         raise FileNotFoundError(f"Definition file missing: {def_path}")
@@ -202,9 +202,10 @@ def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
         raise ValueError(f"No {symbol} 0DTE definitions for {date_str}")
 
     assets = sorted({str(a).strip() for a in df["asset"].dropna().unique()})
-    if not assets:
-        raise ValueError(f"No assets for {symbol} on {date_str}")
-    return assets
+    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique()})
+    if not raw_symbols:
+        raise ValueError(f"No raw_symbols for {symbol} on {date_str}")
+    return raw_symbols, assets
 
 
 def submit_job(
@@ -401,18 +402,17 @@ def cmd_submit(args: argparse.Namespace) -> None:
             def_info = tracker["jobs"].get(def_key, {})
             if def_info.get("state") == "downloaded":
                 try:
-                    assets = load_0dte_assets(symbol, date_str)
+                    raw_symbols, assets = load_0dte_contracts(symbol, date_str)
                     if symbol == "ES":
                         validate_assets(day, assets)
-                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(assets)} assets")
-                    parents_with_opt = [f"{a}.OPT" for a in assets]
+                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(raw_symbols)} contracts")
 
                     for schema in options_schemas:
                         if schema == "definition":
                             continue
                         submit_job(
                             client, tracker, "GLBX.MDP3", schema, symbol, date_str,
-                            parents_with_opt, "parent", log_path, product_type="futures_options"
+                            raw_symbols, "raw_symbol", log_path, product_type="futures_options"
                         )
                         time.sleep(args.pause_seconds)
                 except Exception as e:
@@ -499,11 +499,9 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                     continue
 
                 try:
-                    assets = load_0dte_assets(symbol, date_str)
+                    raw_symbols, assets = load_0dte_contracts(symbol, date_str)
                     if symbol == "ES":
                         validate_assets(day, assets)
-                    parents_with_opt = [f"{a}.OPT" for a in assets]
-
                     for schema in options_schemas:
                         if schema == "definition":
                             continue
@@ -511,7 +509,7 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                         if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
                             submit_job(
                                 client, tracker, "GLBX.MDP3", schema, symbol, date_str,
-                                parents_with_opt, "parent", log_path, product_type="futures_options"
+                                raw_symbols, "raw_symbol", log_path, product_type="futures_options"
                             )
                             time.sleep(args.pause_seconds)
                 except Exception as e:

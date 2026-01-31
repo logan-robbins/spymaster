@@ -1,16 +1,13 @@
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[3]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
-import pytest
 from src.serving.velocity_streaming import ForecastEngine, VELOCITY_COLUMNS
 
 def test_forecast_engine_runs():
     # Create dummy velocity data
-    # Needs columns: VELOCITY_COLUMNS
-    # "window_end_ts_ns", "spot_ref_price_int", "rel_ticks", "side", 
-    # "liquidity_velocity", "rho", "nu", "kappa", "pressure_grad", "u_wave_energy", "Omega"
+    # Needs columns: VELOCITY_COLUMNS + u_near + u_p_slow
     
     # 2 windows, range of ticks
     ticks = range(-10, 11)
@@ -30,7 +27,9 @@ def test_forecast_engine_runs():
                 "kappa": 1.0,
                 "pressure_grad": 0.05 if t > 0 else -0.05,
                 "u_wave_energy": 0.01,
-                "Omega": 4.0 if abs(t) == 10 else 1.0 # Wall at edges
+                "Omega": 4.0 if abs(t) == 10 else 1.0,
+                "u_near": -0.2 if abs(t) < 5 else 0.1,
+                "u_p_slow": 0.15 if abs(t) == 10 else 0.0,
             })
             
     df = pd.DataFrame(rows)
@@ -38,30 +37,29 @@ def test_forecast_engine_runs():
         if col not in df.columns:
             df[col] = 0.0
             
-    engine = ForecastEngine(horizon_s=5)
-    result = engine.run_batch(df)
+    df_options = pd.DataFrame(
+        {
+            "window_end_ts_ns": [1000, 2000],
+            "rel_ticks": [0, 0],
+            "Omega_opt": [0.0, 0.0],
+        }
+    )
+
+    engine = ForecastEngine(beta=0.5, gamma=0.1, horizon_s=5)
+    result = engine.run_batch(df, df_options)
     
     assert not result.empty
-    assert len(result) == 2 # 2 windows
+    assert len(result) == 12  # 2 windows * (horizon 0..5)
     assert "predicted_tick_delta" in result.columns
     assert "D_up" in result.columns
     assert "D_down" in result.columns
-    
-    # Check values
-    # Wall at +/- 10. Center is 0.
-    # D_up should be 10? rel_ticks 10 is index 210. Center 200. +10.
-    # Logic in engine: center_idx=200.
-    # My dummy data has rel_ticks -10..10.
-    # Engine reindexes to -200..200.
-    # So rel_tick 10 is at index 210.
-    # Wall is at 210.
-    # wall_up index from center+1 (201): 210 is 9th element? No.
-    # 210 - 201 = 9.
-    # result returned index[0] + 1 -> 10.
-    # So D_up should be 10.
-    
-    row1 = result.iloc[0]
-    print(row1)
+
+    for window_id in [1000, 2000]:
+        rows_window = result.loc[result["window_end_ts_ns"] == window_id]
+        assert set(rows_window["horizon_s"].tolist()) == set(range(0, 6))
+        diag = rows_window.loc[rows_window["horizon_s"] == 0].iloc[0]
+        assert diag["D_up"] is not None
+        assert diag["D_down"] is not None
     
 if __name__ == "__main__":
     test_forecast_engine_runs()

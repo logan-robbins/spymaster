@@ -17,6 +17,12 @@ class AppSettings(BaseModel):
     
     # Paths
     lake_root: Path = backend_dir / "lake"
+    physics_params_path: Path = Path(
+        os.getenv(
+            "PHYSICS_PARAMS_PATH",
+            str(backend_dir / "data" / "physics" / "physics_beta_gamma.json"),
+        )
+    )
     
     # Databento
     databento_api_key: Optional[str] = os.getenv("DATABENTO_API_KEY")

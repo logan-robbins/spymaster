@@ -634,77 +634,157 @@
     "streaming": {
         "ForecastEngine": {
             "_description": "Stream-time forecasting using physics fields. Runs per-window during streaming.",
-            "_inputs": ["gold.future_mbo.physics_surface_1s (per window)"],
+            "_inputs": [
+                "gold.future_mbo.physics_surface_1s (per window)",
+                "gold.future_option_mbo.physics_surface_1s (per window)"
+            ],
             "_output": "forecast surface with horizon_s=30 and diagnostics",
-            "fields_aggregation": {
-                "pressure_grad": {
-                    "transformation_steps": ["GroupBy rel_ticks", "Sum across sides (Bid + Ask)"],
-                    "note": "Total directional pressure at each tick"
+            "directional_fields": {
+                "g_dir": {
+                    "built_from": ["pressure_grad", "side", "rel_ticks"],
+                    "transformation_steps": [
+                        "If rel_ticks > 0: use pressure_grad from side='A'",
+                        "If rel_ticks < 0: use pressure_grad from side='B'",
+                        "If rel_ticks = 0: exclude from force integrals"
+                    ],
+                    "note": "Directional pressure field on signed tick lattice"
                 },
-                "u_wave_energy": {
-                    "transformation_steps": ["GroupBy rel_ticks", "Sum across sides"]
+                "u_near_dir": {
+                    "built_from": ["u_near", "side", "rel_ticks"],
+                    "transformation_steps": [
+                        "If rel_ticks > 0: use u_near from side='A'",
+                        "If rel_ticks < 0: use u_near from side='B'"
+                    ],
+                    "note": "Directional rarefaction field"
                 },
-                "rho": {
-                    "transformation_steps": ["GroupBy rel_ticks", "Sum across sides"]
+                "u_p_slow_dir": {
+                    "built_from": ["u_p_slow", "side", "rel_ticks"],
+                    "transformation_steps": [
+                        "If rel_ticks > 0: use u_p_slow from side='A'",
+                        "If rel_ticks < 0: use u_p_slow from side='B'"
+                    ],
+                    "note": "Directional reinforcement field"
+                }
+            },
+            "options_obstacles": {
+                "Omega_opt_agg": {
+                    "built_from": ["Omega_opt"],
+                    "transformation_steps": ["GroupBy rel_ticks", "Sum across right/side"],
+                    "note": "Strike-level obstacle mass"
                 },
-                "nu": {
-                    "transformation_steps": ["GroupBy rel_ticks", "Sum across sides"]
+                "Omega_opt_spread": {
+                    "built_from": ["Omega_opt_agg"],
+                    "transformation_steps": [
+                        "Spread with Gaussian kernel sigma=8, radius=24 ticks",
+                        "Omega_opt_spread(x) = sum_s Omega_opt(x_s) * K_spread(x - x_s)"
+                    ]
                 },
-                "Omega": {
-                    "transformation_steps": ["GroupBy rel_ticks", "Max across sides"],
-                    "note": "Used for wall detection"
+                "Omega_total": {
+                    "built_from": ["Omega_fut_dir", "Omega_opt_spread"],
+                    "transformation_steps": ["Omega_total = Omega_fut_dir + 0.70 * Omega_opt_spread"]
+                },
+                "Omega_total_prom": {
+                    "built_from": ["Omega_total"],
+                    "transformation_steps": [
+                        "Omega_total_near = GaussianSmooth(Omega_total, sigma=6, radius=16)",
+                        "Omega_total_far = GaussianSmooth(Omega_total, sigma=24, radius=64)",
+                        "Omega_total_prom = Omega_total_near - Omega_total_far"
+                    ]
+                },
+                "nu_total": {
+                    "built_from": ["Omega_total_near", "Omega_total_prom"],
+                    "transformation_steps": ["nu_total = 1 + Omega_total_near + 2*max(0, Omega_total_prom)"]
+                },
+                "kappa_total": {
+                    "built_from": ["nu_total"],
+                    "transformation_steps": ["kappa_total = 1 / nu_total"]
                 }
             },
             "diagnostics": {
                 "D_up": {
-                    "built_from": ["Omega"],
-                    "transformation_steps": ["Find first rel_tick > 0 where Omega > 3.0"],
-                    "note": "Distance to nearest upward wall (in ticks), null if no wall"
-                },
-                "D_down": {
-                    "built_from": ["Omega"],
-                    "transformation_steps": ["Find first rel_tick < 0 where Omega > 3.0 (from center outward)"],
-                    "note": "Distance to nearest downward wall (in ticks), null if no wall"
-                },
-                "RunScore_up": {
-                    "built_from": ["pressure_grad", "D_up"],
-                    "transformation_steps": ["mean(pressure_grad[0:D_up]) if D_up else mean(pressure_grad[0:200])"],
-                    "note": "Average pressure in upward free path"
-                },
-                "RunScore_down": {
-                    "built_from": ["pressure_grad", "D_down"],
-                    "transformation_steps": ["mean(pressure_grad[-D_down:0]) if D_down else mean(pressure_grad[-200:0])"],
-                    "note": "Average pressure in downward free path"
-                }
-            },
-            "particle_simulation": {
-                "v_eff": {
-                    "built_from": ["pressure_grad", "u_wave_energy", "nu", "rho"],
+                    "built_from": ["Omega_total_prom"],
                     "transformation_steps": [
-                        "g_dir = pressure_grad + sign(pressure_grad) * u_wave_energy",
-                        "v_eff = g_dir / (nu * rho + 1e-6) where rho >= 0.1",
-                        "v_eff = g_dir where rho < 0.1 (ballistic in gaps)",
-                        "clip(v_eff, -5.0, 5.0)"
-                    ],
-                    "note": "Effective drift velocity field (ticks/sec)"
-                },
-                "particle_update": {
-                    "n_particles": 1000,
-                    "horizon_s": 30,
-                    "dt": 1.0,
-                    "steps": [
-                        "Initialize p_x = zeros(n_particles) at spot",
-                        "For t in 1..horizon_s:",
-                        "  vals = interp(p_x, rel_ticks, v_eff)",
-                        "  p_x += vals * dt + normal(0, 0.5)",
-                        "  p_x = clip(p_x, -150, 150)"
+                        "W_up = max_{k=1..64} Omega_total_prom(+k)",
+                        "T_up = 0.60 * W_up",
+                        "D_up = min{k >= 1 : Omega_total_prom(+k) >= T_up} else 64"
                     ]
                 },
-                "predicted_tick_delta": {
-                    "built_from": ["particle_simulation.p_x"],
-                    "transformation_steps": ["mean(p_x)", "clip to ±100"],
-                    "note": "Expected price movement in ticks over horizon_s seconds"
+                "D_down": {
+                    "built_from": ["Omega_total_prom"],
+                    "transformation_steps": [
+                        "W_down = max_{k=1..64} Omega_total_prom(-k)",
+                        "T_down = 0.60 * W_down",
+                        "D_down = min{k >= 1 : Omega_total_prom(-k) >= T_down} else 64"
+                    ]
+                },
+                "Vacuum_up": {
+                    "built_from": ["u_near_dir", "D_up"],
+                    "transformation_steps": [
+                        "r(x) = max(0, -u_near_dir(x))",
+                        "Vacuum_up = sum_{k=1..D_up-1} w_k * r(+k), w_k=exp(-k/16) renormalized"
+                    ]
+                },
+                "Vacuum_down": {
+                    "built_from": ["u_near_dir", "D_down"],
+                    "transformation_steps": [
+                        "r(x) = max(0, -u_near_dir(x))",
+                        "Vacuum_down = sum_{k=1..D_down-1} w_k * r(-k), w_k=exp(-k/16) renormalized"
+                    ]
+                },
+                "Reinforce_up": {
+                    "built_from": ["u_p_slow_dir", "D_up"],
+                    "transformation_steps": ["Reinforce_up = max(0, u_p_slow_dir(+D_up))"]
+                },
+                "Reinforce_down": {
+                    "built_from": ["u_p_slow_dir", "D_down"],
+                    "transformation_steps": ["Reinforce_down = max(0, u_p_slow_dir(-D_down))"]
+                },
+                "RunScore_up": {
+                    "built_from": ["Vacuum_up", "Reinforce_up"],
+                    "transformation_steps": ["RunScore_up = Vacuum_up - Reinforce_up"]
+                },
+                "RunScore_down": {
+                    "built_from": ["Vacuum_down", "Reinforce_down"],
+                    "transformation_steps": ["RunScore_down = Vacuum_down - Reinforce_down"]
                 }
+            },
+            "force_damping": {
+                "F(h)": {
+                    "built_from": ["g_dir", "kappa_total", "delta(h)"],
+                    "transformation_steps": [
+                        "w_force(k) = exp(-k^2/(2*12^2)), normalized over k=1..64",
+                        "F(h) = sum_{x=±1..±64} w_force(|x|) * kappa_total(x - delta(h)) * g_dir(x - delta(h))"
+                    ]
+                },
+                "NuLocal(h)": {
+                    "built_from": ["nu_total", "delta(h)"],
+                    "transformation_steps": [
+                        "w_damp(k) = exp(-k^2/(2*6^2)), normalized over k=1..16",
+                        "NuLocal(h) = sum_{x=±1..±16} w_damp(|x|) * nu_total(x - delta(h))"
+                    ]
+                }
+            },
+            "dynamics": {
+                "state": ["delta(0)=0", "v(t)=S(t)-S(t-1)"],
+                "step": [
+                    "a(h) = beta * F(h) / (1 + NuLocal(h))",
+                    "v(h+1) = (1 - gamma) * v(h) + a(h)",
+                    "delta(h+1) = delta(h) + v(h+1)",
+                    "clip v(h) to [-8, 8], clip delta(h) to [-80, 80]"
+                ],
+                "outputs": [
+                    "predicted_tick_delta(h) = round(delta(h))",
+                    "predicted_spot_tick(h) = S(t) + predicted_tick_delta(h)"
+                ]
+            },
+            "confidence": {
+                "C0": "tanh(|F(0)| / (1 + NuLocal(0)))",
+                "Gate": [
+                    "If predicted_tick_delta > 0: tanh(max(0, RunScore_up))",
+                    "If predicted_tick_delta < 0: tanh(max(0, RunScore_down))",
+                    "Else 0"
+                ],
+                "confidence(h)": "C0 * Gate"
             }
         }
     }
