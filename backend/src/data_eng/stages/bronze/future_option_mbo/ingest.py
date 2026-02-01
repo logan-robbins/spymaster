@@ -47,9 +47,10 @@ class BronzeIngestFutureOptionMbo(Stage):
             df_all = read_partition(checkpoint_ref)
             df_all = enforce_contract(df_all, checkpoint_contract)
         else:
-            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn*"))
-            if not dbn_files:
-                raise FileNotFoundError(f"No DBN files found for date {dt} in {raw_path}/")
+            dbn_files = list(raw_path.glob(f"*{date_compact}*.dbn"))
+            parquet_files = list(raw_path.glob(f"*{date_compact}*.parquet"))
+            if not dbn_files and not parquet_files:
+                raise FileNotFoundError(f"No DBN or Parquet files found for date {dt} in {raw_path}/")
 
             def_files = _definition_files(cfg.lake_root, date_compact)
             if not def_files:
@@ -58,6 +59,38 @@ class BronzeIngestFutureOptionMbo(Stage):
             meta_map = _load_definitions(def_files, dt)
 
             all_dfs: List[pd.DataFrame] = []
+
+            for parquet_file in parquet_files:
+                df_raw = _load_parquet_as_dbn_format(parquet_file)
+                if df_raw.empty:
+                    continue
+
+                df = df_raw.loc[df_raw["rtype"] == RTYPE_MBO].copy()
+                if df.empty:
+                    continue
+
+                df = df.loc[df["symbol"].notna()].copy()
+                if df.empty:
+                    continue
+
+                is_spread = df["symbol"].str.startswith("UD:", na=False).to_numpy()
+                df = df.loc[~is_spread].copy()
+                if df.empty:
+                    continue
+
+                is_calendar = df["symbol"].str.contains("-", regex=False, na=False).to_numpy()
+                df = df.loc[~is_calendar].copy()
+                if df.empty:
+                    continue
+
+                df = df.loc[df["instrument_id"].isin(meta_map.keys())].copy()
+                if df.empty:
+                    continue
+
+                df = _apply_definition_meta(df, meta_map)
+
+                all_dfs.append(df)
+
             for dbn_file in dbn_files:
                 store = db.DBNStore.from_file(str(dbn_file))
                 df_raw = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
@@ -214,4 +247,34 @@ def _apply_definition_meta(df: pd.DataFrame, meta_map: Dict[int, Dict[str, objec
     missing = df["underlying"].isna() | df["right"].isna() | df["strike"].isna() | df["expiration"].isna()
     if missing.any():
         raise ValueError("Missing instrument definitions for option MBO rows")
+    return df
+
+
+def _load_parquet_as_dbn_format(parquet_path: Path) -> pd.DataFrame:
+    """Load a parquet file and convert to DBN-compatible format.
+
+    Parquet files have:
+    - ts_event as datetime64[ns, UTC]
+    - price as float64
+    - Missing ts_recv column
+
+    DBN format expects:
+    - ts_event as int64 nanoseconds
+    - price as int64 fixed-point (scaled by 1e9)
+    - ts_recv as int64 nanoseconds
+    """
+    df = pd.read_parquet(parquet_path)
+
+    if df.empty:
+        return df
+
+    if pd.api.types.is_datetime64_any_dtype(df["ts_event"]):
+        df["ts_event"] = df["ts_event"].view("int64")
+
+    if "ts_recv" not in df.columns:
+        df["ts_recv"] = df["ts_event"]
+
+    if df["price"].dtype == np.float64:
+        df["price"] = (df["price"].fillna(0) * 1_000_000_000).astype("int64")
+
     return df
