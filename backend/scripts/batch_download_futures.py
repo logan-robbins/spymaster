@@ -56,15 +56,27 @@ DAILY_PATTERN = re.compile(r"^E\d")
 
 
 def is_third_friday(day: datetime) -> bool:
+    """Check if day is the 3rd Friday of the month."""
     if day.weekday() != 4:
         return False
     return 15 <= day.day <= 21
 
 
+def is_quarterly_month(day: datetime) -> bool:
+    """Check if day is in a quarterly expiration month (Mar, Jun, Sep, Dec)."""
+    return day.month in (3, 6, 9, 12)
+
+
 def category_for_date(day: datetime) -> str:
-    if is_third_friday(day):
+    """Categorize date for 0DTE parent symbol selection.
+    
+    - standard: 3rd Friday of quarterly month (Mar/Jun/Sep/Dec) -> ES.OPT
+    - weekly: Any Friday that's NOT standard -> EW family
+    - daily: Mon-Thu -> E1-E5 family
+    """
+    if is_third_friday(day) and is_quarterly_month(day):
         return "standard"
-    if day.weekday() == 4:
+    if day.weekday() == 4:  # Friday (any Friday not in quarterly 3rd Friday)
         return "weekly"
     return "daily"
 
@@ -95,16 +107,17 @@ def validate_assets(day: datetime, assets: list[str]) -> None:
     if category == "standard":
         bad = [a for a in assets if a not in STANDARD_ASSETS]
         if bad:
-            raise ValueError(f"Unexpected assets for standard day {day.date()}: {bad}")
+            raise ValueError(f"Unexpected assets for standard (quarterly 3rd Fri) day {day.date()}: {bad}")
         return
     if category == "weekly":
         bad = [a for a in assets if a not in WEEKLY_ASSETS]
         if bad:
-            raise ValueError(f"Unexpected assets for weekly day {day.date()}: {bad}")
+            raise ValueError(f"Unexpected assets for weekly (Friday) day {day.date()}: {bad}")
         return
+    # Daily (Mon-Thu)
     bad = [a for a in assets if not DAILY_PATTERN.match(a)]
     if bad:
-        raise ValueError(f"Unexpected assets for daily day {day.date()}: {bad}")
+        raise ValueError(f"Unexpected assets for daily (Mon-Thu) day {day.date()}: {bad}")
 
 
 def target_path_futures(schema: str, symbol: str, date_compact: str) -> Path:
