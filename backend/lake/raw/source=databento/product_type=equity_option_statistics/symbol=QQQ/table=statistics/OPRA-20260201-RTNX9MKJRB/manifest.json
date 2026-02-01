@@ -1,0 +1,41 @@
+{
+    "job_id": "OPRA-20260201-RTNX9MKJRB",
+    "files": [
+        {
+            "filename": "condition.json",
+            "size": 122,
+            "hash": "sha256:4bf6e44456ee0f3a6dd6a75f4bb0110d307b59796626dca2a4c4052bc4e9f8da",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/condition.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/condition.json"
+            }
+        },
+        {
+            "filename": "metadata.json",
+            "size": 7779,
+            "hash": "sha256:cb43d1fed79b4cd2245dc2b3e86a62c7574d5365d4d5749e8e99914b56f49a49",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/metadata.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/metadata.json"
+            }
+        },
+        {
+            "filename": "symbology.json",
+            "size": 41051,
+            "hash": "sha256:59c83c84a36159f89e438745f9012dd6a04eb3060d2a4c7e38dc89ca20dd6e6d",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/symbology.json",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/symbology.json"
+            }
+        },
+        {
+            "filename": "opra-pillar-20260107.statistics.dbn.zst",
+            "size": 85859,
+            "hash": "sha256:fcb8dfb1a588d8b858ecb06f7b38ab1829018cb5a01cb72a2e141adde2700013",
+            "urls": {
+                "https": "https://api.databento.com/v0/batch/download/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/opra-pillar-20260107.statistics.dbn.zst",
+                "ftp": "ftp://ftp.databento.com/4VDPHF4F/OPRA-20260201-RTNX9MKJRB/opra-pillar-20260107.statistics.dbn.zst"
+            }
+        }
+    ]
+}

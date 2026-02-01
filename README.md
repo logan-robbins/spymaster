@@ -20,20 +20,14 @@
 ## 1. DOWNLOADING DATA
 
 ### Raw Data Inventory
-**Comprehensive inventory:** See `RAW_DATA_INVENTORY.md` for detailed breakdown of all raw data (285 GB)
+**Inventory source-of-truth:** `backend/lake/raw/source=databento/` + job trackers in `backend/logs/*jobs.json`
 
 **Current Holdings (2026-01-05 to 2026-01-29, all 18 trading days):**
 - ES futures: 22 days (incl. Sunday sessions) - 16 GB  
 - **ES futures options: 18 days - 185 GB ✅ 0DTE ONLY**
 - QQQ equity: 19 days - 40 GB
-- QQQ equity options (cmbp-1): 14 days - 43 GB (0DTE days only, QQQ doesn't have daily 0DTE like ES)
-- QQQ equity options (statistics): 14 days - 160 MB
-
-**Notes:** 
-- ✅ All required trading days (Jan 5-29 2026) covered for ES and QQQ
-- ✅ ES options contain ONLY 0DTE contracts (correctly downloaded via Databento batch API)
-- QQQ 0DTE available Mon/Wed/Fri only (not every trading day like ES)
-- Fixed `batch_download_futures.py` to handle non-quarterly 3rd Friday (use weekly options instead of ES.OPT)
+- **QQQ equity options (cmbp-1): 18 days - ~21.5 GB ✅ 0DTE ONLY** (ex-MLK day 2026-01-19)
+- QQQ equity options (statistics): 18 days - ~2 MB (ex-MLK day 2026-01-19)
 
 ### Raw Data Scripts
 Location: `backend/scripts/batch_download_*.py`

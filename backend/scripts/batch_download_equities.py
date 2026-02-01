@@ -7,18 +7,18 @@ Downloads from two datasets:
 
 Usage:
     # Submit jobs for a date range
-    uv run python scripts/batch_download_equity_options.py submit \
+    uv run python scripts/batch_download_equities.py submit \
         --start 2026-01-06 --end 2026-01-10 --symbols SPY,QQQ \
-        --log-file logs/equity_options.log
+        --log-file logs/equities.log
 
     # Poll and download completed jobs
-    uv run python scripts/batch_download_equity_options.py poll \
-        --log-file logs/equity_options.log
+    uv run python scripts/batch_download_equities.py poll \
+        --log-file logs/equities.log
 
     # Run both in a loop (background process)
-    nohup uv run python scripts/batch_download_equity_options.py daemon \
+    nohup uv run python scripts/batch_download_equities.py daemon \
         --start 2026-01-06 --end 2026-01-10 --symbols SPY,QQQ \
-        --log-file logs/equity_options.log > logs/daemon.out 2>&1 &
+        --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 """
 import argparse
 import json
@@ -114,16 +114,47 @@ def definition_path_options(symbol: str, date_str: str) -> Path:
     return target_path_options("definition", symbol, date_compact)
 
 
+def resolve_definition_file_options(symbol: str, date_str: str) -> Path:
+    """Resolve OPRA options definition file path for a given session date.
+
+    Databento batch downloads place files under a job-id subdirectory (e.g.
+    `.../venue=opra/OPRA-YYYYMMDD-XXXX/...`). Some historical runs also leave a
+    convenient root-level copy at `.../venue=opra/opra-pillar-YYYYMMDD.definition.dbn`.
+
+    This resolver prefers the root-level file when present, otherwise it falls
+    back to the newest matching file under job directories.
+    """
+    date_compact = date_str.replace("-", "")
+    base = backend_dir / "lake" / "raw" / "source=databento" / "dataset=definition" / "venue=opra"
+
+    # 1) Prefer canonical root-level definition file(s)
+    root_dbn = base / f"opra-pillar-{date_compact}.definition.dbn"
+    if root_dbn.exists():
+        return root_dbn
+    root_dbn_zst = base / f"opra-pillar-{date_compact}.definition.dbn.zst"
+    if root_dbn_zst.exists():
+        return root_dbn_zst
+
+    # 2) Fall back to any batch job output (nested under OPRA-*/ directories)
+    nested = [p for p in base.glob(f"**/opra-pillar-{date_compact}.definition.dbn*") if p.is_file()]
+    if not nested:
+        raise FileNotFoundError(
+            f"Definition file missing for {symbol} {date_str}: "
+            f"expected {root_dbn} (or .zst), or a nested batch output under {base}"
+        )
+
+    def sort_key(p: Path) -> tuple[int, float, int]:
+        # Prefer uncompressed .dbn over .dbn.zst, then newest, then largest.
+        prefer = 0 if p.name.endswith(".definition.dbn") else 1
+        st = p.stat()
+        return (prefer, -st.st_mtime, -st.st_size)
+
+    return sorted(nested, key=sort_key)[0]
+
+
 def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
     """Load 0DTE option assets from definition file"""
-    def_path = definition_path_options(symbol, date_str)
-    # Check for both .dbn and .dbn.zst extensions
-    if not def_path.exists():
-        def_path_zst = def_path.parent / (def_path.name + ".zst")
-        if def_path_zst.exists():
-            def_path = def_path_zst
-        else:
-            raise FileNotFoundError(f"Definition file missing: {def_path} or {def_path_zst}")
+    def_path = resolve_definition_file_options(symbol, date_str)
     store = db.DBNStore.from_file(str(def_path))
     df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
     if df.empty:
@@ -133,10 +164,12 @@ def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
     df = df[df["underlying"].astype(str).str.upper() == symbol.upper()].copy()
     df = df[df["expiration"].notna()].copy()
 
+    # FIXED: Extract date in UTC to match expiration field encoding (midnight UTC = expiration date)
+    # OPRA expiration field = midnight UTC on expiration date (e.g., 2026-01-09 00:00 UTC for Jan 9 0DTE)
+    # Converting to ET shifts to previous day at 7 PM, causing off-by-one errors
     exp_dates = (
         pd.to_datetime(df["expiration"].astype("int64"), utc=True)
-        .dt.tz_convert("America/New_York")
-        .dt.date.astype(str)
+        .dt.date.astype(str)  # Extract date in UTC, NOT ET
     )
     df = df[exp_dates == date_str].copy()
 
