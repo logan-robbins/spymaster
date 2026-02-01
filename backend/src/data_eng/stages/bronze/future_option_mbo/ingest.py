@@ -269,7 +269,7 @@ def _load_parquet_as_dbn_format(parquet_path: Path) -> pd.DataFrame:
         return df
 
     if pd.api.types.is_datetime64_any_dtype(df["ts_event"]):
-        df["ts_event"] = df["ts_event"].view("int64")
+        df["ts_event"] = df["ts_event"].astype("int64")
 
     if "ts_recv" not in df.columns:
         df["ts_recv"] = df["ts_event"]

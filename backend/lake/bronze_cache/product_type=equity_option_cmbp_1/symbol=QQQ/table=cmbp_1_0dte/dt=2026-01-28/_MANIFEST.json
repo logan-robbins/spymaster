@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/equity_option_cmbp_1/cmbp_1.avsc",
+  "contract_sha256": "8b136709e05fbac4413d8ca1b0bea3eaedfa57ac56e849222b1662ee4a9343ca",
+  "dataset": "bronze_cache.equity_option_cmbp_1.cmbp_1_0dte",
+  "dt": "2026-01-28",
+  "hour": null,
+  "inputs": [],
+  "row_count": 49738134,
+  "stage": "bronze_ingest_equity_option_cmbp_1"
+}

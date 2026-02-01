@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/future_option_mbo/mbo.avsc",
+  "contract_sha256": "37823886aa161e45c506333e8f48b02c87abf6594848a089942601818048811a",
+  "dataset": "bronze_cache.future_option_mbo.mbo_0dte",
+  "dt": "2026-01-14",
+  "hour": null,
+  "inputs": [],
+  "row_count": 64134665,
+  "stage": "bronze_ingest_future_option_mbo"
+}

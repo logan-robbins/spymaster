@@ -1,0 +1,10 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/bronze/equity_mbo/mbo.avsc",
+  "contract_sha256": "8680f807bd7703451f5afea8064f195fc09ab3719fdb41b46130117084569d1b",
+  "dataset": "bronze.equity_mbo.mbo",
+  "dt": "2026-01-20",
+  "hour": null,
+  "inputs": [],
+  "row_count": 26529667,
+  "stage": "bronze_ingest_equity_mbo"
+}

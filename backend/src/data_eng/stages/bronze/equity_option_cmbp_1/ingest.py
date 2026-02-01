@@ -52,12 +52,6 @@ class BronzeIngestEquityOptionCmbp1(Stage):
             if not dbn_files:
                 raise FileNotFoundError(f"No DBN files found for date {dt} in {raw_path}/")
 
-            def_files = _definition_files(cfg.lake_root, date_compact)
-            if not def_files:
-                raise FileNotFoundError(f"No instrument definition files found for {date_compact}")
-
-            meta_map = _load_definitions(def_files, dt, symbol)
-
             all_dfs: List[pd.DataFrame] = []
             for dbn_file in dbn_files:
                 store = db.DBNStore.from_file(str(dbn_file))
@@ -72,11 +66,13 @@ class BronzeIngestEquityOptionCmbp1(Stage):
                 if df.empty:
                     continue
 
-                df = df.loc[df["instrument_id"].isin(meta_map.keys())].copy()
+                if "symbol" not in df.columns:
+                    continue
+
+                df = _parse_opra_symbol_metadata(df, symbol, dt)
                 if df.empty:
                     continue
 
-                df = _apply_definition_meta(df, meta_map)
                 all_dfs.append(df)
 
             if not all_dfs:
@@ -237,4 +233,49 @@ def _apply_definition_meta(df: pd.DataFrame, meta_map: Dict[int, Dict[str, objec
     missing = df["underlying"].isna() | df["right"].isna() | df["strike"].isna() | df["expiration"].isna()
     if missing.any():
         raise ValueError("Missing instrument definitions for option cmbp_1 rows")
+    return df
+
+
+def _parse_opra_symbol_metadata(df: pd.DataFrame, underlying: str, session_date: str) -> pd.DataFrame:
+    """Parse option metadata from OPRA symbol format.
+
+    OPRA format: 'QQQ   260105P00626000'
+    - Underlying: first 6 chars (padded)
+    - Expiration: chars 6-12 (YYMMDD)
+    - Right: char 12 (C/P)
+    - Strike: chars 13-21 (8 digits, divide by 1000 for dollars)
+
+    Returns DataFrame filtered to 0DTE options with metadata columns added.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    # Parse OPRA symbols
+    symbols = df["symbol"].astype(str)
+
+    # Extract components
+    df["underlying"] = symbols.str[:6].str.strip()
+    exp_str = symbols.str[6:12]
+    df["right"] = symbols.str[12:13]
+    strike_str = symbols.str[13:21]
+
+    # Convert expiration to nanoseconds
+    exp_dates = pd.to_datetime("20" + exp_str, format="%Y%m%d", utc=True)
+    df["expiration"] = exp_dates.astype("int64")
+
+    # Convert strike to fixed-point (multiply by 1e6 to get 1e9 scale from 1e3 input)
+    df["strike"] = pd.to_numeric(strike_str, errors="coerce").fillna(0).astype("int64") * 1_000_000
+
+    # Filter to matching underlying
+    df = df.loc[df["underlying"].str.upper() == underlying.upper()].copy()
+    if df.empty:
+        return df
+
+    # Filter to 0DTE (expiration matches session date)
+    session_date_compact = session_date.replace("-", "")
+    exp_date_str = exp_str
+    df = df.loc[exp_date_str == session_date_compact[2:]].copy()  # Compare YYMMDD
+
     return df

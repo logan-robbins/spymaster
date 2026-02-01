@@ -25,13 +25,14 @@
 **Current Holdings (2026-01-05 to 2026-01-29, all 18 trading days):**
 - ES futures: 22 days (incl. Sunday sessions) - 16 GB  
 - **ES futures options: 18 days - ~133 GB ✅ 0DTE ONLY** (2 days parquet, 16 days dbn)
-- QQQ equity: 19 days - 40 GB
-- **QQQ equity options (cmbp-1): 18 days - ~21.5 GB ✅ 0DTE ONLY** (ex-MLK day 2026-01-19)
+- QQQ equity: 18 days - ~40 GB
+- **QQQ equity options (cmbp-1): 18 days - ~80 GB ✅ 0DTE ONLY** (decompressed from .dbn.zst)
 - QQQ equity options (statistics): 18 days - ~2 MB (ex-MLK day 2026-01-19)
 
 **Raw Data Formats:**
 - Primary: `.dbn` (Databento native format)
-- Fallback: `.parquet` (pipeline auto-detects and loads with format conversion)
+- Fallback: `.parquet` (future_option_mbo pipeline auto-detects and loads with format conversion)
+- Note: After downloading .dbn.zst files, decompress with: `find . -name "*.dbn.zst" -exec zstd -d --rm {} \;`
 
 ### Raw Data Scripts
 Location: `backend/scripts/batch_download_*.py`
