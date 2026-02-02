@@ -1,4 +1,4 @@
-1. [x] Remove future_option_mbo bronze/silver (and cache) partitions for 2026-01-05..2026-01-29.
-2. [x] Regenerate bronze future_option_mbo for 2026-01-05..2026-01-29.
-3. [x] Regenerate silver future_option_mbo for 2026-01-05..2026-01-29.
-4. [x] Verify regeneration completed and update README.
+1. [x] Inspect selection map generation and runner filtering logic.
+2. [x] Verify current selection map contents and bronze coverage for 2026-01-05..2026-01-29.
+3. [x] Update README with current selection map/bronze coverage notes.
+4. [x] Summarize findings and explain missing dates.

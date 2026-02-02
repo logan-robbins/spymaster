@@ -30,6 +30,21 @@
 - **Validation**: 0% negative depth_qty_start across 2026-01-06, 2026-01-07
 - **Note**: Accounting identity mismatch ~32% is expected (identity holds per-instrument, not after bucketing)
 
+## 2026-02-02 bronze.equity_mbo backfill and validation
+- **Backfill**: Ran bronze pipeline for all 18 trading days (2026-01-05 to 2026-01-29)
+- **Previously**: Only 4 dates existed (2026-01-08, 2026-01-09, 2026-01-16, 2026-01-27)
+- **New validation script**: `backend/scripts/validate_bronze_equity_mbo.py`
+- **Validation results (3 random dates: 2026-01-13, 2026-01-22, 2026-01-28)**:
+  - Schema: PASS (15 fields match avsc contract)
+  - Timestamp ordering: strict monotonic
+  - Action codes: A, C, T, F (valid MBO actions)
+  - Side codes: A, B, N (valid)
+  - 0 null values in critical fields
+  - Price range for trades/fills: $620-$634 (expected QQQ range)
+  - Stub quotes detected at $1000-$199999 (expected market maker behavior)
+  - Total: 304.8M rows, 3.4 GB parquet
+- **Coverage**: 18/18 trading days (full)
+
 ## 2026-02-01 silver.equity_option_cmbp_1 Cmbp1BookEngine._reset_accumulators fix
 - **Bug**: `AttributeError: 'Cmbp1BookEngine' object has no attribute '_reset_accumulators'`
 - **Root cause**: Method `_reset_accumulators()` was called in `_start_window()` and `_emit_window()` but never defined

@@ -89,6 +89,11 @@ cd backend
 uv run python -m src.data_eng.mbo_contract_day_selector --dates YYYY-MM-DD --output-path lake/selection/mbo_contract_day_selection.parquet
 ```
 Maps session_date → front-month contract. Required before silver/gold with parent symbols.
+Current selection map rows (2026-02-01): 19 trading days from 2026-01-05 through 2026-01-29.
+- All dates use ESH6 (March 2026 expiry)
+- Excluded: 2026-01-11, 2026-01-18, 2026-01-25 (Sunday sessions with no premarket trades)
+Selection map is built from `bronze/source=databento/product_type=future_mbo` and only includes dates with bronze MBO data
+and premarket trades (05:00-08:30 ET). Missing dates in this map are skipped by silver/gold when using base symbol ES.
 
 ---
 
@@ -135,6 +140,12 @@ To verify the actual data file exists for a partition, use Python:
 cd backend
 uv run python -c "import os; print(os.listdir('lake/silver/product_type=.../symbol=.../table=.../dt=YYYY-MM-DD'))"
 ```
+
+### Current Bronze Coverage (2026-01-05..2026-01-29)
+- `future_mbo`: 22 dates (19 weekdays + 3 Sunday sessions: 2026-01-11, 2026-01-18, 2026-01-25)
+- `future_option_mbo`: 18 trading days (full coverage)
+- `equity_mbo`: 18 trading days (full coverage)
+- `equity_option_cmbp_1`: 18 trading days (full coverage) - 2026-01-05 through 2026-01-29
 
 ### Current Silver Coverage (2026-01-05..2026-01-29)
 - `future_mbo`: `book_snapshot_1s` + `depth_and_flow_1s` on dt={2026-01-05,2026-01-06}
