@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ...base import Stage, StageIO
 from ....config import AppConfig
 from ....contracts import enforce_contract, load_avro_contract
+from ....filters.gold_strict_filters import apply_gold_strict_filters
 from ....io import (
     is_partition_complete,
     partition_ref,
@@ -15,7 +18,14 @@ from ....io import (
     write_partition,
 )
 
+logger = logging.getLogger(__name__)
+
 EPS_QTY = 1.0
+PRICE_SCALE = 1e-9
+TICK_SIZE = 0.25
+TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
+STRIKE_STEP_POINTS = 5.0
+STRIKE_STEP_INT = int(round(STRIKE_STEP_POINTS / PRICE_SCALE))
 STRIKE_TICKS = 20  # $5 strike buckets at $0.25 tick size
 MAX_STRIKE_TICKS = 200  # ±$50 from spot -> ±200 ticks
 
@@ -42,6 +52,14 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
 
         flow_contract = load_avro_contract(repo_root / cfg.dataset(flow_key).contract)
         df_flow = enforce_contract(read_partition(flow_ref), flow_contract)
+
+        # Apply gold strict filters for institutional-grade data
+        original_flow_count = len(df_flow)
+        df_flow, flow_stats = apply_gold_strict_filters(df_flow, product_type="futures_options", return_stats=True)
+        if flow_stats.get("total_filtered", 0) > 0:
+            logger.info(
+                f"Gold filters for {dt}: flow={flow_stats.get('total_filtered', 0)}/{original_flow_count}"
+            )
 
         df_out = self.transform(df_flow)
 
@@ -110,13 +128,24 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
             )
 
         df = df_flow.copy()
+        df["spot_ref_price_int"] = df["spot_ref_price_int"].astype("int64")
+        df["strike_price_int"] = df["strike_price_int"].astype("int64")
+        df["strike_ref_price_int"] = _round_to_nearest_strike_int(df["spot_ref_price_int"])
+
+        strike_delta = df["strike_price_int"] - df["strike_ref_price_int"]
+        if (strike_delta % STRIKE_STEP_INT != 0).any():
+            raise ValueError("Option strikes not aligned to $5 grid")
+        df["rel_strike"] = (strike_delta // STRIKE_STEP_INT).astype(int)
+        df["spot_offset_ticks"] = (
+            (df["strike_ref_price_int"] - df["spot_ref_price_int"]) // TICK_INT
+        ).astype(int)
 
         depth_start = df["depth_qty_start"].astype(float).to_numpy()
         depth_end = df["depth_qty_end"].astype(float).to_numpy() # Need end for rho
         depth_rest = df["depth_qty_rest"].astype(float).to_numpy()
         add_qty = df["add_qty"].astype(float).to_numpy()
         fill_qty = df["fill_qty"].astype(float).to_numpy()
-        pull_qty = df["pull_qty_total"].astype(float).to_numpy()
+        pull_qty = df["pull_qty"].astype(float).to_numpy()
 
         denom = depth_start + EPS_QTY
 
@@ -128,8 +157,6 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         # -------------------------------------------------------------------------
         # Options physics fields on strike lattice (bucketed at $5 / 20 ticks)
         # -------------------------------------------------------------------------
-        import numpy as np
-
         # rho_opt
         df["rho_opt"] = np.log(1.0 + depth_end)
 
@@ -173,7 +200,7 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
         term_reinforce = 1.0 + np.maximum(0.0, df["u_opt_p_slow"])
         df["Omega_opt"] = df["rho_opt"] * term_rest * term_reinforce
 
-        # Spatial smoothing on strike buckets (rel_ticks multiples of 20)
+        # Spatial smoothing on strike lattice (strike spacing = 20 ticks)
         max_strike_steps = int(round(MAX_STRIKE_TICKS / STRIKE_TICKS))
 
         def apply_strike_smoothing(
@@ -183,11 +210,12 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
             n_ticks: int,
             out_col_name: str,
         ) -> pd.DataFrame:
-            """Gaussian smoothing on the $5 strike lattice (bucket units)."""
+            """Gaussian smoothing on the $5 strike lattice (strike units)."""
             import warnings
 
             df_work = df_in.copy()
-            df_work["rel_strike"] = (df_work["rel_ticks"] / STRIKE_TICKS).round().astype(int)
+            if "rel_strike" not in df_work.columns or "spot_offset_ticks" not in df_work.columns:
+                raise ValueError("Missing strike lattice metadata for smoothing")
 
             pivoted = (
                 df_work.groupby(["window_end_ts_ns", "right", "side", "rel_strike"])[target_col]
@@ -217,7 +245,12 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
                 var_name="rel_strike",
                 value_name=out_col_name,
             )
-            smoothed["rel_ticks"] = smoothed["rel_strike"].astype(int) * STRIKE_TICKS
+            spot_offsets = df_work[["window_end_ts_ns", "spot_offset_ticks"]].drop_duplicates()
+            smoothed = smoothed.merge(spot_offsets, on="window_end_ts_ns", how="left")
+            smoothed["rel_ticks"] = (
+                smoothed["rel_strike"].astype(int) * STRIKE_TICKS
+                + smoothed["spot_offset_ticks"].astype(int)
+            )
             return smoothed[["window_end_ts_ns", "right", "side", "rel_ticks", out_col_name]]
 
         u_near_df = apply_strike_smoothing(df, "u_opt_ema_8", 6.0, 16, "u_opt_near")
@@ -302,3 +335,8 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
                 "pressure_grad_opt",
             ]
         ]
+
+
+def _round_to_nearest_strike_int(price_int: pd.Series | np.ndarray) -> np.ndarray:
+    values = np.asarray(price_int, dtype="int64")
+    return ((values + STRIKE_STEP_INT // 2) // STRIKE_STEP_INT) * STRIKE_STEP_INT

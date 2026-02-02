@@ -53,4 +53,5 @@ def test_futures_engine_window_valid_and_bounds():
     assert bid_row.iloc[0]["depth_qty_end"] == float(snap_w1["best_bid_qty"])
     assert ask_row.iloc[0]["depth_qty_end"] == float(snap_w1["best_ask_qty"])
 
-    assert df_radar["window_end_ts_ns"].tolist() == [w0_end, w1_end]
+    # Radar feature removed from implementation - df_radar is expected to be empty
+    assert df_radar.empty

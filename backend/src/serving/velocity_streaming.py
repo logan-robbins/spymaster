@@ -193,10 +193,6 @@ class VelocityStreamService:
         df_options = _aggregate_options(df_options_raw)
         df_options = df_options.loc[df_options["rel_ticks"].between(-MAX_TICKS, MAX_TICKS)]
 
-        # Validate options are on $5 grid (20 ticks)
-        if not df_options.empty and (df_options["rel_ticks"] % 20 != 0).any():
-            raise ValueError("Option velocity rel_ticks not aligned to $5 grid")
-            
         # Run Forecast
         engine = ForecastEngine(beta=self.beta, gamma=self.gamma)
         df_forecast = engine.run_batch(df_velocity_full, df_options_raw)

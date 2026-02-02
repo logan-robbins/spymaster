@@ -52,21 +52,37 @@ def check_integrity_v2(dt: str) -> None:
             else:
                 print("PASS: All windows have 84 strike/right/side rows.")
 
-            if "rel_ticks" in df_opt.columns:
-                fails = df_opt[df_opt["rel_ticks"] % 20 != 0]
-                if not fails.empty:
-                    print(f"FAIL: Found {len(fails)} rows where rel_ticks is not a multiple of 20.")
-                    print(fails[["window_end_ts_ns", "rel_ticks"]].head())
-                else:
-                    print("PASS: All rel_ticks are multiples of 20 ($5 strikes).")
+            required = {"rel_ticks", "strike_price_int", "spot_ref_price_int"}
+            if required.issubset(df_opt.columns):
+                tick_int = 250_000_000
+                strike_step_int = 20 * tick_int
 
-                range_fails = df_opt[df_opt["rel_ticks"].abs() > 200]
-                if not range_fails.empty:
-                    print(f"FAIL: Found {len(range_fails)} rows where rel_ticks > 200.")
+                strike_mod = df_opt["strike_price_int"].astype("int64") % strike_step_int != 0
+                if strike_mod.any():
+                    print(f"FAIL: Found {int(strike_mod.sum())} rows where strike_price_int is not on $5 grid.")
                 else:
-                    print("PASS: All rel_ticks within ±200 range.")
+                    print("PASS: strike_price_int aligned to $5 grid.")
+
+                delta = df_opt["strike_price_int"].astype("int64") - df_opt["spot_ref_price_int"].astype("int64")
+                tick_misaligned = (delta % tick_int != 0)
+                if tick_misaligned.any():
+                    print(f"FAIL: Found {int(tick_misaligned.sum())} rows where strike delta is not on $0.25 ticks.")
+                else:
+                    expected_rel = (delta // tick_int).astype(int)
+                    rel_mismatch = expected_rel != df_opt["rel_ticks"].astype(int)
+                    if rel_mismatch.any():
+                        print(f"FAIL: Found {int(rel_mismatch.sum())} rows where rel_ticks != (strike - spot) in ticks.")
+                        print(df_opt.loc[rel_mismatch, ["window_end_ts_ns", "rel_ticks"]].head())
+                    else:
+                        print("PASS: rel_ticks matches strike - spot in ticks.")
+
+                range_fails = df_opt[df_opt["rel_ticks"].abs() > 210]
+                if not range_fails.empty:
+                    print(f"FAIL: Found {len(range_fails)} rows where rel_ticks > 210.")
+                else:
+                    print("PASS: All rel_ticks within ±210 range.")
             else:
-                print("WARNING: 'rel_ticks' column not found in option depth/flow data.")
+                print("WARNING: Missing rel_ticks/strike_price_int/spot_ref_price_int in option depth/flow data.")
 
     # =========================================================================
     # OPTION PHYSICS CHECKS

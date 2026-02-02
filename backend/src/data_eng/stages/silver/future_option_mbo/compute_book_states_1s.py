@@ -24,6 +24,7 @@ WINDOW_NS = 1_000_000_000
 TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 STRIKE_STEP_POINTS = 5.0
+STRIKE_STEP_INT = int(round(STRIKE_STEP_POINTS / PRICE_SCALE))
 MAX_STRIKE_OFFSETS = 10  # +/- $50 around spot
 RIGHTS = ("C", "P")
 SIDES = ("A", "B")
@@ -150,6 +151,11 @@ def _build_defs(df_mbo: pd.DataFrame) -> pd.DataFrame:
     return df_defs[["instrument_id", "strike_price_int", "right"]]
 
 
+def _round_to_nearest_strike_int(price_int: pd.Series | np.ndarray) -> np.ndarray:
+    values = np.asarray(price_int, dtype="int64")
+    return ((values + STRIKE_STEP_INT // 2) // STRIKE_STEP_INT) * STRIKE_STEP_INT
+
+
 def _build_option_snapshots(
     df_bbo: pd.DataFrame,
     defs: pd.DataFrame,
@@ -207,14 +213,24 @@ def _build_option_flow_surface(
     if df.empty:
         return pd.DataFrame()
 
-    spot_ref_price = df["spot_ref_price_int"].astype(float) * PRICE_SCALE
-    strike_price = df["strike_price_int"].astype(float) * PRICE_SCALE
-    offsets = np.round((strike_price - spot_ref_price) / STRIKE_STEP_POINTS).astype(int)
-    offsets = np.clip(offsets, -MAX_STRIKE_OFFSETS, MAX_STRIKE_OFFSETS)
+    df["strike_price_int"] = df["strike_price_int"].astype("int64")
+    df["spot_ref_price_int"] = df["spot_ref_price_int"].astype("int64")
+    df["strike_ref_price_int"] = _round_to_nearest_strike_int(df["spot_ref_price_int"])
 
-    df["rel_ticks"] = offsets * 20
-    df["strike_points"] = spot_ref_price + offsets * STRIKE_STEP_POINTS
-    df["strike_price_int"] = (df["strike_points"] / PRICE_SCALE).round().astype("int64")
+    strike_delta = df["strike_price_int"] - df["strike_ref_price_int"]
+    if (strike_delta % STRIKE_STEP_INT != 0).any():
+        raise ValueError("Option strikes not aligned to $5 grid")
+    df["rel_strike"] = (strike_delta // STRIKE_STEP_INT).astype(int)
+
+    df = df.loc[df["rel_strike"].between(-MAX_STRIKE_OFFSETS, MAX_STRIKE_OFFSETS)].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    tick_delta = df["strike_price_int"] - df["spot_ref_price_int"]
+    if (tick_delta % TICK_INT != 0).any():
+        raise ValueError("Option strikes not aligned to $0.25 tick grid")
+    df["rel_ticks"] = (tick_delta // TICK_INT).astype(int)
+    df["strike_points"] = df["strike_price_int"].astype(float) * PRICE_SCALE
 
     grouped = df.groupby(
         ["window_end_ts_ns", "spot_ref_price_int", "strike_price_int", "right", "side", "rel_ticks", "strike_points"],
@@ -222,19 +238,15 @@ def _build_option_flow_surface(
     ).agg(
         depth_qty_end=("depth_total", "sum"),
         depth_qty_rest=("depth_rest", "sum"),
+        depth_qty_start=("depth_start", "sum"),  # Use tracked start depth from engine
         add_qty=("add_qty", "sum"),
-        pull_qty_total=("pull_qty", "sum"),
+        pull_qty=("pull_qty", "sum"),
         pull_qty_rest=("pull_rest_qty", "sum"),
         fill_qty=("fill_qty", "sum"),
     )
 
-    grouped["depth_qty_start"] = (
-        grouped["depth_qty_end"]
-        - grouped["add_qty"]
-        + grouped["pull_qty_total"]
-        + grouped["fill_qty"]
-    )
-    grouped["depth_qty_start"] = grouped["depth_qty_start"].clip(lower=0.0)
+    # depth_qty_start is now tracked directly in the engine, no formula calculation needed
+    # The accounting identity should hold: depth_qty_start + add_qty - pull_qty - fill_qty = depth_qty_end
 
     grid = _build_strike_grid(df_fut_snap)
     if grid.empty:
@@ -252,16 +264,13 @@ def _build_option_flow_surface(
         "depth_qty_end",
         "depth_qty_rest",
         "add_qty",
-        "pull_qty_total",
+        "pull_qty",
         "pull_qty_rest",
         "fill_qty",
         "depth_qty_start",
     ]
     for col in fill_cols:
         df_out[col] = df_out[col].fillna(0.0)
-
-    if (df_out["rel_ticks"] % 20 != 0).any():
-        raise ValueError("Option flow surface rel_ticks not aligned to 20-tick ($5) grid")
 
     df_out["window_start_ts_ns"] = df_out["window_end_ts_ns"] - WINDOW_NS
     df_out["window_valid"] = df_out["spot_ref_price_int"].astype("int64") > 0
@@ -279,7 +288,7 @@ def _build_option_flow_surface(
             "depth_qty_start",
             "depth_qty_end",
             "add_qty",
-            "pull_qty_total",
+            "pull_qty",
             "pull_qty_rest",
             "fill_qty",
             "depth_qty_rest",
@@ -293,15 +302,17 @@ def _build_strike_grid(df_fut_snap: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     grid_base = df_fut_snap[["window_end_ts_ns", "spot_ref_price_int"]].drop_duplicates().copy()
-    grid_base["spot_ref_price"] = grid_base["spot_ref_price_int"].astype(float) * PRICE_SCALE
+    grid_base["spot_ref_price_int"] = grid_base["spot_ref_price_int"].astype("int64")
+    grid_base["strike_ref_price_int"] = _round_to_nearest_strike_int(grid_base["spot_ref_price_int"])
 
     offsets = np.arange(-MAX_STRIKE_OFFSETS, MAX_STRIKE_OFFSETS + 1)
     grid_list: List[pd.DataFrame] = []
     for offset in offsets:
         tmp = grid_base.copy()
-        tmp["strike_points"] = tmp["spot_ref_price"] + offset * STRIKE_STEP_POINTS
-        tmp["strike_price_int"] = (tmp["strike_points"] / PRICE_SCALE).round().astype("int64")
-        tmp["rel_ticks"] = offset * 20
+        tmp["strike_price_int"] = tmp["strike_ref_price_int"] + offset * STRIKE_STEP_INT
+        tmp["strike_points"] = tmp["strike_price_int"].astype(float) * PRICE_SCALE
+        tick_delta = tmp["strike_price_int"] - tmp["spot_ref_price_int"]
+        tmp["rel_ticks"] = (tick_delta // TICK_INT).astype("int64")
         grid_list.append(
             tmp[["window_end_ts_ns", "spot_ref_price_int", "strike_price_int", "strike_points", "rel_ticks"]]
         )

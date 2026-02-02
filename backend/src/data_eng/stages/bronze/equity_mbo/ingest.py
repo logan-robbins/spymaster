@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List
 
@@ -11,8 +12,11 @@ from databento.common.enums import PriceType
 from ...base import Stage, StageIO
 from ....config import AppConfig
 from ....contracts import enforce_contract, load_avro_contract
+from ....filters.bronze_hard_rejects import apply_bronze_hard_rejects
 from ....io import is_partition_complete, partition_ref, write_partition
 from ....utils import session_window_ns
+
+logger = logging.getLogger(__name__)
 
 RTYPE_MBO = 160
 NULL_PRICE = np.iinfo("int64").max
@@ -92,6 +96,17 @@ class BronzeIngestEquityMbo(Stage):
         df_all["flags"] = df_all["flags"].astype("int64")
         df_all["instrument_id"] = df_all["instrument_id"].astype("int64")
         df_all["ts_in_delta"] = df_all["ts_in_delta"].astype("int64")
+
+        # Apply bronze hard reject filters (institutional-grade data quality)
+        original_count = len(df_all)
+        df_all, reject_stats = apply_bronze_hard_rejects(
+            df_all, price_col="price", size_col="size", action_col="action", ts_col="ts_event", return_stats=True
+        )
+        if reject_stats["total_rejected"] > 0:
+            logger.info(
+                f"Bronze hard rejects for {dt}: {reject_stats['total_rejected']}/{original_count} rows "
+                f"(zero_price={reject_stats.get('zero_price', 0)}, zero_size={reject_stats.get('zero_size', 0)})"
+            )
 
         contract_path = repo_root / cfg.dataset(self.io.output).contract
         contract = load_avro_contract(contract_path)

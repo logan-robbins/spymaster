@@ -1,0 +1,4 @@
+1. [x] Remove future_option_mbo bronze/silver (and cache) partitions for 2026-01-05..2026-01-29.
+2. [x] Regenerate bronze future_option_mbo for 2026-01-05..2026-01-29.
+3. [x] Regenerate silver future_option_mbo for 2026-01-05..2026-01-29.
+4. [x] Verify regeneration completed and update README.

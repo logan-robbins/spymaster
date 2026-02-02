@@ -1,0 +1,16 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/equity_mbo/book_snapshot_1s.avsc",
+  "contract_sha256": "f6b9a0596eb9b3e387b01bae244e8395ed9dd962f8003f73af66c46047f99070",
+  "dataset": "silver.equity_mbo.book_snapshot_1s",
+  "dt": "2026-01-16",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.equity_mbo.mbo",
+      "dt": "2026-01-16",
+      "manifest_sha256": "50d9b4cd29652813c28f86361b3c7ac4451603ceb38a2dca3cd128bee7abb474"
+    }
+  ],
+  "row_count": 601,
+  "stage": "silver_compute_equity_book_states_1s"
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -7,6 +8,7 @@ import pandas as pd
 from ...base import Stage, StageIO
 from ....config import AppConfig
 from ....contracts import enforce_contract, load_avro_contract
+from ....filters.gold_strict_filters import apply_gold_strict_filters
 from ....io import (
     is_partition_complete,
     partition_ref,
@@ -14,6 +16,8 @@ from ....io import (
     read_partition,
     write_partition,
 )
+
+logger = logging.getLogger(__name__)
 
 EPS_QTY = 1.0
 
@@ -51,6 +55,19 @@ class GoldComputeEquityPhysicsSurface1s(Stage):
 
         df_snap = enforce_contract(read_partition(snap_ref), snap_contract)
         df_flow = enforce_contract(read_partition(flow_ref), flow_contract)
+
+        # Apply gold strict filters for institutional-grade data
+        original_snap_count = len(df_snap)
+        original_flow_count = len(df_flow)
+        
+        df_snap, snap_stats = apply_gold_strict_filters(df_snap, product_type="equities", return_stats=True)
+        df_flow, flow_stats = apply_gold_strict_filters(df_flow, product_type="equities", return_stats=True)
+        
+        if snap_stats.get("total_filtered", 0) > 0 or flow_stats.get("total_filtered", 0) > 0:
+            logger.info(
+                f"Gold filters for {dt}: snap={snap_stats.get('total_filtered', 0)}/{original_snap_count}, "
+                f"flow={flow_stats.get('total_filtered', 0)}/{original_flow_count}"
+            )
 
         df_out = self.transform(df_snap, df_flow)
 
@@ -100,13 +117,13 @@ class GoldComputeEquityPhysicsSurface1s(Stage):
         depth_start = df["depth_qty_start"].astype(float).to_numpy()
         add_qty = df["add_qty"].astype(float).to_numpy()
         fill_qty = df["fill_qty"].astype(float).to_numpy()
-        pull_qty_total = df["pull_qty_total"].astype(float).to_numpy()
+        pull_qty = df["pull_qty"].astype(float).to_numpy()
 
         denom = depth_start + EPS_QTY
 
         df["add_intensity"] = add_qty / denom
         df["fill_intensity"] = fill_qty / denom
-        df["pull_intensity"] = pull_qty_total / denom
+        df["pull_intensity"] = pull_qty / denom
         df["liquidity_velocity"] = df["add_intensity"] - df["pull_intensity"] - df["fill_intensity"]
 
         df["event_ts_ns"] = df["window_end_ts_ns"]

@@ -6,7 +6,7 @@
 *   **Spot Ref Price**: `4750.00` (`475000000000`)
 *   **Tick Size**: `0.25` (`25000000`)
 
-| window_end_ts_ns | price_int | side | spot_ref_price_int | rel_ticks | depth_qty_start | depth_qty_end | add_qty | pull_qty_total | depth_qty_rest | pull_qty_rest | fill_qty |
+| window_end_ts_ns | price_int | side | spot_ref_price_int | rel_ticks | depth_qty_start | depth_qty_end | add_qty | pull_qty | depth_qty_rest | pull_qty_rest | fill_qty |
 | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | 1767711000000000000 | 475075000000 | A | 475000000000 | **3** | 150 | 165 | 20 | 5 | 140 | 2 | 0 |
 | 1767711000000000000 | 475050000000 | A | 475000000000 | **2** | 200 | 180 | 10 | 30 | 190 | 15 | 0 |

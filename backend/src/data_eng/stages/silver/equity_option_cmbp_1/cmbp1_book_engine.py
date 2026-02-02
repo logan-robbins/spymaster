@@ -202,6 +202,10 @@ class Cmbp1BookEngine:
         self._accumulate(self.acc_pull, (iid, side, old_price), float(old_size))
         self._accumulate(self.acc_add, (iid, side, new_price), float(new_size))
 
+    def _reset_accumulators(self) -> None:
+        self.acc_add = {}
+        self.acc_pull = {}
+
     @staticmethod
     def _accumulate(target: Dict[Tuple[int, str, int], float], key: Tuple[int, str, int], value: float) -> None:
         target[key] = target.get(key, 0.0) + value

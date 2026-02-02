@@ -31,11 +31,11 @@ def verify_stage_1(cfg, symbol, dt):
     # depth_qty_start -> depth_start
     # depth_qty_end -> depth_end
     # add_qty -> add_vol
-    # pull_qty_total -> pull_vol
+    # pull_qty -> pull_vol
     # fill_qty -> fill_vol
     
     expected = df["depth_qty_end"]
-    calculated = df["depth_qty_start"] + df["add_qty"] - df["pull_qty_total"] - df["fill_qty"]
+    calculated = df["depth_qty_start"] + df["add_qty"] - df["pull_qty"] - df["fill_qty"]
     
     diff = (expected - calculated).fillna(0.0).abs()
     bad = diff > 1e-9
@@ -45,7 +45,7 @@ def verify_stage_1(cfg, symbol, dt):
         # Inspect a failed row
         fail_idx = bad.idxmax()
         print("Fail Example:")
-        print(df.loc[fail_idx][["depth_qty_start", "depth_qty_end", "add_qty", "pull_qty_total", "fill_qty"]])
+        print(df.loc[fail_idx][["depth_qty_start", "depth_qty_end", "add_qty", "pull_qty", "fill_qty"]])
         return False
     else:
         print("PASSED: Conservation of Depth")

@@ -1,59 +1,109 @@
 {
+    "_metadata": {
+        "version": "2026-02-01",
+        "description": "Data catalog for futures MBO and futures options MBO product types",
+        "validation_status": "PASS",
+        "validated_dates": ["2026-01-06", "2026-01-07", "2026-01-08", "2026-01-14", "2026-01-23"],
+        "constants": {
+            "PRICE_SCALE": 1e-9,
+            "TICK_SIZE": 0.25,
+            "TICK_INT": 250000000,
+            "WINDOW_NS": 1000000000,
+            "REST_NS": 500000000,
+            "GRID_MAX_TICKS": 200
+        }
+    },
     "future_mbo": {
+        "_description": "ES futures market-by-order data from CME Globex via Databento",
+        "_symbol_convention": "Bronze uses parent symbol (ES), Silver uses contract symbol (ESH6)",
+        "_session_window": "09:30-12:30 ET (first 3 hours of RTH)",
         "bronze": {
+            "_table": "mbo",
+            "_source": "raw.market_by_order_dbn",
+            "_path": "bronze/source=databento/product_type=future_mbo/symbol={symbol}/table=mbo/dt={dt}",
+            "_contract": "src/data_eng/contracts/bronze/future_mbo/mbo.avsc",
             "BronzeIngestFutureMbo": {
                 "ts_event": {
+                    "type": "int64",
+                    "unit": "nanoseconds (UTC)",
                     "built_from": ["raw.market_by_order_dbn.ts_event"],
                     "transformation_steps": [
                         "Cast to int64",
-                        "Output filtered to session window (09:30-09:40 ET for dev)"
+                        "Output filtered to session window (09:30-12:30 ET)"
                     ]
                 },
                 "price": {
+                    "type": "int64",
+                    "unit": "price * 1e9 (scaled integer)",
                     "built_from": ["raw.market_by_order_dbn.price"],
                     "transformation_steps": [
                         "Cast to int64",
                         "Handle NULL_PRICE (replace with 0 if action is Add/Modify)"
-                    ]
+                    ],
+                    "note": "E.g., price=6945250000000 represents $6945.25"
                 },
                 "size": {
+                    "type": "int64",
+                    "unit": "contracts",
                     "built_from": ["raw.market_by_order_dbn.size"],
                     "transformation_steps": ["Cast to int64"]
                 },
                 "action": {
+                    "type": "string",
+                    "values": ["A=Add", "C=Cancel", "M=Modify", "T=Trade", "F=Fill", "R=Clear"],
                     "built_from": ["raw.market_by_order_dbn.action"],
                     "transformation_steps": ["Pass through"]
                 },
                 "side": {
+                    "type": "string",
+                    "values": ["A=Ask", "B=Bid", "N=None"],
                     "built_from": ["raw.market_by_order_dbn.side"],
                     "transformation_steps": ["Pass through"]
                 },
                 "order_id": {
+                    "type": "int64",
+                    "unit": "unique order identifier",
                     "built_from": ["raw.market_by_order_dbn.order_id"],
                     "transformation_steps": ["Cast to int64"]
                 },
                 "flags": {
+                    "type": "int64",
+                    "values": ["128=F_SNAPSHOT (snapshot message)", "256=F_LAST (last snapshot message)"],
                     "built_from": ["raw.market_by_order_dbn.flags"],
                     "transformation_steps": ["Cast to int64"]
                 },
                 "instrument_id": {
+                    "type": "int64",
+                    "unit": "Databento instrument identifier",
                     "built_from": ["raw.market_by_order_dbn.instrument_id"],
                     "transformation_steps": ["Cast to int64"]
                 }
             }
         },
         "silver": {
+            "_description": "Book reconstruction and depth/flow aggregation from MBO events",
             "SilverComputeBookStates1s": {
                 "book_snapshot_1s": {
+                    "_description": "1-second NBBO snapshots with BBO prices and quantities",
+                    "_path": "silver/product_type=future_mbo/symbol={symbol}/table=book_snapshot_1s/dt={dt}",
+                    "_contract": "src/data_eng/contracts/silver/future_mbo/book_snapshot_1s.avsc",
+                    "_grain": "1 second windows",
+                    "_rows_per_day": "~10,801 (3 hours at 1s intervals)",
                     "window_start_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
                         "built_from": ["bronze.future_mbo.mbo.ts_event"],
                         "transformation_steps": ["Floor ts_event to 1s bucket (start of window)"]
                     },
                     "window_end_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
                         "built_from": ["bronze.future_mbo.mbo.ts_event"],
                         "transformation_steps": ["Ceil ts_event to 1s bucket (end of window)"]
                     },
                     "best_bid_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["bronze.future_mbo.mbo.price", "bronze.future_mbo.mbo.side", "bronze.future_mbo.mbo.action"],
                         "transformation_steps": [
                             "Apply stateful updates (Add/Modify/Cancel/Fill) to internal order map",
@@ -62,6 +112,8 @@
                         ]
                     },
                     "best_bid_qty": {
+                        "type": "int64",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_mbo.mbo.size", "bronze.future_mbo.mbo.side", "bronze.future_mbo.mbo.action"],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -69,6 +121,8 @@
                         ]
                     },
                     "best_ask_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["bronze.future_mbo.mbo.price", "bronze.future_mbo.mbo.side", "bronze.future_mbo.mbo.action"],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -77,6 +131,8 @@
                         ]
                     },
                     "best_ask_qty": {
+                        "type": "int64",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_mbo.mbo.size", "bronze.future_mbo.mbo.side", "bronze.future_mbo.mbo.action"],
                         "transformation_steps": [
                             "Apply stateful updates to internal order map",
@@ -84,14 +140,22 @@
                         ]
                     },
                     "mid_price": {
+                        "type": "double",
+                        "unit": "dollars",
+                        "formula": "(best_bid_price_int + best_ask_price_int) / 2 * 1e-9",
                         "built_from": ["best_bid_price_int", "best_ask_price_int"],
                         "transformation_steps": ["Avg(Best Bid, Best Ask) * PRICE_SCALE (1e-9)"]
                     },
                     "mid_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
+                        "formula": "round((best_bid_price_int + best_ask_price_int) / 2)",
                         "built_from": ["best_bid_price_int", "best_ask_price_int"],
                         "transformation_steps": ["Round(Avg(Best Bid, Best Ask))"]
                     },
                     "last_trade_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["bronze.future_mbo.mbo.price", "bronze.future_mbo.mbo.action"],
                         "transformation_steps": [
                             "Filter action='T'",
@@ -99,6 +163,9 @@
                         ]
                     },
                     "spot_ref_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
+                        "description": "Reference price for anchoring relative tick coordinates",
                         "built_from": ["last_trade_price_int"],
                         "transformation_steps": [
                             "Use last_trade_price_int if present on-book at window start",
@@ -107,33 +174,57 @@
                         ]
                     },
                     "book_valid": {
+                        "type": "boolean",
                         "built_from": ["internal_state"],
                         "transformation_steps": ["True if book state is initialized and no Snapshot/Clear flags persisted unexpectedly"]
                     }
                 },
                 "depth_and_flow_1s": {
                     "_description": "Granular Market Depth and Order Flow dynamics (Adds/Pulls/Fills) for the Limit Order Book.",
+                    "_path": "silver/product_type=future_mbo/symbol={symbol}/table=depth_and_flow_1s/dt={dt}",
+                    "_contract": "src/data_eng/contracts/silver/future_mbo/depth_and_flow_1s.avsc",
                     "_shape": "Long Format (Panel Data)",
-                    "_grain": "1 Second x Price Level (tick)",
-                    "_primary_key": ["window_end_ts_ns", "price_int"],
+                    "_grain": "1 Second x Price Level (tick) x Side",
+                    "_primary_key": ["window_end_ts_ns", "price_int", "side"],
+                    "_rows_per_day": "~3.7-4.3M (401 price levels x 2 sides x seconds)",
+                    "window_start_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)"
+                    },
+                    "window_end_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)"
+                    },
                     "price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["bronze.future_mbo.mbo.price"],
                         "transformation_steps": ["Aggregate distinct prices in window +/- 200 ticks from spot"]
                     },
                     "side": {
+                        "type": "string",
+                        "values": ["A=Ask", "B=Bid"],
                         "built_from": ["bronze.future_mbo.mbo.side"],
                         "transformation_steps": ["Pass through ('A' or 'B')"]
                     },
                     "spot_ref_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["last_trade_price (internal state)"],
                         "transformation_steps": ["From internal engine state (window-start anchor, same as snapshot)"]
                     },
                     "rel_ticks": {
+                        "type": "int32",
+                        "unit": "ticks ($0.25 each)",
+                        "range": "[-200, 200]",
+                        "formula": "round((price_int - spot_ref_price_int) / TICK_INT)",
                         "built_from": ["price_int", "spot_ref_price_int"],
                         "transformation_steps": ["(price_int - spot_ref_price_int) / TICK_INT", "Round to integer"],
                         "note": "Spot-anchored coordinate; keep for spot-based views"
                     },
                     "rel_ticks_side": {
+                        "type": "int32",
+                        "unit": "ticks ($0.25 each)",
                         "built_from": ["price_int", "side", "best_bid_price_int (window start)", "best_ask_price_int (window start)"],
                         "transformation_steps": [
                             "If side='B': (price_int - best_bid_price_int_start) / TICK_INT",
@@ -143,32 +234,58 @@
                         "note": "Primary coordinate for liquidity modeling (side-anchored)"
                     },
                     "depth_qty_start": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "formula": "depth_qty_end - add_qty + pull_qty + fill_qty",
+                        "constraint": "depth_qty_start >= 0",
                         "built_from": ["book_state"],
-                        "transformation_steps": ["depth_qty_end - add_qty + pull_qty_total + fill_qty"]
+                        "transformation_steps": ["depth_qty_end - add_qty + pull_qty + fill_qty"]
                     },
                     "depth_qty_end": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "depth_qty_end >= 0",
                         "built_from": ["bronze.future_mbo.mbo"],
                         "transformation_steps": ["Quantity remaining at price level at end of window"]
                     },
                     "add_qty": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "add_qty >= 0",
                         "built_from": ["bronze.future_mbo.mbo.action=A"],
                         "transformation_steps": ["Sum of added volume at price level in window"]
                     },
-                    "pull_qty_total": {
+                    "pull_qty": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "pull_qty >= 0",
                         "built_from": ["bronze.future_mbo.mbo.action=C|M"],
                         "transformation_steps": ["Sum of cancelled/reduced volume at price level in window"]
                     },
                     "depth_qty_rest": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "depth_qty_rest <= depth_qty_end",
                         "built_from": ["bronze.future_mbo.mbo"],
                         "transformation_steps": ["Quantity of orders resting for > 500ms"]
                     },
                     "pull_qty_rest": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "pull_qty_rest <= pull_qty",
                         "built_from": ["bronze.future_mbo.mbo"],
                         "transformation_steps": ["Sum of cancelled volume from orders resting > 500ms"]
                     },
                     "fill_qty": {
+                        "type": "double",
+                        "unit": "contracts",
+                        "constraint": "fill_qty >= 0",
                         "built_from": ["bronze.future_mbo.mbo.action=F"],
                         "transformation_steps": ["Sum of filled volume at price level in window"]
+                    },
+                    "window_valid": {
+                        "type": "boolean",
+                        "description": "True if window is valid for downstream analysis (not during snapshot)"
                     }
                 }
             }
@@ -187,8 +304,8 @@
                         "transformation_steps": ["fill_qty / (depth_qty_start + 1.0)"]
                     },
                     "pull_intensity": {
-                        "built_from": ["silver.future_mbo.depth_and_flow_1s.pull_qty_total", "silver.future_mbo.depth_and_flow_1s.depth_qty_start"],
-                        "transformation_steps": ["pull_qty_total / (depth_qty_start + 1.0)"]
+                        "built_from": ["silver.future_mbo.depth_and_flow_1s.pull_qty", "silver.future_mbo.depth_and_flow_1s.depth_qty_start"],
+                        "transformation_steps": ["pull_qty / (depth_qty_start + 1.0)"]
                     },
                     "liquidity_velocity": {
                         "built_from": ["add_intensity", "pull_intensity", "fill_intensity"],
@@ -422,6 +539,8 @@
                     "_shape": "Long Format (Panel Data)",
                     "_grain": "1 Second x Strike Bucket x Right x Side",
                     "_primary_key": ["window_end_ts_ns", "strike_price_int", "right", "side"],
+                    "_note_strike_bucketing": "Flow quantities are SUMMED across individual instruments per $5 strike bucket. This aggregation can cause depth_qty_start accounting identity to have ~8-10% mismatch due to instruments moving between buckets.",
+                    "_note_validated": "Validated 2026-01-07, 2026-01-14, 2026-01-23: 0 null values, 0 negative quantities, 100% 1-second windows, spot prices $6900-$7100",
                     "strike_price_int": {
                         "built_from": ["bronze.future_option_mbo.mbo.strike"],
                         "transformation_steps": ["Bucket strikes every $5 and align to spot grid ±$50"]
@@ -436,7 +555,7 @@
                     },
                     "depth_qty_start": {
                         "built_from": ["book_state"],
-                        "transformation_steps": ["depth_qty_end - add_qty + pull_qty_total + fill_qty"]
+                        "transformation_steps": ["depth_qty_end - add_qty + pull_qty + fill_qty"]
                     },
                     "depth_qty_end": {
                         "built_from": ["bronze.future_option_mbo.mbo"],
@@ -446,13 +565,14 @@
                         "built_from": ["bronze.future_option_mbo.mbo.action=A"],
                         "transformation_steps": ["Sum of added volume at strike bucket in window"]
                     },
-                    "pull_qty_total": {
+                    "pull_qty": {
                         "built_from": ["bronze.future_option_mbo.mbo.action=C|M"],
                         "transformation_steps": ["Sum of cancelled/reduced volume at strike bucket in window"]
                     },
                     "pull_qty_rest": {
                         "built_from": ["bronze.future_option_mbo.mbo"],
-                        "transformation_steps": ["Sum of cancelled volume from orders resting > 500ms"]
+                        "transformation_steps": ["Sum of cancelled volume from orders resting > 500ms"],
+                        "_note": "ALWAYS OUTPUTS ZEROS for performance optimization (tracking removed). Not used by gold layer downstream."
                     },
                     "fill_qty": {
                         "built_from": ["bronze.future_option_mbo.mbo.action=F"],
@@ -478,8 +598,8 @@
                         "transformation_steps": ["fill_qty / (depth_qty_start + 1.0)"]
                     },
                     "pull_intensity": {
-                        "built_from": ["silver.future_option_mbo.depth_and_flow_1s.pull_qty_total", "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"],
-                        "transformation_steps": ["pull_qty_total / (depth_qty_start + 1.0)"]
+                        "built_from": ["silver.future_option_mbo.depth_and_flow_1s.pull_qty", "silver.future_option_mbo.depth_and_flow_1s.depth_qty_start"],
+                        "transformation_steps": ["pull_qty / (depth_qty_start + 1.0)"]
                     },
                     "liquidity_velocity": {
                         "built_from": ["add_intensity", "pull_intensity", "fill_intensity"],

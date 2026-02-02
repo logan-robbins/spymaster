@@ -22,6 +22,7 @@ export class OptionsGrid {
 
   // Reference strike (tick index of center $5 strike, set on first data)
   private referenceStrikeTick: number = 0;
+  private referenceSet: boolean = false;
 
   // Composite data: ring buffer [width][numStrikes]
   private velocityData: Float32Array;
@@ -183,10 +184,11 @@ export class OptionsGrid {
    * Call once when first receiving data to anchor the strike grid.
    */
   setReferenceStrike(spotTickIndex: number): void {
-    if (this.referenceStrikeTick === 0) {
+    if (!this.referenceSet) {
       // Round spot to nearest $5 strike
       this.referenceStrikeTick = Math.round(spotTickIndex / STRIKE_TICKS) * STRIKE_TICKS;
       this.material.uniforms.uReferenceStrike.value = this.referenceStrikeTick;
+      this.referenceSet = true;
       console.log(`OptionsGrid: reference strike set to tick ${this.referenceStrikeTick}`);
     }
   }
@@ -235,7 +237,7 @@ export class OptionsGrid {
   /**
    * Write options composite data using spot-relative ticks (converts to absolute internally)
    * @param spotTickIndex - Current spot tick index
-   * @param relTicks - Relative ticks from spot (must be multiple of 20)
+   * @param relTicks - Relative ticks from spot (strike - spot, in ticks)
    * @param velocity - Aggregated liquidity velocity
    * @param pressure - Aggregated pressure gradient
    * @param omega - Aggregated obstacle strength
@@ -310,6 +312,11 @@ export class OptionsGrid {
     this.referenceSet = false;
     this.velocityData.fill(0);
     this.texture.needsUpdate = true;
+  }
+
+  /** Check if reference strike has been set */
+  hasReference(): boolean {
+    return this.referenceSet;
   }
 }
 

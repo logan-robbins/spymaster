@@ -11,6 +11,7 @@ TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
 GRID_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
+HUD_MAX_TICKS = GRID_MAX_TICKS  # Alias for backward compatibility
 
 F_SNAPSHOT = 128
 F_LAST = 256
@@ -53,7 +54,7 @@ DEPTH_FLOW_COLUMNS = [
     "depth_qty_start",
     "depth_qty_end",
     "add_qty",
-    "pull_qty_total",
+    "pull_qty",
     "depth_qty_rest",
     "pull_qty_rest",
     "fill_qty",
@@ -67,48 +68,6 @@ class OrderState:
     price_int: int
     qty: int
     ts_enter_price: int
-
-
-class ApproachDirState:
-    def __init__(self) -> None:
-        self.spot_history: List[int] = []
-
-    def next_dir(self, spot_int: int) -> str:
-        self.spot_history.append(spot_int)
-        if len(self.spot_history) <= 3:
-            return "approach_none"
-        trend = self.spot_history[-1] - self.spot_history[-4]
-        if trend > 0:
-            return "approach_up"
-        if trend < 0:
-            return "approach_down"
-        return "approach_none"
-
-
-class RadarDerivativeState:
-    def __init__(self, feature_names: List[str]) -> None:
-        self.feature_names = feature_names
-        self.prev: Dict[str, float | None] = {name: None for name in feature_names}
-        self.prev_d1: Dict[str, float] = {name: 0.0 for name in feature_names}
-        self.prev_d2: Dict[str, float] = {name: 0.0 for name in feature_names}
-
-    def apply(self, row: Dict[str, float]) -> None:
-        for name in self.feature_names:
-            prev_val = self.prev[name]
-            if prev_val is None:
-                d1 = 0.0
-                d2 = 0.0
-                d3 = 0.0
-            else:
-                d1 = row[name] - prev_val
-                d2 = d1 - self.prev_d1[name]
-                d3 = d2 - self.prev_d2[name]
-            row[f"d1_{name}"] = float(d1)
-            row[f"d2_{name}"] = float(d2)
-            row[f"d3_{name}"] = float(d3)
-            self.prev[name] = row[name]
-            self.prev_d1[name] = d1
-            self.prev_d2[name] = d2
 
 
 class FuturesBookEngine:
@@ -181,6 +140,12 @@ class FuturesBookEngine:
         # if self.snapshot_in_progress and not is_snapshot_msg:
         #     self.snapshot_in_progress = False
         #     self.book_valid = True
+        
+        # Exit snapshot mode when we see F_LAST flag (end of snapshot sequence)
+        is_last_snapshot_msg = (flags & F_LAST) != 0
+        if self.snapshot_in_progress and is_last_snapshot_msg:
+            self.snapshot_in_progress = False
+            self.book_valid = True
         
         # Assume valid unless proven otherwise
         if not self.book_valid and not self.snapshot_in_progress:
@@ -255,10 +220,13 @@ class FuturesBookEngine:
             mid_price_int = int(round((best_bid_price + best_ask_price) * 0.5))
 
         spot_ref = self.window_spot_ref_price_int
-
-        # DEBUG: Print order book size
-        if len(self.snap_rows) % 100 == 0:
-            print(f"DEBUG: Window {self.window_start_ts} | SpotRef: {spot_ref} | Orders: {len(self.orders)} | Bids: {len(self.depth_bid)} | Asks: {len(self.depth_ask)}")
+        # Fallback: if spot_ref was 0 at window start, try to compute at window end
+        if spot_ref == 0:
+            spot_ref = _resolve_spot_ref(
+                last_trade=self.last_trade_price_int,
+                depth_bid=self.depth_bid,
+                depth_ask=self.depth_ask,
+            )
 
         self.snap_rows.append(
             {
@@ -332,7 +300,7 @@ class FuturesBookEngine:
                     "depth_qty_start": float(depth_start),
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
-                    "pull_qty_total": float(pull_qty),
+                    "pull_qty": float(pull_qty),
                     "depth_qty_rest": float(rest_bid.get(price, 0.0)),
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
@@ -366,7 +334,7 @@ class FuturesBookEngine:
                     "depth_qty_start": float(depth_start),
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
-                    "pull_qty_total": float(pull_qty),
+                    "pull_qty": float(pull_qty),
                     "depth_qty_rest": float(rest_ask.get(price, 0.0)),
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
@@ -492,18 +460,24 @@ class FuturesBookEngine:
             return
         side = order.side
         price = order.price_int
+        
+        # Cap fill quantity at order's remaining quantity.
+        # Databento MBO data can report fill_qty > order.qty for aggressor orders
+        # where the fill event shows the total trade size, not the order's fill amount.
+        actual_fill = min(fill_qty, order.qty)
+        
         if side == SIDE_BID:
-            self.depth_bid[price] = self.depth_bid.get(price, 0) - fill_qty
+            self.depth_bid[price] = self.depth_bid.get(price, 0) - actual_fill
             if self.depth_bid[price] <= 0:
                 self.depth_bid.pop(price, None)
-            self.acc_fill_bid[price] = self.acc_fill_bid.get(price, 0.0) + float(fill_qty)
+            self.acc_fill_bid[price] = self.acc_fill_bid.get(price, 0.0) + float(actual_fill)
         else:
-            self.depth_ask[price] = self.depth_ask.get(price, 0) - fill_qty
+            self.depth_ask[price] = self.depth_ask.get(price, 0) - actual_fill
             if self.depth_ask[price] <= 0:
                 self.depth_ask.pop(price, None)
-            self.acc_fill_ask[price] = self.acc_fill_ask.get(price, 0.0) + float(fill_qty)
+            self.acc_fill_ask[price] = self.acc_fill_ask.get(price, 0.0) + float(actual_fill)
 
-        remaining = order.qty - fill_qty
+        remaining = order.qty - actual_fill
         if remaining > 0:
             order.qty = remaining
         else:

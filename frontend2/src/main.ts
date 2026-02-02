@@ -394,7 +394,6 @@ canvas.addEventListener('wheel', onWheel, { passive: false });
 
 // Click-drag panning
 let isDragging = false;
-let dragStartX = 0;
 let dragStartY = 0;
 let dragStartCameraY = 0;
 
@@ -403,7 +402,6 @@ function onMouseDown(event: MouseEvent): void {
   if (event.button !== 0) return;
   
   isDragging = true;
-  dragStartX = event.clientX;
   dragStartY = event.clientY;
   dragStartCameraY = cameraYCenter;
   canvas.style.cursor = 'grabbing';

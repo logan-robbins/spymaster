@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/loganrobbins/research/qmachina/spymaster/backend/src/data_eng/contracts/silver/equity_option_cmbp_1/depth_and_flow_1s.avsc",
+  "contract_sha256": "e492bea76cdb69d0e31ecdfc71e234e3c2cf44f73d84a93aaf88bedaf9b540cc",
+  "dataset": "silver.equity_option_cmbp_1.depth_and_flow_1s",
+  "dt": "2026-01-27",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.equity_option_cmbp_1.cmbp_1",
+      "dt": "2026-01-27",
+      "manifest_sha256": "4fa993aa436dba3282b5e81d07ea7a4bc7ce1468b5e8c6881ad5e6aee3bc858b"
+    },
+    {
+      "dataset": "silver.equity_mbo.book_snapshot_1s",
+      "dt": "2026-01-27",
+      "manifest_sha256": "e98fb8e8b0a0661cea6205b6a289811952d4295e27a11574fa8426ff3936d2bf"
+    }
+  ],
+  "row_count": 122400,
+  "stage": "silver_compute_equity_option_book_states_1s"
+}
