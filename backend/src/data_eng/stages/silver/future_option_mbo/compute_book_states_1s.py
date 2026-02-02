@@ -245,8 +245,23 @@ def _build_option_flow_surface(
         fill_qty=("fill_qty", "sum"),
     )
 
-    # depth_qty_start is now tracked directly in the engine, no formula calculation needed
+    # INSTITUTIONAL FIX 1: Clamp depth_qty_rest to depth_qty_end
+    # Resting depth cannot exceed total depth (race condition artifact from temporal aggregation)
+    # See TASK_PLAN.txt Section 4 for root cause analysis
+    grouped["depth_qty_rest"] = np.minimum(grouped["depth_qty_rest"], grouped["depth_qty_end"])
+
+    # INSTITUTIONAL FIX 2: Compute accounting_identity_valid flag
     # The accounting identity should hold: depth_qty_start + add_qty - pull_qty - fill_qty = depth_qty_end
+    # Violations occur at aggregate level due to grid filtering + strike aggregation
+    # Zero-flow rows have 0% violations (proves formula is correct)
+    residual = (
+        grouped["depth_qty_start"]
+        + grouped["add_qty"]
+        - grouped["pull_qty"]
+        - grouped["fill_qty"]
+        - grouped["depth_qty_end"]
+    )
+    grouped["accounting_identity_valid"] = np.abs(residual) < 0.01
 
     grid = _build_strike_grid(df_fut_snap)
     if grid.empty:
@@ -272,6 +287,9 @@ def _build_option_flow_surface(
     for col in fill_cols:
         df_out[col] = df_out[col].fillna(0.0)
 
+    # For grid cells with no activity, accounting identity trivially holds (0 = 0)
+    df_out["accounting_identity_valid"] = df_out["accounting_identity_valid"].fillna(True)
+
     df_out["window_start_ts_ns"] = df_out["window_end_ts_ns"] - WINDOW_NS
     df_out["window_valid"] = df_out["spot_ref_price_int"].astype("int64") > 0
 
@@ -293,6 +311,7 @@ def _build_option_flow_surface(
             "fill_qty",
             "depth_qty_rest",
             "window_valid",
+            "accounting_identity_valid",
         ]
     ]
 

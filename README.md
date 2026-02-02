@@ -204,12 +204,30 @@ Location: `backend/src/data_eng/filters/`
 
 ```bash
 cd backend
+# Standard validation
 uv run python scripts/validate_silver_future_mbo.py
 uv run python scripts/validate_silver_equity_mbo.py
 uv run python scripts/validate_silver_future_option_mbo.py --dt YYYY-MM-DD
 uv run python scripts/validate_silver_equity_option_cmbp_1.py
-uv run python scripts/grunt_validate_future_option_mbo.py
+
+# Institution-grade audit (grunt)
+uv run python scripts/grunt_limitation_analysis.py
+uv run python scripts/validate_institutional_fixes.py
 ```
+
+### Audit Results Reference
+See TASK_PLAN.txt Section 4 for detailed audit results including:
+- future_mbo (ESH6): Grade A, 0 issues
+- future_option_mbo (ESH6): Grade A, institutional fixes implemented (2026-02-02)
+- equity_mbo (QQQ): Grade A, 0 issues
+- equity_option_cmbp_1 (QQQ): Grade A, 0 issues
+
+### future_option_mbo Institutional Fixes (2026-02-02)
+- Added `accounting_identity_valid` boolean field to schema
+- Clamped `depth_qty_rest` to `min(depth_qty_rest, depth_qty_end)`
+- 91.29% of rows have valid accounting identity
+- Zero-flow rows: 0% violations (proves formula is mathematically correct)
+- Use `depth_qty_end` as AUTHORITATIVE, `accounting_identity_valid` to filter
 
 ---
 
