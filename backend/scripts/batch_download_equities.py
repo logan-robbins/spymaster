@@ -1,14 +1,27 @@
 """
-Batch Download Equity + Equity Options Data (0DTE only)
+Batch Download Equity + Equity Options Data (0DTE only, flat-file day slices)
 
 Downloads from two datasets:
-- XNAS.ITCH: Underlying equity MBO data (SPY, QQQ, etc.)
+- XNAS.ITCH: Underlying equity MBO data
 - OPRA.PILLAR: Equity options data via Databento CMBP-1 schema (0DTE filtered)
+
+All requests are strict batch flat-file requests:
+- delivery=\"download\"
+- split_duration=\"day\"
+- start=<session_date>, end=<session_date + 1 day>
+
+For equity options (QQQ), 0DTE filtering is by:
+- instrument_class in {C, P}
+- underlying == QQQ
+- expiration UTC date == session date
+
+This differs from futures options, where 0DTE is filtered against the active
+underlying futures contract for the date.
 
 Usage:
     # Submit jobs for a date range
     uv run python scripts/batch_download_equities.py submit \
-        --start 2026-01-06 --end 2026-01-10 --symbols SPY,QQQ \
+        --start 2026-01-06 --end 2026-01-10 --symbols QQQ \
         --log-file logs/equities.log
 
     # Poll and download completed jobs
@@ -17,7 +30,7 @@ Usage:
 
     # Run both in a loop (background process)
     nohup uv run python scripts/batch_download_equities.py daemon \
-        --start 2026-01-06 --end 2026-01-10 --symbols SPY,QQQ \
+        --start 2026-01-06 --end 2026-01-10 --symbols QQQ \
         --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 """
 import argparse
@@ -40,6 +53,37 @@ load_dotenv(backend_dir / ".env")
 
 # Job tracking file
 JOB_TRACKER_FILE = backend_dir / "logs" / "equity_options_jobs.json"
+
+SUPPORTED_SYMBOLS = {"QQQ"}
+SUPPORTED_EQUITY_SCHEMAS = {"mbo", "definition"}
+SUPPORTED_OPTIONS_SCHEMAS = {"definition", "cmbp-1", "statistics"}
+
+FLAT_FILE_DELIVERY = "download"
+FLAT_FILE_SPLIT_DURATION = "day"
+
+
+def parse_symbols(raw_symbols: str) -> list[str]:
+    symbols = [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
+    if not symbols:
+        raise ValueError("At least one symbol is required")
+    unsupported = sorted(set(symbols) - SUPPORTED_SYMBOLS)
+    if unsupported:
+        allowed = ",".join(sorted(SUPPORTED_SYMBOLS))
+        raise ValueError(
+            f"Unsupported symbols for this equity 0DTE pipeline: {unsupported}. Allowed: {allowed}"
+        )
+    return symbols
+
+
+def parse_schema_list(raw_schemas: str, allowed: set[str], label: str) -> list[str]:
+    schemas = [s.strip() for s in raw_schemas.split(",") if s.strip()]
+    if not schemas:
+        raise ValueError(f"At least one {label} schema is required")
+    unsupported = sorted(set(schemas) - allowed)
+    if unsupported:
+        allowed_str = ",".join(sorted(allowed))
+        raise ValueError(f"Unsupported {label} schemas: {unsupported}. Allowed: {allowed_str}")
+    return schemas
 
 
 def target_path_equity(schema: str, symbol: str, date_compact: str) -> Path:
@@ -109,11 +153,6 @@ def date_range(start: str, end: str) -> list[str]:
     return out
 
 
-def definition_path_options(symbol: str, date_str: str) -> Path:
-    date_compact = date_str.replace("-", "")
-    return target_path_options("definition", symbol, date_compact)
-
-
 def resolve_definition_file_options(symbol: str, date_str: str) -> Path:
     """Resolve OPRA options definition file path for a given session date.
 
@@ -152,36 +191,40 @@ def resolve_definition_file_options(symbol: str, date_str: str) -> Path:
     return sorted(nested, key=sort_key)[0]
 
 
-def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
-    """Load 0DTE option assets from definition file"""
-    def_path = resolve_definition_file_options(symbol, date_str)
-    store = db.DBNStore.from_file(str(def_path))
-    df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
-    if df.empty:
-        raise ValueError(f"Definition file empty: {def_path}")
+def filter_0dte_equity_option_raw_symbols_from_definitions(
+    definitions_df: pd.DataFrame, symbol: str, date_str: str
+) -> list[str]:
+    required = {"raw_symbol", "underlying", "instrument_class", "expiration"}
+    missing = sorted(required - set(definitions_df.columns))
+    if missing:
+        raise ValueError(f"Definitions missing required columns: {missing}")
 
+    df = definitions_df.copy()
     df = df[df["instrument_class"].isin(["C", "P"])].copy()
     df = df[df["underlying"].astype(str).str.upper() == symbol.upper()].copy()
     df = df[df["expiration"].notna()].copy()
 
-    # FIXED: Extract date in UTC to match expiration field encoding (midnight UTC = expiration date)
-    # OPRA expiration field = midnight UTC on expiration date (e.g., 2026-01-09 00:00 UTC for Jan 9 0DTE)
-    # Converting to ET shifts to previous day at 7 PM, causing off-by-one errors
-    exp_dates = (
-        pd.to_datetime(df["expiration"].astype("int64"), utc=True)
-        .dt.date.astype(str)  # Extract date in UTC, NOT ET
-    )
+    # OPRA expiration is date-granularity and represented at UTC midnight.
+    exp_dates = pd.to_datetime(df["expiration"].astype("int64"), utc=True).dt.date.astype(str)
     df = df[exp_dates == date_str].copy()
 
     if df.empty:
         raise ValueError(f"No {symbol} 0DTE definitions for {date_str}")
 
-    # Use raw_symbol for actual option contract identifiers (e.g., "QQQ   260106P00525000")
-    # NOT asset which is just the underlying ("QQQ")
-    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique()})
+    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique() if str(s).strip()})
     if not raw_symbols:
         raise ValueError(f"No 0DTE raw_symbols for {symbol} on {date_str}")
     return raw_symbols
+
+
+def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
+    """Load 0DTE option raw symbols from downloaded OPRA definitions."""
+    def_path = resolve_definition_file_options(symbol, date_str)
+    store = db.DBNStore.from_file(str(def_path))
+    df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
+    if df.empty:
+        raise ValueError(f"Definition file empty: {def_path}")
+    return filter_0dte_equity_option_raw_symbols_from_definitions(df, symbol, date_str)
 
 
 def submit_job(
@@ -220,8 +263,8 @@ def submit_job(
             start=date_str,
             end=end_date,
             stype_in=stype_in,
-            delivery="download",
-            split_duration="day",
+            delivery=FLAT_FILE_DELIVERY,
+            split_duration=FLAT_FILE_SPLIT_DURATION,
         )
         job_id = job["id"]
         tracker["jobs"][job_key] = {
@@ -236,7 +279,11 @@ def submit_job(
             "submitted_at": datetime.utcnow().isoformat(),
         }
         save_job_tracker(tracker)
-        log_msg(log_path, f"SUBMIT {job_key} job={job_id} symbols={len(symbols)}")
+        log_msg(
+            log_path,
+            f"SUBMIT {job_key} job={job_id} symbols={len(symbols)} "
+            f"delivery={FLAT_FILE_DELIVERY} split_duration={FLAT_FILE_SPLIT_DURATION}",
+        )
         return job_id
     except Exception as e:
         log_msg(log_path, f"ERROR submit {job_key}: {e}")
@@ -351,9 +398,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
     tracker = load_job_tracker()
     log_path = Path(args.log_file)
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    equity_schemas = [s.strip() for s in args.equity_schemas.split(",") if s.strip()]
-    options_schemas = [s.strip() for s in args.options_schemas.split(",") if s.strip()]
+    symbols = parse_symbols(args.symbols)
+    equity_schemas = parse_schema_list(args.equity_schemas, SUPPORTED_EQUITY_SCHEMAS, "equity")
+    options_schemas = parse_schema_list(args.options_schemas, SUPPORTED_OPTIONS_SCHEMAS, "options")
 
     for date_str in date_range(args.start, args.end):
         for symbol in symbols:
@@ -419,9 +466,9 @@ def cmd_daemon(args: argparse.Namespace) -> None:
     client = db.Historical(key=api_key)
     log_path = Path(args.log_file)
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    equity_schemas = [s.strip() for s in args.equity_schemas.split(",") if s.strip()]
-    options_schemas = [s.strip() for s in args.options_schemas.split(",") if s.strip()]
+    symbols = parse_symbols(args.symbols)
+    equity_schemas = parse_schema_list(args.equity_schemas, SUPPORTED_EQUITY_SCHEMAS, "equity")
+    options_schemas = parse_schema_list(args.options_schemas, SUPPORTED_OPTIONS_SCHEMAS, "options")
     dates = date_range(args.start, args.end)
 
     log_msg(log_path, f"DAEMON start: {len(dates)} dates, {len(symbols)} symbols")
@@ -503,16 +550,18 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Batch download equity + equity options data")
+    parser = argparse.ArgumentParser(
+        description="Batch download equity + equity options data (flat-file day-by-day 0DTE pipeline)"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Submit command
     submit_parser = subparsers.add_parser("submit", help="Submit batch jobs")
     submit_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     submit_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    submit_parser.add_argument("--symbols", default="SPY,QQQ", help="Comma-separated symbols")
+    submit_parser.add_argument("--symbols", default="QQQ", help="Comma-separated symbols (QQQ only)")
     submit_parser.add_argument("--equity-schemas", default="mbo", help="Equity schemas (mbo,definition)")
-    submit_parser.add_argument("--options-schemas", default="definition,cmbp-1,statistics", help="Options schemas")
+    submit_parser.add_argument("--options-schemas", default="cmbp-1,statistics", help="Options schemas")
     submit_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")
     submit_parser.add_argument("--log-file", required=True, help="Log file path")
 
@@ -524,9 +573,9 @@ def main() -> None:
     daemon_parser = subparsers.add_parser("daemon", help="Run submit + poll in loop until complete")
     daemon_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     daemon_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    daemon_parser.add_argument("--symbols", default="SPY,QQQ", help="Comma-separated symbols")
+    daemon_parser.add_argument("--symbols", default="QQQ", help="Comma-separated symbols (QQQ only)")
     daemon_parser.add_argument("--equity-schemas", default="mbo", help="Equity schemas")
-    daemon_parser.add_argument("--options-schemas", default="definition,cmbp-1,statistics", help="Options schemas")
+    daemon_parser.add_argument("--options-schemas", default="cmbp-1,statistics", help="Options schemas")
     daemon_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")
     daemon_parser.add_argument("--poll-interval", type=int, default=60, help="Seconds between poll iterations")
     daemon_parser.add_argument("--log-file", required=True, help="Log file path")

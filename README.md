@@ -43,19 +43,79 @@ nohup uv run python scripts/batch_download_futures.py daemon \
     --start YYYY-MM-DD --end YYYY-MM-DD \
     --symbols ES \
     --include-futures \
-    --options-schemas definition,mbo,statistics \
+    --options-schemas mbo,statistics \
     --poll-interval 60 \
     --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
 ```
+- Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
+- Active-contract pipeline (ES futures options):
+  1. Download futures definitions for `ES.FUT`
+  2. Download `ohlcv-1d` for `ES.FUT`
+  3. Resolve active contract by max daily volume (front-month-like mapping)
+  4. Download options definitions from GLBX (`ALL_SYMBOLS`)
+  5. Filter 0DTE options where `underlying == active_contract` and `expiration UTC date == session date`
+  6. Submit options MBO/statistics jobs with `stype_in=raw_symbol`
 
 **Equities + Equity Options:**
 ```bash
 cd backend
 nohup uv run python scripts/batch_download_equities.py daemon \
     --start YYYY-MM-DD --end YYYY-MM-DD \
-    --symbols SPY,QQQ \
+    --symbols QQQ \
     --equity-schemas mbo \
-    --options-schemas definition,cmbp-1,statistics \
+    --options-schemas cmbp-1,statistics \
+    --poll-interval 60 \
+    --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
+```
+- Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
+- Equity 0DTE nuance (QQQ options): filter OPRA definitions by `underlying == QQQ`, `instrument_class in {C,P}`, and `expiration UTC date == session date`.
+
+### LLM Request Routing (Instrument -> Pipeline)
+- Normalize date text to `YYYY-MM-DD` before building commands. Example: `Feb 06 2026` -> `2026-02-06`.
+- If request contains `ES`: use `scripts/batch_download_futures.py` with `--symbols ES`.
+- If request contains `QQQ`: use `scripts/batch_download_equities.py` with `--symbols QQQ`.
+- If request contains both `ES` and `QQQ`: run both scripts (futures + equities pipelines).
+- Single-date request: set `--start` and `--end` to the same date.
+- Multi-date request: set `--start` to first date and `--end` to last date.
+- Current supported downloader symbols are strict: futures script supports `ES`, equities script supports `QQQ`. Unsupported symbols should fail fast.
+
+### LLM Command Examples
+Single date request: "download Feb 06 2026 data for ES and QQQ"
+```bash
+cd backend
+nohup uv run python scripts/batch_download_futures.py daemon \
+    --start 2026-02-06 --end 2026-02-06 \
+    --symbols ES \
+    --include-futures \
+    --options-schemas mbo,statistics \
+    --poll-interval 60 \
+    --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
+
+nohup uv run python scripts/batch_download_equities.py daemon \
+    --start 2026-02-06 --end 2026-02-06 \
+    --symbols QQQ \
+    --equity-schemas mbo \
+    --options-schemas cmbp-1,statistics \
+    --poll-interval 60 \
+    --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
+```
+
+Multi-date request: "download ES and QQQ from 2026-02-03 to 2026-02-10"
+```bash
+cd backend
+nohup uv run python scripts/batch_download_futures.py daemon \
+    --start 2026-02-03 --end 2026-02-10 \
+    --symbols ES \
+    --include-futures \
+    --options-schemas mbo,statistics \
+    --poll-interval 60 \
+    --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
+
+nohup uv run python scripts/batch_download_equities.py daemon \
+    --start 2026-02-03 --end 2026-02-10 \
+    --symbols QQQ \
+    --equity-schemas mbo \
+    --options-schemas cmbp-1,statistics \
     --poll-interval 60 \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
@@ -68,7 +128,7 @@ uv run python -m src.data_eng.mbo_contract_day_selector --output-path lake/selec
 - Maps session_date → front-month contract
 - Built from `bronze/source=databento/product_type=future_mbo`
 - Filters for dates with premarket trades (05:00-08:30 ET)
-- Required before silver/gold when using base symbol ES
+- Required before silver/gold when using base symbol ES (independent of the downloader's day-by-day flat-file contract mapping)
 
 ---
 

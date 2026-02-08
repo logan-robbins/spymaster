@@ -1,36 +1,23 @@
 """
-Batch Download Futures MBO + Futures Options MBO Data (0DTE only)
+Batch-download GLBX futures + futures options with strict flat-file day slices.
 
-Downloads from GLBX.MDP3 dataset:
-- Futures MBO: ES, NQ underlying (using ES.FUT, NQ.FUT parent symbols)
-- Futures Options MBO: 0DTE filtered by raw_symbol from definitions
-- Instrument Definitions: For 0DTE filtering
-- Statistics: Optional
+Pipeline per session date and symbol (ES only):
+1) Download futures definitions (`ES.FUT`, schema=definition)
+2) Download futures daily OHLCV (`ES.FUT`, schema=ohlcv-1d) for front-month mapping
+3) Resolve active futures contract from highest day volume (front-month-like selection)
+4) Download options definitions (`ALL_SYMBOLS`, schema=definition)
+5) Filter options to 0DTE contracts where underlying == active futures contract
+6) Submit options data jobs (`mbo`, `statistics`) using `stype_in=raw_symbol`
 
-0DTE Parent Symbol Logic (ES):
-- 3rd Friday (Monthly): ES.OPT
-- Other Fridays (Weekly): EW.OPT, EW1-4.OPT
-- Mon-Thu (Daily): E1-E5.OPT + E1A-E5E.OPT variants
-
-Usage:
-    # Submit jobs for a date range
-    uv run python scripts/batch_download_futures.py submit \
-        --start 2026-01-06 --end 2026-01-10 --symbols ES,NQ \
-        --log-file logs/futures.log
-
-    # Poll and download completed jobs
-    uv run python scripts/batch_download_futures.py poll \
-        --log-file logs/futures.log
-
-    # Run both in a loop (background process)
-    nohup uv run python scripts/batch_download_futures.py daemon \
-        --start 2026-01-06 --end 2026-01-10 --symbols ES,NQ \
-        --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
+All batch requests are forced to Databento flat-file delivery with one-day requests:
+- `delivery="download"`
+- `split_duration="day"`
+- `start=<session_date>`, `end=<session_date + 1 day>`
 """
+
 import argparse
 import json
 import os
-import re
 import sys
 import time
 from datetime import datetime, timedelta
@@ -46,93 +33,72 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 load_dotenv(backend_dir / ".env")
 
-# Job tracking file
 JOB_TRACKER_FILE = backend_dir / "logs" / "futures_jobs.json"
 
-# 0DTE parent symbol patterns
-WEEKLY_ASSETS = {"EW", "EW1", "EW2", "EW3", "EW4"}
-STANDARD_ASSETS = {"ES"}
-DAILY_PATTERN = re.compile(r"^E\d")
+FUTURES_DATASET = "GLBX.MDP3"
+SUPPORTED_SYMBOLS = {"ES"}
+SUPPORTED_OPTIONS_SCHEMAS = {"definition", "mbo", "statistics"}
+
+FLAT_FILE_DELIVERY = "download"
+FLAT_FILE_SPLIT_DURATION = "day"
+
+PRODUCT_FUTURES = "futures"
+PRODUCT_FUTURES_DEFINITION = "futures_definition"
+PRODUCT_FUTURES_CONTRACT_MAP = "futures_contract_map"
+PRODUCT_FUTURES_OPTIONS_DEFINITION = "futures_options_definition"
+PRODUCT_FUTURES_OPTIONS = "futures_options"
 
 
-def is_third_friday(day: datetime) -> bool:
-    """Check if day is the 3rd Friday of the month."""
-    if day.weekday() != 4:
-        return False
-    return 15 <= day.day <= 21
+def parse_symbols(raw_symbols: str) -> list[str]:
+    symbols = [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
+    if not symbols:
+        raise ValueError("At least one symbol is required")
+    unsupported = sorted(set(symbols) - SUPPORTED_SYMBOLS)
+    if unsupported:
+        allowed = ",".join(sorted(SUPPORTED_SYMBOLS))
+        raise ValueError(
+            f"Unsupported symbols for this 0DTE pipeline: {unsupported}. Allowed: {allowed}"
+        )
+    return symbols
 
 
-def is_quarterly_month(day: datetime) -> bool:
-    """Check if day is in a quarterly expiration month (Mar, Jun, Sep, Dec)."""
-    return day.month in (3, 6, 9, 12)
-
-
-def category_for_date(day: datetime) -> str:
-    """Categorize date for 0DTE parent symbol selection.
-    
-    - standard: 3rd Friday of quarterly month (Mar/Jun/Sep/Dec) -> ES.OPT
-    - weekly: Any Friday that's NOT standard -> EW family
-    - daily: Mon-Thu -> E1-E5 family
-    """
-    if is_third_friday(day) and is_quarterly_month(day):
-        return "standard"
-    if day.weekday() == 4:  # Friday (any Friday not in quarterly 3rd Friday)
-        return "weekly"
-    return "daily"
-
-
-def parents_for_definition(day: datetime, symbol: str) -> list[str]:
-    """Get parent symbols for definition download based on date type."""
-    if symbol.upper() != "ES":
-        # NQ options have simpler structure
-        return [f"{symbol}.OPT"]
-    
-    category = category_for_date(day)
-    if category == "standard":
-        return ["ES.OPT"]
-    if category == "weekly":
-        return ["EW.OPT", "EW1.OPT", "EW2.OPT", "EW3.OPT", "EW4.OPT"]
-    # Daily
-    parents = []
-    for i in range(1, 6):
-        parents.append(f"E{i}.OPT")
-        for char in ["A", "B", "C", "D", "E"]:
-            parents.append(f"E{i}{char}.OPT")
-    return parents
-
-
-def validate_assets(day: datetime, assets: list[str]) -> None:
-    """Validate extracted assets match expected pattern for the date."""
-    category = category_for_date(day)
-    if category == "standard":
-        bad = [a for a in assets if a not in STANDARD_ASSETS]
-        if bad:
-            raise ValueError(f"Unexpected assets for standard (quarterly 3rd Fri) day {day.date()}: {bad}")
-        return
-    if category == "weekly":
-        bad = [a for a in assets if a not in WEEKLY_ASSETS]
-        if bad:
-            raise ValueError(f"Unexpected assets for weekly (Friday) day {day.date()}: {bad}")
-        return
-    # Daily (Mon-Thu)
-    bad = [a for a in assets if not DAILY_PATTERN.match(a)]
-    if bad:
-        raise ValueError(f"Unexpected assets for daily (Mon-Thu) day {day.date()}: {bad}")
+def parse_options_schemas(raw_schemas: str) -> list[str]:
+    schemas = [s.strip() for s in raw_schemas.split(",") if s.strip()]
+    if not schemas:
+        raise ValueError("At least one options schema is required")
+    unsupported = sorted(set(schemas) - SUPPORTED_OPTIONS_SCHEMAS)
+    if unsupported:
+        allowed = ",".join(sorted(SUPPORTED_OPTIONS_SCHEMAS))
+        raise ValueError(f"Unsupported options schemas: {unsupported}. Allowed: {allowed}")
+    return schemas
 
 
 def target_path_futures(schema: str, symbol: str, date_compact: str) -> Path:
-    """Paths for futures MBO data."""
     base = backend_dir / "lake" / "raw" / "source=databento"
     if schema == "mbo":
         out_dir = base / "product_type=future_mbo" / f"symbol={symbol}" / "table=market_by_order_dbn"
         name = f"glbx-mdp3-{date_compact}.mbo.dbn.zst"
+    elif schema == "ohlcv-1d":
+        out_dir = base / "product_type=future_contract_map" / f"symbol={symbol}" / "table=ohlcv_1d"
+        name = f"glbx-mdp3-{date_compact}.ohlcv-1d.dbn"
     else:
         raise ValueError(f"Unsupported futures schema: {schema}")
     return out_dir / name
 
 
-def target_path_options(schema: str, symbol: str, date_compact: str) -> Path:
-    """Paths for futures options data."""
+def target_path_futures_definition(date_compact: str) -> Path:
+    base = backend_dir / "lake" / "raw" / "source=databento"
+    out_dir = base / "dataset=definition" / "venue=glbx" / "type=futures"
+    return out_dir / f"glbx-mdp3-{date_compact}.definition.dbn"
+
+
+def target_path_options_definition(date_compact: str) -> Path:
+    base = backend_dir / "lake" / "raw" / "source=databento"
+    out_dir = base / "dataset=definition" / "venue=glbx" / "type=futures_options"
+    return out_dir / f"glbx-mdp3-{date_compact}.definition.dbn"
+
+
+def target_path_options_data(schema: str, symbol: str, date_compact: str) -> Path:
     base = backend_dir / "lake" / "raw" / "source=databento"
     if schema == "mbo":
         out_dir = base / "product_type=future_option_mbo" / f"symbol={symbol}" / "table=market_by_order_dbn"
@@ -140,12 +106,13 @@ def target_path_options(schema: str, symbol: str, date_compact: str) -> Path:
     elif schema == "statistics":
         out_dir = base / "product_type=future_option_mbo" / f"symbol={symbol}" / "table=statistics"
         name = f"glbx-mdp3-{date_compact}.statistics.dbn"
-    elif schema == "definition":
-        out_dir = base / "dataset=definition"
-        name = f"glbx-mdp3-{date_compact}.definition.dbn"
     else:
         raise ValueError(f"Unsupported options schema: {schema}")
     return out_dir / name
+
+
+def job_key(dataset: str, schema: str, symbol: str, date_str: str, product_type: str) -> str:
+    return f"{dataset}|{schema}|{symbol}|{date_str}|{product_type}"
 
 
 def load_job_tracker() -> dict[str, Any]:
@@ -175,55 +142,187 @@ def date_range(start: str, end: str) -> list[str]:
     end_dt = datetime.strptime(end, "%Y-%m-%d")
     if end_dt < start_dt:
         raise ValueError("end date before start date")
-    out = []
+
+    out: list[str] = []
     curr = start_dt
     while curr <= end_dt:
-        # Skip Saturday only (Sunday has ES/NQ globex data)
+        # Globex has a Sunday session. Only skip Saturday.
         if curr.weekday() != 5:
             out.append(curr.strftime("%Y-%m-%d"))
         curr += timedelta(days=1)
     return out
 
 
-def definition_path(date_str: str) -> Path:
+def _best_matching_download(base_dir: Path, canonical_name: str) -> Path:
+    direct = base_dir / canonical_name
+    if direct.exists():
+        return direct
+
+    direct_zst = Path(str(direct) + ".zst")
+    if direct_zst.exists():
+        return direct_zst
+
+    nested = [p for p in base_dir.glob(f"**/{canonical_name}*") if p.is_file()]
+    if not nested:
+        raise FileNotFoundError(
+            f"Missing file {canonical_name} (or .zst) under {base_dir}"
+        )
+
+    def sort_key(p: Path) -> tuple[int, float, int]:
+        prefer_uncompressed = 0 if not p.name.endswith(".zst") else 1
+        st = p.stat()
+        return (prefer_uncompressed, -st.st_mtime, -st.st_size)
+
+    return sorted(nested, key=sort_key)[0]
+
+
+def resolve_futures_definition_file(date_str: str) -> Path:
     date_compact = date_str.replace("-", "")
-    return target_path_options("definition", "", date_compact)
+    canonical = target_path_futures_definition(date_compact)
+    return _best_matching_download(canonical.parent, canonical.name)
 
 
-def load_0dte_contracts(symbol: str, date_str: str) -> tuple[list[str], list[str]]:
-    """Load 0DTE option raw_symbols (contracts) and asset roots from definitions."""
-    def_path = definition_path(date_str)
-    if not def_path.exists():
-        raise FileNotFoundError(f"Definition file missing: {def_path}")
-    store = db.DBNStore.from_file(str(def_path))
-    df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
-    if df.empty:
-        raise ValueError(f"Definition file empty: {def_path}")
+def resolve_options_definition_file(date_str: str) -> Path:
+    date_compact = date_str.replace("-", "")
+    canonical = target_path_options_definition(date_compact)
+    return _best_matching_download(canonical.parent, canonical.name)
 
+
+def resolve_futures_contract_map_file(symbol: str, date_str: str) -> Path:
+    date_compact = date_str.replace("-", "")
+    canonical = target_path_futures("ohlcv-1d", symbol, date_compact)
+    return _best_matching_download(canonical.parent, canonical.name)
+
+
+def _require_columns(df: pd.DataFrame, required: set[str], label: str) -> None:
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"{label} missing required columns: {missing}")
+
+
+def select_active_futures_contract_from_frames(
+    symbol: str,
+    session_date: str,
+    definitions_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame,
+) -> tuple[str, str]:
+    """Resolve the active contract for a session date using daily volume."""
+    _require_columns(definitions_df, {"raw_symbol", "instrument_class", "expiration"}, "futures definitions")
+
+    session_day = datetime.strptime(session_date, "%Y-%m-%d").date()
+
+    defs = definitions_df.copy()
+    defs["raw_symbol"] = defs["raw_symbol"].astype(str).str.strip()
+    defs = defs[defs["instrument_class"].astype(str) == "F"].copy()
+    defs = defs[defs["raw_symbol"].str.startswith(symbol.upper())].copy()
+    defs = defs[defs["expiration"].notna()].copy()
+
+    if defs.empty:
+        raise ValueError(f"No futures definitions for {symbol} on {session_date}")
+
+    defs["expiration_ts_utc"] = pd.to_datetime(defs["expiration"].astype("int64"), utc=True)
+    defs["expiration_date_utc"] = defs["expiration_ts_utc"].dt.date
+
+    # Keep contracts that have not expired as of the session date.
+    defs = defs[defs["expiration_date_utc"] >= session_day].copy()
+    if defs.empty:
+        raise ValueError(f"No non-expired futures contracts for {symbol} on {session_date}")
+
+    def_expiries = defs[["raw_symbol", "expiration_ts_utc"]].drop_duplicates("raw_symbol")
+    expiry_lookup = {
+        row.raw_symbol: row.expiration_ts_utc
+        for row in def_expiries.itertuples(index=False)
+    }
+
+    symbol_col = "symbol" if "symbol" in ohlcv_df.columns else "raw_symbol"
+    _require_columns(ohlcv_df, {symbol_col, "volume"}, "futures ohlcv-1d")
+
+    ohlcv = ohlcv_df.copy()
+    ohlcv[symbol_col] = ohlcv[symbol_col].astype(str).str.strip()
+    ohlcv = ohlcv[ohlcv[symbol_col].isin(set(expiry_lookup))].copy()
+    ohlcv["volume"] = pd.to_numeric(ohlcv["volume"], errors="coerce").fillna(0)
+
+    if not ohlcv.empty and (ohlcv["volume"] > 0).any():
+        grouped = ohlcv.groupby(symbol_col, as_index=False)["volume"].sum()
+        top_volume = grouped["volume"].max()
+        top_symbols = sorted(grouped[grouped["volume"] == top_volume][symbol_col].tolist())
+        if len(top_symbols) == 1:
+            return top_symbols[0], "max_daily_volume"
+
+        # Tie-break by nearest expiration, then lexicographic order for determinism.
+        top_symbols.sort(key=lambda s: (expiry_lookup[s], s))
+        return top_symbols[0], "max_daily_volume_tie_breaker"
+
+    # Fallback if OHLCV has no volume for the date.
+    fallback = sorted(expiry_lookup, key=lambda s: (expiry_lookup[s], s))[0]
+    return fallback, "nearest_expiration_fallback"
+
+
+def filter_0dte_futures_option_raw_symbols_from_definitions(
+    definitions_df: pd.DataFrame,
+    active_underlying_raw_symbol: str,
+    session_date: str,
+) -> list[str]:
+    """Return 0DTE futures option raw symbols for one active underlying contract."""
+    _require_columns(
+        definitions_df,
+        {"raw_symbol", "underlying", "instrument_class", "expiration"},
+        "futures options definitions",
+    )
+
+    df = definitions_df.copy()
     df = df[df["instrument_class"].isin(["C", "P"])].copy()
-    df = df[df["underlying"].astype(str).str.startswith(symbol.upper())].copy()
+    df["underlying"] = df["underlying"].astype(str).str.strip()
+    df = df[df["underlying"] == active_underlying_raw_symbol].copy()
     df = df[df["expiration"].notna()].copy()
 
-    exp_dates = (
-        pd.to_datetime(df["expiration"].astype("int64"), utc=True)
-        .dt.tz_convert("Etc/GMT+5")
-        .dt.date.astype(str)
-    )
-    df = df[exp_dates == date_str].copy()
+    exp_dates = pd.to_datetime(df["expiration"].astype("int64"), utc=True).dt.date.astype(str)
+    df = df[exp_dates == session_date].copy()
 
-    if df.empty:
-        raise ValueError(f"No {symbol} 0DTE definitions for {date_str}")
-
-    assets = sorted({str(a).strip() for a in df["asset"].dropna().unique()})
-    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique()})
+    raw_symbols = sorted({str(s).strip() for s in df["raw_symbol"].dropna().unique() if str(s).strip()})
     if not raw_symbols:
-        raise ValueError(f"No raw_symbols for {symbol} on {date_str}")
-    return raw_symbols, assets
+        raise ValueError(
+            "No 0DTE futures options found for "
+            f"underlying={active_underlying_raw_symbol} session={session_date}"
+        )
+    return raw_symbols
+
+
+def load_active_futures_contract(symbol: str, date_str: str) -> tuple[str, str]:
+    futures_def_path = resolve_futures_definition_file(date_str)
+    contract_map_path = resolve_futures_contract_map_file(symbol, date_str)
+
+    futures_def_store = db.DBNStore.from_file(str(futures_def_path))
+    futures_def_df = futures_def_store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
+    if futures_def_df.empty:
+        raise ValueError(f"Futures definition file empty: {futures_def_path}")
+
+    contract_map_store = db.DBNStore.from_file(str(contract_map_path))
+    contract_map_df = contract_map_store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
+    if contract_map_df.empty:
+        raise ValueError(f"Futures contract map file empty: {contract_map_path}")
+
+    return select_active_futures_contract_from_frames(symbol, date_str, futures_def_df, contract_map_df)
+
+
+def load_0dte_option_raw_symbols(symbol: str, active_contract: str, date_str: str) -> list[str]:
+    options_def_path = resolve_options_definition_file(date_str)
+
+    store = db.DBNStore.from_file(str(options_def_path))
+    df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
+    if df.empty:
+        raise ValueError(f"Options definition file empty: {options_def_path}")
+
+    return filter_0dte_futures_option_raw_symbols_from_definitions(
+        definitions_df=df,
+        active_underlying_raw_symbol=active_contract,
+        session_date=date_str,
+    )
 
 
 def submit_job(
     client: db.Historical,
-    tracker: dict,
+    tracker: dict[str, Any],
     dataset: str,
     schema: str,
     symbol: str,
@@ -231,19 +330,20 @@ def submit_job(
     symbols: list[str],
     stype_in: str,
     log_path: Path,
-    product_type: str = "futures",
+    product_type: str,
 ) -> str | None:
-    """Submit a batch job and track it. Returns job_id or None if already exists."""
-    job_key = f"{dataset}|{schema}|{symbol}|{date_str}|{product_type}"
+    """Submit one strict one-day flat-file batch job."""
+    key = job_key(dataset, schema, symbol, date_str, product_type)
 
-    # Check if already submitted
-    if job_key in tracker["jobs"]:
-        existing = tracker["jobs"][job_key]
+    if key in tracker["jobs"]:
+        existing = tracker["jobs"][key]
         if existing["state"] in ("done", "downloaded"):
-            log_msg(log_path, f"SKIP {job_key} already {existing['state']}")
+            log_msg(log_path, f"SKIP {key} already {existing['state']}")
             return None
-        log_msg(log_path, f"REUSE {job_key} job={existing['job_id']} state={existing['state']}")
-        return existing["job_id"]
+        if existing["state"] != "error":
+            log_msg(log_path, f"REUSE {key} job={existing['job_id']} state={existing['state']}")
+            return existing["job_id"]
+        log_msg(log_path, f"RESUBMIT {key} (was error)")
 
     end_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -255,11 +355,11 @@ def submit_job(
             start=date_str,
             end=end_date,
             stype_in=stype_in,
-            delivery="download",
-            split_duration="day",
+            delivery=FLAT_FILE_DELIVERY,
+            split_duration=FLAT_FILE_SPLIT_DURATION,
         )
         job_id = job["id"]
-        tracker["jobs"][job_key] = {
+        tracker["jobs"][key] = {
             "job_id": job_id,
             "dataset": dataset,
             "schema": schema,
@@ -272,24 +372,24 @@ def submit_job(
             "submitted_at": datetime.utcnow().isoformat(),
         }
         save_job_tracker(tracker)
-        log_msg(log_path, f"SUBMIT {job_key} job={job_id} symbols={len(symbols)}")
+        log_msg(
+            log_path,
+            f"SUBMIT {key} job={job_id} symbols={len(symbols)} delivery={FLAT_FILE_DELIVERY} split_duration={FLAT_FILE_SPLIT_DURATION}",
+        )
         return job_id
     except Exception as e:
-        log_msg(log_path, f"ERROR submit {job_key}: {e}")
+        log_msg(log_path, f"ERROR submit {key}: {e}")
         return None
 
 
-def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
-    """Poll all pending jobs and update states. Returns count of done jobs ready for download."""
+def poll_jobs(client: db.Historical, tracker: dict[str, Any], log_path: Path) -> int:
     pending_keys = [
         k for k, v in tracker["jobs"].items()
         if v["state"] not in ("done", "downloaded", "expired", "error")
     ]
-
     if not pending_keys:
         return 0
 
-    # Get all jobs from API
     try:
         api_jobs = client.batch.list_jobs(
             states=["queued", "processing", "done", "expired"],
@@ -304,31 +404,43 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     for key in pending_keys:
         job_info = tracker["jobs"][key]
         job_id = job_info["job_id"]
+        if job_id not in job_states:
+            continue
 
-        if job_id in job_states:
-            api_state = job_states[job_id].get("state", "unknown")
-            old_state = job_info["state"]
+        api_state = job_states[job_id].get("state", "unknown")
+        old_state = job_info["state"]
+        if api_state != old_state:
+            job_info["state"] = api_state
+            job_info["updated_at"] = datetime.utcnow().isoformat()
+            log_msg(log_path, f"STATE {key} {old_state} -> {api_state}")
 
-            if api_state != old_state:
-                job_info["state"] = api_state
-                job_info["updated_at"] = datetime.utcnow().isoformat()
-                log_msg(log_path, f"STATE {key} {old_state} -> {api_state}")
-
-            if api_state == "done":
-                done_count += 1
-                if key not in tracker["pending_downloads"]:
-                    tracker["pending_downloads"].append(key)
+        if api_state == "done":
+            done_count += 1
+            if key not in tracker["pending_downloads"]:
+                tracker["pending_downloads"].append(key)
 
     save_job_tracker(tracker)
     return done_count
 
 
-def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
-    """Download all completed jobs. Returns count of successful downloads."""
+def target_path_for_job(schema: str, symbol: str, date_compact: str, product_type: str) -> Path:
+    if product_type == PRODUCT_FUTURES:
+        return target_path_futures(schema, symbol, date_compact)
+    if product_type == PRODUCT_FUTURES_CONTRACT_MAP:
+        return target_path_futures(schema, symbol, date_compact)
+    if product_type == PRODUCT_FUTURES_DEFINITION:
+        return target_path_futures_definition(date_compact)
+    if product_type == PRODUCT_FUTURES_OPTIONS_DEFINITION:
+        return target_path_options_definition(date_compact)
+    if product_type == PRODUCT_FUTURES_OPTIONS:
+        return target_path_options_data(schema, symbol, date_compact)
+    raise ValueError(f"Unsupported product_type: {product_type}")
+
+
+def download_completed_jobs(client: db.Historical, tracker: dict[str, Any], log_path: Path) -> int:
     downloaded = 0
 
-    pending = list(tracker.get("pending_downloads", []))
-    for key in pending:
+    for key in list(tracker.get("pending_downloads", [])):
         if key not in tracker["jobs"]:
             tracker["pending_downloads"].remove(key)
             continue
@@ -341,25 +453,17 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
         schema = job_info["schema"]
         symbol = job_info["symbol"]
         date_str = job_info["date_str"]
-        product_type = job_info.get("product_type", "futures_options")
+        product_type = job_info.get("product_type", PRODUCT_FUTURES_OPTIONS)
         date_compact = date_str.replace("-", "")
 
-        # Determine output directory
-        if product_type == "futures":
-            out_path = target_path_futures(schema, symbol, date_compact)
-        else:
-            out_path = target_path_options(schema, symbol, date_compact)
-
+        out_path = target_path_for_job(schema, symbol, date_compact, product_type)
         out_dir = out_path.parent
         out_dir.mkdir(parents=True, exist_ok=True)
 
         log_msg(log_path, f"DOWNLOAD {key} job={job_id} -> {out_dir}")
 
         try:
-            downloaded_files = client.batch.download(
-                job_id=job_id,
-                output_dir=out_dir,
-            )
+            downloaded_files = client.batch.download(job_id=job_id, output_dir=out_dir)
             job_info["state"] = "downloaded"
             job_info["downloaded_at"] = datetime.utcnow().isoformat()
             job_info["files"] = [str(f) for f in downloaded_files]
@@ -377,8 +481,126 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
     return downloaded
 
 
+def _submit_prereq_jobs_for_day(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    symbol: str,
+    date_str: str,
+    include_futures: bool,
+    log_path: Path,
+    pause_seconds: int,
+) -> None:
+    if include_futures:
+        submit_job(
+            client=client,
+            tracker=tracker,
+            dataset=FUTURES_DATASET,
+            schema="mbo",
+            symbol=symbol,
+            date_str=date_str,
+            symbols=[f"{symbol}.FUT"],
+            stype_in="parent",
+            log_path=log_path,
+            product_type=PRODUCT_FUTURES,
+        )
+        time.sleep(pause_seconds)
+
+    submit_job(
+        client=client,
+        tracker=tracker,
+        dataset=FUTURES_DATASET,
+        schema="definition",
+        symbol=symbol,
+        date_str=date_str,
+        symbols=[f"{symbol}.FUT"],
+        stype_in="parent",
+        log_path=log_path,
+        product_type=PRODUCT_FUTURES_DEFINITION,
+    )
+    time.sleep(pause_seconds)
+
+    submit_job(
+        client=client,
+        tracker=tracker,
+        dataset=FUTURES_DATASET,
+        schema="ohlcv-1d",
+        symbol=symbol,
+        date_str=date_str,
+        symbols=[f"{symbol}.FUT"],
+        stype_in="parent",
+        log_path=log_path,
+        product_type=PRODUCT_FUTURES_CONTRACT_MAP,
+    )
+    time.sleep(pause_seconds)
+
+    # Pull all options definitions, then filter to active-contract 0DTE locally.
+    submit_job(
+        client=client,
+        tracker=tracker,
+        dataset=FUTURES_DATASET,
+        schema="definition",
+        symbol=symbol,
+        date_str=date_str,
+        symbols=["ALL_SYMBOLS"],
+        stype_in="raw_symbol",
+        log_path=log_path,
+        product_type=PRODUCT_FUTURES_OPTIONS_DEFINITION,
+    )
+    time.sleep(pause_seconds)
+
+
+def _submit_0dte_option_jobs_if_ready(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    symbol: str,
+    date_str: str,
+    options_schemas: list[str],
+    log_path: Path,
+    pause_seconds: int,
+) -> None:
+    futures_def_key = job_key(FUTURES_DATASET, "definition", symbol, date_str, PRODUCT_FUTURES_DEFINITION)
+    contract_map_key = job_key(FUTURES_DATASET, "ohlcv-1d", symbol, date_str, PRODUCT_FUTURES_CONTRACT_MAP)
+    options_def_key = job_key(FUTURES_DATASET, "definition", symbol, date_str, PRODUCT_FUTURES_OPTIONS_DEFINITION)
+
+    prereq_states = {
+        "futures_definition": tracker["jobs"].get(futures_def_key, {}).get("state"),
+        "futures_contract_map": tracker["jobs"].get(contract_map_key, {}).get("state"),
+        "options_definition": tracker["jobs"].get(options_def_key, {}).get("state"),
+    }
+
+    if any(state != "downloaded" for state in prereq_states.values()):
+        return
+
+    try:
+        active_contract, active_reason = load_active_futures_contract(symbol, date_str)
+        raw_symbols = load_0dte_option_raw_symbols(symbol, active_contract, date_str)
+        log_msg(
+            log_path,
+            f"0DTE {symbol} {date_str}: active_contract={active_contract} reason={active_reason} contracts={len(raw_symbols)}",
+        )
+    except Exception as e:
+        log_msg(log_path, f"SKIP 0DTE {symbol} {date_str}: {e}")
+        return
+
+    for schema in options_schemas:
+        if schema == "definition":
+            continue
+        submit_job(
+            client=client,
+            tracker=tracker,
+            dataset=FUTURES_DATASET,
+            schema=schema,
+            symbol=symbol,
+            date_str=date_str,
+            symbols=raw_symbols,
+            stype_in="raw_symbol",
+            log_path=log_path,
+            product_type=PRODUCT_FUTURES_OPTIONS,
+        )
+        time.sleep(pause_seconds)
+
+
 def cmd_submit(args: argparse.Namespace) -> None:
-    """Submit batch jobs for all dates and symbols."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -387,53 +609,32 @@ def cmd_submit(args: argparse.Namespace) -> None:
     tracker = load_job_tracker()
     log_path = Path(args.log_file)
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    options_schemas = [s.strip() for s in args.options_schemas.split(",") if s.strip()]
+    symbols = parse_symbols(args.symbols)
+    options_schemas = parse_options_schemas(args.options_schemas)
 
     for date_str in date_range(args.start, args.end):
-        day = datetime.strptime(date_str, "%Y-%m-%d")
-        
         for symbol in symbols:
-            # 1. Submit FUTURES MBO job (using .FUT parent)
-            if args.include_futures:
-                submit_job(
-                    client, tracker, "GLBX.MDP3", "mbo", symbol, date_str,
-                    [f"{symbol}.FUT"], "parent", log_path, product_type="futures"
-                )
-                time.sleep(args.pause_seconds)
-
-            # 2. Submit OPTIONS DEFINITION job
-            definition_parents = parents_for_definition(day, symbol)
-            submit_job(
-                client, tracker, "GLBX.MDP3", "definition", symbol, date_str,
-                definition_parents, "parent", log_path, product_type="futures_options"
+            _submit_prereq_jobs_for_day(
+                client=client,
+                tracker=tracker,
+                symbol=symbol,
+                date_str=date_str,
+                include_futures=args.include_futures,
+                log_path=log_path,
+                pause_seconds=args.pause_seconds,
             )
-            time.sleep(args.pause_seconds)
-
-            # 3. Check if definition is downloaded, then submit 0DTE data jobs
-            def_key = f"GLBX.MDP3|definition|{symbol}|{date_str}|futures_options"
-            def_info = tracker["jobs"].get(def_key, {})
-            if def_info.get("state") == "downloaded":
-                try:
-                    raw_symbols, assets = load_0dte_contracts(symbol, date_str)
-                    if symbol == "ES":
-                        validate_assets(day, assets)
-                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(raw_symbols)} contracts")
-
-                    for schema in options_schemas:
-                        if schema == "definition":
-                            continue
-                        submit_job(
-                            client, tracker, "GLBX.MDP3", schema, symbol, date_str,
-                            raw_symbols, "raw_symbol", log_path, product_type="futures_options"
-                        )
-                        time.sleep(args.pause_seconds)
-                except Exception as e:
-                    log_msg(log_path, f"SKIP 0DTE {symbol} {date_str}: {e}")
+            _submit_0dte_option_jobs_if_ready(
+                client=client,
+                tracker=tracker,
+                symbol=symbol,
+                date_str=date_str,
+                options_schemas=options_schemas,
+                log_path=log_path,
+                pause_seconds=args.pause_seconds,
+            )
 
 
 def cmd_poll(args: argparse.Namespace) -> None:
-    """Poll job status and download completed jobs."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -450,7 +651,6 @@ def cmd_poll(args: argparse.Namespace) -> None:
 
 
 def cmd_daemon(args: argparse.Namespace) -> None:
-    """Run submit + poll in a loop until all jobs complete."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -458,8 +658,8 @@ def cmd_daemon(args: argparse.Namespace) -> None:
     client = db.Historical(key=api_key)
     log_path = Path(args.log_file)
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    options_schemas = [s.strip() for s in args.options_schemas.split(",") if s.strip()]
+    symbols = parse_symbols(args.symbols)
+    options_schemas = parse_options_schemas(args.options_schemas)
     dates = date_range(args.start, args.end)
 
     log_msg(log_path, f"DAEMON start: {len(dates)} dates, {len(symbols)} symbols")
@@ -470,106 +670,81 @@ def cmd_daemon(args: argparse.Namespace) -> None:
         tracker = load_job_tracker()
         log_msg(log_path, f"--- Iteration {iteration} ---")
 
-        # Phase 1: Submit any missing jobs
+        # Phase 1: enforce one-day prerequisite flat-file jobs per date.
         for date_str in dates:
-            day = datetime.strptime(date_str, "%Y-%m-%d")
-            
             for symbol in symbols:
-                # Futures MBO
-                if args.include_futures:
-                    key = f"GLBX.MDP3|mbo|{symbol}|{date_str}|futures"
-                    if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
-                        submit_job(
-                            client, tracker, "GLBX.MDP3", "mbo", symbol, date_str,
-                            [f"{symbol}.FUT"], "parent", log_path, product_type="futures"
-                        )
-                        time.sleep(args.pause_seconds)
+                _submit_prereq_jobs_for_day(
+                    client=client,
+                    tracker=tracker,
+                    symbol=symbol,
+                    date_str=date_str,
+                    include_futures=args.include_futures,
+                    log_path=log_path,
+                    pause_seconds=args.pause_seconds,
+                )
 
-                # Options definition
-                def_key = f"GLBX.MDP3|definition|{symbol}|{date_str}|futures_options"
-                if def_key not in tracker["jobs"] or tracker["jobs"][def_key]["state"] == "error":
-                    definition_parents = parents_for_definition(day, symbol)
-                    submit_job(
-                        client, tracker, "GLBX.MDP3", "definition", symbol, date_str,
-                        definition_parents, "parent", log_path, product_type="futures_options"
-                    )
-                    time.sleep(args.pause_seconds)
-
-        # Phase 2: Poll and download
+        # Phase 2: poll and download completed files.
         tracker = load_job_tracker()
         poll_jobs(client, tracker, log_path)
         download_completed_jobs(client, tracker, log_path)
 
-        # Phase 3: Submit 0DTE data jobs for completed definitions
+        # Phase 3: once prerequisites are downloaded, submit active-contract 0DTE option jobs.
         tracker = load_job_tracker()
         for date_str in dates:
-            day = datetime.strptime(date_str, "%Y-%m-%d")
-            
             for symbol in symbols:
-                def_key = f"GLBX.MDP3|definition|{symbol}|{date_str}|futures_options"
-                def_info = tracker["jobs"].get(def_key, {})
-                if def_info.get("state") != "downloaded":
-                    continue
+                _submit_0dte_option_jobs_if_ready(
+                    client=client,
+                    tracker=tracker,
+                    symbol=symbol,
+                    date_str=date_str,
+                    options_schemas=options_schemas,
+                    log_path=log_path,
+                    pause_seconds=args.pause_seconds,
+                )
 
-                try:
-                    raw_symbols, assets = load_0dte_contracts(symbol, date_str)
-                    if symbol == "ES":
-                        validate_assets(day, assets)
-                    for schema in options_schemas:
-                        if schema == "definition":
-                            continue
-                        key = f"GLBX.MDP3|{schema}|{symbol}|{date_str}|futures_options"
-                        if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
-                            submit_job(
-                                client, tracker, "GLBX.MDP3", schema, symbol, date_str,
-                                raw_symbols, "raw_symbol", log_path, product_type="futures_options"
-                            )
-                            time.sleep(args.pause_seconds)
-                except Exception as e:
-                    log_msg(log_path, f"SKIP 0DTE {symbol} {date_str}: {e}")
-
-        # Phase 4: Check completion
+        # Phase 4: completion check.
         tracker = load_job_tracker()
         total = len(tracker["jobs"])
         done = sum(1 for v in tracker["jobs"].values() if v["state"] == "downloaded")
-        pending = sum(1 for v in tracker["jobs"].values() if v["state"] not in ("downloaded", "expired", "error"))
+        pending = sum(
+            1
+            for v in tracker["jobs"].values()
+            if v["state"] not in ("downloaded", "expired", "error")
+        )
 
         log_msg(log_path, f"STATUS: {done}/{total} downloaded, {pending} pending")
-
         if pending == 0 and done > 0:
             log_msg(log_path, "DAEMON complete: all jobs finished")
             break
 
-        # Wait before next iteration
         log_msg(log_path, f"Sleeping {args.poll_interval}s...")
         time.sleep(args.poll_interval)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Batch download futures MBO + futures options MBO data")
+    parser = argparse.ArgumentParser(
+        description="Batch download futures + futures options (flat-file day-by-day active-contract 0DTE pipeline)"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Submit command
     submit_parser = subparsers.add_parser("submit", help="Submit batch jobs")
     submit_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     submit_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    submit_parser.add_argument("--symbols", default="ES", help="Comma-separated symbols (ES,NQ)")
+    submit_parser.add_argument("--symbols", default="ES", help="Comma-separated symbols (ES only)")
     submit_parser.add_argument("--include-futures", action="store_true", help="Also download futures MBO")
-    submit_parser.add_argument("--options-schemas", default="definition,mbo,statistics", help="Options schemas")
+    submit_parser.add_argument("--options-schemas", default="mbo,statistics", help="Options schemas")
     submit_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")
     submit_parser.add_argument("--log-file", required=True, help="Log file path")
 
-    # Poll command
     poll_parser = subparsers.add_parser("poll", help="Poll jobs and download completed")
     poll_parser.add_argument("--log-file", required=True, help="Log file path")
 
-    # Daemon command
     daemon_parser = subparsers.add_parser("daemon", help="Run submit + poll in loop until complete")
     daemon_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     daemon_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    daemon_parser.add_argument("--symbols", default="ES", help="Comma-separated symbols (ES,NQ)")
+    daemon_parser.add_argument("--symbols", default="ES", help="Comma-separated symbols (ES only)")
     daemon_parser.add_argument("--include-futures", action="store_true", help="Also download futures MBO")
-    daemon_parser.add_argument("--options-schemas", default="definition,mbo,statistics", help="Options schemas")
+    daemon_parser.add_argument("--options-schemas", default="mbo,statistics", help="Options schemas")
     daemon_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")
     daemon_parser.add_argument("--poll-interval", type=int, default=60, help="Seconds between poll iterations")
     daemon_parser.add_argument("--log-file", required=True, help="Log file path")
