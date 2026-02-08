@@ -194,7 +194,7 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/silver/future_option/statistics_clean.avsc
 
-  # Silver - Equity Option MBO
+  # Silver - Equity Option CMBP-1
   silver.equity_option_cmbp_1.book_snapshot_1s:
     path: silver/product_type=equity_option_cmbp_1/symbol={symbol}/table=book_snapshot_1s
     format: parquet
@@ -235,7 +235,7 @@ datasets:
     partition_keys: [symbol, dt]
     contract: src/data_eng/contracts/gold/future_option_mbo/physics_surface_1s.avsc
 
-  # Gold - Equity Option MBO
+  # Gold - Equity Option CMBP-1
   gold.equity_option_cmbp_1.physics_surface_1s:
     path: gold/product_type=equity_option_cmbp_1/symbol={symbol}/table=physics_surface_1s
     format: parquet

@@ -60,7 +60,9 @@ def test_options_book_engine():
     w1 = res_flow[res_flow["window_end_ts_ns"] == 1_000_000_000].iloc[0]
     assert w1["add_qty"] == 15
     assert w1["pull_qty"] == 10
-    assert w1["pull_rest_qty"] == 10
+    # pull_rest_qty tracking was removed from engine (not used downstream)
+    # Engine now outputs zeros for backward compatibility
+    assert w1["pull_rest_qty"] == 0
     assert w1["depth_total"] == 5
     
     # Validation Window 2 (1-2s)

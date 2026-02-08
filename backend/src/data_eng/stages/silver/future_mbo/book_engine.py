@@ -249,6 +249,7 @@ class FuturesBookEngine:
         if spot_ref > 0:
             if self.compute_depth_flow:
                 self._emit_depth_flow_rows(spot_ref, window_valid)
+                return  # _emit_depth_flow_rows already resets accumulators
 
         self._reset_accumulators()
 

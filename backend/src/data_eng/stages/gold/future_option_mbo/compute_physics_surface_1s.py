@@ -211,8 +211,6 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
             out_col_name: str,
         ) -> pd.DataFrame:
             """Gaussian smoothing on the $5 strike lattice (strike units)."""
-            import warnings
-
             df_work = df_in.copy()
             if "rel_strike" not in df_work.columns or "spot_offset_ticks" not in df_work.columns:
                 raise ValueError("Missing strike lattice metadata for smoothing")
@@ -230,14 +228,23 @@ class GoldComputeOptionPhysicsSurface1s(Stage):
             sigma_strikes = max(1.0, sigma_ticks / STRIKE_TICKS)
             win_size = int(2 * n_strikes + 1)
 
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", FutureWarning)
-                smoothed = pivoted.rolling(
-                    window=win_size,
-                    win_type="gaussian",
-                    center=True,
-                    axis=1,
-                ).mean(std=sigma_strikes)
+            # Gaussian weighted-mean smoothing across strikes (axis=1).
+            # Uses scipy.signal.windows.gaussian + np.convolve to avoid the
+            # pandas rolling(..., axis=1) parameter, which is deprecated in
+            # pandas 2.x and removed in pandas 3.x.
+            from scipy.signal.windows import gaussian as _gaussian_win
+
+            _kernel = _gaussian_win(win_size, std=sigma_strikes)
+            _kernel = _kernel / _kernel.sum()
+            _half = win_size // 2
+            _vals = pivoted.values.copy().astype(float)
+            _result = np.full_like(_vals, np.nan)
+            for _row_i in range(_vals.shape[0]):
+                _conv = np.convolve(_vals[_row_i], _kernel, mode="same")
+                _result[_row_i, _half : _vals.shape[1] - _half] = (
+                    _conv[_half : _vals.shape[1] - _half]
+                )
+            smoothed = pd.DataFrame(_result, index=pivoted.index, columns=pivoted.columns)
 
             smoothed = smoothed.reset_index()
             smoothed = smoothed.melt(

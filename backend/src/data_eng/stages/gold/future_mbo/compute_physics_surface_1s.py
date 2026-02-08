@@ -284,15 +284,20 @@ class GoldComputePhysicsSurface1s(Stage):
         )
         
         # Fill NaNs in original fields with 0 (since they were empty in silver)
+        # Also fill spatial smoothing fields whose Gaussian boundary produces NaN
         fill_cols = [
             "add_intensity", "fill_intensity", "pull_intensity", "liquidity_velocity",
-            "rho", "phi_rest", "u_ema_2", "u_ema_8", "u_ema_32", "u_ema_128", 
-            "u_band_fast", "u_band_mid", "u_band_slow", "u_wave_energy", 
-            "du_dt", "d2u_dt2", "u_p", "u_p_slow", "Omega"
+            "rho", "phi_rest", "u_ema_2", "u_ema_8", "u_ema_32", "u_ema_128",
+            "u_band_fast", "u_band_mid", "u_band_slow", "u_wave_energy",
+            "du_dt", "d2u_dt2", "u_p", "u_p_slow", "Omega",
+            "u_near", "u_far", "Omega_near", "Omega_far",
         ]
         for c in fill_cols:
             if c in df_merged.columns:
                 df_merged[c] = df_merged[c].fillna(0.0)
+
+        # Cast rel_ticks to int (melt produces object dtype from column names)
+        df_merged["rel_ticks"] = df_merged["rel_ticks"].astype(int)
                 
         # Fill spot_ref_price_int?
         # It's constant per window_end_ts_ns.

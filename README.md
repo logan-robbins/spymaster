@@ -215,12 +215,12 @@ uv run python scripts/grunt_limitation_analysis.py
 uv run python scripts/validate_institutional_fixes.py
 ```
 
-### Audit Results Reference
-See TASK_PLAN.txt Section 4 for detailed audit results including:
-- future_mbo (ESH6): Grade A, 0 issues
-- future_option_mbo (ESH6): Grade A, institutional fixes implemented (2026-02-02)
-- equity_mbo (QQQ): Grade A, 0 issues
-- equity_option_cmbp_1 (QQQ): Grade A, 0 issues
+### Audit Results Reference (2026-02-08 Full Pipeline Audit)
+All 4 pipelines audited with synthetic tests. 169 tests passing.
+- future_mbo (ESH6): Grade A, 3 bugs fixed (NaN boundary propagation, rel_ticks dtype, double accumulator reset), 29 tests
+- future_option_mbo (ESH6): Grade A, 2 bugs fixed (pandas axis=1 deprecation, stale test assertion), 66 tests
+- equity_mbo (QQQ): Grade A, 2 bugs fixed (depth_qty_rest clamping, redundant accumulator reset), 30 tests
+- equity_option_cmbp_1 (QQQ): Grade A, 0 math bugs (2 comment fixes in datasets.yaml), 44 tests
 
 ### future_option_mbo Institutional Fixes (2026-02-02)
 - Added `accounting_identity_valid` boolean field to schema

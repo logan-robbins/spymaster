@@ -283,6 +283,8 @@ class EquityBookEngine:
             depth_start = depth_end - add_qty + pull_qty + fill_qty
             if depth_start < 0:
                 depth_start = 0.0
+            depth_rest_raw = float(rest_bid.get(price, 0.0))
+            depth_rest_clamped = min(depth_rest_raw, depth_end)
             rel_ticks = int((price - spot_ref) // self.bucket_int)
             rel_ticks_side = int((price - bid_anchor) // self.bucket_int)
             self.prev_depth_bid[price] = depth_end
@@ -300,7 +302,7 @@ class EquityBookEngine:
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
                     "pull_qty": float(pull_qty),
-                    "depth_qty_rest": float(rest_bid.get(price, 0.0)),
+                    "depth_qty_rest": depth_rest_clamped,
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
                     "window_valid": window_valid,
@@ -316,6 +318,8 @@ class EquityBookEngine:
             depth_start = depth_end - add_qty + pull_qty + fill_qty
             if depth_start < 0:
                 depth_start = 0.0
+            depth_rest_raw = float(rest_ask.get(price, 0.0))
+            depth_rest_clamped = min(depth_rest_raw, depth_end)
             rel_ticks = int((price - spot_ref) // self.bucket_int)
             rel_ticks_side = int((price - ask_anchor) // self.bucket_int)
             self.prev_depth_ask[price] = depth_end
@@ -333,14 +337,12 @@ class EquityBookEngine:
                     "depth_qty_end": float(depth_end),
                     "add_qty": float(add_qty),
                     "pull_qty": float(pull_qty),
-                    "depth_qty_rest": float(rest_ask.get(price, 0.0)),
+                    "depth_qty_rest": depth_rest_clamped,
                     "pull_qty_rest": float(pull_rest),
                     "fill_qty": float(fill_qty),
                     "window_valid": window_valid,
                 }
             )
-
-        self._reset_accumulators()
 
     def _reset_accumulators(self) -> None:
         self.acc_add_bid = {}
