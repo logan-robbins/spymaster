@@ -26,7 +26,7 @@
 Job trackers: `backend/logs/*jobs.json`
 
 ### Current Data Range
-2026-01-05 through 2026-01-29 (18 trading days), plus 2026-02-06 (SI, MNQ)
+2026-01-05 through 2026-01-29 (18 trading days), plus 2026-02-06 (SI, MNQ, QQQ)
 
 ### Raw Data Formats
 - Primary: `.dbn` (Databento native)
@@ -48,12 +48,10 @@ nohup uv run python scripts/batch_download_futures.py daemon \
     --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
 ```
 - Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
-- 3-phase daemon (per symbol, per session date):
-  1. **Phase 1** (streaming, cheap): Resolve front-month contract via `timeseries.get_range` with `stype_in=continuous` using volume-ranked symbol (`{ROOT}.v.0`). Submit options definition batch job via `batch.submit_job` with `stype_in=parent` using date-aware parent symbols from `OPTIONS_CONFIG` (all 8 products have daily/weekly options with different CME naming conventions)
-  2. **Phase 2** (after definition batch completes): Load definition from disk, filter 0DTE options where `underlying == front_month_contract`, `instrument_class in {C,P}`, `expiration UTC date == session date`. Submit futures MBO + options MBO/statistics batch jobs
-  3. **Phase 3**: Poll/download data batch jobs
-- All downloads use `batch.submit_job` (not streaming API) — definition files are cached and reusable across systems without re-paying
-- Options definition files cached at `lake/raw/source=databento/dataset=definition/venue=glbx/type=futures_options/symbol={SYM}/`
+- 2-phase daemon (per symbol, per session date):
+  1. **Phase 1** (smart resolution): Resolve front-month contract via `timeseries.get_range` with `stype_in=continuous` using volume-ranked symbol (`{ROOT}.v.0`). Discover options via FREE `symbology.resolve` API: compute candidate parents from `OPTIONS_CONFIG` (0DTE daily/weekly first, then nearest-expiry fallbacks up to 7 days out, then monthly). Resolve all candidates at once (FREE). For the first resolving candidate, stream a tiny targeted definition (`stype_in=parent`, `schema=definition`) and filter for `underlying == front_month`, `instrument_class in {C,P}`, `expiration == session_date` (0DTE) or nearest future expiration (fallback). Submit futures MBO + options MBO/statistics batch jobs. When discovered symbols exceed Databento's 2,000-symbol limit, uses `stype_in=parent` for data batch jobs.
+  2. **Phase 2**: Poll/download data batch jobs
+- Smart resolution caches at `lake/raw/source=databento/dataset=definition/venue=glbx/type=futures_options/symbol={SYM}/resolved_{DATE}.json`
 - `OPTIONS_CONFIG` maps 8 products (ES, NQ, MES, MNQ, GC, SI, CL, 6E) with date-aware daily/weekly parent resolution. Unknown symbols fall back to `{symbol}.OPT`
 
 **Equities + Equity Options:**

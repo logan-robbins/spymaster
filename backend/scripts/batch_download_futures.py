@@ -2,20 +2,19 @@
 Batch-download GLBX futures + futures options with strict flat-file day slices.
 
 Pipeline per session date and symbol (generic futures root, e.g. ES/SI/CL):
-1) Resolve front-month contract via continuous definition (SI.v.0 -> SIH6, volume-ranked)
-2) Submit options definition batch job (SI.OPT, schema=definition, stype_in=parent)
-3) Poll/download definition batch jobs
-4) Filter 0DTE options where underlying == front-month and expiration == session date
-5) Submit futures MBO batch job for ONLY the front-month contract
-6) Submit options data jobs (mbo, statistics) using stype_in=raw_symbol
+1) Resolve front-month contract via continuous definition (SI.v.0 -> SIH6)
+2) Discover options via FREE symbology.resolve + tiny streaming definition:
+   a) Compute candidate parents (0DTE daily/weekly, then nearest-expiry fallbacks)
+   b) Resolve ALL candidates at once via symbology.resolve (FREE, one API call)
+   c) Pick the first resolving candidate in priority order
+   d) Stream a tiny targeted definition for that parent's instruments
+   e) Filter by underlying == front-month, instrument_class in {C,P}, nearest expiry
+3) Submit futures MBO batch job for ONLY the front-month contract
+4) Submit options data jobs (mbo, statistics) for discovered contracts
 
-Front-month resolution is synchronous (one lightweight definition record via streaming).
-All other downloads use batch API to avoid re-billing on repeated runs.
-
-Daemon 3-phase flow:
-- Phase 1: Resolve front month (streaming) + submit definition batch jobs
-- Phase 2: Poll/download definition jobs -> filter 0DTE -> submit data batch jobs
-- Phase 3: Poll/download data batch jobs
+Daemon 2-phase flow:
+- Phase 1: Resolve front month + discover options (FREE) + submit data batch jobs
+- Phase 2: Poll/download data batch jobs
 
 All batch requests are forced to Databento flat-file delivery with one-day requests:
 - delivery="download"
@@ -255,6 +254,295 @@ def options_parents_for(symbol: str, session_date: str) -> list[str]:
             parents.append(eom_parent)
 
     return parents
+
+
+# ---------------------------------------------------------------------------
+# Smart Options Resolution (FREE symbology.resolve + targeted streaming)
+# ---------------------------------------------------------------------------
+
+def _symbology_resolve_raw_symbols(
+    client: db.Historical,
+    parents: list[str],
+    session_date: str,
+    log_path: Path,
+) -> dict[str, list[str]]:
+    """Resolve parent symbols to raw symbols via FREE symbology.resolve API.
+
+    Uses stype_out="instrument_id" (the only combination GLBX.MDP3 supports
+    for parent symbology). Raw symbols come back as the **keys** of the
+    result dict. We filter out user-defined spread instruments (UD:* prefix)
+    and group by parent.
+
+    Returns dict mapping each parent that has instruments to its raw symbols.
+    Parents with no instruments on the given date are omitted.
+    """
+    if not parents:
+        return {}
+
+    # Resolve one parent at a time to attribute raw symbols correctly.
+    # Each call is FREE and fast (<1s), and we have at most ~15 candidates.
+    resolved: dict[str, list[str]] = {}
+    for parent in parents:
+        try:
+            result = client.symbology.resolve(
+                dataset=FUTURES_DATASET,
+                symbols=[parent],
+                stype_in="parent",
+                stype_out="instrument_id",
+                start_date=session_date,
+                end_date=_next_day(session_date),
+            )
+            # Response keys are raw_symbol names; values are instrument_id mappings.
+            # Filter out user-defined spreads (UD:*) which are not individual options.
+            raw_syms = [
+                sym for sym in result.get("result", {}).keys()
+                if not sym.startswith("UD:")
+            ]
+            if raw_syms:
+                resolved[parent] = raw_syms
+        except Exception as e:
+            log_msg(log_path, f"SYMBOLOGY_RESOLVE {parent}: {e}")
+            # A 422 for one parent is not fatal — try the next candidate
+            continue
+
+    return resolved
+
+
+def _candidate_parents_ordered(
+    symbol: str,
+    session_date: str,
+    max_lookahead_days: int = 7,
+) -> list[tuple[str, list[str]]]:
+    """Compute candidate option parent symbols in priority order.
+
+    Returns list of (label, parents) tuples:
+      - "0dte": primary parents for the exact session date
+      - "Ndte_Day": parents for each subsequent trading day
+      - "monthly": the monthly/EOM parent as last resort
+
+    All candidates can be resolved in a single FREE symbology.resolve call.
+    """
+    candidates: list[tuple[str, list[str]]] = []
+    seen_parents: set[str] = set()
+
+    # 1. Primary: 0DTE parents for the exact session date
+    primary = options_parents_for(symbol, session_date)
+    if primary:
+        candidates.append(("0dte", primary))
+        seen_parents.update(primary)
+
+    # 2. Next trading days' parents (ordered by proximity)
+    dt = datetime.strptime(session_date, "%Y-%m-%d")
+    for offset in range(1, max_lookahead_days + 1):
+        next_dt = dt + timedelta(days=offset)
+        if next_dt.weekday() in (5, 6):  # skip weekends
+            continue
+        next_date = next_dt.strftime("%Y-%m-%d")
+        parents = options_parents_for(symbol, next_date)
+        new_parents = [p for p in parents if p not in seen_parents]
+        if new_parents:
+            day_name = next_dt.strftime("%a")
+            candidates.append((f"{offset}dte_{day_name}", new_parents))
+            seen_parents.update(new_parents)
+
+    # 3. Monthly/EOM parent as last resort
+    cfg = OPTIONS_CONFIG.get(symbol.upper())
+    if cfg:
+        monthly_parent = f"{cfg['eom']}.OPT"
+        if monthly_parent not in seen_parents:
+            candidates.append(("monthly", [monthly_parent]))
+    else:
+        generic_parent = f"{symbol.upper()}.OPT"
+        if generic_parent not in seen_parents:
+            candidates.append(("generic", [generic_parent]))
+
+    return candidates
+
+
+def discover_options_raw_symbols(
+    client: db.Historical,
+    symbol: str,
+    session_date: str,
+    active_contract: str,
+    log_path: Path,
+) -> tuple[list[str], str, str | None]:
+    """Discover option raw symbols for data download.
+
+    Strategy:
+    1. Compute candidate parents: primary (0DTE) + fallbacks (nearest expiry)
+    2. Resolve each candidate via symbology.resolve (FREE, per-parent calls)
+    3. Pick the first resolving candidate in priority order
+    4. Stream a targeted definition using the parent (stype_in=parent)
+    5. Filter by underlying == active_contract, instrument_class in {C, P}
+    6. For 0DTE candidates: also filter by expiration == session_date
+    7. For fallback candidates: pick the nearest expiration >= session_date
+
+    Returns (raw_symbols, expiry_label, resolved_parent).
+    The resolved_parent is used for batch data submission via stype_in=parent
+    when the symbol count exceeds Databento's 2,000-symbol limit.
+    """
+    # Check cache
+    cache_dir = (
+        backend_dir / "lake" / "raw" / "source=databento"
+        / "dataset=definition" / "venue=glbx" / "type=futures_options"
+        / f"symbol={symbol}"
+    )
+    cache_file = cache_dir / f"resolved_{session_date}.json"
+    if cache_file.exists():
+        cached = json.loads(cache_file.read_text())
+        log_msg(
+            log_path,
+            f"CACHED_RESOLVE {symbol} {session_date}: "
+            f"{len(cached['raw_symbols'])} symbols ({cached['label']})",
+        )
+        return cached["raw_symbols"], cached["label"], cached.get("parent")
+
+    candidates = _candidate_parents_ordered(symbol, session_date)
+    all_parents = [p for _, plist in candidates for p in plist]
+
+    if not all_parents:
+        log_msg(log_path, f"NO_PARENTS {symbol} {session_date}: no candidate parents computed")
+        return [], "none", None
+
+    log_msg(
+        log_path,
+        f"SYMBOLOGY {symbol} {session_date}: resolving {len(all_parents)} "
+        f"candidate parents (FREE)",
+    )
+    resolved_map = _symbology_resolve_raw_symbols(
+        client, all_parents, session_date, log_path,
+    )
+
+    resolved_count = sum(len(v) for v in resolved_map.values())
+    log_msg(
+        log_path,
+        f"SYMBOLOGY {symbol} {session_date}: "
+        f"{len(resolved_map)}/{len(all_parents)} parents resolved "
+        f"({resolved_count} total instruments)",
+    )
+
+    if not resolved_map:
+        log_msg(
+            log_path,
+            f"NO_INSTRUMENTS {symbol} {session_date}: "
+            f"none of {len(all_parents)} candidate parents resolved",
+        )
+        return [], "none", None
+
+    # Try each candidate in priority order
+    session_dt = datetime.strptime(session_date, "%Y-%m-%d").date()
+
+    for label, parents in candidates:
+        for parent in parents:
+            if parent not in resolved_map:
+                continue
+
+            instruments = resolved_map[parent]
+            log_msg(
+                log_path,
+                f"TRYING {parent}: {len(instruments)} instruments ({label})",
+            )
+
+            # Stream targeted definition using parent symbology.
+            # Uses stype_in="parent" so we send ONE parent symbol — the
+            # server returns definitions for just that series (not all options).
+            try:
+                store = client.timeseries.get_range(
+                    dataset=FUTURES_DATASET,
+                    symbols=[parent],
+                    schema="definition",
+                    stype_in="parent",
+                    start=session_date,
+                    end=_next_day(session_date),
+                )
+                df = store.to_df(
+                    price_type=PriceType.FIXED,
+                    pretty_ts=False,
+                    map_symbols=True,
+                )
+            except Exception as e:
+                log_msg(log_path, f"DEF_STREAM_ERROR {parent}: {e}")
+                continue
+
+            if df.empty:
+                continue
+
+            # Filter: instrument_class in {C, P}, underlying == active_contract
+            df = df[df["instrument_class"].isin(["C", "P"])].copy()
+            df["underlying"] = df["underlying"].astype(str).str.strip()
+            df = df[df["underlying"] == active_contract].copy()
+
+            if df.empty:
+                log_msg(
+                    log_path,
+                    f"SKIP {parent}: no instruments with underlying={active_contract}",
+                )
+                continue
+
+            df = df[df["expiration"].notna()].copy()
+            exp_dates = pd.to_datetime(
+                df["expiration"].astype("int64"), utc=True,
+            ).dt.date
+
+            if label == "0dte":
+                # Exact session date expiration
+                zero_dte = df[exp_dates == session_dt]
+                if zero_dte.empty:
+                    log_msg(
+                        log_path,
+                        f"SKIP {parent}: instruments exist but none expire on {session_date}",
+                    )
+                    continue
+                raw_syms = sorted(
+                    {str(s).strip() for s in zero_dte["raw_symbol"].dropna().unique()
+                     if str(s).strip()}
+                )
+                log_msg(
+                    log_path,
+                    f"0DTE {symbol} {session_date}: {len(raw_syms)} options via {parent}",
+                )
+                _save_resolve_cache(cache_dir, cache_file, raw_syms, "0dte", parent)
+                return raw_syms, "0dte", parent
+            else:
+                # Nearest expiry: closest expiration >= session_date
+                future_mask = exp_dates >= session_dt
+                if not future_mask.any():
+                    continue
+                nearest_exp = exp_dates[future_mask].min()
+                nearest_df = df[exp_dates == nearest_exp]
+                raw_syms = sorted(
+                    {str(s).strip() for s in nearest_df["raw_symbol"].dropna().unique()
+                     if str(s).strip()}
+                )
+                exp_str = str(nearest_exp)
+                result_label = f"nearest_{exp_str}"
+                log_msg(
+                    log_path,
+                    f"NEAREST {symbol} {session_date}: {len(raw_syms)} options "
+                    f"expiring {exp_str} via {parent} ({label})",
+                )
+                _save_resolve_cache(cache_dir, cache_file, raw_syms, result_label, parent)
+                return raw_syms, result_label, parent
+
+    log_msg(log_path, f"NO_OPTIONS {symbol} {session_date}: all candidates exhausted")
+    return [], "none", None
+
+
+def _save_resolve_cache(
+    cache_dir: Path,
+    cache_file: Path,
+    raw_symbols: list[str],
+    label: str,
+    parent: str,
+) -> None:
+    """Save resolved symbols to JSON cache for re-run efficiency."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(
+        json.dumps(
+            {"raw_symbols": raw_symbols, "label": label, "parent": parent},
+            indent=2,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -751,28 +1039,27 @@ def process_session_day_phase1(
     date_str: str,
     log_path: Path,
     pause_seconds: int,
-) -> str:
-    """Phase 1: Resolve front-month contract and submit definition batch job.
+) -> tuple[str, list[str], str, str | None]:
+    """Phase 1: Resolve front-month contract and discover options symbols.
 
-    1. Resolve front-month contract via streaming definition (cheap, one record)
-    2. Submit options definition batch job via batch.submit_job
+    Uses FREE symbology.resolve to find the right parent, then streams a
+    tiny targeted definition to filter for 0DTE or nearest-expiry options.
 
-    Returns the active front-month contract symbol (e.g. "SIH6").
+    Returns (active_contract, option_raw_symbols, expiry_label, resolved_parent).
     """
-    # Step 1: Resolve front-month contract (synchronous metadata API)
+    # Step 1: Resolve front-month contract (synchronous, one definition record)
     active_contract = resolve_front_month(client, symbol, date_str, log_path)
 
-    # Step 2: Submit definition batch job (skipped if cached on disk)
-    submit_definition_batch_job(
+    # Step 2: Discover options via FREE symbology.resolve + tiny streaming def
+    option_raw_symbols, expiry_label, resolved_parent = discover_options_raw_symbols(
         client=client,
-        tracker=tracker,
         symbol=symbol,
         session_date=date_str,
+        active_contract=active_contract,
         log_path=log_path,
-        pause_seconds=pause_seconds,
     )
 
-    return active_contract
+    return active_contract, option_raw_symbols, expiry_label, resolved_parent
 
 
 def process_session_day_phase2(
@@ -781,39 +1068,27 @@ def process_session_day_phase2(
     symbol: str,
     date_str: str,
     active_contract: str,
+    option_raw_symbols: list[str],
+    expiry_label: str,
+    resolved_parent: str | None,
     include_futures: bool,
     options_schemas: list[str],
     log_path: Path,
     pause_seconds: int,
 ) -> None:
-    """Phase 2: Filter 0DTE from downloaded definitions, submit data batch jobs.
+    """Phase 2: Submit data batch jobs for pre-discovered options.
 
-    Requires definition file to exist on disk (downloaded in phase 1).
+    Accepts option raw symbols discovered in phase 1 (via FREE symbology
+    resolution + tiny streaming definition). No definition file needed.
 
-    1. Load definition file and filter to 0DTE contracts
-    2. Submit futures MBO batch job for front-month contract only
-    3. Submit options MBO/statistics batch jobs for 0DTE contracts only
+    Uses stype_in=parent when the discovered symbol count exceeds Databento's
+    2,000-symbol limit per batch job. The parent symbol targets the same
+    weekly/daily series, so the download is nearly identical.
+
+    1. Submit futures MBO batch job for front-month contract only
+    2. Submit options MBO/statistics batch jobs for discovered contracts
     """
-    date_compact = date_str.replace("-", "")
-    def_path = target_path_options_definition(symbol, date_compact)
-
-    if not def_path.exists():
-        log_msg(log_path, f"SKIP {symbol} {date_str}: definition file not yet available")
-        return
-
-    # Step 1: Filter 0DTE options (local processing)
-    try:
-        raw_symbols = load_0dte_option_raw_symbols(def_path, active_contract, date_str)
-        log_msg(
-            log_path,
-            f"0DTE {symbol} {date_str}: active={active_contract} options={len(raw_symbols)}",
-        )
-    except ValueError as e:
-        # No 0DTE options for this product/date (e.g. SI has only monthly expirations).
-        raw_symbols = []
-        log_msg(log_path, f"NO_0DTE {symbol} {date_str}: {e}")
-
-    # Step 2: Submit futures MBO batch job (front-month only)
+    # Step 1: Submit futures MBO batch job (front-month only)
     if include_futures:
         submit_job(
             client=client,
@@ -829,10 +1104,30 @@ def process_session_day_phase2(
         )
         time.sleep(pause_seconds)
 
-    # Step 3: Submit options data batch jobs (0DTE contracts only)
-    if not raw_symbols:
-        log_msg(log_path, f"SKIP options data for {symbol} {date_str}: no 0DTE contracts")
+    # Step 2: Submit options data batch jobs
+    if not option_raw_symbols:
+        log_msg(
+            log_path,
+            f"SKIP options data for {symbol} {date_str}: "
+            f"no options discovered ({expiry_label})",
+        )
         return
+
+    # Choose symbology: use parent when symbols exceed Databento's 2,000 limit.
+    # Parent symbology targets the same weekly/daily series (e.g. SO1.OPT)
+    # so the download covers the same instruments with one symbol.
+    MAX_SYMBOLS = 2000
+    if len(option_raw_symbols) > MAX_SYMBOLS and resolved_parent:
+        submit_symbols = [resolved_parent]
+        submit_stype = "parent"
+        log_msg(
+            log_path,
+            f"PARENT_STYPE {symbol} {date_str}: {len(option_raw_symbols)} symbols "
+            f"> {MAX_SYMBOLS} limit, using {resolved_parent} (stype_in=parent)",
+        )
+    else:
+        submit_symbols = option_raw_symbols
+        submit_stype = "raw_symbol"
 
     for schema in options_schemas:
         if schema == "definition":
@@ -844,8 +1139,8 @@ def process_session_day_phase2(
             schema=schema,
             symbol=symbol,
             date_str=date_str,
-            symbols=raw_symbols,
-            stype_in="raw_symbol",
+            symbols=submit_symbols,
+            stype_in=submit_stype,
             log_path=log_path,
             product_type=PRODUCT_FUTURES_OPTIONS,
         )
@@ -862,41 +1157,37 @@ def process_session_day(
     log_path: Path,
     pause_seconds: int,
 ) -> None:
-    """Process one session date: resolve front month, filter 0DTE, submit batch jobs.
+    """Process one session date: resolve front month, discover options, submit batch jobs.
 
-    Legacy convenience wrapper that runs phase 1 + phase 2 sequentially.
-    Used by the 'submit' CLI command where definitions are expected to
-    already exist on disk (or will be submitted and polled separately).
-
-    In daemon mode, the 3-phase architecture is used directly instead.
+    Convenience wrapper that runs phase 1 + phase 2 sequentially.
+    Phase 1 uses FREE symbology.resolve to discover options — no separate
+    definition download needed.
     """
-    active_contract = process_session_day_phase1(
-        client=client,
-        tracker=tracker,
-        symbol=symbol,
-        date_str=date_str,
-        log_path=log_path,
-        pause_seconds=pause_seconds,
-    )
-
-    # For the submit command, definition might not be downloaded yet.
-    # Phase 2 will skip if definition file is not available.
-    date_compact = date_str.replace("-", "")
-    def_path = target_path_options_definition(symbol, date_compact)
-    if def_path.exists():
-        process_session_day_phase2(
+    active_contract, option_raw_symbols, expiry_label, resolved_parent = (
+        process_session_day_phase1(
             client=client,
             tracker=tracker,
             symbol=symbol,
             date_str=date_str,
-            active_contract=active_contract,
-            include_futures=include_futures,
-            options_schemas=options_schemas,
             log_path=log_path,
             pause_seconds=pause_seconds,
         )
-    else:
-        log_msg(log_path, f"DEF_PENDING {symbol} {date_str}: definition batch job submitted, poll to download")
+    )
+
+    process_session_day_phase2(
+        client=client,
+        tracker=tracker,
+        symbol=symbol,
+        date_str=date_str,
+        active_contract=active_contract,
+        option_raw_symbols=option_raw_symbols,
+        expiry_label=expiry_label,
+        resolved_parent=resolved_parent,
+        include_futures=include_futures,
+        options_schemas=options_schemas,
+        log_path=log_path,
+        pause_seconds=pause_seconds,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -994,53 +1285,44 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
     log_msg(log_path, f"DAEMON start: {len(dates)} dates, {len(symbols)} symbols")
 
-    # Phase 1: Resolve front month (streaming, cheap) + submit definition batch jobs
+    # Phase 1: Resolve front month + discover options (FREE) + submit data batch jobs
+    # Uses symbology.resolve (FREE) to find the right parent, then streams a
+    # tiny definition to filter. No definition batch job or polling needed.
     tracker = load_job_tracker()
-    front_months: dict[tuple[str, str], str] = {}  # (symbol, date) -> active_contract
     for date_str in dates:
         for symbol in symbols:
             try:
-                active_contract = process_session_day_phase1(
-                    client=client,
-                    tracker=tracker,
-                    symbol=symbol,
-                    date_str=date_str,
-                    log_path=log_path,
-                    pause_seconds=args.pause_seconds,
+                active_contract, option_syms, label, parent = (
+                    process_session_day_phase1(
+                        client=client,
+                        tracker=tracker,
+                        symbol=symbol,
+                        date_str=date_str,
+                        log_path=log_path,
+                        pause_seconds=args.pause_seconds,
+                    )
                 )
-                front_months[(symbol, date_str)] = active_contract
-            except Exception as e:
-                log_msg(log_path, f"ERROR phase1 {symbol} {date_str}: {e}")
-
-    # Phase 2: Poll/download definition jobs -> filter 0DTE -> submit data batch jobs
-    if has_pending_jobs(tracker, PRODUCT_FUTURES_OPTIONS_DEF):
-        log_msg(log_path, "PHASE2: polling definition batch jobs...")
-        _poll_until_complete(client, tracker, log_path, args.poll_interval, "definitions")
-
-    tracker = load_job_tracker()
-    for date_str in dates:
-        for symbol in symbols:
-            active_contract = front_months.get((symbol, date_str))
-            if active_contract is None:
-                continue
-            try:
                 process_session_day_phase2(
                     client=client,
                     tracker=tracker,
                     symbol=symbol,
                     date_str=date_str,
                     active_contract=active_contract,
+                    option_raw_symbols=option_syms,
+                    expiry_label=label,
+                    resolved_parent=parent,
                     include_futures=args.include_futures,
                     options_schemas=options_schemas,
                     log_path=log_path,
                     pause_seconds=args.pause_seconds,
                 )
             except Exception as e:
-                log_msg(log_path, f"ERROR phase2 {symbol} {date_str}: {e}")
+                log_msg(log_path, f"ERROR {symbol} {date_str}: {e}")
 
-    # Phase 3: Poll and download data batch jobs
+    # Phase 2: Poll and download data batch jobs
+    tracker = load_job_tracker()
     if has_pending_jobs(tracker, PRODUCT_FUTURES) or has_pending_jobs(tracker, PRODUCT_FUTURES_OPTIONS):
-        log_msg(log_path, "PHASE3: polling data batch jobs...")
+        log_msg(log_path, "PHASE2: polling data batch jobs...")
         _poll_until_complete(client, tracker, log_path, args.poll_interval, "data")
 
     log_msg(log_path, "DAEMON complete")
