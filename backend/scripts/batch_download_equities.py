@@ -28,6 +28,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -91,6 +93,18 @@ def parse_schema_list(raw_schemas: str, allowed: set[str], label: str) -> list[s
         allowed_str = ",".join(sorted(allowed))
         raise ValueError(f"Unsupported {label} schemas: {unsupported}. Allowed: {allowed_str}")
     return schemas
+
+
+# ---------------------------------------------------------------------------
+# Decompression
+# ---------------------------------------------------------------------------
+
+def _decompress_zst_files(directory: Path, log_path: Path) -> None:
+    """Decompress all .dbn.zst files in directory, remove originals."""
+    for zst_file in sorted(directory.glob("*.dbn.zst")):
+        out_file = zst_file.with_suffix("")  # strip .zst
+        subprocess.run(["zstd", "-d", "--rm", str(zst_file)], check=True)
+        log_msg(log_path, f"DECOMPRESS {zst_file.name} -> {out_file.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +451,17 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
                 job_id=job_id,
                 output_dir=out_dir,
             )
+            # batch.download creates a job-ID subdirectory — flatten .dbn* files up
+            job_subdir = out_dir / job_id
+            if job_subdir.is_dir():
+                for f in job_subdir.iterdir():
+                    if f.suffix in (".dbn", ".zst"):
+                        dest = out_dir / f.name
+                        f.rename(dest)
+                        log_msg(log_path, f"MOVED {f.name} -> {dest}")
+                shutil.rmtree(job_subdir, ignore_errors=True)
+            # Decompress .dbn.zst -> .dbn, remove originals
+            _decompress_zst_files(out_dir, log_path)
             job_info["state"] = "downloaded"
             job_info["downloaded_at"] = datetime.utcnow().isoformat()
             job_info["files"] = [str(f) for f in downloaded_files]
