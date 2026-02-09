@@ -5,8 +5,13 @@ Downloads from two datasets:
 - XNAS.ITCH: Underlying equity MBO data
 - OPRA.PILLAR: Equity options data via Databento CMBP-1 schema (0DTE filtered)
 
-Prerequisites (options definition) are synchronous:
-- timeseries.get_range: streaming download to disk, immediate
+Options definition files are downloaded via batch API (not streaming) to avoid
+re-billing when re-running on a new system without cached files.
+
+Daemon 3-phase flow:
+- Phase 1: Submit definition batch jobs
+- Phase 2: Poll/download definition jobs -> filter 0DTE -> submit data batch jobs
+- Phase 3: Poll/download data batch jobs
 
 All batch requests are strict flat-file requests:
 - delivery="download"
@@ -19,6 +24,7 @@ For equity options (<SYMBOL>), 0DTE filtering is by:
 - expiration UTC date == session date
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -45,6 +51,10 @@ SUPPORTED_OPTIONS_SCHEMAS = {"definition", "cmbp-1", "statistics"}
 
 FLAT_FILE_DELIVERY = "download"
 FLAT_FILE_SPLIT_DURATION = "day"
+
+PRODUCT_EQUITY = "equity"
+PRODUCT_EQUITY_OPTIONS = "equity_options"
+PRODUCT_EQUITY_OPTIONS_DEF = "equity_options_def"
 
 
 # ---------------------------------------------------------------------------
@@ -171,42 +181,47 @@ def _next_day(date_str: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stream options definition via timeseries API
+# Submit options definition as batch job
 # ---------------------------------------------------------------------------
 
-def stream_options_definition(
+def submit_definition_batch_job(
     client: db.Historical,
+    tracker: dict[str, Any],
     symbol: str,
     session_date: str,
     log_path: Path,
-) -> Path:
-    """Stream OPRA options definition file directly to disk.
+    pause_seconds: int,
+) -> str | None:
+    """Submit a batch job for OPRA options definition download.
 
-    Uses timeseries.get_range with parent symbology (QQQ.OPT).
-    Returns path to the saved file.
+    Uses batch.submit_job with parent symbology (QQQ.OPT) instead of
+    streaming timeseries.get_range. This avoids re-billing when
+    re-downloading on a new system. If the definition file already
+    exists on disk, skips submission entirely.
+
+    Returns the batch job ID, or None if cached/skipped.
     """
     date_compact = session_date.replace("-", "")
     out_path = target_path_options_definition(symbol, date_compact)
 
     if out_path.exists():
         log_msg(log_path, f"CACHED options definition: {out_path}")
-        return out_path
+        return None
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    end = _next_day(session_date)
-
-    log_msg(log_path, f"STREAMING options definition for {symbol}.OPT {session_date}")
-    client.timeseries.get_range(
+    job_id = submit_job(
+        client=client,
+        tracker=tracker,
         dataset="OPRA.PILLAR",
+        schema="definition",
+        symbol=symbol,
+        date_str=session_date,
         symbols=[f"{symbol}.OPT"],
         stype_in="parent",
-        schema="definition",
-        start=session_date,
-        end=end,
-        path=str(out_path),
+        log_path=log_path,
+        product_type=PRODUCT_EQUITY_OPTIONS_DEF,
     )
-    log_msg(log_path, f"DONE options definition: {out_path}")
-    return out_path
+    time.sleep(pause_seconds)
+    return job_id
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +272,7 @@ def load_0dte_assets(
 
 def submit_job(
     client: db.Historical,
-    tracker: dict,
+    tracker: dict[str, Any],
     dataset: str,
     schema: str,
     symbol: str,
@@ -265,18 +280,29 @@ def submit_job(
     symbols: list[str],
     stype_in: str,
     log_path: Path,
+    product_type: str = PRODUCT_EQUITY_OPTIONS,
 ) -> str | None:
-    job_key = f"{dataset}|{schema}|{symbol}|{date_str}"
+    """Submit one strict one-day flat-file batch job."""
+    key = f"{dataset}|{schema}|{symbol}|{date_str}|{product_type}"
+    symbols_digest = hashlib.sha256("\x1f".join(sorted(symbols)).encode("utf-8")).hexdigest()
 
-    if job_key in tracker["jobs"]:
-        existing = tracker["jobs"][job_key]
-        if existing["state"] in ("done", "downloaded"):
-            log_msg(log_path, f"SKIP {job_key} already {existing['state']}")
+    if key in tracker["jobs"]:
+        existing = tracker["jobs"][key]
+        payload_changed = (
+            existing.get("stype_in") != stype_in
+            or existing.get("symbols_count") != len(symbols)
+            or existing.get("symbols_digest") != symbols_digest
+        )
+        if existing["state"] in ("done", "downloaded") and not payload_changed:
+            log_msg(log_path, f"SKIP {key} already {existing['state']}")
             return None
-        if existing["state"] != "error":
-            log_msg(log_path, f"REUSE {job_key} job={existing['job_id']} state={existing['state']}")
+        if existing["state"] != "error" and not payload_changed:
+            log_msg(log_path, f"REUSE {key} job={existing['job_id']} state={existing['state']}")
             return existing["job_id"]
-        log_msg(log_path, f"RESUBMIT {job_key} (was error)")
+        if payload_changed:
+            log_msg(log_path, f"RESUBMIT {key} (payload changed)")
+        else:
+            log_msg(log_path, f"RESUBMIT {key} (was error)")
 
     end_date = _next_day(date_str)
 
@@ -292,13 +318,15 @@ def submit_job(
             split_duration=FLAT_FILE_SPLIT_DURATION,
         )
         job_id = job["id"]
-        tracker["jobs"][job_key] = {
+        tracker["jobs"][key] = {
             "job_id": job_id,
             "dataset": dataset,
             "schema": schema,
             "symbol": symbol,
             "date_str": date_str,
+            "product_type": product_type,
             "symbols_count": len(symbols),
+            "symbols_digest": symbols_digest,
             "stype_in": stype_in,
             "state": "submitted",
             "submitted_at": datetime.utcnow().isoformat(),
@@ -306,12 +334,12 @@ def submit_job(
         save_job_tracker(tracker)
         log_msg(
             log_path,
-            f"SUBMIT {job_key} job={job_id} symbols={len(symbols)} "
+            f"SUBMIT {key} job={job_id} symbols={len(symbols)} "
             f"delivery={FLAT_FILE_DELIVERY} split_duration={FLAT_FILE_SPLIT_DURATION}",
         )
         return job_id
     except Exception as e:
-        log_msg(log_path, f"ERROR submit {job_key}: {e}")
+        log_msg(log_path, f"ERROR submit {key}: {e}")
         return None
 
 
@@ -361,6 +389,22 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     return done_count
 
 
+def target_path_for_job(
+    dataset: str, schema: str, symbol: str, date_compact: str, product_type: str,
+) -> Path:
+    """Resolve download target path based on product type."""
+    if product_type == PRODUCT_EQUITY:
+        return target_path_equity(schema, symbol, date_compact)
+    if product_type == PRODUCT_EQUITY_OPTIONS_DEF:
+        return target_path_options_definition(symbol, date_compact)
+    if product_type == PRODUCT_EQUITY_OPTIONS:
+        return target_path_options(schema, symbol, date_compact)
+    # Fallback for jobs tracked before product_type was added
+    if dataset == "XNAS.ITCH":
+        return target_path_equity(schema, symbol, date_compact)
+    return target_path_options(schema, symbol, date_compact)
+
+
 def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     downloaded = 0
 
@@ -380,12 +424,9 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
         symbol = job_info["symbol"]
         date_str = job_info["date_str"]
         date_compact = date_str.replace("-", "")
+        product_type = job_info.get("product_type", PRODUCT_EQUITY_OPTIONS)
 
-        if dataset == "XNAS.ITCH":
-            out_path = target_path_equity(schema, symbol, date_compact)
-        else:
-            out_path = target_path_options(schema, symbol, date_compact)
-
+        out_path = target_path_for_job(dataset, schema, symbol, date_compact, product_type)
         out_dir = out_path.parent
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -414,8 +455,119 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Per-day processing: synchronous prereqs + batch data submission
+# Job filtering helpers
 # ---------------------------------------------------------------------------
+
+def has_pending_jobs(tracker: dict[str, Any], product_type: str | None = None) -> bool:
+    """Check if there are pending jobs, optionally filtered by product type."""
+    for v in tracker["jobs"].values():
+        if v["state"] in ("downloaded", "expired", "error"):
+            continue
+        if product_type is not None and v.get("product_type") != product_type:
+            continue
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Per-day processing: 3-phase architecture
+# ---------------------------------------------------------------------------
+
+def process_session_day_phase1(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    symbol: str,
+    date_str: str,
+    log_path: Path,
+    pause_seconds: int,
+) -> None:
+    """Phase 1: Submit definition batch job for OPRA options.
+
+    Submits definition download via batch API. Skipped if the definition
+    file already exists on disk (cached from a prior run).
+    """
+    submit_definition_batch_job(
+        client=client,
+        tracker=tracker,
+        symbol=symbol,
+        session_date=date_str,
+        log_path=log_path,
+        pause_seconds=pause_seconds,
+    )
+
+
+def process_session_day_phase2(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    symbol: str,
+    date_str: str,
+    equity_schemas: list[str],
+    options_schemas: list[str],
+    log_path: Path,
+    pause_seconds: int,
+) -> None:
+    """Phase 2: Filter 0DTE from downloaded definitions, submit data batch jobs.
+
+    Requires definition file to exist on disk (downloaded in phase 1).
+
+    1. Load definition file and filter to 0DTE contracts
+    2. Submit equity MBO batch jobs (XNAS.ITCH)
+    3. Submit options CMBP-1/statistics batch jobs for 0DTE contracts only
+    """
+    date_compact = date_str.replace("-", "")
+    def_path = target_path_options_definition(symbol, date_compact)
+
+    if not def_path.exists():
+        log_msg(log_path, f"SKIP {symbol} {date_str}: definition file not yet available")
+        return
+
+    # Step 1: Filter 0DTE options (local processing)
+    try:
+        raw_symbols = load_0dte_assets(def_path, symbol, date_str)
+        log_msg(log_path, f"0DTE {symbol} {date_str}: options={len(raw_symbols)}")
+    except ValueError as e:
+        # No 0DTE options for this symbol/date — still proceed with equity data.
+        raw_symbols = []
+        log_msg(log_path, f"NO_0DTE {symbol} {date_str}: {e}")
+
+    # Step 2: Submit equity MBO batch jobs (XNAS.ITCH)
+    for schema in equity_schemas:
+        submit_job(
+            client=client,
+            tracker=tracker,
+            dataset="XNAS.ITCH",
+            schema=schema,
+            symbol=symbol,
+            date_str=date_str,
+            symbols=[symbol],
+            stype_in="raw_symbol",
+            log_path=log_path,
+            product_type=PRODUCT_EQUITY,
+        )
+        time.sleep(pause_seconds)
+
+    # Step 3: Submit options data batch jobs (OPRA.PILLAR, 0DTE only)
+    if not raw_symbols:
+        log_msg(log_path, f"SKIP options data for {symbol} {date_str}: no 0DTE contracts")
+        return
+
+    for schema in options_schemas:
+        if schema == "definition":
+            continue
+        submit_job(
+            client=client,
+            tracker=tracker,
+            dataset="OPRA.PILLAR",
+            schema=schema,
+            symbol=symbol,
+            date_str=date_str,
+            symbols=raw_symbols,
+            stype_in="raw_symbol",
+            log_path=log_path,
+            product_type=PRODUCT_EQUITY_OPTIONS,
+        )
+        time.sleep(pause_seconds)
+
 
 def process_session_day(
     client: db.Historical,
@@ -427,40 +579,35 @@ def process_session_day(
     log_path: Path,
     pause_seconds: int,
 ) -> None:
-    """Process one session date: stream options definition, filter 0DTE, submit batch jobs.
+    """Process one session date (legacy convenience wrapper).
 
-    Steps 1-2 are synchronous (no batch queue wait):
-    1. Stream options definition via timeseries.get_range
-    2. Filter 0DTE options locally
-
-    Steps 3-4 submit batch jobs (async, polled later):
-    3. Submit equity MBO jobs (XNAS.ITCH)
-    4. Submit options CMBP-1/statistics jobs (OPRA.PILLAR) for 0DTE contracts only
+    Runs phase 1 + phase 2 sequentially. Used by the 'submit' CLI command.
+    In daemon mode, the 3-phase architecture is used directly instead.
     """
-    # Step 1: Stream options definition (synchronous)
-    def_path = stream_options_definition(client, symbol, date_str, log_path)
+    process_session_day_phase1(
+        client=client,
+        tracker=tracker,
+        symbol=symbol,
+        date_str=date_str,
+        log_path=log_path,
+        pause_seconds=pause_seconds,
+    )
 
-    # Step 2: Filter 0DTE options (local processing)
-    raw_symbols = load_0dte_assets(def_path, symbol, date_str)
-    log_msg(log_path, f"0DTE {symbol} {date_str}: options={len(raw_symbols)}")
-
-    # Step 3: Submit equity MBO batch jobs (XNAS.ITCH)
-    for schema in equity_schemas:
-        submit_job(
-            client, tracker, "XNAS.ITCH", schema, symbol, date_str,
-            [symbol], "raw_symbol", log_path
+    date_compact = date_str.replace("-", "")
+    def_path = target_path_options_definition(symbol, date_compact)
+    if def_path.exists():
+        process_session_day_phase2(
+            client=client,
+            tracker=tracker,
+            symbol=symbol,
+            date_str=date_str,
+            equity_schemas=equity_schemas,
+            options_schemas=options_schemas,
+            log_path=log_path,
+            pause_seconds=pause_seconds,
         )
-        time.sleep(pause_seconds)
-
-    # Step 4: Submit options data batch jobs (OPRA.PILLAR, 0DTE only)
-    for schema in options_schemas:
-        if schema == "definition":
-            continue
-        submit_job(
-            client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
-            raw_symbols, "raw_symbol", log_path
-        )
-        time.sleep(pause_seconds)
+    else:
+        log_msg(log_path, f"DEF_PENDING {symbol} {date_str}: definition batch job submitted, poll to download")
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +660,38 @@ def cmd_poll(args: argparse.Namespace) -> None:
     log_msg(log_path, f"DOWNLOADED {downloaded} jobs")
 
 
+def _poll_until_complete(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    log_path: Path,
+    poll_interval: int,
+    label: str,
+) -> None:
+    """Poll and download batch jobs until none remain pending."""
+    while True:
+        tracker = load_job_tracker()
+        poll_jobs(client, tracker, log_path)
+        download_completed_jobs(client, tracker, log_path)
+
+        tracker = load_job_tracker()
+        total = len(tracker["jobs"])
+        done = sum(1 for v in tracker["jobs"].values() if v["state"] == "downloaded")
+        pending = sum(
+            1
+            for v in tracker["jobs"].values()
+            if v["state"] not in ("downloaded", "expired", "error")
+        )
+
+        log_msg(log_path, f"STATUS [{label}]: {done}/{total} downloaded, {pending} pending")
+        if pending == 0:
+            if done > 0:
+                log_msg(log_path, f"COMPLETE [{label}]: all jobs finished")
+            break
+
+        log_msg(log_path, f"Sleeping {poll_interval}s...")
+        time.sleep(poll_interval)
+
+
 def cmd_daemon(args: argparse.Namespace) -> None:
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
@@ -528,12 +707,32 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
     log_msg(log_path, f"DAEMON start: {len(dates)} dates, {len(symbols)} symbols")
 
-    # Phase 1: Synchronous setup — stream definitions + filter 0DTE + submit batch jobs
+    # Phase 1: Submit definition batch jobs
     tracker = load_job_tracker()
     for date_str in dates:
         for symbol in symbols:
             try:
-                process_session_day(
+                process_session_day_phase1(
+                    client=client,
+                    tracker=tracker,
+                    symbol=symbol,
+                    date_str=date_str,
+                    log_path=log_path,
+                    pause_seconds=args.pause_seconds,
+                )
+            except Exception as e:
+                log_msg(log_path, f"ERROR phase1 {symbol} {date_str}: {e}")
+
+    # Phase 2: Poll/download definition jobs -> filter 0DTE -> submit data batch jobs
+    if has_pending_jobs(tracker, PRODUCT_EQUITY_OPTIONS_DEF):
+        log_msg(log_path, "PHASE2: polling definition batch jobs...")
+        _poll_until_complete(client, tracker, log_path, args.poll_interval, "definitions")
+
+    tracker = load_job_tracker()
+    for date_str in dates:
+        for symbol in symbols:
+            try:
+                process_session_day_phase2(
                     client=client,
                     tracker=tracker,
                     symbol=symbol,
@@ -544,28 +743,14 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                     pause_seconds=args.pause_seconds,
                 )
             except Exception as e:
-                log_msg(log_path, f"ERROR processing {symbol} {date_str}: {e}")
+                log_msg(log_path, f"ERROR phase2 {symbol} {date_str}: {e}")
 
-    # Phase 2: Poll and download batch data jobs
-    while True:
-        tracker = load_job_tracker()
-        poll_jobs(client, tracker, log_path)
-        download_completed_jobs(client, tracker, log_path)
+    # Phase 3: Poll and download data batch jobs
+    if has_pending_jobs(tracker, PRODUCT_EQUITY) or has_pending_jobs(tracker, PRODUCT_EQUITY_OPTIONS):
+        log_msg(log_path, "PHASE3: polling data batch jobs...")
+        _poll_until_complete(client, tracker, log_path, args.poll_interval, "data")
 
-        tracker = load_job_tracker()
-        total = len(tracker["jobs"])
-        done = sum(1 for v in tracker["jobs"].values() if v["state"] == "downloaded")
-        pending = sum(1 for v in tracker["jobs"].values() if v["state"] not in ("downloaded", "expired", "error"))
-
-        log_msg(log_path, f"STATUS: {done}/{total} downloaded, {pending} pending")
-
-        if pending == 0:
-            if done > 0:
-                log_msg(log_path, "DAEMON complete: all jobs finished")
-            break
-
-        log_msg(log_path, f"Sleeping {args.poll_interval}s...")
-        time.sleep(args.poll_interval)
+    log_msg(log_path, "DAEMON complete")
 
 
 def main() -> None:

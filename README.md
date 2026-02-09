@@ -26,7 +26,7 @@
 Job trackers: `backend/logs/*jobs.json`
 
 ### Current Data Range
-2026-01-05 through 2026-01-29 (18 trading days), plus 2026-02-06 (SI only)
+2026-01-05 through 2026-01-29 (18 trading days), plus 2026-02-06 (SI, MNQ)
 
 ### Raw Data Formats
 - Primary: `.dbn` (Databento native)
@@ -48,13 +48,13 @@ nohup uv run python scripts/batch_download_futures.py daemon \
     --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
 ```
 - Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
-- Active-contract pipeline (per symbol, per session date):
-  1. Resolve front-month contract via `timeseries.get_range` with `stype_in=continuous` using volume-ranked symbol (`{ROOT}.v.0`), extract `raw_symbol` from definition record
-  2. Stream options definition via `timeseries.get_range` with `stype_in=parent` using the options parent symbol (see `OPTIONS_PARENT_MAP` in script — e.g. SI→SO.OPT, GC→OG.OPT, ES→ES.OPT)
-  3. Filter 0DTE options where `underlying == front_month_contract`, `instrument_class in {C,P}`, and `expiration UTC date == session date`
-  4. If no 0DTE options exist (e.g. Silver has monthly-only expirations), skip options data gracefully
-  5. Submit batch jobs: futures MBO for front-month contract + options MBO/statistics for 0DTE contracts, all with `stype_in=raw_symbol`
-- Options definition files are cached at `lake/raw/source=databento/dataset=definition/venue=glbx/type=futures_options/symbol={SYM}/`
+- 3-phase daemon (per symbol, per session date):
+  1. **Phase 1** (streaming, cheap): Resolve front-month contract via `timeseries.get_range` with `stype_in=continuous` using volume-ranked symbol (`{ROOT}.v.0`). Submit options definition batch job via `batch.submit_job` with `stype_in=parent` using date-aware parent symbols from `OPTIONS_CONFIG` (all 8 products have daily/weekly options with different CME naming conventions)
+  2. **Phase 2** (after definition batch completes): Load definition from disk, filter 0DTE options where `underlying == front_month_contract`, `instrument_class in {C,P}`, `expiration UTC date == session date`. Submit futures MBO + options MBO/statistics batch jobs
+  3. **Phase 3**: Poll/download data batch jobs
+- All downloads use `batch.submit_job` (not streaming API) — definition files are cached and reusable across systems without re-paying
+- Options definition files cached at `lake/raw/source=databento/dataset=definition/venue=glbx/type=futures_options/symbol={SYM}/`
+- `OPTIONS_CONFIG` maps 8 products (ES, NQ, MES, MNQ, GC, SI, CL, 6E) with date-aware daily/weekly parent resolution. Unknown symbols fall back to `{symbol}.OPT`
 
 **Equities + Equity Options:**
 ```bash
@@ -68,11 +68,12 @@ nohup uv run python scripts/batch_download_equities.py daemon \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
 - Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
-- Equity 0DTE pipeline (per symbol, per session date):
-  1. Stream options definition via `timeseries.get_range` with `stype_in=parent` using `{SYMBOL}.OPT` on OPRA.PILLAR dataset
-  2. Filter 0DTE options where `underlying == symbol`, `instrument_class in {C,P}`, and `expiration UTC date == session date`
-  3. Submit batch jobs: equity MBO + options CMBP-1/statistics for 0DTE contracts, all with `stype_in=raw_symbol`
-- Options definition files are cached at `lake/raw/source=databento/dataset=definition/venue=opra/type=equity_options/symbol={SYM}/`
+- 3-phase daemon (same architecture as futures):
+  1. **Phase 1**: Submit options definition batch job via `batch.submit_job` with `{SYMBOL}.OPT` on OPRA.PILLAR dataset
+  2. **Phase 2** (after definition batch completes): Filter 0DTE options where `underlying == symbol`, `instrument_class in {C,P}`, `expiration UTC date == session date`. Submit equity MBO + options CMBP-1/statistics batch jobs
+  3. **Phase 3**: Poll/download data batch jobs
+- All downloads use `batch.submit_job` — definition files cached and reusable
+- Options definition files cached at `lake/raw/source=databento/dataset=definition/venue=opra/type=equity_options/symbol={SYM}/`
 
 ### LLM Request Routing (Instrument -> Pipeline)
 - Normalize date text to `YYYY-MM-DD` before building commands. Example: `Feb 06 2026` -> `2026-02-06`.
@@ -81,7 +82,7 @@ nohup uv run python scripts/batch_download_equities.py daemon \
 - If request contains both `ES` and `QQQ`: run both scripts (futures + equities pipelines).
 - Single-date request: set `--start` and `--end` to the same date.
 - Multi-date request: set `--start` to first date and `--end` to last date.
-- Futures script supports any CME/GLBX root with an `OPTIONS_PARENT_MAP` entry: `ES`, `NQ`, `SI`, `GC`, `CL`, `6E`. New roots require adding the options parent mapping.
+- Futures script supports any CME/GLBX root with an `OPTIONS_PARENT_MAP` entry: `ES`, `NQ`, `SI`, `GC`, `CL`, `6E`. Also supports `MNQ` (Micro Nasdaq) with date-aware daily/weekly options parent resolution (Mon=D{w}A, Tue=D{w}B, Wed=D{w}C, Thu=D{w}D, Fri=MQ{w}, quarterly=MNQ, EOM=MQE). New roots require adding the options parent mapping.
 - Equities script supports any OPRA-listed ticker: `QQQ`, `AAPL`, `SPY`, etc.
 
 ### LLM Command Examples
