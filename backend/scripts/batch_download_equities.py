@@ -5,37 +5,23 @@ Downloads from two datasets:
 - XNAS.ITCH: Underlying equity MBO data
 - OPRA.PILLAR: Equity options data via Databento CMBP-1 schema (0DTE filtered)
 
-All requests are strict batch flat-file requests:
-- delivery=\"download\"
-- split_duration=\"day\"
+Prerequisites (options definition) are synchronous:
+- timeseries.get_range: streaming download to disk, immediate
+
+All batch requests are strict flat-file requests:
+- delivery="download"
+- split_duration="day"
 - start=<session_date>, end=<session_date + 1 day>
 
-For equity options (QQQ), 0DTE filtering is by:
+For equity options (<SYMBOL>), 0DTE filtering is by:
 - instrument_class in {C, P}
-- underlying == QQQ
+- underlying == <SYMBOL>
 - expiration UTC date == session date
-
-This differs from futures options, where 0DTE is filtered against the active
-underlying futures contract for the date.
-
-Usage:
-    # Submit jobs for a date range
-    uv run python scripts/batch_download_equities.py submit \
-        --start 2026-01-06 --end 2026-01-10 --symbols QQQ \
-        --log-file logs/equities.log
-
-    # Poll and download completed jobs
-    uv run python scripts/batch_download_equities.py poll \
-        --log-file logs/equities.log
-
-    # Run both in a loop (background process)
-    nohup uv run python scripts/batch_download_equities.py daemon \
-        --start 2026-01-06 --end 2026-01-10 --symbols QQQ \
-        --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 """
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta
@@ -50,11 +36,10 @@ from dotenv import load_dotenv
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 load_dotenv(backend_dir / ".env")
+load_dotenv(backend_dir.parent / ".env")
 
-# Job tracking file
 JOB_TRACKER_FILE = backend_dir / "logs" / "equity_options_jobs.json"
 
-SUPPORTED_SYMBOLS = {"QQQ"}
 SUPPORTED_EQUITY_SCHEMAS = {"mbo", "definition"}
 SUPPORTED_OPTIONS_SCHEMAS = {"definition", "cmbp-1", "statistics"}
 
@@ -62,16 +47,28 @@ FLAT_FILE_DELIVERY = "download"
 FLAT_FILE_SPLIT_DURATION = "day"
 
 
+# ---------------------------------------------------------------------------
+# Symbol / schema parsing
+# ---------------------------------------------------------------------------
+
 def parse_symbols(raw_symbols: str) -> list[str]:
-    symbols = [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
+    symbols = []
+    seen: set[str] = set()
+    for raw in raw_symbols.split(","):
+        sym = raw.strip().upper()
+        if not sym:
+            continue
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9._-]{0,14}", sym):
+            raise ValueError(
+                f"Invalid equity symbol '{sym}'. "
+                "Expected 1-15 chars: letters/digits plus optional . _ - (examples: QQQ, AAPL, BRK.B)."
+            )
+        if sym in seen:
+            continue
+        seen.add(sym)
+        symbols.append(sym)
     if not symbols:
         raise ValueError("At least one symbol is required")
-    unsupported = sorted(set(symbols) - SUPPORTED_SYMBOLS)
-    if unsupported:
-        allowed = ",".join(sorted(SUPPORTED_SYMBOLS))
-        raise ValueError(
-            f"Unsupported symbols for this equity 0DTE pipeline: {unsupported}. Allowed: {allowed}"
-        )
     return symbols
 
 
@@ -86,8 +83,11 @@ def parse_schema_list(raw_schemas: str, allowed: set[str], label: str) -> list[s
     return schemas
 
 
+# ---------------------------------------------------------------------------
+# Target path helpers
+# ---------------------------------------------------------------------------
+
 def target_path_equity(schema: str, symbol: str, date_compact: str) -> Path:
-    """Paths for underlying equity MBO data (XNAS.ITCH)"""
     base = backend_dir / "lake" / "raw" / "source=databento"
     if schema == "mbo":
         out_dir = base / "product_type=equity_mbo" / f"symbol={symbol}" / "table=market_by_order_dbn"
@@ -100,8 +100,13 @@ def target_path_equity(schema: str, symbol: str, date_compact: str) -> Path:
     return out_dir / name
 
 
+def target_path_options_definition(symbol: str, date_compact: str) -> Path:
+    base = backend_dir / "lake" / "raw" / "source=databento"
+    out_dir = base / "dataset=definition" / "venue=opra" / f"symbol={symbol}"
+    return out_dir / f"opra-pillar-{date_compact}.definition.dbn.zst"
+
+
 def target_path_options(schema: str, symbol: str, date_compact: str) -> Path:
-    """Paths for equity options data (OPRA.PILLAR)"""
     base = backend_dir / "lake" / "raw" / "source=databento"
     if schema == "cmbp-1":
         out_dir = base / "product_type=equity_option_cmbp_1" / f"symbol={symbol}" / "table=cmbp_1"
@@ -117,6 +122,10 @@ def target_path_options(schema: str, symbol: str, date_compact: str) -> Path:
     return out_dir / name
 
 
+# ---------------------------------------------------------------------------
+# Job tracking
+# ---------------------------------------------------------------------------
+
 def load_job_tracker() -> dict[str, Any]:
     if JOB_TRACKER_FILE.exists():
         with open(JOB_TRACKER_FILE) as f:
@@ -129,6 +138,10 @@ def save_job_tracker(tracker: dict[str, Any]) -> None:
     with open(JOB_TRACKER_FILE, "w") as f:
         json.dump(tracker, f, indent=2, default=str)
 
+
+# ---------------------------------------------------------------------------
+# Logging & dates
+# ---------------------------------------------------------------------------
 
 def log_msg(log_path: Path, msg: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,43 +166,52 @@ def date_range(start: str, end: str) -> list[str]:
     return out
 
 
-def resolve_definition_file_options(symbol: str, date_str: str) -> Path:
-    """Resolve OPRA options definition file path for a given session date.
+def _next_day(date_str: str) -> str:
+    return (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    Databento batch downloads place files under a job-id subdirectory (e.g.
-    `.../venue=opra/OPRA-YYYYMMDD-XXXX/...`). Some historical runs also leave a
-    convenient root-level copy at `.../venue=opra/opra-pillar-YYYYMMDD.definition.dbn`.
 
-    This resolver prefers the root-level file when present, otherwise it falls
-    back to the newest matching file under job directories.
+# ---------------------------------------------------------------------------
+# Stream options definition via timeseries API
+# ---------------------------------------------------------------------------
+
+def stream_options_definition(
+    client: db.Historical,
+    symbol: str,
+    session_date: str,
+    log_path: Path,
+) -> Path:
+    """Stream OPRA options definition file directly to disk.
+
+    Uses timeseries.get_range with parent symbology (QQQ.OPT).
+    Returns path to the saved file.
     """
-    date_compact = date_str.replace("-", "")
-    base = backend_dir / "lake" / "raw" / "source=databento" / "dataset=definition" / "venue=opra"
+    date_compact = session_date.replace("-", "")
+    out_path = target_path_options_definition(symbol, date_compact)
 
-    # 1) Prefer canonical root-level definition file(s)
-    root_dbn = base / f"opra-pillar-{date_compact}.definition.dbn"
-    if root_dbn.exists():
-        return root_dbn
-    root_dbn_zst = base / f"opra-pillar-{date_compact}.definition.dbn.zst"
-    if root_dbn_zst.exists():
-        return root_dbn_zst
+    if out_path.exists():
+        log_msg(log_path, f"CACHED options definition: {out_path}")
+        return out_path
 
-    # 2) Fall back to any batch job output (nested under OPRA-*/ directories)
-    nested = [p for p in base.glob(f"**/opra-pillar-{date_compact}.definition.dbn*") if p.is_file()]
-    if not nested:
-        raise FileNotFoundError(
-            f"Definition file missing for {symbol} {date_str}: "
-            f"expected {root_dbn} (or .zst), or a nested batch output under {base}"
-        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    end = _next_day(session_date)
 
-    def sort_key(p: Path) -> tuple[int, float, int]:
-        # Prefer uncompressed .dbn over .dbn.zst, then newest, then largest.
-        prefer = 0 if p.name.endswith(".definition.dbn") else 1
-        st = p.stat()
-        return (prefer, -st.st_mtime, -st.st_size)
+    log_msg(log_path, f"STREAMING options definition for {symbol}.OPT {session_date}")
+    client.timeseries.get_range(
+        dataset="OPRA.PILLAR",
+        symbols=[f"{symbol}.OPT"],
+        stype_in="parent",
+        schema="definition",
+        start=session_date,
+        end=end,
+        path=str(out_path),
+    )
+    log_msg(log_path, f"DONE options definition: {out_path}")
+    return out_path
 
-    return sorted(nested, key=sort_key)[0]
 
+# ---------------------------------------------------------------------------
+# 0DTE filtering
+# ---------------------------------------------------------------------------
 
 def filter_0dte_equity_option_raw_symbols_from_definitions(
     definitions_df: pd.DataFrame, symbol: str, date_str: str
@@ -204,7 +226,6 @@ def filter_0dte_equity_option_raw_symbols_from_definitions(
     df = df[df["underlying"].astype(str).str.upper() == symbol.upper()].copy()
     df = df[df["expiration"].notna()].copy()
 
-    # OPRA expiration is date-granularity and represented at UTC midnight.
     exp_dates = pd.to_datetime(df["expiration"].astype("int64"), utc=True).dt.date.astype(str)
     df = df[exp_dates == date_str].copy()
 
@@ -217,15 +238,22 @@ def filter_0dte_equity_option_raw_symbols_from_definitions(
     return raw_symbols
 
 
-def load_0dte_assets(symbol: str, date_str: str) -> list[str]:
-    """Load 0DTE option raw symbols from downloaded OPRA definitions."""
-    def_path = resolve_definition_file_options(symbol, date_str)
-    store = db.DBNStore.from_file(str(def_path))
+def load_0dte_assets(
+    definition_path: Path,
+    symbol: str,
+    date_str: str,
+) -> list[str]:
+    """Load OPRA definition from disk and filter to 0DTE contracts."""
+    store = db.DBNStore.from_file(str(definition_path))
     df = store.to_df(price_type=PriceType.FIXED, pretty_ts=False, map_symbols=True)
     if df.empty:
-        raise ValueError(f"Definition file empty: {def_path}")
+        raise ValueError(f"Definition file empty: {definition_path}")
     return filter_0dte_equity_option_raw_symbols_from_definitions(df, symbol, date_str)
 
+
+# ---------------------------------------------------------------------------
+# Batch job submission
+# ---------------------------------------------------------------------------
 
 def submit_job(
     client: db.Historical,
@@ -238,22 +266,19 @@ def submit_job(
     stype_in: str,
     log_path: Path,
 ) -> str | None:
-    """Submit a batch job and track it. Returns job_id or None if already exists."""
     job_key = f"{dataset}|{schema}|{symbol}|{date_str}"
 
-    # Check if already submitted
     if job_key in tracker["jobs"]:
         existing = tracker["jobs"][job_key]
         if existing["state"] in ("done", "downloaded"):
             log_msg(log_path, f"SKIP {job_key} already {existing['state']}")
             return None
-        # Resubmit on error, otherwise reuse existing job
         if existing["state"] != "error":
             log_msg(log_path, f"REUSE {job_key} job={existing['job_id']} state={existing['state']}")
             return existing["job_id"]
         log_msg(log_path, f"RESUBMIT {job_key} (was error)")
 
-    end_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    end_date = _next_day(date_str)
 
     try:
         job = client.batch.submit_job(
@@ -290,8 +315,11 @@ def submit_job(
         return None
 
 
+# ---------------------------------------------------------------------------
+# Batch polling and download
+# ---------------------------------------------------------------------------
+
 def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
-    """Poll all pending jobs and update states. Returns count of done jobs ready for download."""
     pending_keys = [
         k for k, v in tracker["jobs"].items()
         if v["state"] not in ("done", "downloaded", "expired", "error")
@@ -300,7 +328,6 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
     if not pending_keys:
         return 0
 
-    # Get all jobs from API
     try:
         api_jobs = client.batch.list_jobs(
             states=["queued", "processing", "done", "expired"],
@@ -335,7 +362,6 @@ def poll_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
 
 
 def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path) -> int:
-    """Download all completed jobs. Returns count of successful downloads."""
     downloaded = 0
 
     pending = list(tracker.get("pending_downloads", []))
@@ -355,7 +381,6 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
         date_str = job_info["date_str"]
         date_compact = date_str.replace("-", "")
 
-        # Determine output directory
         if dataset == "XNAS.ITCH":
             out_path = target_path_equity(schema, symbol, date_compact)
         else:
@@ -388,8 +413,61 @@ def download_completed_jobs(client: db.Historical, tracker: dict, log_path: Path
     return downloaded
 
 
+# ---------------------------------------------------------------------------
+# Per-day processing: synchronous prereqs + batch data submission
+# ---------------------------------------------------------------------------
+
+def process_session_day(
+    client: db.Historical,
+    tracker: dict[str, Any],
+    symbol: str,
+    date_str: str,
+    equity_schemas: list[str],
+    options_schemas: list[str],
+    log_path: Path,
+    pause_seconds: int,
+) -> None:
+    """Process one session date: stream options definition, filter 0DTE, submit batch jobs.
+
+    Steps 1-2 are synchronous (no batch queue wait):
+    1. Stream options definition via timeseries.get_range
+    2. Filter 0DTE options locally
+
+    Steps 3-4 submit batch jobs (async, polled later):
+    3. Submit equity MBO jobs (XNAS.ITCH)
+    4. Submit options CMBP-1/statistics jobs (OPRA.PILLAR) for 0DTE contracts only
+    """
+    # Step 1: Stream options definition (synchronous)
+    def_path = stream_options_definition(client, symbol, date_str, log_path)
+
+    # Step 2: Filter 0DTE options (local processing)
+    raw_symbols = load_0dte_assets(def_path, symbol, date_str)
+    log_msg(log_path, f"0DTE {symbol} {date_str}: options={len(raw_symbols)}")
+
+    # Step 3: Submit equity MBO batch jobs (XNAS.ITCH)
+    for schema in equity_schemas:
+        submit_job(
+            client, tracker, "XNAS.ITCH", schema, symbol, date_str,
+            [symbol], "raw_symbol", log_path
+        )
+        time.sleep(pause_seconds)
+
+    # Step 4: Submit options data batch jobs (OPRA.PILLAR, 0DTE only)
+    for schema in options_schemas:
+        if schema == "definition":
+            continue
+        submit_job(
+            client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
+            raw_symbols, "raw_symbol", log_path
+        )
+        time.sleep(pause_seconds)
+
+
+# ---------------------------------------------------------------------------
+# CLI commands
+# ---------------------------------------------------------------------------
+
 def cmd_submit(args: argparse.Namespace) -> None:
-    """Submit batch jobs for all dates and symbols."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -404,44 +482,22 @@ def cmd_submit(args: argparse.Namespace) -> None:
 
     for date_str in date_range(args.start, args.end):
         for symbol in symbols:
-            # 1. Submit EQUITY MBO jobs (XNAS.ITCH)
-            for schema in equity_schemas:
-                submit_job(
-                    client, tracker, "XNAS.ITCH", schema, symbol, date_str,
-                    [symbol], "raw_symbol", log_path
+            try:
+                process_session_day(
+                    client=client,
+                    tracker=tracker,
+                    symbol=symbol,
+                    date_str=date_str,
+                    equity_schemas=equity_schemas,
+                    options_schemas=options_schemas,
+                    log_path=log_path,
+                    pause_seconds=args.pause_seconds,
                 )
-                time.sleep(args.pause_seconds)
-
-            # 2. Submit OPTIONS DEFINITION job (OPRA.PILLAR)
-            parent = f"{symbol}.OPT"
-            submit_job(
-                client, tracker, "OPRA.PILLAR", "definition", symbol, date_str,
-                [parent], "parent", log_path
-            )
-            time.sleep(args.pause_seconds)
-
-            # 3. Check if definition is downloaded, then submit 0DTE data jobs
-            def_key = f"OPRA.PILLAR|definition|{symbol}|{date_str}"
-            def_info = tracker["jobs"].get(def_key, {})
-            if def_info.get("state") == "downloaded":
-                try:
-                    raw_symbols = load_0dte_assets(symbol, date_str)
-                    log_msg(log_path, f"0DTE {symbol} {date_str}: {len(raw_symbols)} contracts")
-
-                    for schema in options_schemas:
-                        if schema == "definition":
-                            continue
-                        submit_job(
-                            client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
-                            raw_symbols, "raw_symbol", log_path
-                        )
-                        time.sleep(args.pause_seconds)
-                except Exception as e:
-                    log_msg(log_path, f"SKIP 0DTE {symbol} {date_str}: {e}")
+            except Exception as e:
+                log_msg(log_path, f"ERROR processing {symbol} {date_str}: {e}")
 
 
 def cmd_poll(args: argparse.Namespace) -> None:
-    """Poll job status and download completed jobs."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -458,7 +514,6 @@ def cmd_poll(args: argparse.Namespace) -> None:
 
 
 def cmd_daemon(args: argparse.Namespace) -> None:
-    """Run submit + poll in a loop until all jobs complete."""
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
         raise RuntimeError("DATABENTO_API_KEY not set")
@@ -473,66 +528,30 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
     log_msg(log_path, f"DAEMON start: {len(dates)} dates, {len(symbols)} symbols")
 
-    iteration = 0
+    # Phase 1: Synchronous setup — stream definitions + filter 0DTE + submit batch jobs
+    tracker = load_job_tracker()
+    for date_str in dates:
+        for symbol in symbols:
+            try:
+                process_session_day(
+                    client=client,
+                    tracker=tracker,
+                    symbol=symbol,
+                    date_str=date_str,
+                    equity_schemas=equity_schemas,
+                    options_schemas=options_schemas,
+                    log_path=log_path,
+                    pause_seconds=args.pause_seconds,
+                )
+            except Exception as e:
+                log_msg(log_path, f"ERROR processing {symbol} {date_str}: {e}")
+
+    # Phase 2: Poll and download batch data jobs
     while True:
-        iteration += 1
-        tracker = load_job_tracker()
-        log_msg(log_path, f"--- Iteration {iteration} ---")
-
-        # Phase 1: Submit any missing jobs
-        for date_str in dates:
-            for symbol in symbols:
-                # Equity MBO
-                for schema in equity_schemas:
-                    key = f"XNAS.ITCH|{schema}|{symbol}|{date_str}"
-                    if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
-                        submit_job(
-                            client, tracker, "XNAS.ITCH", schema, symbol, date_str,
-                            [symbol], "raw_symbol", log_path
-                        )
-                        time.sleep(args.pause_seconds)
-
-                # Options definition
-                def_key = f"OPRA.PILLAR|definition|{symbol}|{date_str}"
-                if def_key not in tracker["jobs"] or tracker["jobs"][def_key]["state"] == "error":
-                    parent = f"{symbol}.OPT"
-                    submit_job(
-                        client, tracker, "OPRA.PILLAR", "definition", symbol, date_str,
-                        [parent], "parent", log_path
-                    )
-                    time.sleep(args.pause_seconds)
-
-        # Phase 2: Poll and download
         tracker = load_job_tracker()
         poll_jobs(client, tracker, log_path)
         download_completed_jobs(client, tracker, log_path)
 
-        # Phase 3: Submit 0DTE data jobs for completed definitions
-        tracker = load_job_tracker()
-        for date_str in dates:
-            for symbol in symbols:
-                def_key = f"OPRA.PILLAR|definition|{symbol}|{date_str}"
-                def_info = tracker["jobs"].get(def_key, {})
-                if def_info.get("state") != "downloaded":
-                    continue
-
-                try:
-                    raw_symbols = load_0dte_assets(symbol, date_str)
-
-                    for schema in options_schemas:
-                        if schema == "definition":
-                            continue
-                        key = f"OPRA.PILLAR|{schema}|{symbol}|{date_str}"
-                        if key not in tracker["jobs"] or tracker["jobs"][key]["state"] == "error":
-                            submit_job(
-                                client, tracker, "OPRA.PILLAR", schema, symbol, date_str,
-                                raw_symbols, "raw_symbol", log_path
-                            )
-                            time.sleep(args.pause_seconds)
-                except Exception as e:
-                    log_msg(log_path, f"SKIP 0DTE {symbol} {date_str}: {e}")
-
-        # Phase 4: Check completion
         tracker = load_job_tracker()
         total = len(tracker["jobs"])
         done = sum(1 for v in tracker["jobs"].values() if v["state"] == "downloaded")
@@ -540,40 +559,45 @@ def cmd_daemon(args: argparse.Namespace) -> None:
 
         log_msg(log_path, f"STATUS: {done}/{total} downloaded, {pending} pending")
 
-        if pending == 0 and done > 0:
-            log_msg(log_path, "DAEMON complete: all jobs finished")
+        if pending == 0:
+            if done > 0:
+                log_msg(log_path, "DAEMON complete: all jobs finished")
             break
 
-        # Wait before next iteration
         log_msg(log_path, f"Sleeping {args.poll_interval}s...")
         time.sleep(args.poll_interval)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Batch download equity + equity options data (flat-file day-by-day 0DTE pipeline)"
+        description="Batch download equity + equity options data (0DTE only)"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Submit command
     submit_parser = subparsers.add_parser("submit", help="Submit batch jobs")
     submit_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     submit_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    submit_parser.add_argument("--symbols", default="QQQ", help="Comma-separated symbols (QQQ only)")
+    submit_parser.add_argument(
+        "--symbols",
+        default="QQQ",
+        help="Comma-separated equity symbols (examples: QQQ,AAPL,SPY)",
+    )
     submit_parser.add_argument("--equity-schemas", default="mbo", help="Equity schemas (mbo,definition)")
     submit_parser.add_argument("--options-schemas", default="cmbp-1,statistics", help="Options schemas")
     submit_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")
     submit_parser.add_argument("--log-file", required=True, help="Log file path")
 
-    # Poll command
     poll_parser = subparsers.add_parser("poll", help="Poll jobs and download completed")
     poll_parser.add_argument("--log-file", required=True, help="Log file path")
 
-    # Daemon command
     daemon_parser = subparsers.add_parser("daemon", help="Run submit + poll in loop until complete")
     daemon_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     daemon_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
-    daemon_parser.add_argument("--symbols", default="QQQ", help="Comma-separated symbols (QQQ only)")
+    daemon_parser.add_argument(
+        "--symbols",
+        default="QQQ",
+        help="Comma-separated equity symbols (examples: QQQ,AAPL,SPY)",
+    )
     daemon_parser.add_argument("--equity-schemas", default="mbo", help="Equity schemas")
     daemon_parser.add_argument("--options-schemas", default="cmbp-1,statistics", help="Options schemas")
     daemon_parser.add_argument("--pause-seconds", type=int, default=5, help="Pause between submissions")

@@ -9,62 +9,18 @@ import pytest
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir / "scripts"))
 
-from batch_download_equities import filter_0dte_equity_option_raw_symbols_from_definitions
+from batch_download_equities import (
+    filter_0dte_equity_option_raw_symbols_from_definitions,
+    parse_symbols as parse_equity_symbols,
+)
 from batch_download_futures import (
     filter_0dte_futures_option_raw_symbols_from_definitions,
-    select_active_futures_contract_from_frames,
+    parse_symbols as parse_futures_symbols,
 )
 
 
 def _ts_ns(iso_dt: str) -> int:
     return int(pd.Timestamp(iso_dt, tz="UTC").value)
-
-
-class TestSelectActiveFuturesContract:
-    def test_prefers_max_daily_volume(self) -> None:
-        defs = pd.DataFrame(
-            {
-                "raw_symbol": ["ESH6", "ESM6"],
-                "instrument_class": ["F", "F"],
-                "expiration": [_ts_ns("2026-03-20T00:00:00"), _ts_ns("2026-06-19T00:00:00")],
-            }
-        )
-        ohlcv = pd.DataFrame({"symbol": ["ESH6", "ESM6"], "volume": [150_000, 10_000]})
-
-        active, reason = select_active_futures_contract_from_frames("ES", "2026-01-12", defs, ohlcv)
-
-        assert active == "ESH6"
-        assert reason == "max_daily_volume"
-
-    def test_tie_breaks_by_nearest_expiration(self) -> None:
-        defs = pd.DataFrame(
-            {
-                "raw_symbol": ["ESH6", "ESM6"],
-                "instrument_class": ["F", "F"],
-                "expiration": [_ts_ns("2026-03-20T00:00:00"), _ts_ns("2026-06-19T00:00:00")],
-            }
-        )
-        ohlcv = pd.DataFrame({"symbol": ["ESH6", "ESM6"], "volume": [50_000, 50_000]})
-
-        active, reason = select_active_futures_contract_from_frames("ES", "2026-01-12", defs, ohlcv)
-
-        assert active == "ESH6"
-        assert reason == "max_daily_volume_tie_breaker"
-
-    def test_falls_back_to_nearest_expiration_when_no_volume(self) -> None:
-        defs = pd.DataFrame(
-            {
-                "raw_symbol": ["ESH6", "ESM6"],
-                "instrument_class": ["F", "F"],
-                "expiration": [_ts_ns("2026-03-20T00:00:00"), _ts_ns("2026-06-19T00:00:00")],
-            }
-        )
-        ohlcv = pd.DataFrame({"symbol": ["ESH6", "ESM6"], "volume": [0, 0]})
-
-        active, reason = select_active_futures_contract_from_frames("ES", "2026-01-12", defs, ohlcv)
-
-        assert active == "ESH6"
-        assert reason == "nearest_expiration_fallback"
 
 
 class TestFuturesOption0DTEFilter:
@@ -108,7 +64,6 @@ class TestFuturesOption0DTEFilter:
 
 class TestEquityOption0DTEFilter:
     def test_uses_utc_expiration_date_for_opra(self) -> None:
-        # OPRA definitions use date-granularity expiration encoded at UTC midnight.
         defs = pd.DataFrame(
             {
                 "raw_symbol": ["QQQ   260109C00500000", "QQQ   260109P00500000"],
@@ -137,3 +92,21 @@ class TestEquityOption0DTEFilter:
 
         with pytest.raises(ValueError):
             filter_0dte_equity_option_raw_symbols_from_definitions(defs, "QQQ", "2026-01-09")
+
+
+class TestSymbolParsing:
+    def test_parse_futures_symbols_accepts_generic_roots(self) -> None:
+        got = parse_futures_symbols("ES,SI,CL,6E")
+        assert got == ["ES", "SI", "CL", "6E"]
+
+    def test_parse_futures_symbols_rejects_invalid_format(self) -> None:
+        with pytest.raises(ValueError):
+            parse_futures_symbols("SI.FUT")
+
+    def test_parse_equity_symbols_accepts_generic_tickers(self) -> None:
+        got = parse_equity_symbols("QQQ,AAPL,BRK.B")
+        assert got == ["QQQ", "AAPL", "BRK.B"]
+
+    def test_parse_equity_symbols_rejects_invalid_format(self) -> None:
+        with pytest.raises(ValueError):
+            parse_equity_symbols("QQQ$WEIRD")
