@@ -14,7 +14,8 @@
                 "_description": "Normalizes raw Databento MBO events for equity symbols.",
                 "_source_file": "backend/src/data_eng/stages/bronze/equity_mbo/ingest.py",
                 "_contract": "backend/src/data_eng/contracts/bronze/equity_mbo/mbo.avsc",
-                "_session_window": "09:30-09:40 ET (dev), full day in production",
+                "_bronze_window": "02:00-16:00 ET (captures XNAS session Clear at ~03:05 ET + full RTH)",
+                "_silver_output_window": "09:30-09:40 ET (dev), full day in production",
                 "ts_event": {
                     "type": "int64",
                     "unit": "nanoseconds since Unix epoch (UTC)",
@@ -73,7 +74,7 @@
                 "_description": "Reconstructs order book from MBO events, emits 1s BBO snapshots and bucketed depth/flow.",
                 "_source_file": "backend/src/data_eng/stages/silver/equity_mbo/compute_book_states_1s.py",
                 "_engine": "backend/src/data_eng/stages/silver/equity_mbo/book_engine.py",
-                "_warmup_period": "6 hours before output window to capture resting liquidity",
+                "_warmup_period": "8 hours before output window (reaches back to 01:30 ET, before 02:00 ET bronze start, capturing session Clear and all pre-market Adds)",
                 "_output_window": "09:30-09:40 ET (dev)",
                 "book_snapshot_1s": {
                     "_contract": "backend/src/data_eng/contracts/silver/equity_mbo/book_snapshot_1s.avsc",
@@ -348,7 +349,7 @@
                         "silver.equity_option_cmbp_1.depth_and_flow_1s"
                     ]
                 },
-                "_output_window": "09:30-10:30 ET (first hour)",
+                "_output_window": "09:30-10:30 ET (first hour, uses equity_mbo silver spot reference)",
                 "book_snapshot_1s": {
                     "_contract": "backend/src/data_eng/contracts/silver/equity_option_cmbp_1/book_snapshot_1s.avsc",
                     "_grain": "1 second x instrument",

@@ -9,7 +9,7 @@ import pandas as pd
 from databento.common.enums import PriceType
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, read_partition, write_partition
 from ....utils import session_window_ns
@@ -31,7 +31,7 @@ class BronzeIngestEquityOptionCmbp1(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         checkpoint_key = "bronze_cache.equity_option_cmbp_1.cmbp_1_0dte"
         date_compact = dt.replace("-", "")
         raw_path = (
@@ -84,10 +84,14 @@ class BronzeIngestEquityOptionCmbp1(Stage):
                 df_all["ts_recv"] = df_all["ts_event"]
             df_all["ts_recv"] = df_all["ts_recv"].astype("int64")
 
-            session_start_ns, session_end_ns = session_window_ns(dt)
-            df_all = df_all.loc[
-                (df_all["ts_event"] >= session_start_ns) & (df_all["ts_event"] < session_end_ns)
-            ].copy()
+            session_start_ns, session_end_ns = session_window_ns(dt, product_type="equity_option_cmbp_1")
+            # Defensive: exempt snapshot/clear records from time filter (CMBP-1
+            # currently has neither, but future schema changes may add them).
+            F_SNAPSHOT = 32
+            in_window = (df_all["ts_event"] >= session_start_ns) & (df_all["ts_event"] < session_end_ns)
+            is_snapshot = (df_all["flags"].astype("int64") & F_SNAPSHOT) != 0
+            is_clear = df_all["action"] == "R" if "action" in df_all.columns else False
+            df_all = df_all.loc[in_window | is_snapshot | is_clear].copy()
             if df_all.empty:
                 raise ValueError(f"No option cmbp_1 records in session window for {dt}")
 

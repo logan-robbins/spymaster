@@ -34,8 +34,8 @@ from src.data_eng.stages.gold.equity_mbo.build_physics_norm_calibration import (
 
 PRICE_SCALE = 1e-9
 RTYPE_MBO = 160
-FLAGS_SNAPSHOT = 128
-FLAGS_LAST = 256
+FLAGS_LAST = 128      # bit 7 (0x80): last record in event for instrument_id
+FLAGS_SNAPSHOT = 32   # bit 5 (0x20): sourced from replay/snapshot server
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,7 +56,7 @@ def _price_int(price: float) -> int:
 
 
 def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
-    base = _ts_ns(dt, "06:00:00")
+    base = _ts_ns(dt, "03:05:00")  # XNAS session starts ~03:05 ET with Clear
     day_shift = int(pd.Timestamp(dt).dayofyear % 3)
     size_shift = 20 * day_shift
     bid_px = _price_int(399.98 + 0.01 * day_shift)
@@ -91,7 +91,7 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
             "rtype": RTYPE_MBO,
             "order_id": 10,
             "publisher_id": 1,
-            "flags": FLAGS_LAST,
+            "flags": FLAGS_LAST | FLAGS_SNAPSHOT,
             "instrument_id": 1001,
             "ts_in_delta": 0,
             "action": "A",
@@ -190,7 +190,7 @@ def _equity_mbo_rows(symbol: str, dt: str) -> pd.DataFrame:
 
 
 def _equity_option_cmbp_rows(symbol: str, dt: str) -> pd.DataFrame:
-    base = _ts_ns(dt, "06:05:00")
+    base = _ts_ns(dt, "03:10:00")  # Options slightly after equity session start
     bid_px = _price_int(2.50)
     ask_px = _price_int(2.60)
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { connectStream, type SnapRow, type VelocityRow, type OptionsRow, type ForecastRow } from './ws-client';
+import { connectStream, type SnapRow, type VelocityRow, type OptionsRow, type ForecastRow, type ProductMeta } from './ws-client';
 import { VelocityGrid, spotToTickIndex } from './velocity-grid';
 import { OptionsGrid } from './options-grid';
 import { SpotLine } from './spot-line';
@@ -97,6 +97,17 @@ let latestRunScoreDown = 0;
 let latestDUp = 0;
 let latestDDown = 0;
 let latestConfidence = 0;
+
+// Product metadata (applied once from first batch_start)
+let productMetaApplied = false;
+
+function onProductMeta(meta: ProductMeta): void {
+  if (productMetaApplied) return;
+  productMetaApplied = true;
+  priceAxis.setTickSize(meta.tick_size, meta.strike_ticks);
+  optionsGrid.setProductParams(meta.tick_int, meta.strike_ticks);
+  console.log(`Product metadata applied: tick_size=${meta.tick_size}, strike_ticks=${meta.strike_ticks}`);
+}
 
 // WebSocket callbacks
 function onTick(ts: bigint, _surfaces: string[]): void {
@@ -315,12 +326,15 @@ function startStream(): void {
   currentSpotTickIndex = 0;
   cameraYCenter = 0;
 
+  productMetaApplied = false;
+
   ws = connectStream(SYMBOL, DATE, {
     onTick,
     onSnap,
     onVelocity,
     onOptions,
-    onForecast
+    onForecast,
+    onProductMeta,
   });
 
   ws.onclose = () => {

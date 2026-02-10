@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 
-const TICK_SIZE = 0.25; // $0.25 per tick
-
-// Tick spacing levels (in ticks)
-const SPACING_5_DOLLAR = 20;   // $5.00 = 20 ticks
-const SPACING_1_DOLLAR = 4;    // $1.00 = 4 ticks  
-const SPACING_25_CENT = 1;     // $0.25 = 1 tick
+// Default tick parameters (ES); overridden by WebSocket product metadata
+let TICK_SIZE = 0.25; // $0.25 per tick
+let SPACING_5_DOLLAR = 20;   // $5.00 = 20 ticks
+let SPACING_1_DOLLAR = 4;    // $1.00 = 4 ticks
+let SPACING_25_CENT = 1;     // $0.25 = 1 tick
 
 /**
  * Price axis labels and grid lines with dynamic tick spacing based on zoom.
@@ -36,6 +35,14 @@ export class PriceAxis {
 
   getGridGroup(): THREE.Group {
     return this.gridGroup;
+  }
+
+  /** Update tick parameters from product metadata. */
+  setTickSize(tickSize: number, strikeTicks: number): void {
+    TICK_SIZE = tickSize;
+    SPACING_5_DOLLAR = strikeTicks;
+    SPACING_1_DOLLAR = Math.max(1, Math.round(1.0 / tickSize));
+    SPACING_25_CENT = 1;
   }
 
   private createLabels(): void {

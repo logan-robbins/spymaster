@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
-const TICK_INT = 250_000_000;
-const STRIKE_TICKS = 20;  // $5 / $0.25 = 20 ticks per strike
+// Default parameters (ES); overridden by WebSocket product metadata
+let TICK_INT = 250_000_000;
+let STRIKE_TICKS = 20;  // $5 / $0.25 = 20 ticks per strike
 
 /**
  * Options physics overlay rendered as horizontal bars at FIXED $5 strike levels.
@@ -177,6 +178,13 @@ export class OptionsGrid {
 
   getMesh(): THREE.Mesh {
     return this.mesh;
+  }
+
+  /** Update product parameters from WebSocket metadata. */
+  setProductParams(tickInt: number, strikeTicks: number): void {
+    TICK_INT = tickInt;
+    STRIKE_TICKS = strikeTicks;
+    this.material.uniforms.uStrikeTicks.value = strikeTicks;
   }
 
   /**

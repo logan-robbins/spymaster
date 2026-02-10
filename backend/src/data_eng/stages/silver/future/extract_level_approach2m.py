@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import (
     is_partition_complete,
@@ -50,7 +50,7 @@ class SilverExtractLevelApproach2m(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         output_keys = [
             f"silver.future.market_by_price_10_{lt}_approach2m"
             for lt in LEVEL_TYPES

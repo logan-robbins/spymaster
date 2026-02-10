@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import (
     is_partition_complete,
@@ -34,7 +34,7 @@ class SilverComputeEquityBookStates1s(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         outputs = self.io.output
         if isinstance(outputs, str):
             outputs = [outputs]
@@ -45,8 +45,11 @@ class SilverComputeEquityBookStates1s(Stage):
         if is_partition_complete(ref_snap) and is_partition_complete(ref_flow):
             return
 
-        # Warmup to capture resting liquidity before the output window.
-        WARMUP_NS = 3600_000_000_000 * 6  # 6 hours
+        # Warmup: 8 hours from output window start (09:30 ET) reaches back to
+        # 01:30 ET, which is before the bronze equity start of 02:00 ET.  This
+        # ensures the book engine consumes ALL bronze data from session start
+        # (including the Clear record and all pre-market Adds).
+        WARMUP_NS = 3600_000_000_000 * 8  # 8 hours
 
         df_snap, df_flow, _ = compute_equity_surfaces_1s_from_batches(
             iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS),

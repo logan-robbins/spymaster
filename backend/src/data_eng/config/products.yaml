@@ -1,0 +1,49 @@
+products:
+  ES:
+    tick_size: 0.25
+    grid_max_ticks: 200
+    strike_step_points: 5.0
+    max_strike_offsets: 10
+    contract_multiplier: 50.0
+  MES:
+    tick_size: 0.25
+    grid_max_ticks: 200
+    strike_step_points: 5.0
+    max_strike_offsets: 10
+    contract_multiplier: 5.0
+  MNQ:
+    tick_size: 0.25
+    grid_max_ticks: 400
+    strike_step_points: 5.0
+    max_strike_offsets: 10
+    contract_multiplier: 2.0
+  NQ:
+    tick_size: 0.25
+    grid_max_ticks: 400
+    strike_step_points: 5.0
+    max_strike_offsets: 10
+    contract_multiplier: 20.0
+  SI:
+    tick_size: 0.005
+    grid_max_ticks: 200
+    strike_step_points: 0.25
+    max_strike_offsets: 10
+    contract_multiplier: 5000.0
+  GC:
+    tick_size: 0.10
+    grid_max_ticks: 200
+    strike_step_points: 5.0
+    max_strike_offsets: 10
+    contract_multiplier: 100.0
+  CL:
+    tick_size: 0.01
+    grid_max_ticks: 200
+    strike_step_points: 0.50
+    max_strike_offsets: 10
+    contract_multiplier: 1000.0
+  6E:
+    tick_size: 0.00005
+    grid_max_ticks: 200
+    strike_step_points: 0.005
+    max_strike_offsets: 10
+    contract_multiplier: 125000.0

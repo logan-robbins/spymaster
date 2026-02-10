@@ -13,13 +13,13 @@ import pytest
 
 from src.data_eng.stages.gold.future_option_mbo.compute_physics_surface_1s import (
     GoldComputeOptionPhysicsSurface1s,
-    TICK_INT,
-    STRIKE_STEP_INT,
-    STRIKE_TICKS,
+    _DEFAULT_TICK_INT as TICK_INT,
+    _DEFAULT_STRIKE_STEP_INT as STRIKE_STEP_INT,
+    _DEFAULT_STRIKE_TICKS as STRIKE_TICKS,
     EPS_QTY,
-    PRICE_SCALE,
     _round_to_nearest_strike_int,
 )
+from src.data_eng.config import PRICE_SCALE
 
 # ---------------------------------------------------------------------------
 # Helper: build a synthetic depth_and_flow_1s DataFrame
@@ -122,20 +122,20 @@ class TestRoundToNearestStrikeInt:
     def test_exact_strike(self):
         """Price exactly on $5 boundary should stay there."""
         price_int = np.array([int(6100.0 / PRICE_SCALE)], dtype="int64")
-        result = _round_to_nearest_strike_int(price_int)
+        result = _round_to_nearest_strike_int(price_int, STRIKE_STEP_INT)
         assert result[0] == price_int[0]
 
     def test_round_up(self):
         """Price at $6102.75 should round to $6105."""
         price_int = np.array([int(6102.75 / PRICE_SCALE)], dtype="int64")
-        result = _round_to_nearest_strike_int(price_int)
+        result = _round_to_nearest_strike_int(price_int, STRIKE_STEP_INT)
         expected = int(6105.0 / PRICE_SCALE)
         assert result[0] == expected
 
     def test_round_down(self):
         """Price at $6101.25 should round to $6100."""
         price_int = np.array([int(6101.25 / PRICE_SCALE)], dtype="int64")
-        result = _round_to_nearest_strike_int(price_int)
+        result = _round_to_nearest_strike_int(price_int, STRIKE_STEP_INT)
         expected = int(6100.0 / PRICE_SCALE)
         assert result[0] == expected
 
@@ -145,7 +145,7 @@ class TestRoundToNearestStrikeInt:
         Formula: (val + STRIKE_STEP_INT//2) // STRIKE_STEP_INT * STRIKE_STEP_INT
         """
         price_int = np.array([int(6102.50 / PRICE_SCALE)], dtype="int64")
-        result = _round_to_nearest_strike_int(price_int)
+        result = _round_to_nearest_strike_int(price_int, STRIKE_STEP_INT)
         expected = int(6105.0 / PRICE_SCALE)
         assert result[0] == expected
 

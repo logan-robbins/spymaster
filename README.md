@@ -25,12 +25,33 @@
 
 Job trackers: `backend/logs/*jobs.json`
 
-### Current Data Range
-2026-01-05 through 2026-01-29 (18 trading days), plus 2026-02-06 (SI, MNQ, QQQ)
+### Current Raw Data (as of 2026-02-09)
+All raw data is `.dbn` format (Databento native). Date: **2026-02-06 only**.
+
+**SI (Silver futures)**
+- `product_type=future_mbo/symbol=SI/table=market_by_order_dbn/` — 283 MB
+- `product_type=future_option_mbo/symbol=SI/table=market_by_order_dbn/` — 1.0 GB
+- `product_type=future_option_mbo/symbol=SI/table=statistics/` — 5.3 MB
+- `dataset=definition/venue=glbx/type=futures_options/symbol=SI/` — resolved JSON
+
+**MNQ (Micro Nasdaq futures)**
+- `product_type=future_mbo/symbol=MNQ/table=market_by_order_dbn/` — 2.7 GB
+- `product_type=future_option_mbo/symbol=MNQ/table=market_by_order_dbn/` — 1.7 GB
+- `product_type=future_option_mbo/symbol=MNQ/table=statistics/` — 6.8 MB
+- `dataset=definition/venue=glbx/type=futures_options/symbol=MNQ/` — 820 KB definition
+
+**QQQ (Invesco QQQ equity)**
+- `product_type=equity_mbo/symbol=QQQ/table=market_by_order_dbn/` — 2.0 GB
+- `product_type=equity_option_cmbp_1/symbol=QQQ/table=cmbp_1/` — 6.4 GB
+- `product_type=equity_option_statistics/symbol=QQQ/table=statistics/` — 1.8 MB
+- `dataset=definition/venue=opra/symbol=QQQ/` — 3.7 MB definition
+
+**ES (E-mini S&P futures)** — metadata JSON only, no `.dbn` data files
+
+Total raw: ~14.1 GB
 
 ### Raw Data Formats
-- Primary: `.dbn` (Databento native)
-- Fallback: `.parquet`
+- Format: `.dbn` (Databento native)
 - Decompress: `find . -name "*.dbn.zst" -exec zstd -d --rm {} \;`
 
 ### Download Scripts
@@ -147,8 +168,25 @@ Bronze (normalize) → Silver (book reconstruction) → Gold (feature engineerin
 ### Key Files
 - Stage registry: `backend/src/data_eng/pipeline.py`
 - Dataset definitions: `backend/src/data_eng/config/datasets.yaml`
+- Product config: `backend/src/data_eng/config/products.yaml`
 - Avro contracts: `backend/src/data_eng/contracts/`
 - Stage implementations: `backend/src/data_eng/stages/{bronze,silver,gold}/{product_type}/`
+
+### Per-Product Configuration
+`backend/src/data_eng/config/products.yaml` defines per-root product constants (tick_size, grid_max_ticks, strike_step_points, max_strike_offsets, contract_multiplier). Derived properties: `tick_int`, `strike_step_int`, `strike_ticks`.
+
+| Root | tick_size | grid_max_ticks | strike_step | strike_ticks | multiplier |
+|------|-----------|----------------|-------------|--------------|------------|
+| ES   | 0.25      | 200            | $5          | 20           | 50.0       |
+| MES  | 0.25      | 200            | $5          | 20           | 5.0        |
+| NQ   | 0.25      | 400            | $5          | 20           | 20.0       |
+| MNQ  | 0.25      | 400            | $5          | 20           | 2.0        |
+| GC   | 0.10      | 200            | $5          | 50           | 100.0      |
+| SI   | 0.005     | 200            | $0.25       | 50           | 5000.0     |
+| CL   | 0.01      | 200            | $0.50       | 50           | 1000.0     |
+| 6E   | 0.00005   | 200            | $0.005      | 100          | 125000.0   |
+
+Runner extracts root from symbol (e.g., MNQH6 → MNQ) and passes `ProductConfig` to all stages. Stages fall back to ES defaults when product config is unavailable.
 
 ### Commands
 ```bash
@@ -175,9 +213,11 @@ Most `part-*.parquet` files are `.gitignore`d. Verify with:
 uv run python -c "import os; print(os.listdir('lake/..../dt=YYYY-MM-DD'))"
 ```
 
-### Current Coverage (2026-01-05..2026-01-29)
-- Bronze: All 4 product types have full coverage (18 trading days)
-- Silver: Partial (run pipeline for additional dates as needed)
+### Current Coverage (as of 2026-02-09)
+- Raw: SI, MNQ, QQQ for 2026-02-06 only (ES has no data files)
+- Bronze: MNQH6 future_mbo + future_option_mbo, QQQ equity_mbo (344 MB) + equity_option_cmbp_1 (908 MB) for 2026-02-06
+- Silver: MNQH6 future_mbo + future_option_mbo, QQQ equity_mbo (book_snapshot_1s 23 KB + depth_and_flow_1s 363 KB) + equity_option_cmbp_1 (book_snapshot_1s 1.2 MB + depth_and_flow_1s 648 KB) for 2026-02-06
+- Gold: Empty (needs pipeline run)
 
 ### Dependencies
 - `equity_option_cmbp_1` silver requires `equity_mbo` silver (for spot reference)
@@ -216,6 +256,8 @@ nohup uv run python -m src.serving.velocity_main > /tmp/backend.log 2>&1 &
 **WebSocket:** `ws://localhost:8001/v1/velocity/stream?symbol=ESH6&dt=YYYY-MM-DD`
 
 Query params: `speed`, `skip_minutes`
+
+`batch_start` messages include product metadata: `tick_size`, `tick_int`, `strike_ticks`, `grid_max_ticks`. Frontend uses these to dynamically configure price axis and options grid rendering.
 
 Requires: `backend/data/physics/physics_beta_gamma.json`
 
@@ -316,3 +358,20 @@ tail -20 /tmp/backend.log
 5. Start backend (section 4)
 6. Start frontend (section 5)
 7. Open: http://localhost:5174
+
+
+---
+
+## Standalone Vaccuum Pressure
+
+# 1. Run silver pipeline first (if not already done)
+cd backend
+uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol QQQ --dt 2026-02-06 --workers 4
+
+# 2. Start vacuum/pressure server
+uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --port 8002
+
+# 3. Start frontend (separate terminal)
+cd frontend2 && npm run dev
+
+# 4. Open: http://localhost:5174/vacuum-pressure.html?symbol=QQQ&dt=2026-02-06&speed=10

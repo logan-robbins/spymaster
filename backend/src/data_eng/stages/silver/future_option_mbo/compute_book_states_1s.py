@@ -8,7 +8,7 @@ import pandas as pd
 
 from .options_book_engine import OptionsBookEngine
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import PRICE_SCALE, AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import (
     is_partition_complete,
@@ -19,15 +19,24 @@ from ....io import (
 )
 from ..future_mbo.mbo_batches import first_hour_window_ns
 
-PRICE_SCALE = 1e-9
 WINDOW_NS = 1_000_000_000
-TICK_SIZE = 0.25
-TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
-STRIKE_STEP_POINTS = 5.0
-STRIKE_STEP_INT = int(round(STRIKE_STEP_POINTS / PRICE_SCALE))
-MAX_STRIKE_OFFSETS = 10  # +/- $50 around spot
+
+# Defaults (ES) — used when product config is not available
+_DEFAULT_TICK_SIZE = 0.25
+_DEFAULT_TICK_INT = int(round(_DEFAULT_TICK_SIZE / PRICE_SCALE))
+_DEFAULT_STRIKE_STEP_POINTS = 5.0
+_DEFAULT_STRIKE_STEP_INT = int(round(_DEFAULT_STRIKE_STEP_POINTS / PRICE_SCALE))
+_DEFAULT_MAX_STRIKE_OFFSETS = 10
+
 RIGHTS = ("C", "P")
 SIDES = ("A", "B")
+
+
+def _resolve_params(product: ProductConfig | None) -> tuple[int, int, int]:
+    """Return (tick_int, strike_step_int, max_strike_offsets) from product or defaults."""
+    if product is not None:
+        return product.tick_int, product.strike_step_int, product.max_strike_offsets
+    return _DEFAULT_TICK_INT, _DEFAULT_STRIKE_STEP_INT, _DEFAULT_MAX_STRIKE_OFFSETS
 
 
 class SilverComputeOptionBookStates1s(Stage):
@@ -43,7 +52,7 @@ class SilverComputeOptionBookStates1s(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         out_snap_key = "silver.future_option_mbo.book_snapshot_1s"
         out_flow_key = "silver.future_option_mbo.depth_and_flow_1s"
 
@@ -75,7 +84,7 @@ class SilverComputeOptionBookStates1s(Stage):
             (df_fut_snap["window_end_ts_ns"] >= start_ns) & (df_fut_snap["window_end_ts_ns"] < end_ns)
         ].copy()
 
-        df_snap, df_flow = self.transform(df_mbo, df_fut_snap)
+        df_snap, df_flow = self.transform(df_mbo, df_fut_snap, product=product)
 
         snap_contract_path = repo_root / cfg.dataset(out_snap_key).contract
         flow_contract_path = repo_root / cfg.dataset(out_flow_key).contract
@@ -120,7 +129,12 @@ class SilverComputeOptionBookStates1s(Stage):
                 stage=self.name,
             )
 
-    def transform(self, df_mbo: pd.DataFrame, df_fut_snap: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def transform(
+        self,
+        df_mbo: pd.DataFrame,
+        df_fut_snap: pd.DataFrame,
+        product: ProductConfig | None = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         if df_mbo.empty or df_fut_snap.empty:
             return pd.DataFrame(), pd.DataFrame()
 
@@ -132,7 +146,7 @@ class SilverComputeOptionBookStates1s(Stage):
         df_flow_raw, df_bbo = engine.process_batch(df_mbo)
 
         df_snap = _build_option_snapshots(df_bbo, defs, df_fut_snap)
-        df_flow = _build_option_flow_surface(df_flow_raw, defs, df_fut_snap)
+        df_flow = _build_option_flow_surface(df_flow_raw, defs, df_fut_snap, product=product)
 
         return df_snap, df_flow
 
@@ -151,9 +165,9 @@ def _build_defs(df_mbo: pd.DataFrame) -> pd.DataFrame:
     return df_defs[["instrument_id", "strike_price_int", "right"]]
 
 
-def _round_to_nearest_strike_int(price_int: pd.Series | np.ndarray) -> np.ndarray:
+def _round_to_nearest_strike_int(price_int: pd.Series | np.ndarray, strike_step_int: int) -> np.ndarray:
     values = np.asarray(price_int, dtype="int64")
-    return ((values + STRIKE_STEP_INT // 2) // STRIKE_STEP_INT) * STRIKE_STEP_INT
+    return ((values + strike_step_int // 2) // strike_step_int) * strike_step_int
 
 
 def _build_option_snapshots(
@@ -197,9 +211,12 @@ def _build_option_flow_surface(
     df_flow_raw: pd.DataFrame,
     defs: pd.DataFrame,
     df_fut_snap: pd.DataFrame,
+    product: ProductConfig | None = None,
 ) -> pd.DataFrame:
     if df_flow_raw.empty:
         return pd.DataFrame()
+
+    tick_int, strike_step_int, max_strike_offsets = _resolve_params(product)
 
     df = df_flow_raw.merge(defs, on="instrument_id", how="inner")
     if df.empty:
@@ -215,21 +232,21 @@ def _build_option_flow_surface(
 
     df["strike_price_int"] = df["strike_price_int"].astype("int64")
     df["spot_ref_price_int"] = df["spot_ref_price_int"].astype("int64")
-    df["strike_ref_price_int"] = _round_to_nearest_strike_int(df["spot_ref_price_int"])
+    df["strike_ref_price_int"] = _round_to_nearest_strike_int(df["spot_ref_price_int"], strike_step_int)
 
     strike_delta = df["strike_price_int"] - df["strike_ref_price_int"]
-    if (strike_delta % STRIKE_STEP_INT != 0).any():
-        raise ValueError("Option strikes not aligned to $5 grid")
-    df["rel_strike"] = (strike_delta // STRIKE_STEP_INT).astype(int)
+    if (strike_delta % strike_step_int != 0).any():
+        raise ValueError(f"Option strikes not aligned to strike grid (step_int={strike_step_int})")
+    df["rel_strike"] = (strike_delta // strike_step_int).astype(int)
 
-    df = df.loc[df["rel_strike"].between(-MAX_STRIKE_OFFSETS, MAX_STRIKE_OFFSETS)].copy()
+    df = df.loc[df["rel_strike"].between(-max_strike_offsets, max_strike_offsets)].copy()
     if df.empty:
         return pd.DataFrame()
 
     tick_delta = df["strike_price_int"] - df["spot_ref_price_int"]
-    if (tick_delta % TICK_INT != 0).any():
-        raise ValueError("Option strikes not aligned to $0.25 tick grid")
-    df["rel_ticks"] = (tick_delta // TICK_INT).astype(int)
+    if (tick_delta % tick_int != 0).any():
+        raise ValueError(f"Option strikes not aligned to tick grid (tick_int={tick_int})")
+    df["rel_ticks"] = (tick_delta // tick_int).astype(int)
     df["strike_points"] = df["strike_price_int"].astype(float) * PRICE_SCALE
 
     grouped = df.groupby(
@@ -238,22 +255,15 @@ def _build_option_flow_surface(
     ).agg(
         depth_qty_end=("depth_total", "sum"),
         depth_qty_rest=("depth_rest", "sum"),
-        depth_qty_start=("depth_start", "sum"),  # Use tracked start depth from engine
+        depth_qty_start=("depth_start", "sum"),
         add_qty=("add_qty", "sum"),
         pull_qty=("pull_qty", "sum"),
         pull_qty_rest=("pull_rest_qty", "sum"),
         fill_qty=("fill_qty", "sum"),
     )
 
-    # INSTITUTIONAL FIX 1: Clamp depth_qty_rest to depth_qty_end
-    # Resting depth cannot exceed total depth (race condition artifact from temporal aggregation)
-    # See TASK_PLAN.txt Section 4 for root cause analysis
     grouped["depth_qty_rest"] = np.minimum(grouped["depth_qty_rest"], grouped["depth_qty_end"])
 
-    # INSTITUTIONAL FIX 2: Compute accounting_identity_valid flag
-    # The accounting identity should hold: depth_qty_start + add_qty - pull_qty - fill_qty = depth_qty_end
-    # Violations occur at aggregate level due to grid filtering + strike aggregation
-    # Zero-flow rows have 0% violations (proves formula is correct)
     residual = (
         grouped["depth_qty_start"]
         + grouped["add_qty"]
@@ -263,7 +273,7 @@ def _build_option_flow_surface(
     )
     grouped["accounting_identity_valid"] = np.abs(residual) < 0.01
 
-    grid = _build_strike_grid(df_fut_snap)
+    grid = _build_strike_grid(df_fut_snap, product=product)
     if grid.empty:
         return pd.DataFrame()
 
@@ -287,7 +297,6 @@ def _build_option_flow_surface(
     for col in fill_cols:
         df_out[col] = df_out[col].fillna(0.0)
 
-    # For grid cells with no activity, accounting identity trivially holds (0 = 0)
     df_out["accounting_identity_valid"] = df_out["accounting_identity_valid"].fillna(True)
 
     df_out["window_start_ts_ns"] = df_out["window_end_ts_ns"] - WINDOW_NS
@@ -316,22 +325,27 @@ def _build_option_flow_surface(
     ]
 
 
-def _build_strike_grid(df_fut_snap: pd.DataFrame) -> pd.DataFrame:
+def _build_strike_grid(
+    df_fut_snap: pd.DataFrame,
+    product: ProductConfig | None = None,
+) -> pd.DataFrame:
     if df_fut_snap.empty:
         return pd.DataFrame()
 
+    tick_int, strike_step_int, max_strike_offsets = _resolve_params(product)
+
     grid_base = df_fut_snap[["window_end_ts_ns", "spot_ref_price_int"]].drop_duplicates().copy()
     grid_base["spot_ref_price_int"] = grid_base["spot_ref_price_int"].astype("int64")
-    grid_base["strike_ref_price_int"] = _round_to_nearest_strike_int(grid_base["spot_ref_price_int"])
+    grid_base["strike_ref_price_int"] = _round_to_nearest_strike_int(grid_base["spot_ref_price_int"], strike_step_int)
 
-    offsets = np.arange(-MAX_STRIKE_OFFSETS, MAX_STRIKE_OFFSETS + 1)
+    offsets = np.arange(-max_strike_offsets, max_strike_offsets + 1)
     grid_list: List[pd.DataFrame] = []
     for offset in offsets:
         tmp = grid_base.copy()
-        tmp["strike_price_int"] = tmp["strike_ref_price_int"] + offset * STRIKE_STEP_INT
+        tmp["strike_price_int"] = tmp["strike_ref_price_int"] + offset * strike_step_int
         tmp["strike_points"] = tmp["strike_price_int"].astype(float) * PRICE_SCALE
         tick_delta = tmp["strike_price_int"] - tmp["spot_ref_price_int"]
-        tmp["rel_ticks"] = (tick_delta // TICK_INT).astype("int64")
+        tmp["rel_ticks"] = (tick_delta // tick_int).astype("int64")
         grid_list.append(
             tmp[["window_end_ts_ns", "spot_ref_price_int", "strike_price_int", "strike_points", "rel_ticks"]]
         )

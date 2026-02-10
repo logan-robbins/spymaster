@@ -18,7 +18,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 
-from src.data_eng.config import load_config
+from src.data_eng.config import ProductConfig, load_config
 from src.data_eng.contracts import enforce_contract, load_avro_contract
 from src.data_eng.io import is_partition_complete, partition_ref, read_partition
 from src.data_eng.mbo_contract_day_selector import load_selection
@@ -146,6 +146,24 @@ class VelocityStreamService:
         self.repo_root = Path(__file__).resolve().parents[2]
         self.cfg = load_config(self.repo_root, self.repo_root / "src" / "data_eng" / "config" / "datasets.yaml")
         self.beta, self.gamma = _load_physics_params(settings.physics_params_path)
+
+    def product_meta(self, symbol: str) -> dict:
+        """Return product metadata dict for WebSocket batch_start messages."""
+        try:
+            pc = self.cfg.product_for_symbol(symbol)
+            return {
+                "tick_size": pc.tick_size,
+                "tick_int": pc.tick_int,
+                "strike_ticks": pc.strike_ticks,
+                "grid_max_ticks": pc.grid_max_ticks,
+            }
+        except (ValueError, KeyError):
+            return {
+                "tick_size": 0.25,
+                "tick_int": 250_000_000,
+                "strike_ticks": 20,
+                "grid_max_ticks": 200,
+            }
 
     def load_cache(self, symbol: str, dt: str) -> UnifiedStreamCache:
         """Load unified cache with futures snap, futures velocity, options velocity, and forecast."""

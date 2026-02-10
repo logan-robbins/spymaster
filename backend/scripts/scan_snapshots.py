@@ -15,8 +15,8 @@ print(f"Scanning {parquet_file} for snapshots...")
 df = pd.read_parquet(parquet_file, columns=["ts_event", "flags"])
 
 # Filter for snapshots
-# 128 is F_SNAPSHOT. Using bitwise AND.
-snapshots = df[df["flags"] & 128 != 0]
+# F_SNAPSHOT = 32 (bit 5). F_LAST = 128 (bit 7).
+snapshots = df[df["flags"] & 32 != 0]
 
 print(f"Total Rows: {len(df)}")
 print(f"Snapshot Rows: {len(snapshots)}")

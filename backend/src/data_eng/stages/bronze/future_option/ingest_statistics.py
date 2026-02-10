@@ -8,7 +8,7 @@ import pandas as pd
 from databento.common.enums import PriceType
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, read_partition, write_partition
 
@@ -22,7 +22,7 @@ class BronzeIngestFutureOptionStatistics(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         checkpoint_key = "bronze_cache.future_option.statistics_0dte"
         checkpoint_ref = partition_ref(cfg, checkpoint_key, symbol, dt)
 

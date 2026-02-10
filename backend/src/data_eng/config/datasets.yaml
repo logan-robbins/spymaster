@@ -183,12 +183,6 @@ datasets:
     contract: src/data_eng/contracts/silver/future_option/nbbo_clean.avsc
 
   silver.future_option.statistics_clean:
-    path: silver/product_type=future_option_mbo/symbol={symbol}/table=statistics_clean
-    format: parquet
-    partition_keys: [symbol, dt]
-    contract: src/data_eng/contracts/silver/future_option/statistics_clean.avsc
-  
-  silver.future_option.statistics_clean:
     path: silver/product_type=future_option/symbol={symbol}/table=statistics_clean
     format: parquet
     partition_keys: [symbol, dt]

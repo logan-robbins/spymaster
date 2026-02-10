@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from ..config import AppConfig
+from ..config import AppConfig, ProductConfig
 from ..contracts import enforce_contract, load_avro_contract
 from ..io import (
     is_partition_complete,
@@ -45,7 +45,7 @@ class Stage:
     def transform(self, df: pd.DataFrame, dt: str) -> pd.DataFrame:
         raise NotImplementedError
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         out_ref = partition_ref(cfg, self.io.output, symbol, dt)
         if is_partition_complete(out_ref):
             return

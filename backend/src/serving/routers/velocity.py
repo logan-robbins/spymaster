@@ -133,6 +133,7 @@ async def velocity_stream(
     )
 
     try:
+        product_meta = service.product_meta(symbol)
         last_window_ts = None
         skip_count = skip_minutes * 60  # Skip N minutes worth of 1s windows
         skipped = 0
@@ -150,11 +151,12 @@ async def velocity_stream(
                     await asyncio.sleep(to_sleep)
             last_window_ts = window_id
 
-            # Send batch_start
+            # Send batch_start with product metadata
             await websocket.send_text(json.dumps({
                 "type": "batch_start",
                 "window_end_ts_ns": str(window_id),
                 "surfaces": ["snap", "velocity", "options", "forecast"],
+                **product_meta,
             }))
 
             # Send snap (futures spot reference)

@@ -45,12 +45,20 @@ export interface ForecastRow {
   d_down?: number;
 }
 
+export interface ProductMeta {
+  tick_size: number;
+  tick_int: number;
+  strike_ticks: number;
+  grid_max_ticks: number;
+}
+
 export interface StreamCallbacks {
   onTick: (ts: bigint, surfaces: string[]) => void;
   onSnap: (row: SnapRow) => void;
   onVelocity: (rows: VelocityRow[]) => void;
   onOptions: (rows: OptionsRow[]) => void;
   onForecast: (rows: ForecastRow[]) => void;
+  onProductMeta?: (meta: ProductMeta) => void;
 }
 
 export function connectStream(
@@ -82,6 +90,14 @@ export function connectStream(
           if (msg.type === 'batch_start') {
             const ts = BigInt(msg.window_end_ts_ns);
             const surfaceList = msg.surfaces || [];
+            if (callbacks.onProductMeta && msg.tick_size !== undefined) {
+              callbacks.onProductMeta({
+                tick_size: msg.tick_size,
+                tick_int: msg.tick_int,
+                strike_ticks: msg.strike_ticks,
+                grid_max_ticks: msg.grid_max_ticks,
+              });
+            }
             callbacks.onTick(ts, surfaceList);
           } else if (msg.type === 'surface_header') {
             pendingSurface = msg.surface;

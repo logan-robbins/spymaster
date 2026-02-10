@@ -6,7 +6,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from .config import load_config
+from .config import ProductConfig, extract_root, load_config
 from .io import partition_ref
 from .pipeline import build_pipeline
 from .mbo_contract_day_selector import discover_mbo_contracts, load_selection
@@ -188,6 +188,18 @@ def _clear_stage_output(cfg, stage, symbol: str, dt: str) -> None:
             shutil.rmtree(out_ref.dir)
 
 
+def _resolve_product(cfg, product_type: str, symbol: str) -> ProductConfig | None:
+    """Resolve product config for futures types, None for equities."""
+    if product_type not in {"future_mbo", "future_option_mbo"}:
+        return None
+    if not cfg.products:
+        return None
+    try:
+        return cfg.product_for_symbol(symbol)
+    except (ValueError, KeyError):
+        return None
+
+
 def run_single_date(
     product_type: str,
     layer: str,
@@ -200,14 +212,15 @@ def run_single_date(
     try:
         repo_root = Path.cwd()
         cfg = load_config(repo_root=repo_root, config_path=config_path)
-        
+        product = _resolve_product(cfg, product_type, symbol)
+
         stages = build_pipeline(product_type, layer)
-        
+
         for stage in stages:
             if overwrite:
                 _clear_stage_output(cfg, stage, symbol, dt)
-            stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=dt)
-        
+            stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=dt, product=product)
+
         return {'dt': dt, 'symbol': symbol, 'status': 'success'}
     except Exception as e:
         return {'dt': dt, 'symbol': symbol, 'status': 'error', 'error': str(e)}
@@ -280,15 +293,16 @@ def main() -> None:
     else:
         cfg = load_config(repo_root=repo_root, config_path=config_path)
         stages = build_pipeline(args.product_type, args.layer)
-        
+
         for symbol, dt in tasks:
             print(f"Processing {symbol} {dt}...")
-            
+            product = _resolve_product(cfg, args.product_type, symbol)
+
             for stage in stages:
                 if args.overwrite:
                     _clear_stage_output(cfg, stage, symbol, dt)
-                stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=dt)
-            
+                stage.run(cfg=cfg, repo_root=repo_root, symbol=symbol, dt=dt, product=product)
+
             print(f"✅ {symbol} {dt}\n")
     
     print(f"DONE")

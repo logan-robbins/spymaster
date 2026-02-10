@@ -7,7 +7,7 @@ import databento as db
 import numpy as np
 import pandas as pd
 
-from src.data_eng.config import AppConfig
+from src.data_eng.config import AppConfig, ProductConfig
 from src.data_eng.io import is_partition_complete, partition_ref, write_partition
 from src.data_eng.contracts import load_avro_contract, enforce_contract
 
@@ -57,7 +57,7 @@ class BronzeProcessDBN(Stage):
             ),
         )
     
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, dbn_root: Path | None = None) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None, dbn_root: Path | None = None) -> None:
         """Process DBN files for all contracts matching symbol prefix on date dt."""
         
         if dbn_root is None:

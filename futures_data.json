@@ -10,13 +10,16 @@
             "TICK_INT": 250000000,
             "WINDOW_NS": 1000000000,
             "REST_NS": 500000000,
-            "GRID_MAX_TICKS": 200
+            "GRID_MAX_TICKS": "product-dependent (see config/products.yaml): ES/MES=200, NQ/MNQ=400",
+            "STRIKE_TICKS": "product-dependent: strike_step_points / tick_size (ES/MES/NQ/MNQ=20)"
         }
     },
     "future_mbo": {
-        "_description": "ES futures market-by-order data from CME Globex via Databento",
+        "_description": "CME futures market-by-order data via Databento (ES, MES, NQ, MNQ, GC, SI, CL, 6E)",
         "_symbol_convention": "Bronze uses parent symbol (ES), Silver uses contract symbol (ESH6)",
-        "_session_window": "09:30-12:30 ET (first 3 hours of RTH)",
+        "_bronze_window": "00:00-24:00 UTC (full UTC day, captures Databento MBO snapshot at 00:00 UTC with F_SNAPSHOT=32)",
+        "_silver_output_window": "09:30-12:30 ET (first 3 hours of RTH)",
+        "_warmup_period": "15 hours before output window (reaches back past 00:00 UTC to capture daily MBO snapshot)",
         "bronze": {
             "_table": "mbo",
             "_source": "raw.market_by_order_dbn",
@@ -186,7 +189,7 @@
                     "_shape": "Long Format (Panel Data)",
                     "_grain": "1 Second x Price Level (tick) x Side",
                     "_primary_key": ["window_end_ts_ns", "price_int", "side"],
-                    "_rows_per_day": "~3.7-4.3M (401 price levels x 2 sides x seconds)",
+                    "_rows_per_day": "~3.7-4.3M for ES (401 levels x 2 sides x seconds), scales with GRID_MAX_TICKS",
                     "window_start_ts_ns": {
                         "type": "int64",
                         "unit": "nanoseconds (UTC)"
@@ -199,7 +202,7 @@
                         "type": "int64",
                         "unit": "price * 1e9",
                         "built_from": ["bronze.future_mbo.mbo.price"],
-                        "transformation_steps": ["Aggregate distinct prices in window +/- 200 ticks from spot"]
+                        "transformation_steps": ["Aggregate distinct prices in window +/- GRID_MAX_TICKS from spot"]
                     },
                     "side": {
                         "type": "string",
@@ -215,8 +218,8 @@
                     },
                     "rel_ticks": {
                         "type": "int32",
-                        "unit": "ticks ($0.25 each)",
-                        "range": "[-200, 200]",
+                        "unit": "ticks (tick_size each, $0.25 for ES/MES/NQ/MNQ)",
+                        "range": "[-GRID_MAX_TICKS, +GRID_MAX_TICKS]",
                         "formula": "round((price_int - spot_ref_price_int) / TICK_INT)",
                         "built_from": ["price_int", "spot_ref_price_int"],
                         "transformation_steps": ["(price_int - spot_ref_price_int) / TICK_INT", "Round to integer"],
@@ -293,7 +296,7 @@
         "gold": {
             "GoldComputePhysicsSurface1s": {
                 "_inputs": ["silver.future_mbo.book_snapshot_1s", "silver.future_mbo.depth_and_flow_1s"],
-                "_output_shape": "Dense grid: 401 ticks (-200 to +200) x 2 sides x N windows",
+                "_output_shape": "Dense grid: (2*GRID_MAX_TICKS+1) ticks x 2 sides x N windows (ES=401, MNQ=801)",
                 "physics_surface_1s": {
                     "add_intensity": {
                         "built_from": ["silver.future_mbo.depth_and_flow_1s.add_qty", "silver.future_mbo.depth_and_flow_1s.depth_qty_start"],
@@ -391,15 +394,15 @@
                     "u_near": {
                         "built_from": ["u_ema_8"],
                         "transformation_steps": [
-                            "Pivot to [window_end_ts_ns, side] x [rel_ticks -200..+200]",
-                            "Gaussian rolling(win=33, sigma=6, center=True, axis=rel_ticks)",
+                            "Pivot to [window_end_ts_ns, side] x [rel_ticks -GRID_MAX_TICKS..+GRID_MAX_TICKS]",
+                            "Gaussian convolution (scipy, win=33, sigma=6, center=True, axis=rel_ticks)",
                             "Melt back to long format"
                         ],
                         "note": "Near-field spatial smoothing (sigma=6, window=16 ticks each side)"
                     },
                     "u_far": {
                         "built_from": ["u_ema_32"],
-                        "transformation_steps": ["Gaussian rolling(win=129, sigma=24, center=True, axis=rel_ticks)"],
+                        "transformation_steps": ["Gaussian convolution (scipy, win=129, sigma=24, center=True, axis=rel_ticks)"],
                         "note": "Far-field spatial smoothing (sigma=24, window=64 ticks each side)"
                     },
                     "u_prom": {
@@ -409,11 +412,11 @@
                     },
                     "Omega_near": {
                         "built_from": ["Omega"],
-                        "transformation_steps": ["Gaussian rolling(win=33, sigma=6, center=True, axis=rel_ticks)"]
+                        "transformation_steps": ["Gaussian convolution (scipy, win=33, sigma=6, center=True, axis=rel_ticks)"]
                     },
                     "Omega_far": {
                         "built_from": ["Omega"],
-                        "transformation_steps": ["Gaussian rolling(win=129, sigma=24, center=True, axis=rel_ticks)"]
+                        "transformation_steps": ["Gaussian convolution (scipy, win=129, sigma=24, center=True, axis=rel_ticks)"]
                     },
                     "Omega_prom": {
                         "built_from": ["Omega_near", "Omega_far"],
@@ -501,13 +504,38 @@
         "silver": {
             "SilverComputeOptionBookStates1s": {
                 "book_snapshot_1s": {
+                    "_path": "silver/product_type=future_option_mbo/symbol={symbol}/table=book_snapshot_1s/dt={dt}",
+                    "_contract": "src/data_eng/contracts/silver/future_option_mbo/book_snapshot_1s.avsc",
+                    "_grain": "1 second x instrument",
                     "window_start_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
                         "built_from": ["bronze.future_option_mbo.mbo.ts_event"],
                         "transformation_steps": ["Floor ts_event to 1s bucket (start of window)"]
                     },
                     "window_end_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
                         "built_from": ["bronze.future_option_mbo.mbo.ts_event"],
                         "transformation_steps": ["Ceil ts_event to 1s bucket (end of window)"]
+                    },
+                    "instrument_id": {
+                        "type": "int64",
+                        "unit": "Databento instrument identifier",
+                        "built_from": ["bronze.future_option_mbo.mbo.instrument_id"],
+                        "transformation_steps": ["Pass through"]
+                    },
+                    "right": {
+                        "type": "string",
+                        "values": ["C=Call", "P=Put"],
+                        "built_from": ["bronze.future_option_mbo.mbo.right"],
+                        "transformation_steps": ["Pass through"]
+                    },
+                    "strike_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
+                        "built_from": ["bronze.future_option_mbo.mbo.strike"],
+                        "transformation_steps": ["Pass through"]
                     },
                     "bid_price_int": {
                         "built_from": ["bronze.future_option_mbo.mbo.price", "bronze.future_option_mbo.mbo.side", "bronze.future_option_mbo.mbo.action"],
@@ -535,52 +563,113 @@
                     }
                 },
                 "depth_and_flow_1s": {
-                    "_description": "Option MBO depth and flow aggregated to $5 strike buckets, spot-anchored.",
+                    "_description": "Option MBO depth and flow aggregated to strike_step_points strike buckets, spot-anchored.",
+                    "_path": "silver/product_type=future_option_mbo/symbol={symbol}/table=depth_and_flow_1s/dt={dt}",
+                    "_contract": "src/data_eng/contracts/silver/future_option_mbo/depth_and_flow_1s.avsc",
                     "_shape": "Long Format (Panel Data)",
                     "_grain": "1 Second x Strike Bucket x Right x Side",
                     "_primary_key": ["window_end_ts_ns", "strike_price_int", "right", "side"],
-                    "_note_strike_bucketing": "Flow quantities are SUMMED across individual instruments per $5 strike bucket. This aggregation can cause depth_qty_start accounting identity to have ~8-10% mismatch due to instruments moving between buckets.",
+                    "_note_strike_bucketing": "Flow quantities are SUMMED across individual instruments per strike_step_points bucket (from products.yaml). This aggregation can cause depth_qty_start accounting identity to have ~8-10% mismatch due to instruments moving between buckets.",
                     "_note_validated": "Validated 2026-01-07, 2026-01-14, 2026-01-23: 0 null values, 0 negative quantities, 100% 1-second windows, spot prices $6900-$7100",
+                    "window_start_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
+                        "built_from": ["bronze.future_option_mbo.mbo.ts_event"],
+                        "transformation_steps": ["Floor ts_event to 1s bucket (start of window)"]
+                    },
+                    "window_end_ts_ns": {
+                        "type": "int64",
+                        "unit": "nanoseconds (UTC)",
+                        "built_from": ["bronze.future_option_mbo.mbo.ts_event"],
+                        "transformation_steps": ["Ceil ts_event to 1s bucket (end of window)"]
+                    },
                     "strike_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["bronze.future_option_mbo.mbo.strike"],
-                        "transformation_steps": ["Bucket strikes every $5 and align to spot grid ±$50"]
+                        "transformation_steps": ["Bucket strikes every strike_step_points and align to spot grid"]
+                    },
+                    "strike_points": {
+                        "type": "double",
+                        "unit": "dollars",
+                        "built_from": ["strike_price_int"],
+                        "transformation_steps": ["strike_price_int * PRICE_SCALE"]
+                    },
+                    "right": {
+                        "type": "string",
+                        "values": ["C=Call", "P=Put"],
+                        "built_from": ["bronze.future_option_mbo.mbo.right"],
+                        "transformation_steps": ["Pass through"]
+                    },
+                    "side": {
+                        "type": "string",
+                        "values": ["A=Ask", "B=Bid"],
+                        "built_from": ["bronze.future_option_mbo.mbo.side"],
+                        "transformation_steps": ["Pass through"]
                     },
                     "spot_ref_price_int": {
+                        "type": "int64",
+                        "unit": "price * 1e9",
                         "built_from": ["silver.future_mbo.book_snapshot_1s.spot_ref_price_int"],
                         "transformation_steps": ["Spot anchor from futures MBO snapshot at window_end_ts"]
                     },
                     "rel_ticks": {
+                        "type": "int32",
+                        "unit": "ticks",
                         "built_from": ["strike_price_int", "spot_ref_price_int"],
-                        "transformation_steps": ["(strike_price_int - spot_ref_price_int) / TICK_INT", "Round to integer (multiples of 20 ticks)"]
+                        "transformation_steps": ["(strike_price_int - spot_ref_price_int) / TICK_INT", "Round to integer (multiples of STRIKE_TICKS)"]
                     },
                     "depth_qty_start": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["book_state"],
                         "transformation_steps": ["depth_qty_end - add_qty + pull_qty + fill_qty"]
                     },
                     "depth_qty_end": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo"],
-                        "transformation_steps": ["Quantity remaining at strike bucket at end of window"]
+                        "transformation_steps": ["Quantity remaining at strike bucket at end of window"],
+                        "note": "AUTHORITATIVE value when accounting_identity_valid=False"
                     },
                     "add_qty": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo.action=A"],
                         "transformation_steps": ["Sum of added volume at strike bucket in window"]
                     },
                     "pull_qty": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo.action=C|M"],
                         "transformation_steps": ["Sum of cancelled/reduced volume at strike bucket in window"]
                     },
                     "pull_qty_rest": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo"],
                         "transformation_steps": ["Sum of cancelled volume from orders resting > 500ms"],
                         "_note": "ALWAYS OUTPUTS ZEROS for performance optimization (tracking removed). Not used by gold layer downstream."
                     },
                     "fill_qty": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo.action=F"],
                         "transformation_steps": ["Sum of filled volume at strike bucket in window"]
                     },
                     "depth_qty_rest": {
+                        "type": "double",
+                        "unit": "contracts",
                         "built_from": ["bronze.future_option_mbo.mbo"],
-                        "transformation_steps": ["Quantity of orders resting for > 500ms"]
+                        "transformation_steps": ["Quantity of orders resting for > 500ms, clamped to min(rest, depth_qty_end)"]
+                    },
+                    "window_valid": {
+                        "type": "boolean",
+                        "description": "True if spot_ref_price_int > 0"
+                    },
+                    "accounting_identity_valid": {
+                        "type": "boolean",
+                        "description": "True if depth_qty_start + add_qty - pull_qty - fill_qty == depth_qty_end. False when grid filtering causes information loss (~8-10%). Use depth_qty_end as authoritative when False."
                     }
                 }
             }
@@ -684,20 +773,20 @@
                     "u_opt_near": {
                         "built_from": ["u_opt_ema_8"],
                         "transformation_steps": [
-                            "Map to rel_strike = rel_ticks/20 (bucket index)",
-                            "Gaussian rolling on strike grid (n_strikes=round(16/20), sigma=max(1, 6/20))",
-                            "Melt back to rel_ticks multiples of 20"
+                            "Map to rel_strike = rel_ticks / STRIKE_TICKS (bucket index)",
+                            "Gaussian convolution on strike grid (n_strikes=round(16/STRIKE_TICKS), sigma=max(1, 6/STRIKE_TICKS))",
+                            "Melt back to rel_ticks multiples of STRIKE_TICKS"
                         ],
-                        "note": "Near-field spatial smoothing on $5 strikes"
+                        "note": "Near-field spatial smoothing on strike lattice"
                     },
                     "u_opt_far": {
                         "built_from": ["u_opt_ema_32"],
                         "transformation_steps": [
-                            "Map to rel_strike = rel_ticks/20 (bucket index)",
-                            "Gaussian rolling on strike grid (n_strikes=round(64/20), sigma=max(1, 24/20))",
-                            "Melt back to rel_ticks multiples of 20"
+                            "Map to rel_strike = rel_ticks / STRIKE_TICKS (bucket index)",
+                            "Gaussian convolution on strike grid (n_strikes=round(64/STRIKE_TICKS), sigma=max(1, 24/STRIKE_TICKS))",
+                            "Melt back to rel_ticks multiples of STRIKE_TICKS"
                         ],
-                        "note": "Far-field spatial smoothing on $5 strikes"
+                        "note": "Far-field spatial smoothing on strike lattice"
                     },
                     "u_opt_prom": {
                         "built_from": ["u_opt_near", "u_opt_far"],
@@ -706,12 +795,12 @@
                     },
                     "du_opt_dx": {
                         "built_from": ["u_opt_near"],
-                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - shift(1)) / (2 * 20)"],
+                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - shift(1)) / (2 * STRIKE_TICKS)"],
                         "note": "Spatial derivative scaled to tick units"
                     },
                     "d2u_opt_dx2": {
                         "built_from": ["u_opt_near"],
-                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - 2*u_opt_near + shift(1)) / (20^2)"],
+                        "transformation_steps": ["GroupBy (window_end_ts_ns, right, side)", "(shift(-1) - 2*u_opt_near + shift(1)) / (STRIKE_TICKS^2)"],
                         "note": "Second spatial derivative scaled to tick units"
                     },
                     "Omega_opt": {
@@ -721,11 +810,11 @@
                     },
                     "Omega_opt_near": {
                         "built_from": ["Omega_opt"],
-                        "transformation_steps": ["Gaussian rolling on strike grid (n_strikes=round(16/20), sigma=max(1, 6/20))"]
+                        "transformation_steps": ["Gaussian convolution on strike grid (n_strikes=round(16/STRIKE_TICKS), sigma=max(1, 6/STRIKE_TICKS))"]
                     },
                     "Omega_opt_far": {
                         "built_from": ["Omega_opt"],
-                        "transformation_steps": ["Gaussian rolling on strike grid (n_strikes=round(64/20), sigma=max(1, 24/20))"]
+                        "transformation_steps": ["Gaussian convolution on strike grid (n_strikes=round(64/STRIKE_TICKS), sigma=max(1, 24/STRIKE_TICKS))"]
                     },
                     "Omega_opt_prom": {
                         "built_from": ["Omega_opt_near", "Omega_opt_far"],

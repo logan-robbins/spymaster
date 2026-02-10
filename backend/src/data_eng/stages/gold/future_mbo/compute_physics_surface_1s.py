@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import PRICE_SCALE, AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....filters.gold_strict_filters import apply_gold_strict_filters
 from ....io import (
@@ -35,7 +35,7 @@ class GoldComputePhysicsSurface1s(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         out_ref = partition_ref(cfg, self.io.output, symbol, dt)
         if is_partition_complete(out_ref):
             return
@@ -69,7 +69,7 @@ class GoldComputePhysicsSurface1s(Stage):
                 f"flow={flow_stats.get('total_filtered', 0)}/{original_flow_count}"
             )
 
-        df_out = self.transform(df_snap, df_flow)
+        df_out = self.transform(df_snap, df_flow, product=product)
 
         out_contract_path = repo_root / cfg.dataset(self.io.output).contract
         out_contract = load_avro_contract(out_contract_path)
@@ -95,6 +95,7 @@ class GoldComputePhysicsSurface1s(Stage):
         self,
         df_snap: pd.DataFrame,
         df_flow: pd.DataFrame,
+        product: ProductConfig | None = None,
     ) -> pd.DataFrame:
         if df_snap.empty or df_flow.empty:
             return pd.DataFrame(
@@ -206,41 +207,38 @@ class GoldComputePhysicsSurface1s(Stage):
         # We define a helper to apply spatial smoothing
         def apply_spatial_smoothing(df_in, target_col, sigma, n_ticks, out_col_name):
             """Apply Gaussian spatial smoothing along rel_ticks dimension."""
-            import warnings
-            
+            from scipy.signal.windows import gaussian as _gaussian_win
+
             # Pivot to [ts, side] x [rel_ticks]
-            # Use groupby().unstack() to enforce MultiIndex and handle duplicates via mean
             pivoted = df_in.groupby(["window_end_ts_ns", "side", "rel_ticks"])[target_col].mean().unstack("rel_ticks")
-            
-            # Reindex to dense grid -200 to +200
-            full_ticks = np.arange(-200, 201)
+
+            # Reindex to dense grid -N to +N
+            _grid_max = product.grid_max_ticks if product is not None else 200
+            full_ticks = np.arange(-_grid_max, _grid_max + 1)
             pivoted = pivoted.reindex(columns=full_ticks, fill_value=0.0)
-            
-            # Apply rolling gaussian along columns (rel_ticks dimension)
+
+            # Gaussian convolution via scipy (replaces deprecated rolling(axis=1))
             win_size = int(2 * n_ticks + 1)
-            
-            # Use apply with rolling on each row to avoid deprecated axis param
-            # Or use the deprecated axis=1 with suppressed warning for now
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", FutureWarning)
-                smoothed = pivoted.rolling(
-                    window=win_size, 
-                    win_type='gaussian', 
-                    center=True, 
-                    axis=1
-                ).mean(std=sigma)
-            
-            # Stack back to long format - explicitly preserve MultiIndex
-            # First reset index to flatten MultiIndex to columns
+            _kernel = _gaussian_win(win_size, std=sigma)
+            _kernel = _kernel / _kernel.sum()
+            _half = win_size // 2
+            _vals = pivoted.values.copy().astype(float)
+            _result = np.full_like(_vals, np.nan)
+            for _row_i in range(_vals.shape[0]):
+                _conv = np.convolve(_vals[_row_i], _kernel, mode="same")
+                _result[_row_i, _half : _vals.shape[1] - _half] = (
+                    _conv[_half : _vals.shape[1] - _half]
+                )
+            smoothed = pd.DataFrame(_result, index=pivoted.index, columns=pivoted.columns)
+
+            # Stack back to long format
             smoothed = smoothed.reset_index()
-            
-            # Melt from wide to long format
             melted = smoothed.melt(
                 id_vars=["window_end_ts_ns", "side"],
                 var_name="rel_ticks",
                 value_name=out_col_name
             )
-            
+
             return melted
 
         # Apply smoothing

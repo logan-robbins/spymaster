@@ -5,7 +5,8 @@ from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 
-PRICE_SCALE = 1e-9
+from ....config import PRICE_SCALE, ProductConfig
+
 TICK_SIZE = 0.25
 TICK_INT = int(round(TICK_SIZE / PRICE_SCALE))
 WINDOW_NS = 1_000_000_000
@@ -13,8 +14,8 @@ REST_NS = 500_000_000
 GRID_MAX_TICKS = 200  # +/- $50 range (200 * 0.25)
 HUD_MAX_TICKS = GRID_MAX_TICKS  # Alias for backward compatibility
 
-F_SNAPSHOT = 128
-F_LAST = 256
+F_LAST = 128       # bit 7 (0x80): last record in event for instrument_id
+F_SNAPSHOT = 32    # bit 5 (0x20): sourced from replay/snapshot server
 
 ACTION_ADD = "A"
 ACTION_CANCEL = "C"
@@ -126,30 +127,25 @@ class FuturesBookEngine:
         self.flush_final()
 
     def apply_event(self, ts: int, action: str, side: str, price: int, size: int, order_id: int, flags: int) -> None:
-        is_snapshot_msg = (flags & F_SNAPSHOT) != 0
+        # Databento MBO flags (u8 bitmask):
+        #   F_LAST    = 128 (0x80, bit 7) — last record in event for instrument_id
+        #   F_SNAPSHOT =  32 (0x20, bit 5) — sourced from replay/snapshot server
+        #
+        # Implicit snapshot detection (auto-clear on first F_SNAPSHOT) is disabled.
+        # We rely on ACTION_CLEAR ('R') to enter snapshot mode via _clear_book().
+        # For GLBX futures, F_SNAPSHOT=32 appears only on actual snapshot records
+        # (rare, e.g. 00:00 UTC). Keeping ACTION_CLEAR as the sole trigger avoids
+        # false positives.
 
-        # Implicit snapshot start: if we see a snapshot message and we aren't in snapshot mode,
-        # it means a new snapshot has started. We must clear the book and enter snapshot mode.
-        # FIX: Databento flags=128 (F_SNAPSHOT) appear on almost all messages (A, C, M) in this dataset.
-        # This caused the engine to constantly clear the book (or never exit snapshot mode),
-        # resulting in an empty book. We disable this logic and rely on explicit ACTION_CLEAR ('R').
-        
-        # if is_snapshot_msg and not self.snapshot_in_progress:
-        #     self._clear_book(flags)
-        
-        # if self.snapshot_in_progress and not is_snapshot_msg:
-        #     self.snapshot_in_progress = False
-        #     self.book_valid = True
-        
-        # Exit snapshot mode when we see F_LAST flag (end of snapshot sequence)
-        is_last_snapshot_msg = (flags & F_LAST) != 0
-        if self.snapshot_in_progress and is_last_snapshot_msg:
+        # Exit snapshot mode when F_LAST (128) is seen — end of snapshot sequence
+        is_last_msg = (flags & F_LAST) != 0
+        if self.snapshot_in_progress and is_last_msg:
             self.snapshot_in_progress = False
             self.book_valid = True
-        
-        # Assume valid unless proven otherwise
+
+        # Non-snapshot recovery: if book invalid and not mid-snapshot, mark valid
         if not self.book_valid and not self.snapshot_in_progress:
-             self.book_valid = True
+            self.book_valid = True
 
         window_id = ts // self.window_ns
         if self.curr_window_id is None:
@@ -359,12 +355,12 @@ class FuturesBookEngine:
         self.orders.clear()
         self.depth_bid.clear()
         self.depth_ask.clear()
-        self.snapshot_in_progress = True
         self.book_valid = False
         self.window_has_snapshot = True
-        if flags & F_SNAPSHOT:
-            self.snapshot_in_progress = True
-        return
+        # Enter snapshot mode only when F_SNAPSHOT (32) is set on the Clear record.
+        # Non-snapshot clears (trading halts) don't start a snapshot sequence;
+        # the next event will re-enable book_valid via the recovery check.
+        self.snapshot_in_progress = bool(flags & F_SNAPSHOT)
 
     def _add_order(self, ts: int, side: str, price: int, size: int, order_id: int) -> None:
         if side not in (SIDE_BID, SIDE_ASK):
@@ -488,9 +484,14 @@ class FuturesBookEngine:
 def compute_futures_surfaces_1s_from_batches(
     batches: Iterable[pd.DataFrame],
     compute_depth_flow: bool = True,
+    product: ProductConfig | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Compute book snapshots and depth/flow from MBO event batches."""
-    engine = FuturesBookEngine(compute_depth_flow=compute_depth_flow)
+    kwargs: dict = {"compute_depth_flow": compute_depth_flow}
+    if product is not None:
+        kwargs["tick_int"] = product.tick_int
+        kwargs["grid_max_ticks"] = product.grid_max_ticks
+    engine = FuturesBookEngine(**kwargs)
     seen = False
 
     for batch in batches:

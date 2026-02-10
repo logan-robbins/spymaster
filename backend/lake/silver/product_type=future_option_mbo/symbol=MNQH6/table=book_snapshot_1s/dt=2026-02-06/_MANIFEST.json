@@ -1,0 +1,21 @@
+{
+  "contract_path": "/Users/logan.robbins/research/spymaster/backend/src/data_eng/contracts/silver/future_option_mbo/book_snapshot_1s.avsc",
+  "contract_sha256": "292aca6c068fb59138fdf92cf3874618d6a9f17be8f091d6c7cdd97a40943a1c",
+  "dataset": "silver.future_option_mbo.book_snapshot_1s",
+  "dt": "2026-02-06",
+  "hour": null,
+  "inputs": [
+    {
+      "dataset": "bronze.future_option_mbo.mbo",
+      "dt": "2026-02-06",
+      "manifest_sha256": "8513829d96a838fe70b44ca94d82b193a6205158d3ed1b28e3884dba527d2e52"
+    },
+    {
+      "dataset": "silver.future_mbo.book_snapshot_1s",
+      "dt": "2026-02-06",
+      "manifest_sha256": "0a9800aac91ff790811b2bf1547c27b3069cb2815a7519c254081673a4969ef2"
+    }
+  ],
+  "row_count": 1000000,
+  "stage": "silver_compute_option_book_states_1s"
+}

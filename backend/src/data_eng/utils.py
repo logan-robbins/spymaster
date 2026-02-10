@@ -48,12 +48,53 @@ def expand_date_range(
     return sorted(list(expanded))
 
 
-def session_window_ns(session_date: str) -> tuple[int, int]:
+# Product type categories for session window selection
+_EQUITY_PRODUCT_TYPES = frozenset({"equity_mbo", "equity_option_cmbp_1"})
+_FUTURES_PRODUCT_TYPES = frozenset({"future_mbo", "future_option_mbo"})
+
+
+def session_window_ns(
+    session_date: str, product_type: str = "equity_mbo"
+) -> tuple[int, int]:
     """Return (start_ns, end_ns) for bronze ingestion window.
-    
-    Window: 06:00-13:00 ET (pre-market + RTH morning session)
-    Captures pre-market and morning momentum through lunch.
+
+    Windows are product-type-aware to capture venue-specific session starts:
+
+    **Equities** (``equity_mbo``, ``equity_option_cmbp_1``):
+        02:00–16:00 ET (EST, UTC-5).  XNAS session begins ~03:05 ET with a
+        Clear record (``action=R``) followed by Add events for every resting
+        order.  The 02:00 ET start provides a safe buffer before the earliest
+        observed session start.  End at 16:00 ET covers full Regular Trading
+        Hours close.
+
+    **Futures** (``future_mbo``, ``future_option_mbo``):
+        00:00 UTC – next-day 00:00 UTC (exclusive).  CME Globex runs nearly
+        24 hours; Databento provides a synthetic MBO snapshot at 00:00 UTC
+        with ``F_SNAPSHOT=32`` flag.  Capturing from midnight ensures the
+        daily snapshot is included.
+
+    Args:
+        session_date: ISO-8601 date string (``YYYY-MM-DD``).
+        product_type: One of the four canonical product types.  Defaults to
+            ``"equity_mbo"`` for backward compatibility.
+
+    Returns:
+        Tuple of ``(start_ns, end_ns)`` in UTC nanoseconds since epoch.
+        The end boundary is exclusive (callers use ``ts_event < end_ns``).
     """
-    start_local = pd.Timestamp(f"{session_date} 06:00:00", tz="Etc/GMT+5")
-    end_local = pd.Timestamp(f"{session_date} 13:00:00", tz="Etc/GMT+5")
+    if product_type in _FUTURES_PRODUCT_TYPES:
+        # Full UTC day: 00:00 UTC to next-day 00:00 UTC (exclusive)
+        start_utc = pd.Timestamp(f"{session_date} 00:00:00", tz="UTC")
+        end_utc = start_utc + pd.Timedelta(days=1)
+        return int(start_utc.value), int(end_utc.value)
+
+    if product_type not in _EQUITY_PRODUCT_TYPES:
+        raise ValueError(
+            f"Unknown product_type={product_type!r}. "
+            f"Expected one of {sorted(_EQUITY_PRODUCT_TYPES | _FUTURES_PRODUCT_TYPES)}"
+        )
+
+    # Equities: 02:00 ET – 16:00 ET (Etc/GMT+5 = EST = UTC-5, no DST)
+    start_local = pd.Timestamp(f"{session_date} 02:00:00", tz="Etc/GMT+5")
+    end_local = pd.Timestamp(f"{session_date} 16:00:00", tz="Etc/GMT+5")
     return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)

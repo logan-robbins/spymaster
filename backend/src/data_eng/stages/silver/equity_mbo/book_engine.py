@@ -14,8 +14,8 @@ WINDOW_NS = 1_000_000_000
 REST_NS = 500_000_000
 GRID_MAX_BUCKETS = 100  # +/- $50 range (100 * 0.50)
 
-F_SNAPSHOT = 128
-F_LAST = 256
+F_LAST = 128       # bit 7 (0x80): last record in event for instrument_id
+F_SNAPSHOT = 32    # bit 5 (0x20): sourced from replay/snapshot server
 
 ACTION_ADD = "A"
 ACTION_CANCEL = "C"
@@ -136,9 +136,21 @@ class EquityBookEngine:
         order_id: int,
         flags: int,
     ) -> None:
-        is_snapshot_msg = (flags & F_SNAPSHOT) != 0
+        # Databento MBO flags (u8 bitmask):
+        #   F_LAST    = 128 (0x80, bit 7) — last record in event for instrument_id
+        #   F_SNAPSHOT =  32 (0x20, bit 5) — sourced from replay/snapshot server
+        #
+        # For XNAS equity data, F_SNAPSHOT never appears in historical feeds.
+        # Snapshot mode is entered only via _clear_book() when F_SNAPSHOT is set
+        # on a Clear record. Implicit snapshot detection is disabled.
 
-        # Explicit snapshot logic disabled to avoid persistent clears.
+        # Exit snapshot mode when F_LAST (128) is seen — end of snapshot sequence
+        is_last_msg = (flags & F_LAST) != 0
+        if self.snapshot_in_progress and is_last_msg:
+            self.snapshot_in_progress = False
+            self.book_valid = True
+
+        # Non-snapshot recovery: if book invalid and not mid-snapshot, mark valid
         if not self.book_valid and not self.snapshot_in_progress:
             self.book_valid = True
 
@@ -358,12 +370,12 @@ class EquityBookEngine:
         self.orders.clear()
         self.depth_bid.clear()
         self.depth_ask.clear()
-        self.snapshot_in_progress = True
         self.book_valid = False
         self.window_has_snapshot = True
-        if flags & F_SNAPSHOT:
-            self.snapshot_in_progress = True
-        return
+        # Enter snapshot mode only when F_SNAPSHOT (32) is set on the Clear record.
+        # Non-snapshot clears (trading halts) don't start a snapshot sequence;
+        # the next event will re-enable book_valid via the recovery check.
+        self.snapshot_in_progress = bool(flags & F_SNAPSHOT)
 
     def _add_order(self, ts: int, side: str, price: int, size: int, order_id: int) -> None:
         if side not in (SIDE_BID, SIDE_ASK):

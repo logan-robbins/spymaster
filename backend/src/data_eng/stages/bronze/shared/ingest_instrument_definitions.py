@@ -9,7 +9,7 @@ import pandas as pd
 from databento.common.enums import PriceType
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, write_partition
 
@@ -23,7 +23,7 @@ class BronzeIngestInstrumentDefinitions(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         date_compact = dt.replace("-", "")
         search_paths = [
             cfg.lake_root / "raw" / "source=databento" / "dataset=definition",

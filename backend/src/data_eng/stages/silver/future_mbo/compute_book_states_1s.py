@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import (
     is_partition_complete,
@@ -34,7 +34,7 @@ class SilverComputeBookStates1s(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         outputs = self.io.output
         if isinstance(outputs, str):
             outputs = [outputs]
@@ -46,14 +46,18 @@ class SilverComputeBookStates1s(Stage):
         if is_partition_complete(ref_snap) and is_partition_complete(ref_flow):
             return
 
-        # Warmup: Read enough history to build state.
-        # We MUST read from 05:00 ET to capture the initial Adds for resting liquidity.
-        WARMUP_NS = 3600_000_000_000 * 6  # 6 hours
+        # Warmup: 15 hours from output window start (09:30 ET = 14:30 UTC)
+        # reaches back before 00:00 UTC, which is where the bronze futures
+        # window now begins (capturing the Databento daily MBO snapshot with
+        # F_SNAPSHOT=32).  This ensures the book engine consumes ALL bronze
+        # data from the daily snapshot forward.
+        WARMUP_NS = 3600_000_000_000 * 15  # 15 hours
 
         # Compute BOTH snapshot and depth/flow in one pass
         df_snap, df_flow, _ = compute_futures_surfaces_1s_from_batches(
             iter_mbo_batches(cfg, repo_root, symbol, dt, start_buffer_ns=WARMUP_NS),
             compute_depth_flow=True,
+            product=product,
         )
 
         # Filter out warmup data from output

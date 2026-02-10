@@ -11,14 +11,14 @@ df = pd.read_parquet(parquet_file, columns=["flags", "action", "ts_event"])
 print("\nValue Counts for 'flags':")
 print(df["flags"].value_counts())
 
-print("\nValue Counts for 'flags' bitwise AND 128 (Snapshot):")
-print((df["flags"] & 128).value_counts())
+print("\nValue Counts for 'flags' bitwise AND 32 (F_SNAPSHOT, bit 5):")
+print((df["flags"] & 32).value_counts())
 
-print("\nSample of rows with Snapshot flag:")
-print(df[df["flags"] & 128 != 0].head(10))
+print("\nSample of rows with Snapshot flag (F_SNAPSHOT=32):")
+print(df[df["flags"] & 32 != 0].head(10))
 
 print("\nValue Counts for 'action':")
 print(df["action"].value_counts())
 
 print("\nValue Counts for 'flags' (Is Snapshot?) vs 'action':")
-print(df.groupby(["action", df["flags"] & 128 != 0]).size())
+print(df.groupby(["action", df["flags"] & 32 != 0]).size())

@@ -9,7 +9,7 @@ import pandas as pd
 from databento.common.enums import PriceType
 
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import is_partition_complete, partition_ref, read_partition, write_partition
 from ....utils import session_window_ns
@@ -30,7 +30,7 @@ class BronzeIngestFutureOptionMbo(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         checkpoint_key = "bronze_cache.future_option_mbo.mbo_0dte"
         date_compact = dt.replace("-", "")
         raw_path = (
@@ -131,10 +131,15 @@ class BronzeIngestFutureOptionMbo(Stage):
             df_all["ts_event"] = df_all["ts_event"].astype("int64")
             df_all["ts_recv"] = df_all["ts_recv"].astype("int64")
 
-            session_start_ns, session_end_ns = session_window_ns(dt)
-            df_all = df_all.loc[
-                (df_all["ts_event"] >= session_start_ns) & (df_all["ts_event"] < session_end_ns)
-            ].copy()
+            session_start_ns, session_end_ns = session_window_ns(dt, product_type="future_option_mbo")
+            # Snapshot records (F_SNAPSHOT=32) preserve original order ts_event,
+            # which may predate the session window.  Clear/snapshot records must
+            # survive the time filter.
+            F_SNAPSHOT = 32
+            in_window = (df_all["ts_event"] >= session_start_ns) & (df_all["ts_event"] < session_end_ns)
+            is_snapshot = (df_all["flags"].astype("int64") & F_SNAPSHOT) != 0
+            is_clear = df_all["action"] == "R"
+            df_all = df_all.loc[in_window | is_snapshot | is_clear].copy()
             if df_all.empty:
                 raise ValueError(f"No option MBO records in session window for {dt}")
 
@@ -202,7 +207,7 @@ def _definition_files(lake_root: Path, date_compact: str) -> List[Path]:
     base = lake_root / "raw" / "source=databento" / "dataset=definition"
     if not base.exists():
         return []
-    return sorted(base.glob(f"*{date_compact}*.dbn*"))
+    return sorted(base.glob(f"**/*{date_compact}*.dbn*"))
 
 
 def _load_definitions(files: List[Path], session_date: str) -> Dict[int, Dict[str, object]]:

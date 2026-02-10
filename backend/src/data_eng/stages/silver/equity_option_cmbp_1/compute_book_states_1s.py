@@ -8,7 +8,7 @@ import pandas as pd
 
 from .cmbp1_book_engine import Cmbp1BookEngine
 from ...base import Stage, StageIO
-from ....config import AppConfig
+from ....config import AppConfig, ProductConfig
 from ....contracts import enforce_contract, load_avro_contract
 from ....io import (
     is_partition_complete,
@@ -42,7 +42,7 @@ class SilverComputeEquityOptionBookStates1s(Stage):
             ),
         )
 
-    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str) -> None:
+    def run(self, cfg: AppConfig, repo_root: Path, symbol: str, dt: str, product: ProductConfig | None = None) -> None:
         out_snap_key = "silver.equity_option_cmbp_1.book_snapshot_1s"
         out_flow_key = "silver.equity_option_cmbp_1.depth_and_flow_1s"
 
