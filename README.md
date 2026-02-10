@@ -1,10 +1,8 @@
 # Spymaster - LLM Ops Reference
 
 ## Critical Rules
-- ALL CODE IS OLD: overwrite/delete/extend as needed
 - Do not modify raw data unless explicitly instructed
 - Use nohup + verbose logging for long-running commands, check every 15s
-- Work backward from entry points to find current implementation
 - If pipeline/features change: update avro contracts, datasets.yaml, {product}_data.json
 
 ## Product Types
@@ -28,31 +26,14 @@ Job trackers: `backend/logs/*jobs.json`
 ### Current Raw Data (as of 2026-02-09)
 All raw data is `.dbn` format (Databento native). Date: **2026-02-06 only**.
 
-**SI (Silver futures)**
-- `product_type=future_mbo/symbol=SI/table=market_by_order_dbn/` — 283 MB
-- `product_type=future_option_mbo/symbol=SI/table=market_by_order_dbn/` — 1.0 GB
-- `product_type=future_option_mbo/symbol=SI/table=statistics/` — 5.3 MB
-- `dataset=definition/venue=glbx/type=futures_options/symbol=SI/` — resolved JSON
+| Symbol | Product Types | Size |
+|--------|--------------|------|
+| SI | future_mbo (283 MB), future_option_mbo (1.0 GB + 5.3 MB stats), definition JSON | ~1.3 GB |
+| MNQ | future_mbo (2.7 GB), future_option_mbo (1.7 GB + 6.8 MB stats), definition (820 KB) | ~4.4 GB |
+| QQQ | equity_mbo (2.0 GB), equity_option_cmbp_1 (6.4 GB), statistics (1.8 MB), definition (3.7 MB) | ~8.4 GB |
+| ES | metadata JSON only, no `.dbn` data files | — |
 
-**MNQ (Micro Nasdaq futures)**
-- `product_type=future_mbo/symbol=MNQ/table=market_by_order_dbn/` — 2.7 GB
-- `product_type=future_option_mbo/symbol=MNQ/table=market_by_order_dbn/` — 1.7 GB
-- `product_type=future_option_mbo/symbol=MNQ/table=statistics/` — 6.8 MB
-- `dataset=definition/venue=glbx/type=futures_options/symbol=MNQ/` — 820 KB definition
-
-**QQQ (Invesco QQQ equity)**
-- `product_type=equity_mbo/symbol=QQQ/table=market_by_order_dbn/` — 2.0 GB
-- `product_type=equity_option_cmbp_1/symbol=QQQ/table=cmbp_1/` — 6.4 GB
-- `product_type=equity_option_statistics/symbol=QQQ/table=statistics/` — 1.8 MB
-- `dataset=definition/venue=opra/symbol=QQQ/` — 3.7 MB definition
-
-**ES (E-mini S&P futures)** — metadata JSON only, no `.dbn` data files
-
-Total raw: ~14.1 GB
-
-### Raw Data Formats
-- Format: `.dbn` (Databento native)
-- Decompress: `find . -name "*.dbn.zst" -exec zstd -d --rm {} \;`
+Decompress: `find . -name "*.dbn.zst" -exec zstd -d --rm {} \;`
 
 ### Download Scripts
 Location: `backend/scripts/batch_download_*.py`
@@ -68,12 +49,6 @@ nohup uv run python scripts/batch_download_futures.py daemon \
     --poll-interval 60 \
     --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
 ```
-- Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
-- 2-phase daemon (per symbol, per session date):
-  1. **Phase 1** (smart resolution): Resolve front-month contract via `timeseries.get_range` with `stype_in=continuous` using volume-ranked symbol (`{ROOT}.v.0`). Discover options via FREE `symbology.resolve` API: compute candidate parents from `OPTIONS_CONFIG` (0DTE daily/weekly first, then nearest-expiry fallbacks up to 7 days out, then monthly). Resolve all candidates at once (FREE). For the first resolving candidate, stream a tiny targeted definition (`stype_in=parent`, `schema=definition`) and filter for `underlying == front_month`, `instrument_class in {C,P}`, `expiration == session_date` (0DTE) or nearest future expiration (fallback). Submit futures MBO + options MBO/statistics batch jobs. When discovered symbols exceed Databento's 2,000-symbol limit, uses `stype_in=parent` for data batch jobs.
-  2. **Phase 2**: Poll/download data batch jobs
-- Smart resolution caches at `lake/raw/source=databento/dataset=definition/venue=glbx/type=futures_options/symbol={SYM}/resolved_{DATE}.json`
-- `OPTIONS_CONFIG` maps 8 products (ES, NQ, MES, MNQ, GC, SI, CL, 6E) with date-aware daily/weekly parent resolution. Unknown symbols fall back to `{symbol}.OPT`
 
 **Equities + Equity Options:**
 ```bash
@@ -86,74 +61,21 @@ nohup uv run python scripts/batch_download_equities.py daemon \
     --poll-interval 60 \
     --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
 ```
-- Flat-file only: requests are always `delivery=download`, `split_duration=day`, and submitted as one session-date per job.
-- 3-phase daemon (same architecture as futures):
-  1. **Phase 1**: Submit options definition batch job via `batch.submit_job` with `{SYMBOL}.OPT` on OPRA.PILLAR dataset
-  2. **Phase 2** (after definition batch completes): Filter 0DTE options where `underlying == symbol`, `instrument_class in {C,P}`, `expiration UTC date == session date`. Submit equity MBO + options CMBP-1/statistics batch jobs
-  3. **Phase 3**: Poll/download data batch jobs
-- All downloads use `batch.submit_job` — definition files cached and reusable
-- Options definition files cached at `lake/raw/source=databento/dataset=definition/venue=opra/type=equity_options/symbol={SYM}/`
 
 ### LLM Request Routing (Instrument -> Pipeline)
-- Normalize date text to `YYYY-MM-DD` before building commands. Example: `Feb 06 2026` -> `2026-02-06`.
-- If request contains `ES`: use `scripts/batch_download_futures.py` with `--symbols ES`.
-- If request contains `QQQ`: use `scripts/batch_download_equities.py` with `--symbols QQQ`.
-- If request contains both `ES` and `QQQ`: run both scripts (futures + equities pipelines).
-- Single-date request: set `--start` and `--end` to the same date.
-- Multi-date request: set `--start` to first date and `--end` to last date.
-- Futures script supports any CME/GLBX root with an `OPTIONS_PARENT_MAP` entry: `ES`, `NQ`, `SI`, `GC`, `CL`, `6E`. Also supports `MNQ` (Micro Nasdaq) with date-aware daily/weekly options parent resolution (Mon=D{w}A, Tue=D{w}B, Wed=D{w}C, Thu=D{w}D, Fri=MQ{w}, quarterly=MNQ, EOM=MQE). New roots require adding the options parent mapping.
-- Equities script supports any OPRA-listed ticker: `QQQ`, `AAPL`, `SPY`, etc.
-
-### LLM Command Examples
-Single date request: "download Feb 06 2026 data for ES, SI, and QQQ"
-```bash
-cd backend
-nohup uv run python scripts/batch_download_futures.py daemon \
-    --start 2026-02-06 --end 2026-02-06 \
-    --symbols ES,SI \
-    --include-futures \
-    --options-schemas mbo,statistics \
-    --pause-seconds 3 --poll-interval 30 \
-    --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
-
-nohup uv run python scripts/batch_download_equities.py daemon \
-    --start 2026-02-06 --end 2026-02-06 \
-    --symbols QQQ \
-    --equity-schemas mbo \
-    --options-schemas cmbp-1,statistics \
-    --pause-seconds 3 --poll-interval 30 \
-    --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
-```
-
-Multi-date request: "download ES and QQQ from 2026-02-03 to 2026-02-10"
-```bash
-cd backend
-nohup uv run python scripts/batch_download_futures.py daemon \
-    --start 2026-02-03 --end 2026-02-10 \
-    --symbols ES \
-    --include-futures \
-    --options-schemas mbo,statistics \
-    --pause-seconds 3 --poll-interval 30 \
-    --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
-
-nohup uv run python scripts/batch_download_equities.py daemon \
-    --start 2026-02-03 --end 2026-02-10 \
-    --symbols QQQ \
-    --equity-schemas mbo \
-    --options-schemas cmbp-1,statistics \
-    --pause-seconds 3 --poll-interval 30 \
-    --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
-```
+- Normalize date text to `YYYY-MM-DD`. Example: `Feb 06 2026` -> `2026-02-06`.
+- `ES`, `NQ`, `SI`, `GC`, `CL`, `6E`, `MNQ` → `scripts/batch_download_futures.py`
+- `QQQ`, `AAPL`, `SPY` (any OPRA ticker) → `scripts/batch_download_equities.py`
+- Both → run both scripts.
+- Single date: `--start` and `--end` same. Multi-date: range.
 
 ### Contract Selection Map
 ```bash
 cd backend
 uv run python -m src.data_eng.mbo_contract_day_selector --output-path lake/selection/mbo_contract_day_selection.parquet
 ```
-- Maps session_date → front-month contract
+- Required before silver/gold when using base symbol ES
 - Built from `bronze/source=databento/product_type=future_mbo`
-- Filters for dates with premarket trades (05:00-08:30 ET)
-- Required before silver/gold when using base symbol ES (independent of the downloader's day-by-day flat-file contract mapping)
 
 ---
 
@@ -169,11 +91,14 @@ Bronze (normalize) → Silver (book reconstruction) → Gold (feature engineerin
 - Stage registry: `backend/src/data_eng/pipeline.py`
 - Dataset definitions: `backend/src/data_eng/config/datasets.yaml`
 - Product config: `backend/src/data_eng/config/products.yaml`
+- Bronze session windows: `backend/src/data_eng/utils.py` → `session_window_ns()`
 - Avro contracts: `backend/src/data_eng/contracts/`
 - Stage implementations: `backend/src/data_eng/stages/{bronze,silver,gold}/{product_type}/`
+- Book engines: `backend/src/data_eng/stages/silver/{equity,future}_mbo/book_engine.py`
+- Filters: `backend/src/data_eng/filters/`
 
 ### Per-Product Configuration
-`backend/src/data_eng/config/products.yaml` defines per-root product constants (tick_size, grid_max_ticks, strike_step_points, max_strike_offsets, contract_multiplier). Derived properties: `tick_int`, `strike_step_int`, `strike_ticks`.
+`backend/src/data_eng/config/products.yaml`
 
 | Root | tick_size | grid_max_ticks | strike_step | strike_ticks | multiplier |
 |------|-----------|----------------|-------------|--------------|------------|
@@ -186,37 +111,62 @@ Bronze (normalize) → Silver (book reconstruction) → Gold (feature engineerin
 | CL   | 0.01      | 200            | $0.50       | 50           | 1000.0     |
 | 6E   | 0.00005   | 200            | $0.005      | 100          | 125000.0   |
 
-Runner extracts root from symbol (e.g., MNQH6 → MNQ) and passes `ProductConfig` to all stages. Stages fall back to ES defaults when product config is unavailable.
+Runner extracts root from symbol (e.g., MNQH6 → MNQ) and passes `ProductConfig` to all stages.
 
 ### Commands
 ```bash
 cd backend
 
-# Bronze: parent symbol
+# Bronze: parent symbol (no --overwrite; delete partition dir to rebuild)
 uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer bronze --symbol ES --dt YYYY-MM-DD --workers 4
 
-# Silver: full contract
+# Silver: full contract (--overwrite supported)
 uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer silver --symbol ESH6 --dt YYYY-MM-DD --workers 4
 
-# Gold: full contract
+# Gold: full contract (--overwrite supported)
 uv run python -m src.data_eng.runner --product-type {PRODUCT_TYPE} --layer gold --symbol ESH6 --dt YYYY-MM-DD --workers 4
-
-# Add --overwrite to rebuild
 ```
 
 ### Output Path Pattern
 `lake/{bronze,silver,gold}/product_type={PRODUCT_TYPE}/symbol={SYMBOL}/table={TABLE}/dt={DATE}/`
 
-### Lake File Visibility
-Most `part-*.parquet` files are `.gitignore`d. Verify with:
-```bash
-uv run python -c "import os; print(os.listdir('lake/..../dt=YYYY-MM-DD'))"
-```
+### Bronze Ingestion Windows
+
+Controlled by `session_window_ns(session_date, product_type)` in `backend/src/data_eng/utils.py`. Snapshot (`F_SNAPSHOT=32`) and Clear (`action=R`) records are exempt from the time filter (their `ts_event` preserves original order placement time, which predates the session window).
+
+| Product Type | Bronze Window | Session Start |
+|---|---|---|
+| `equity_mbo` | 02:00–16:00 ET | XNAS Clear at ~03:05 ET |
+| `equity_option_cmbp_1` | 02:00–16:00 ET | Same as equities |
+| `future_mbo` | 00:00–24:00 UTC | GLBX snapshot at 00:00 UTC (1 Clear + ~6K snapshot Adds) |
+| `future_option_mbo` | 00:00–24:00 UTC | Same as futures |
+
+### Silver Warmup
+
+Book engines warm up from bronze start before the output window. Must reach back past session start for zero orphan orders.
+
+| Product Type | Warmup | Output Start | Reaches Back To |
+|---|---|---|---|
+| `equity_mbo` | 8 hours | 09:30 ET | 01:30 ET (before 02:00 ET bronze) |
+| `future_mbo` | 15 hours | 09:30 ET (14:30 UTC) | 23:30 UTC prior day (before 00:00 UTC bronze) |
+
+### Databento MBO Flags (`u8` bitmask)
+
+Canonical source: `databento-python/databento/common/enums.py`
+
+| Flag | Value | Bit | Meaning |
+|---|---|---|---|
+| `F_LAST` | 128 | 7 | Last record in event for instrument_id |
+| `F_TOB` | 64 | 6 | Top-of-book message |
+| `F_SNAPSHOT` | 32 | 5 | Sourced from replay/snapshot server |
+| `F_MBP` | 16 | 4 | Aggregated price level |
+| `F_BAD_TS_RECV` | 8 | 3 | ts_recv is inaccurate |
+| `F_MAYBE_BAD_BOOK` | 4 | 2 | Unrecoverable gap detected |
 
 ### Current Coverage (as of 2026-02-09)
-- Raw: SI, MNQ, QQQ for 2026-02-06 only (ES has no data files)
-- Bronze: MNQH6 future_mbo + future_option_mbo, QQQ equity_mbo (344 MB) + equity_option_cmbp_1 (908 MB) for 2026-02-06
-- Silver: MNQH6 future_mbo + future_option_mbo, QQQ equity_mbo (book_snapshot_1s 23 KB + depth_and_flow_1s 363 KB) + equity_option_cmbp_1 (book_snapshot_1s 1.2 MB + depth_and_flow_1s 648 KB) for 2026-02-06
+- Raw: SI, MNQ, QQQ for 2026-02-06 only (ES metadata only)
+- Bronze: MNQH6 future_mbo (51.4M rows incl. 6,811 snapshot), QQQ equity_mbo (38.1M rows, 0 orphans) + equity_option_cmbp_1
+- Silver: MNQH6 future_mbo (10,801 snap + 8.6M flow), QQQ equity_mbo (601 snap + 121K flow) + equity_option_cmbp_1
 - Gold: Empty (needs pipeline run)
 
 ### Dependencies
@@ -257,7 +207,7 @@ nohup uv run python -m src.serving.velocity_main > /tmp/backend.log 2>&1 &
 
 Query params: `speed`, `skip_minutes`
 
-`batch_start` messages include product metadata: `tick_size`, `tick_int`, `strike_ticks`, `grid_max_ticks`. Frontend uses these to dynamically configure price axis and options grid rendering.
+`batch_start` messages include product metadata: `tick_size`, `tick_int`, `strike_ticks`, `grid_max_ticks`.
 
 Requires: `backend/data/physics/physics_beta_gamma.json`
 
@@ -294,57 +244,56 @@ Canonical definitions (LIVING DOCUMENTS):
 
 ---
 
-## 7. DATA FILTERS
-
-Location: `backend/src/data_eng/filters/`
-
-| Layer | Action | Files |
-|-------|--------|-------|
-| Bronze | Hard reject | `bronze_hard_rejects.py` |
-| Silver | Soft flag | `price_filters.py`, `size_filters.py` |
-| Gold | Strict filter | `gold_strict_filters.py` |
-
----
-
-## 8. VALIDATION SCRIPTS
+## 7. VALIDATION
 
 ```bash
 cd backend
-# Standard validation
 uv run python scripts/validate_silver_future_mbo.py
 uv run python scripts/validate_silver_equity_mbo.py
 uv run python scripts/validate_silver_future_option_mbo.py --dt YYYY-MM-DD
 uv run python scripts/validate_silver_equity_option_cmbp_1.py
-
-# Institution-grade audit (grunt)
-uv run python scripts/grunt_limitation_analysis.py
-uv run python scripts/validate_institutional_fixes.py
 ```
 
-### Audit Results Reference (2026-02-08 Full Pipeline Audit)
-All 4 pipelines audited with synthetic tests. 169 tests passing.
-- future_mbo (ESH6): Grade A, 3 bugs fixed (NaN boundary propagation, rel_ticks dtype, double accumulator reset), 29 tests
-- future_option_mbo (ESH6): Grade A, 2 bugs fixed (pandas axis=1 deprecation, stale test assertion), 66 tests
-- equity_mbo (QQQ): Grade A, 2 bugs fixed (depth_qty_rest clamping, redundant accumulator reset), 30 tests
-- equity_option_cmbp_1 (QQQ): Grade A, 0 math bugs (2 comment fixes in datasets.yaml), 44 tests
-
-### future_option_mbo Institutional Fixes (2026-02-02)
-- Added `accounting_identity_valid` boolean field to schema
-- Clamped `depth_qty_rest` to `min(depth_qty_rest, depth_qty_end)`
-- 91.29% of rows have valid accounting identity
-- Zero-flow rows: 0% violations (proves formula is mathematically correct)
-- Use `depth_qty_end` as AUTHORITATIVE, `accounting_identity_valid` to filter
+Tests: `uv run pytest tests/streaming/ -v`
 
 ---
 
-## 9. PROCESS MANAGEMENT
+## 8. PROCESS MANAGEMENT
 
 ```bash
-lsof -iTCP:8001 -sTCP:LISTEN   # Backend
+lsof -iTCP:8001 -sTCP:LISTEN   # Backend (velocity server)
+lsof -iTCP:8002 -sTCP:LISTEN   # Backend (vacuum pressure server)
 lsof -iTCP:5174 -sTCP:LISTEN   # Frontend
 kill $(lsof -t -iTCP:8001)
 kill $(lsof -t -iTCP:5174)
 tail -20 /tmp/backend.log
+```
+
+---
+
+## 9. VACUUM PRESSURE DETECTOR
+
+- Formulas: `backend/src/vacuum_pressure/formulas.py`
+- Engine: `backend/src/vacuum_pressure/engine.py`
+- Server: `backend/src/vacuum_pressure/server.py`
+- CLI: `backend/scripts/run_vacuum_pressure.py`
+- Frontend: `frontend2/vacuum-pressure.html`, `frontend2/src/vacuum-pressure.ts`
+
+```bash
+# 1. Requires silver equity_mbo
+cd backend
+uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol QQQ --dt 2026-02-06 --workers 4
+
+# 2. Start vacuum/pressure server (port 8002)
+uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --port 8002
+
+# 3. Start frontend (separate terminal)
+cd frontend2 && npm run dev
+
+# 4. Open: http://localhost:5174/vacuum-pressure.html?symbol=QQQ&dt=2026-02-06&speed=10
+
+# Compute-only (save to parquet)
+uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --compute-only
 ```
 
 ---
@@ -358,20 +307,3 @@ tail -20 /tmp/backend.log
 5. Start backend (section 4)
 6. Start frontend (section 5)
 7. Open: http://localhost:5174
-
-
----
-
-## Standalone Vaccuum Pressure
-
-# 1. Run silver pipeline first (if not already done)
-cd backend
-uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol QQQ --dt 2026-02-06 --workers 4
-
-# 2. Start vacuum/pressure server
-uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --port 8002
-
-# 3. Start frontend (separate terminal)
-cd frontend2 && npm run dev
-
-# 4. Open: http://localhost:5174/vacuum-pressure.html?symbol=QQQ&dt=2026-02-06&speed=10
