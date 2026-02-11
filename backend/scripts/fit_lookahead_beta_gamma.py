@@ -14,7 +14,6 @@ from src.data_eng.io import (
     read_manifest_hash,
     read_partition,
 )
-from src.data_eng.mbo_contract_day_selector import load_selection
 from src.serving.forecast_calibration import (
     HORIZONS,
     build_regression_stats,
@@ -34,14 +33,28 @@ HOLDOUT_DAYS = 5
 
 
 def _select_available_days(
-    cfg, repo_root: Path, selection_path: Path
+    cfg, repo_root: Path,
 ) -> Tuple[List[str], Dict[str, str]]:
-    selection = load_selection(selection_path)
-    selection["session_date"] = selection["session_date"].astype(str)
-    selection["selected_symbol"] = selection["selected_symbol"].astype(str)
-    symbol_by_date = dict(
-        zip(selection["session_date"].tolist(), selection["selected_symbol"].tolist())
-    )
+    """Scan gold directory to discover available (contract, date) pairs.
+
+    Globs ``lake/gold/product_type=future_mbo/symbol=*/table=physics_surface_1s/dt=*/_SUCCESS``
+    and extracts ``symbol`` and ``dt`` from the hive-partition path components.
+    Only dates whose gold futures **and** gold options partitions are both complete
+    are included in the returned ``available`` list.
+
+    Returns:
+        available: Sorted list of date strings with complete gold partitions.
+        symbol_by_date: Mapping from date string to contract symbol.
+    """
+    gold_root = repo_root / "lake" / "gold" / "product_type=future_mbo"
+    symbol_by_date: Dict[str, str] = {}
+    for success in sorted(gold_root.glob("symbol=*/table=physics_surface_1s/dt=*/_SUCCESS")):
+        parts = success.parts
+        symbol = next((p.split("=", 1)[1] for p in parts if p.startswith("symbol=")), None)
+        dt = next((p.split("=", 1)[1] for p in parts if p.startswith("dt=")), None)
+        if symbol and dt:
+            symbol_by_date[dt] = symbol
+
     available: list[str] = []
     for session_date in sorted(symbol_by_date.keys()):
         symbol = symbol_by_date[session_date]
@@ -99,9 +112,8 @@ def _solve_coeffs(stats: RegressionStats) -> Tuple[float, float]:
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     cfg = load_config(repo_root, repo_root / "src" / "data_eng" / "config" / "datasets.yaml")
-    selection_path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
 
-    available_dates, symbol_by_date = _select_available_days(cfg, repo_root, selection_path)
+    available_dates, symbol_by_date = _select_available_days(cfg, repo_root)
     if len(available_dates) < TRAIN_DAYS:
         raise ValueError(
             f"Need {TRAIN_DAYS} trading days for calibration, found {len(available_dates)}."
@@ -158,7 +170,6 @@ def main() -> None:
         "metrics": metrics,
         "lineage": lineage,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "selection_path": str(selection_path),
     }
 
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True))

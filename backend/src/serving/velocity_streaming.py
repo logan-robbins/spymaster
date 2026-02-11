@@ -21,7 +21,6 @@ import pandas as pd
 from src.data_eng.config import ProductConfig, load_config
 from src.data_eng.contracts import enforce_contract, load_avro_contract
 from src.data_eng.io import is_partition_complete, partition_ref, read_partition
-from src.data_eng.mbo_contract_day_selector import load_selection
 from src.serving.config import settings
 from src.serving.forecast_math import build_window_fields, run_forecast, tick_index_from_price
 
@@ -167,7 +166,7 @@ class VelocityStreamService:
 
     def load_cache(self, symbol: str, dt: str) -> UnifiedStreamCache:
         """Load unified cache with futures snap, futures velocity, options velocity, and forecast."""
-        resolved_symbol = _resolve_contract_symbol(self.repo_root, symbol, dt)
+        resolved_symbol = symbol
         key = (resolved_symbol, dt)
         if key in self.cache:
             return self.cache[key]
@@ -343,16 +342,3 @@ def _load_physics_params(path: Path) -> Tuple[float, float]:
     return float(payload["beta"]), float(payload["gamma"])
 
 
-def _resolve_contract_symbol(repo_root: Path, symbol: str, dt: str) -> str:
-    if symbol != "ES":
-        return symbol
-    selection_path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
-    df = load_selection(selection_path)
-    df["session_date"] = df["session_date"].astype(str)
-    row = df.loc[df["session_date"] == dt]
-    if row.empty:
-        raise ValueError(f"No selection map entry for dt={dt}")
-    selected = str(row.iloc[0]["selected_symbol"]).strip()
-    if not selected:
-        raise ValueError(f"Selection map has empty symbol for dt={dt}")
-    return selected

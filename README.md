@@ -9,10 +9,9 @@
 - future_mbo, future_option_mbo, equity_mbo, equity_option_cmbp_1
 
 ## Symbol Convention
-- **Bronze (futures)**: Parent symbol (ES) → partitioned by contract (ESH6, ESM6, etc.)
+- **Bronze (futures)**: Parent symbol (MNQ, SI) → downloader resolves front-month via FREE `symbology.resolve` API → bronze partitioned by contract (MNQH6, SIH6)
 - **Bronze (equities)**: Ticker symbol (QQQ)
-- **Silver/Gold**: Full contract (ESH6) or ticker (QQQ)
-- Contract selection map required before silver/gold with parent symbols
+- **Silver/Gold**: Always pass the resolved contract (MNQH6) or ticker (QQQ) directly
 
 ---
 
@@ -31,7 +30,6 @@ All raw data is `.dbn` format (Databento native). Date: **2026-02-06 only**.
 | SI | future_mbo (283 MB), future_option_mbo (1.0 GB + 5.3 MB stats), definition JSON | ~1.3 GB |
 | MNQ | future_mbo (2.7 GB), future_option_mbo (1.7 GB + 6.8 MB stats), definition (820 KB) | ~4.4 GB |
 | QQQ | equity_mbo (2.0 GB), equity_option_cmbp_1 (6.4 GB), statistics (1.8 MB), definition (3.7 MB) | ~8.4 GB |
-| ES | metadata JSON only, no `.dbn` data files | — |
 
 Decompress: `find . -name "*.dbn.zst" -exec zstd -d --rm {} \;`
 
@@ -69,13 +67,6 @@ nohup uv run python scripts/batch_download_equities.py daemon \
 - Both → run both scripts.
 - Single date: `--start` and `--end` same. Multi-date: range.
 
-### Contract Selection Map
-```bash
-cd backend
-uv run python -m src.data_eng.mbo_contract_day_selector --output-path lake/selection/mbo_contract_day_selection.parquet
-```
-- Required before silver/gold when using base symbol ES
-- Built from `bronze/source=databento/product_type=future_mbo`
 
 ---
 

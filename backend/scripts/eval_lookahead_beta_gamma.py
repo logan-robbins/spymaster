@@ -9,7 +9,6 @@ import pandas as pd
 
 from src.data_eng.config import load_config
 from src.data_eng.io import is_partition_complete, partition_ref, read_partition
-from src.data_eng.mbo_contract_day_selector import load_selection
 from src.serving.forecast_calibration import (
     HORIZONS,
     evaluate_forecasts_across_days,
@@ -21,6 +20,26 @@ from src.serving.forecast_calibration import (
 
 FUT_KEY = "gold.future_mbo.physics_surface_1s"
 OPT_KEY = "gold.future_option_mbo.physics_surface_1s"
+
+
+def _scan_symbol_by_date(repo_root: Path) -> Dict[str, str]:
+    """Scan gold directory to build date -> contract symbol mapping.
+
+    Globs ``lake/gold/product_type=future_mbo/symbol=*/table=physics_surface_1s/dt=*/_SUCCESS``
+    and extracts ``symbol`` and ``dt`` from the hive-partition path components.
+
+    Returns:
+        Mapping from date string to contract symbol (e.g. ``{"2026-02-06": "ESH6"}``).
+    """
+    gold_root = repo_root / "lake" / "gold" / "product_type=future_mbo"
+    symbol_by_date: Dict[str, str] = {}
+    for success in sorted(gold_root.glob("symbol=*/table=physics_surface_1s/dt=*/_SUCCESS")):
+        parts = success.parts
+        symbol = next((p.split("=", 1)[1] for p in parts if p.startswith("symbol=")), None)
+        dt = next((p.split("=", 1)[1] for p in parts if p.startswith("dt=")), None)
+        if symbol and dt:
+            symbol_by_date[dt] = symbol
+    return symbol_by_date
 
 
 def _load_params(path: Path) -> Dict[str, object]:
@@ -53,13 +72,7 @@ def main() -> None:
     if not holdout_dates:
         raise ValueError("No holdout_dates found in physics params.")
 
-    selection_path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
-    selection = load_selection(selection_path)
-    selection["session_date"] = selection["session_date"].astype(str)
-    selection["selected_symbol"] = selection["selected_symbol"].astype(str)
-    symbol_by_date = dict(
-        zip(selection["session_date"].tolist(), selection["selected_symbol"].tolist())
-    )
+    symbol_by_date = _scan_symbol_by_date(repo_root)
 
     eval_inputs = []
     for session_date in holdout_dates:
