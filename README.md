@@ -162,7 +162,6 @@ Canonical source: `databento-python/databento/common/enums.py`
 
 ### Dependencies
 - `equity_option_cmbp_1` silver requires `equity_mbo` silver (for spot reference)
-- `future_option_mbo` silver/gold requires selection map
 
 ---
 
@@ -243,6 +242,7 @@ uv run python scripts/validate_silver_future_mbo.py
 uv run python scripts/validate_silver_equity_mbo.py
 uv run python scripts/validate_silver_future_option_mbo.py --dt YYYY-MM-DD
 uv run python scripts/validate_silver_equity_option_cmbp_1.py
+uv run python scripts/test_integrity_v2.py --symbol MNQH6 --dt YYYY-MM-DD
 ```
 
 Tests: `uv run pytest tests/streaming/ -v`
@@ -264,37 +264,70 @@ tail -20 /tmp/backend.log
 
 ## 9. VACUUM PRESSURE DETECTOR
 
+- Config resolver: `backend/src/vacuum_pressure/config.py`
 - Formulas: `backend/src/vacuum_pressure/formulas.py`
 - Engine: `backend/src/vacuum_pressure/engine.py`
 - Server: `backend/src/vacuum_pressure/server.py`
 - CLI: `backend/scripts/run_vacuum_pressure.py`
 - Frontend: `frontend2/vacuum-pressure.html`, `frontend2/src/vacuum-pressure.ts`
+- Tests: `backend/tests/test_vacuum_pressure_config.py` (51 tests)
+
+### Runtime Configuration
+
+`--product-type` is required. Config resolver sources futures from `products.yaml`, equity defaults are built-in.
+
+| Product Type | Example Symbol | bucket_size_dollars | tick_size | qty_unit |
+|---|---|---|---|---|
+| equity_mbo | QQQ, SPY | $0.50 | $0.01 | shares |
+| future_mbo | ESH6, MNQH6 | = tick_size | varies by root | contracts |
+
+WebSocket sends `runtime_config` control message with full instrument config before first data batch.
+Cache keys: `product_type:symbol:dt:config_version`.
+
+### Commands
 
 ```bash
-# 1. Requires silver equity_mbo
 cd backend
+
+# Equity: requires silver equity_mbo
 uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol QQQ --dt 2026-02-06 --workers 4
 
-# 2. Start vacuum/pressure server (port 8002)
-uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --port 8002
+# Start vacuum/pressure server (equity)
+uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --port 8002
 
-# 3. Start frontend (separate terminal)
+# Start vacuum/pressure server (futures)
+uv run python scripts/run_vacuum_pressure.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002
+
+# Start frontend (separate terminal)
 cd frontend2 && npm run dev
 
-# 4. Open: http://localhost:5174/vacuum-pressure.html?symbol=QQQ&dt=2026-02-06&speed=10
+# Open equity: http://localhost:5174/vacuum-pressure.html?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06
+# Open futures: http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06
 
 # Compute-only (save to parquet)
-uv run python scripts/run_vacuum_pressure.py --symbol QQQ --dt 2026-02-06 --compute-only
+uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only
+
+# Run tests
+uv run pytest tests/test_vacuum_pressure_config.py -v
 ```
 
 ---
 
 ## Quick Start
 
-1. Download data (section 1)
-2. Generate contract selection map (section 1)
-3. Run pipeline: bronze → silver → gold (section 2)
-4. Fit calibration (section 3)
-5. Start backend (section 4)
-6. Start frontend (section 5)
-7. Open: http://localhost:5174
+### Velocity Streaming (futures, gold, physics)
+
+1. Download data (section 1) — futures
+2. Run pipeline: bronze → silver → gold (section 2) — `future_mbo`
+3. Fit calibration (section 3)
+4. Start backend (section 4): `nohup uv run python -m src.serving.velocity_main > /tmp/backend.log 2>&1 &`
+5. Start frontend (section 5): `cd frontend2 && npm run dev`
+6. Open: http://localhost:5174
+
+### Vacuum Pressure (equities or futures, silver only)
+
+1. Download data (section 1) -- equities or futures
+2. Run pipeline: bronze -> silver (section 2) -- `equity_mbo` or `future_mbo`
+3. Start vacuum pressure server (section 9): `uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt YYYY-MM-DD --port 8002`
+4. Start frontend (section 5): `cd frontend2 && npm run dev`
+5. Open: http://localhost:5174/vacuum-pressure.html?product_type=equity_mbo&symbol=QQQ&dt=YYYY-MM-DD

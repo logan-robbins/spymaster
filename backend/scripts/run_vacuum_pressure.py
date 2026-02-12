@@ -3,17 +3,22 @@
 Usage:
     cd backend
 
-    # Start WebSocket server (default)
+    # Start WebSocket server for equity (default)
     uv run python scripts/run_vacuum_pressure.py \\
-        --symbol QQQ --dt 2026-02-06 --port 8002
+        --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --port 8002
 
-    # Compute only — save to parquet without serving
+    # Start WebSocket server for futures
     uv run python scripts/run_vacuum_pressure.py \\
-        --symbol QQQ --dt 2026-02-06 --compute-only
+        --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002
+
+    # Compute only -- save to parquet without serving
+    uv run python scripts/run_vacuum_pressure.py \\
+        --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -25,11 +30,16 @@ sys.path.insert(0, str(backend_root))
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Vacuum & Pressure Detection Pipeline for Equity MBO",
+        description="Vacuum & Pressure Detection Pipeline",
+    )
+    parser.add_argument(
+        "--product-type", required=True,
+        choices=["equity_mbo", "future_mbo"],
+        help="Product type: equity_mbo or future_mbo",
     )
     parser.add_argument(
         "--symbol", default="QQQ",
-        help="Ticker symbol (default: QQQ)",
+        help="Instrument symbol (default: QQQ)",
     )
     parser.add_argument(
         "--dt", default="2026-02-06",
@@ -64,6 +74,22 @@ def main() -> None:
     )
 
     lake_root = backend_root / "lake"
+    products_yaml_path = (
+        backend_root / "src" / "data_eng" / "config" / "products.yaml"
+    )
+
+    from src.vacuum_pressure.config import resolve_config
+
+    # Resolve and print runtime config at startup (4.5)
+    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+
+    print()
+    print("=" * 60)
+    print("  VACUUM & PRESSURE DETECTOR -- Runtime Config")
+    print("=" * 60)
+    print(json.dumps(config.to_dict(), indent=2))
+    print("=" * 60)
+    print()
 
     from src.vacuum_pressure.engine import VacuumPressureEngine
 
@@ -75,7 +101,7 @@ def main() -> None:
             if args.output_dir
             else lake_root / "gold" / "vacuum_pressure"
         )
-        out_path = engine.save_signals(args.symbol, args.dt, output_dir)
+        out_path = engine.save_signals(config, args.dt, output_dir)
         print(f"Saved vacuum/pressure signals to: {out_path}")
         return
 
@@ -84,19 +110,15 @@ def main() -> None:
 
     from src.vacuum_pressure.server import create_app
 
-    app = create_app(lake_root)
+    app = create_app(lake_root, products_yaml_path)
 
-    print()
-    print("=" * 60)
-    print("  VACUUM & PRESSURE DETECTOR")
-    print("=" * 60)
-    print(f"  Symbol:    {args.symbol}")
-    print(f"  Date:      {args.dt}")
-    print(f"  Port:      {args.port}")
     print(f"  WebSocket: ws://localhost:{args.port}"
           f"/v1/vacuum-pressure/stream"
-          f"?symbol={args.symbol}&dt={args.dt}")
-    print(f"  Frontend:  http://localhost:5174/vacuum-pressure.html")
+          f"?product_type={args.product_type}"
+          f"&symbol={args.symbol}&dt={args.dt}")
+    print(f"  Frontend:  http://localhost:5174/vacuum-pressure.html"
+          f"?product_type={args.product_type}"
+          f"&symbol={args.symbol}&dt={args.dt}")
     print("=" * 60)
     print()
 

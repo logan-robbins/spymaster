@@ -3,7 +3,12 @@
 Standalone FastAPI application that serves vacuum / pressure metrics
 via WebSocket using Arrow IPC binary encoding.
 
-Protocol (per 1-second window):
+Supports both ``equity_mbo`` and ``future_mbo`` product types via
+runtime configuration resolved at stream start.
+
+Protocol (per connection):
+    0. JSON ``{"type": "runtime_config", ...}``  (full config block, once)
+    Then per 1-second window:
     1. JSON ``{"type": "batch_start", "window_end_ts_ns": "...", ...}``
     2. JSON ``{"type": "surface_header", "surface": "snap"}``
     3. Binary: Arrow IPC bytes for snap (1 row)
@@ -21,12 +26,18 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .engine import VacuumPressureEngine
+from .config import VPRuntimeConfig, resolve_config
+from .engine import VacuumPressureEngine, validate_silver_readiness
 
 logger = logging.getLogger(__name__)
+
+# Default products.yaml location relative to this file
+_DEFAULT_PRODUCTS_YAML = (
+    Path(__file__).resolve().parents[1] / "data_eng" / "config" / "products.yaml"
+)
 
 # ──────────────────────────────────────────────────────────────────────
 # Arrow IPC schemas
@@ -137,11 +148,16 @@ def _df_to_arrow_ipc(df: pd.DataFrame, schema: pa.Schema) -> bytes:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def create_app(lake_root: Path | None = None) -> FastAPI:
+def create_app(
+    lake_root: Path | None = None,
+    products_yaml_path: Path | None = None,
+) -> FastAPI:
     """Create the FastAPI application.
 
     Args:
         lake_root: Path to the lake directory.  Defaults to ``backend/lake``.
+        products_yaml_path: Path to products.yaml. Defaults to
+            ``backend/src/data_eng/config/products.yaml``.
 
     Returns:
         Configured FastAPI instance.
@@ -149,13 +165,17 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
     if lake_root is None:
         lake_root = Path(__file__).resolve().parents[2] / "lake"
 
+    if products_yaml_path is None:
+        products_yaml_path = _DEFAULT_PRODUCTS_YAML
+
     engine = VacuumPressureEngine(lake_root)
 
     app = FastAPI(
         title="Vacuum Pressure Stream Server",
-        version="1.0.0",
+        version="2.0.0",
         description=(
-            "Real-time vacuum / pressure detection for equity order flow."
+            "Real-time vacuum / pressure detection for equity and futures "
+            "order flow with runtime instrument configuration."
         ),
     )
 
@@ -174,6 +194,7 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
     @app.websocket("/v1/vacuum-pressure/stream")
     async def vacuum_pressure_stream(
         websocket: WebSocket,
+        product_type: str = "equity_mbo",
         symbol: str = "QQQ",
         dt: str = "2026-02-06",
         speed: float = 1.0,
@@ -182,23 +203,64 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
         """Stream vacuum / pressure data per 1-second window.
 
         Query params:
-            symbol: Ticker symbol.
+            product_type: Product type (``equity_mbo`` or ``future_mbo``).
+            symbol: Instrument symbol.
             dt: Date (YYYY-MM-DD).
             speed: Replay speed multiplier.
             skip_minutes: Minutes of data to skip from start.
         """
         await websocket.accept()
+
+        # Resolve runtime config
+        try:
+            config = resolve_config(product_type, symbol, products_yaml_path)
+        except (ValueError, FileNotFoundError) as exc:
+            logger.error("Config resolution failed: %s", exc)
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": str(exc),
+            }))
+            await websocket.close(code=1008, reason=str(exc))
+            return
+
         logger.info(
-            "VP stream connected: symbol=%s dt=%s speed=%.1f skip=%d",
-            symbol, dt, speed, skip_minutes,
+            "VP stream connected: product_type=%s symbol=%s dt=%s "
+            "speed=%.1f skip=%d config_version=%s",
+            config.product_type, config.symbol, dt,
+            speed, skip_minutes, config.config_version,
+        )
+
+        # Readiness check (4.7)
+        try:
+            row_counts = validate_silver_readiness(lake_root, config, dt)
+        except FileNotFoundError as exc:
+            logger.error("Silver readiness check failed: %s", exc)
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": str(exc),
+            }))
+            await websocket.close(code=1008, reason="Silver data not ready")
+            return
+
+        # Structured startup log (4.7)
+        logger.info(
+            "VP stream ready: config=%s row_counts=%s",
+            json.dumps(config.to_dict()),
+            json.dumps(row_counts),
         )
 
         try:
+            # First control message: full runtime config (4.4)
+            await websocket.send_text(json.dumps({
+                "type": "runtime_config",
+                **config.to_dict(),
+            }))
+
             last_ts: int | None = None
             skip_count = skip_minutes * 60
             skipped = 0
 
-            for wid, batch in engine.iter_windows(symbol, dt):
+            for wid, batch in engine.iter_windows(config, dt):
                 if skipped < skip_count:
                     skipped += 1
                     continue
@@ -220,13 +282,13 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
                 if not batch["signals"].empty:
                     surfaces.append("signals")
 
-                # batch_start
+                # batch_start -- includes legacy fields for transition window
                 await websocket.send_text(json.dumps({
                     "type": "batch_start",
                     "window_end_ts_ns": str(wid),
                     "surfaces": surfaces,
-                    "bucket_size": 0.50,
-                    "tick_size": 0.50,
+                    "bucket_size": config.bucket_size_dollars,
+                    "tick_size": config.rel_tick_size,
                 }))
 
                 # snap
@@ -259,6 +321,8 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
                         _df_to_arrow_ipc(batch["signals"], SIGNALS_SCHEMA)
                     )
 
+        except WebSocketDisconnect:
+            logger.info("VP stream client disconnected")
         except Exception as exc:
             logger.error("VP stream error: %s", exc, exc_info=True)
         finally:

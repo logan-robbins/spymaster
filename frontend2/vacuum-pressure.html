@@ -20,7 +20,19 @@
       width: 100vw;
     }
 
-    /* ── Top bar ── */
+    /* -- Warning banner -- */
+    #warning-banner {
+      display: none;
+      padding: 6px 16px;
+      background: #664400;
+      color: #ffcc00;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* -- Top bar -- */
     #top-bar {
       height: 42px;
       display: flex;
@@ -45,10 +57,12 @@
     }
     #top-bar .info { color: #888; }
     #top-bar .val  { color: #ddd; font-weight: 500; }
+    #top-bar .meta-label { color: #666; font-size: 9px; text-transform: uppercase; }
+    #top-bar .meta-val   { color: #aaa; font-size: 10px; font-weight: 500; }
     #spot-val  { color: #00ffcc; font-weight: 700; font-size: 13px; }
     #ts-val    { color: #aaa; }
 
-    /* ── Main content ── */
+    /* -- Main content -- */
     #main {
       flex: 1;
       display: flex;
@@ -78,6 +92,10 @@
       width: 100%;
       height: 100%;
       display: block;
+      cursor: grab;
+      touch-action: none;       /* prevent browser pinch-zoom / scroll */
+      user-select: none;        /* prevent text selection during drag */
+      -webkit-user-select: none;
     }
     /* Spot line label overlaid on heatmap */
     #spot-line-label {
@@ -87,6 +105,19 @@
       font-size: 9px;
       pointer-events: none;
       z-index: 10;
+    }
+
+    /* Price axis */
+    #price-axis-panel {
+      width: 60px;
+      flex-shrink: 0;
+      position: relative;
+      border-left: 1px solid rgba(100, 100, 150, 0.2);
+    }
+    #price-axis-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
 
     /* Signal panel */
@@ -160,7 +191,7 @@
       transition: left 0.15s, width 0.15s;
     }
 
-    /* ── Bottom bar ── */
+    /* -- Bottom bar -- */
     #bottom-bar {
       height: 50px;
       display: flex;
@@ -202,6 +233,11 @@
 </head>
 <body>
   <div id="app">
+    <!-- Warning banner (hidden by default, shown for legacy fallback or missing params) -->
+    <div id="warning-banner">
+      LEGACY MODE: No runtime config received from server. Using fallback equity defaults ($0.50 bucket). Update backend.
+    </div>
+
     <!-- Top bar -->
     <div id="top-bar">
       <span class="title">VP DETECTOR</span>
@@ -214,6 +250,18 @@
       <div class="sep"></div>
       <span class="info">Window</span>
       <span id="win-val" class="val">0</span>
+      <div class="sep"></div>
+      <!-- Runtime metadata (populated once config arrives from server) -->
+      <span class="meta-label">Type</span>
+      <span id="meta-product" class="meta-val">--</span>
+      <span class="meta-label">Sym</span>
+      <span id="meta-symbol" class="meta-val">--</span>
+      <span class="meta-label">Tick</span>
+      <span id="meta-tick" class="meta-val">--</span>
+      <span class="meta-label">Bucket</span>
+      <span id="meta-bucket" class="meta-val">--</span>
+      <span class="meta-label">Mult</span>
+      <span id="meta-mult" class="meta-val">--</span>
     </div>
 
     <!-- Main content -->
@@ -227,6 +275,11 @@
       <div id="heatmap-panel">
         <canvas id="heatmap-canvas"></canvas>
         <span id="spot-line-label">SPOT</span>
+      </div>
+
+      <!-- Price axis -->
+      <div id="price-axis-panel">
+        <canvas id="price-axis-canvas"></canvas>
       </div>
 
       <!-- Signal panel -->
@@ -261,13 +314,13 @@
           <div class="deriv-gauge"><div id="d1-fill" class="deriv-fill"></div></div>
 
           <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Accel (d²/dt²)</span>
+            <span class="sig-label">Accel (d2/dt2)</span>
             <span id="sig-d2" class="sig-value">0.0</span>
           </div>
           <div class="deriv-gauge"><div id="d2-fill" class="deriv-fill"></div></div>
 
           <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Jerk (d³/dt³)</span>
+            <span class="sig-label">Jerk (d3/dt3)</span>
             <span id="sig-d3" class="sig-value">0.0</span>
           </div>
           <div class="deriv-gauge"><div id="d3-fill" class="deriv-fill"></div></div>
@@ -317,8 +370,8 @@
       <span id="composite-label" style="color: #888;">NEUTRAL</span>
       <div class="sep" style="height: 24px;"></div>
       <span class="bar-stat">d/dt <span id="bot-d1" class="v">0</span></span>
-      <span class="bar-stat">d²/dt² <span id="bot-d2" class="v">0</span></span>
-      <span class="bar-stat">d³/dt³ <span id="bot-d3" class="v">0</span></span>
+      <span class="bar-stat">d2/dt2 <span id="bot-d2" class="v">0</span></span>
+      <span class="bar-stat">d3/dt3 <span id="bot-d3" class="v">0</span></span>
 
       <div id="legend">
         <div class="legend-item">

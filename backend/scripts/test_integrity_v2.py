@@ -12,21 +12,8 @@ sys.path.insert(0, str(repo_root))
 from src.data_eng.config import load_config
 from src.data_eng.io import partition_ref
 
-def check_integrity_v2(dt: str) -> None:
+def check_integrity_v2(symbol: str, dt: str) -> None:
     cfg = load_config(repo_root=repo_root, config_path=repo_root / "src/data_eng/config/datasets.yaml")
-    
-    # 1. Resolve symbol
-    selection_path = repo_root / "lake" / "selection" / "mbo_contract_day_selection.parquet"
-    if not selection_path.exists():
-        raise FileNotFoundError(f"Missing selection map: {selection_path}")
-    df_sel = pd.read_parquet(selection_path)
-    row = df_sel.loc[df_sel["session_date"].astype(str) == dt]
-    if row.empty:
-        # Fallback for hardcoded verification date if not in selection
-        symbol = "ESH6" 
-    else:
-        symbol = str(row.iloc[0]["selected_symbol"]).strip()
-    
     print(f"Checking integrity (V2) for {symbol} on {dt}")
 
     # =========================================================================
@@ -149,6 +136,7 @@ def check_integrity_v2(dt: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dt", default="2026-01-06")
+    parser.add_argument("--symbol", required=True, help="Resolved contract, e.g. ESH6 or MNQH6")
+    parser.add_argument("--dt", required=True, help="Session date YYYY-MM-DD")
     args = parser.parse_args()
-    check_integrity_v2(args.dt)
+    check_integrity_v2(args.symbol, args.dt)

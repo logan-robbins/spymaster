@@ -1,29 +1,34 @@
-"""Vacuum & Pressure Detection Formulas for Equity MBO Data.
+"""Vacuum & Pressure Detection Formulas.
 
 Mathematical framework for detecting directional micro-regimes from
 order flow imbalance and liquidity dynamics in the MBO order book.
 
+Supports both equity and futures product types via runtime configuration.
+All spatial parameters (proximity tau, near-spot range, depth range) are
+defined in **dollar space** and converted to rel-tick counts using the
+runtime ``bucket_size_dollars`` to prevent semantic drift across instruments.
+
 Definitions:
     Vacuum: Region where liquidity is thinning (orders pulled > orders added).
-        A vacuum above spot (ask-side) is **bullish** — less resistance upward.
-        A vacuum below spot (bid-side) is **bearish** — less support below.
+        A vacuum above spot (ask-side) is **bullish** -- less resistance upward.
+        A vacuum below spot (bid-side) is **bearish** -- less support below.
 
     Pressure: Region where liquidity is building and migrating toward spot.
         Pressure from below (bids chasing) is **bullish**.
         Pressure from above (asks pressing) is **bearish**.
 
 Metric taxonomy:
-    ADDITIVE: volume, add_qty, pull_qty, fill_qty — sum across rollups.
-    NON-ADDITIVE: vacuum_score, flow_imbalance, depth_imbalance — recompute.
-    SEMI-ADDITIVE: depth_qty_end — snapshot at boundary, sum across price levels.
+    ADDITIVE: volume, add_qty, pull_qty, fill_qty -- sum across rollups.
+    NON-ADDITIVE: vacuum_score, flow_imbalance, depth_imbalance -- recompute.
+    SEMI-ADDITIVE: depth_qty_end -- snapshot at boundary, sum across price levels.
 
 Proximity weighting:
-    w(k) = exp(-|k| / τ),  τ = 5.0 ticks
-    For QQQ equity with $0.50 buckets:
-        k=1  → $0.50,  w = 0.819
-        k=5  → $2.50,  w = 0.368
-        k=10 → $5.00,  w = 0.135
-        k=20 → $10.00, w = 0.018
+    w(k) = exp(-|k| / tau),  tau = proximity_tau_dollars / bucket_size_dollars
+    For QQQ equity with $0.50 buckets (tau_dollars=$2.50):
+        k=1  -> $0.50,  w = 0.819
+        k=5  -> $2.50,  w = 0.368
+        k=10 -> $5.00,  w = 0.135
+        k=20 -> $10.00, w = 0.018
 
 References:
     Cont, Kukanov & Stoikov (2014), "The Price Impact of Order Book Events"
@@ -31,36 +36,37 @@ References:
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
+if TYPE_CHECKING:
+    from .config import VPRuntimeConfig
+
 # ──────────────────────────────────────────────────────────────────────
-# Constants
+# Dollar-space constants (instrument-independent)
 # ──────────────────────────────────────────────────────────────────────
 
-PRICE_SCALE: float = 1e-9
-"""Convert int64 price to dollars: price_dollars = price_int * PRICE_SCALE."""
+PROXIMITY_TAU_DOLLARS: float = 2.50
+r"""Exponential decay characteristic length in dollar space.
 
-BUCKET_SIZE_DOLLARS: float = 0.50
-"""Equity MBO depth_and_flow bucket size in dollars."""
-
-PROXIMITY_TAU: float = 5.0
-r"""Exponential decay constant for proximity weighting (rel_ticks units).
-
-Characteristic length = τ × bucket_size = 5.0 × $0.50 = $2.50.
-Liquidity events within ~$2.50 of spot carry > 37% weight.
+For QQQ ($0.50 buckets): tau_ticks = $2.50 / $0.50 = 5.0 ticks.
+For MNQ ($0.25 buckets): tau_ticks = $2.50 / $0.25 = 10.0 ticks.
 """
 
-NEAR_SPOT_TICKS: int = 5
-"""Number of ticks from spot for "near-spot" flow imbalance.
+NEAR_SPOT_DOLLARS: float = 2.50
+"""Near-spot flow imbalance radius in dollars.
 
-5 ticks × $0.50 = $2.50 radius.
+For QQQ ($0.50 buckets): 5 ticks.
+For MNQ ($0.25 buckets): 10 ticks.
 """
 
-DEPTH_RANGE_TICKS: int = 10
-"""Number of ticks from spot for depth imbalance computation.
+DEPTH_RANGE_DOLLARS: float = 5.00
+"""Depth imbalance computation radius in dollars.
 
-10 ticks × $0.50 = $5.00 radius.
+For QQQ ($0.50 buckets): 10 ticks.
+For MNQ ($0.25 buckets): 20 ticks.
 """
 
 EMA_SPAN_D1: int = 5
@@ -81,11 +87,11 @@ COMPOSITE_WEIGHTS: dict[str, float] = {
 }
 r"""Weights for composite signal construction.
 
-    S(t) = α₁·V_ask_above − α₁·V_bid_below
-         + α₂·F
-         + α₃·Φ
-         + α₄·(D_ask − D_bid)
-         + α₅·Δ_rest
+    S(t) = a1*V_ask_above - a1*V_bid_below
+         + a2*F
+         + a3*Phi
+         + a4*(D_ask - D_bid)
+         + a5*Delta_rest
 
 vacuum (1.0):              Direct measure of liquidity thinning / building.
 flow (0.5):                Near-spot order addition imbalance.
@@ -100,12 +106,45 @@ ZSCORE_WINDOW: int = 60
 EPS: float = 1.0
 """Small constant to prevent division by zero in ratio computations."""
 
+
+# ──────────────────────────────────────────────────────────────────────
+# Config-derived tick parameters
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _proximity_tau_ticks(bucket_size_dollars: float) -> float:
+    """Convert dollar-space tau to rel-tick-space tau.
+
+    For QQQ ($0.50 buckets): 2.50 / 0.50 = 5.0 (matches original constant).
+    """
+    return PROXIMITY_TAU_DOLLARS / bucket_size_dollars
+
+
+def _near_spot_ticks(bucket_size_dollars: float) -> int:
+    """Convert dollar-space near-spot radius to tick count.
+
+    For QQQ ($0.50 buckets): 2.50 / 0.50 = 5 (matches original constant).
+    """
+    return int(round(NEAR_SPOT_DOLLARS / bucket_size_dollars))
+
+
+def _depth_range_ticks(bucket_size_dollars: float) -> int:
+    """Convert dollar-space depth range to tick count.
+
+    For QQQ ($0.50 buckets): 5.00 / 0.50 = 10 (matches original constant).
+    """
+    return int(round(DEPTH_RANGE_DOLLARS / bucket_size_dollars))
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Core Functions
 # ──────────────────────────────────────────────────────────────────────
 
 
-def proximity_weight(rel_ticks: np.ndarray, tau: float = PROXIMITY_TAU) -> np.ndarray:
+def proximity_weight(
+    rel_ticks: np.ndarray,
+    tau: float,
+) -> np.ndarray:
     r"""Compute exponential proximity weight for each price level.
 
     .. math::
@@ -113,7 +152,7 @@ def proximity_weight(rel_ticks: np.ndarray, tau: float = PROXIMITY_TAU) -> np.nd
 
     Args:
         rel_ticks: Array of relative tick positions (int). k = 0 is spot.
-        tau: Decay constant in tick units.  Default 5.0.
+        tau: Decay constant in tick units.
 
     Returns:
         Array of weights in [0, 1], same shape as *rel_ticks*.
@@ -121,25 +160,30 @@ def proximity_weight(rel_ticks: np.ndarray, tau: float = PROXIMITY_TAU) -> np.nd
     return np.exp(-np.abs(rel_ticks.astype(np.float64)) / tau)
 
 
-def compute_per_bucket_scores(df_flow: pd.DataFrame) -> pd.DataFrame:
+def compute_per_bucket_scores(
+    df_flow: pd.DataFrame,
+    bucket_size_dollars: float,
+) -> pd.DataFrame:
     """Add per-bucket vacuum / pressure scores to depth_and_flow data.
 
-    For each row (price-bucket × side × window) computes:
-        net_flow            = add_qty − pull_qty
-        vacuum_intensity    = max(0, pull_qty − add_qty) · w(k)
-        pressure_intensity  = max(0, add_qty − pull_qty) · w(k)
-        rest_fraction       = depth_qty_rest / (depth_qty_end + ε)
+    For each row (price-bucket x side x window) computes:
+        net_flow            = add_qty - pull_qty
+        vacuum_intensity    = max(0, pull_qty - add_qty) * w(k)
+        pressure_intensity  = max(0, add_qty - pull_qty) * w(k)
+        rest_fraction       = depth_qty_rest / (depth_qty_end + eps)
 
     Args:
         df_flow: Silver ``depth_and_flow_1s`` DataFrame.
+        bucket_size_dollars: Bucket size in dollars for proximity weighting.
 
     Returns:
         Copy of *df_flow* with additional derived columns.
     """
     df = df_flow.copy()
 
+    tau = _proximity_tau_ticks(bucket_size_dollars)
     rt = df["rel_ticks"].values
-    w = proximity_weight(rt)
+    w = proximity_weight(rt, tau)
     df["proximity_weight"] = w
 
     add = df["add_qty"].values
@@ -162,12 +206,15 @@ def compute_per_bucket_scores(df_flow: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def aggregate_window_metrics(df_flow: pd.DataFrame) -> pd.DataFrame:
+def aggregate_window_metrics(
+    df_flow: pd.DataFrame,
+    bucket_size_dollars: float,
+) -> pd.DataFrame:
     r"""Aggregate per-bucket flow into per-window vacuum / pressure metrics.
 
     For each 1-second window computes:
 
-    **Vacuum scores** (positive ⟹ liquidity draining):
+    **Vacuum scores** (positive => liquidity draining):
 
     .. math::
         V_{\text{ask,above}}(t) = \sum_{\substack{k > 0 \\ s = A}}
@@ -182,20 +229,20 @@ def aggregate_window_metrics(df_flow: pd.DataFrame) -> pd.DataFrame:
     .. math::
         D_{\text{ask}} = \sum_{k>0,\, s=A} \text{pull\_qty\_rest}_{k,s} \, w(k)
 
-    **Flow imbalance** (positive ⟹ bid-dominated):
+    **Flow imbalance** (positive => bid-dominated):
 
     .. math::
         F = \sum_{|k| \le N,\, s=B} \text{add}_B \, w(k)
           - \sum_{|k| \le N,\, s=A} \text{add}_A \, w(k)
 
-    **Fill imbalance** (positive ⟹ buy aggression):
+    **Fill imbalance** (positive => buy aggression):
 
     .. math::
         \Phi = \sum_{s=A} \text{fill}_A - \sum_{s=B} \text{fill}_B
 
     (fill on ask = buyer lifted offer; fill on bid = seller hit bid)
 
-    **Depth imbalance** (positive ⟹ bid-heavy):
+    **Depth imbalance** (positive => bid-heavy):
 
     .. math::
         \Delta = \frac{\text{bid\_depth} - \text{ask\_depth}}
@@ -209,6 +256,7 @@ def aggregate_window_metrics(df_flow: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df_flow: Silver ``depth_and_flow_1s`` DataFrame.
+        bucket_size_dollars: Bucket size in dollars for range conversion.
 
     Returns:
         DataFrame with one row per window, sorted by ``window_end_ts_ns``.
@@ -218,10 +266,14 @@ def aggregate_window_metrics(df_flow: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
 
+    tau = _proximity_tau_ticks(bucket_size_dollars)
+    near_ticks = _near_spot_ticks(bucket_size_dollars)
+    depth_ticks = _depth_range_ticks(bucket_size_dollars)
+
     # Vectorised masks
     rt = df["rel_ticks"].values
     side = df["side"].values
-    w = proximity_weight(rt)
+    w = proximity_weight(rt, tau)
     add = df["add_qty"].values
     pull = df["pull_qty"].values
     fill = df["fill_qty"].values
@@ -233,8 +285,8 @@ def aggregate_window_metrics(df_flow: pd.DataFrame) -> pd.DataFrame:
     is_bid = side == "B"
     above = rt > 0
     below = rt < 0
-    near = np.abs(rt) <= NEAR_SPOT_TICKS
-    depth_rng = np.abs(rt) <= DEPTH_RANGE_TICKS
+    near = np.abs(rt) <= near_ticks
+    depth_rng = np.abs(rt) <= depth_ticks
 
     drain = pull - add
 
@@ -326,7 +378,7 @@ def compute_composite_signal(metrics: pd.DataFrame) -> pd.DataFrame:
     **Sign convention**: positive = bullish, negative = bearish.
 
     Confidence is the fraction of component signs agreeing with the
-    composite direction (0–1 scale).
+    composite direction (0-1 scale).
 
     Args:
         metrics: DataFrame from :func:`aggregate_window_metrics`.
@@ -453,6 +505,7 @@ def compute_signal_strength(
 def run_full_pipeline(
     df_flow: pd.DataFrame,
     df_snap: pd.DataFrame,
+    config: VPRuntimeConfig,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the complete vacuum / pressure computation pipeline.
 
@@ -464,9 +517,13 @@ def run_full_pipeline(
         5. Compute signal strength (z-score normalised).
         6. Join spot reference from book snapshots.
 
+    All spatial parameters are derived from ``config.bucket_size_dollars``
+    so the same formulas work correctly across equity and futures instruments.
+
     Args:
         df_flow: Silver ``depth_and_flow_1s`` DataFrame.
         df_snap: Silver ``book_snapshot_1s`` DataFrame.
+        config: Resolved runtime config.
 
     Returns:
         ``(df_signals, df_flow_enriched)``
@@ -474,11 +531,13 @@ def run_full_pipeline(
         * *df_signals*: One row per window with all computed signals.
         * *df_flow_enriched*: Per-bucket data with vacuum / pressure scores.
     """
+    bucket = config.bucket_size_dollars
+
     # Step 1: per-bucket enrichment
-    df_flow_enriched = compute_per_bucket_scores(df_flow)
+    df_flow_enriched = compute_per_bucket_scores(df_flow, bucket)
 
     # Step 2: aggregate to per-window
-    df_signals = aggregate_window_metrics(df_flow)
+    df_signals = aggregate_window_metrics(df_flow, bucket)
     if df_signals.empty:
         return df_signals, df_flow_enriched
 
