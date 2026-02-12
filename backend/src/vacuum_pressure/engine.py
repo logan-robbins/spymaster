@@ -15,7 +15,7 @@ from typing import Dict, Iterable, List, Tuple
 import pandas as pd
 
 from .config import VPRuntimeConfig
-from .formulas import run_full_pipeline
+from .formulas import GoldSignalConfig, run_full_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +168,19 @@ class VacuumPressureEngine:
             Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
         ] = {}
 
+    @staticmethod
+    def _cache_key(
+        config: VPRuntimeConfig,
+        dt: str,
+        gold_signal_config: GoldSignalConfig | None,
+    ) -> str:
+        """Build cache key including optional gold-layer signal parameters."""
+        base_key = config.cache_key(dt)
+        if gold_signal_config is None:
+            return base_key
+        gold_signal_config.validate()
+        return f"{base_key}:gold={gold_signal_config.cache_fragment()}"
+
     # ── Data loading ──────────────────────────────────────────────
 
     def load_silver(
@@ -218,6 +231,7 @@ class VacuumPressureEngine:
         self,
         config: VPRuntimeConfig,
         dt: str,
+        gold_signal_config: GoldSignalConfig | None = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Compute all vacuum / pressure metrics for a config / date.
 
@@ -235,13 +249,13 @@ class VacuumPressureEngine:
             * *df_flow_enriched*: Per-bucket depth / flow with scores.
             * *df_signals*: Aggregated signals with derivatives (1 per window).
         """
-        key = config.cache_key(dt)
+        key = self._cache_key(config, dt, gold_signal_config)
         if key in self._cache:
             return self._cache[key]
 
         df_snap, df_flow = self.load_silver(config, dt)
         df_signals, df_flow_enriched = run_full_pipeline(
-            df_flow, df_snap, config,
+            df_flow, df_snap, config, gold_signal_config=gold_signal_config,
         )
 
         logger.info(
@@ -259,6 +273,7 @@ class VacuumPressureEngine:
         config: VPRuntimeConfig,
         dt: str,
         start_ts_ns: int | None = None,
+        gold_signal_config: GoldSignalConfig | None = None,
     ) -> Iterable[Tuple[int, Dict[str, pd.DataFrame]]]:
         """Iterate over windows for streaming.
 
@@ -273,7 +288,11 @@ class VacuumPressureEngine:
         Yields:
             ``(window_end_ts_ns, {"snap": df, "flow": df, "signals": df})``
         """
-        df_snap, df_flow_enriched, df_signals = self.compute_day(config, dt)
+        df_snap, df_flow_enriched, df_signals = self.compute_day(
+            config,
+            dt,
+            gold_signal_config=gold_signal_config,
+        )
         if df_signals.empty:
             return
 
@@ -312,6 +331,7 @@ class VacuumPressureEngine:
         config: VPRuntimeConfig,
         dt: str,
         output_dir: Path,
+        gold_signal_config: GoldSignalConfig | None = None,
     ) -> Path:
         """Compute and save signals to parquet.
 
@@ -323,7 +343,11 @@ class VacuumPressureEngine:
         Returns:
             Path to the written parquet file.
         """
-        _, _, df_signals = self.compute_day(config, dt)
+        _, _, df_signals = self.compute_day(
+            config,
+            dt,
+            gold_signal_config=gold_signal_config,
+        )
 
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = (

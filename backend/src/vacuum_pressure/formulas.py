@@ -36,6 +36,7 @@ References:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -105,6 +106,121 @@ ZSCORE_WINDOW: int = 60
 
 EPS: float = 1.0
 """Small constant to prevent division by zero in ratio computations."""
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Gold-layer smoothing / projection parameters
+# ──────────────────────────────────────────────────────────────────────
+
+MAX_LOOKBACK_SECONDS: int = 600
+"""Hard cap for micro-regime lookbacks (10 minutes)."""
+
+DEFAULT_PRE_SMOOTH_SPAN: int = 15
+"""EMA span (seconds) applied before any differentiation."""
+
+DEFAULT_SMOOTH_D1_SPAN: int = 10
+"""EMA span (seconds) for smoothed 1st derivative."""
+
+DEFAULT_SMOOTH_D2_SPAN: int = 20
+"""EMA span (seconds) for smoothed 2nd derivative."""
+
+DEFAULT_SMOOTH_D3_SPAN: int = 40
+"""EMA span (seconds) for smoothed 3rd derivative."""
+
+DEFAULT_W_D1: float = 0.50
+"""Default weight for smoothed first derivative."""
+
+DEFAULT_W_D2: float = 0.35
+"""Default weight for smoothed second derivative."""
+
+DEFAULT_W_D3: float = 0.15
+"""Default weight for smoothed third derivative."""
+
+DEFAULT_PROJECTION_HORIZON_S: float = 10.0
+"""Primary forward projection horizon in seconds."""
+
+DEFAULT_FAST_PROJECTION_HORIZON_S: float = 0.5
+"""Sub-second projection horizon in seconds (500ms)."""
+
+DEFAULT_SMOOTH_ZSCORE_WINDOW: int = 120
+"""Rolling window for smoothed composite z-score normalization."""
+
+
+@dataclass(frozen=True)
+class GoldSignalConfig:
+    """Tunable gold-layer knobs for smoothing and projection.
+
+    All windows are in seconds because the vacuum-pressure stream cadence
+    is 1 second per row. Inputs are validated to remain in micro-regime
+    ranges and to fail fast for invalid runtime parameters.
+    """
+
+    pre_smooth_span: int = DEFAULT_PRE_SMOOTH_SPAN
+    d1_span: int = DEFAULT_SMOOTH_D1_SPAN
+    d2_span: int = DEFAULT_SMOOTH_D2_SPAN
+    d3_span: int = DEFAULT_SMOOTH_D3_SPAN
+    w_d1: float = DEFAULT_W_D1
+    w_d2: float = DEFAULT_W_D2
+    w_d3: float = DEFAULT_W_D3
+    projection_horizon_s: float = DEFAULT_PROJECTION_HORIZON_S
+    fast_projection_horizon_s: float = DEFAULT_FAST_PROJECTION_HORIZON_S
+    smooth_zscore_window: int = DEFAULT_SMOOTH_ZSCORE_WINDOW
+
+    def validate(self) -> None:
+        """Validate config values and fail fast on invalid parameters."""
+        for name, value in (
+            ("pre_smooth_span", self.pre_smooth_span),
+            ("d1_span", self.d1_span),
+            ("d2_span", self.d2_span),
+            ("d3_span", self.d3_span),
+            ("smooth_zscore_window", self.smooth_zscore_window),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be > 0, got {value}")
+            if value > MAX_LOOKBACK_SECONDS:
+                raise ValueError(
+                    f"{name} must be <= {MAX_LOOKBACK_SECONDS}s, got {value}"
+                )
+
+        for name, value in (
+            ("projection_horizon_s", self.projection_horizon_s),
+            ("fast_projection_horizon_s", self.fast_projection_horizon_s),
+        ):
+            if value <= 0.0:
+                raise ValueError(f"{name} must be > 0, got {value}")
+            if value > MAX_LOOKBACK_SECONDS:
+                raise ValueError(
+                    f"{name} must be <= {MAX_LOOKBACK_SECONDS}s, got {value}"
+                )
+
+        for name, value in (
+            ("w_d1", self.w_d1),
+            ("w_d2", self.w_d2),
+            ("w_d3", self.w_d3),
+        ):
+            if value < 0.0:
+                raise ValueError(f"{name} must be >= 0, got {value}")
+
+        if (self.w_d1 + self.w_d2 + self.w_d3) <= 0.0:
+            raise ValueError("At least one derivative weight must be > 0")
+
+    def normalised_weights(self) -> tuple[float, float, float]:
+        """Return derivative weights normalized to sum to 1."""
+        total = self.w_d1 + self.w_d2 + self.w_d3
+        return (
+            self.w_d1 / total,
+            self.w_d2 / total,
+            self.w_d3 / total,
+        )
+
+    def cache_fragment(self) -> str:
+        """Compact stable representation for cache keys."""
+        return (
+            f"ps{self.pre_smooth_span}-d{self.d1_span}-{self.d2_span}-{self.d3_span}"
+            f"-w{self.w_d1:.6f}-{self.w_d2:.6f}-{self.w_d3:.6f}"
+            f"-ph{self.projection_horizon_s:.3f}-fh{self.fast_projection_horizon_s:.3f}"
+            f"-zw{self.smooth_zscore_window}"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -497,6 +613,86 @@ def compute_signal_strength(
     return df
 
 
+def compute_weighted_projection_signals(
+    df: pd.DataFrame,
+    signal_col: str = "composite",
+    config: GoldSignalConfig | None = None,
+) -> pd.DataFrame:
+    r"""Build smoothed derivatives and forward projections from one signal.
+
+    The routine computes:
+    1) pre-smoothed signal
+    2) smoothed first/second/third derivatives
+    3) weighted derivative slope composite
+    4) short-horizon and 500ms Taylor projections
+    5) derivative agreement confidence
+    """
+    cfg = config or GoldSignalConfig()
+    cfg.validate()
+
+    df = df.copy()
+    sig = df[signal_col]
+
+    # Pre-smooth before differentiation to suppress finite-diff noise.
+    df["composite_smooth"] = sig.ewm(
+        span=cfg.pre_smooth_span, adjust=False,
+    ).mean()
+
+    raw_d1 = df["composite_smooth"].diff()
+    df["d1_smooth"] = raw_d1.ewm(span=cfg.d1_span, adjust=False).mean()
+
+    raw_d2 = df["d1_smooth"].diff()
+    df["d2_smooth"] = raw_d2.ewm(span=cfg.d2_span, adjust=False).mean()
+
+    raw_d3 = df["d2_smooth"].diff()
+    df["d3_smooth"] = raw_d3.ewm(span=cfg.d3_span, adjust=False).mean()
+
+    w1, w2, w3 = cfg.normalised_weights()
+    df["wtd_slope"] = (
+        w1 * df["d1_smooth"]
+        + w2 * df["d2_smooth"]
+        + w3 * df["d3_smooth"]
+    )
+
+    k = float(cfg.projection_horizon_s)
+    k_fast = float(cfg.fast_projection_horizon_s)
+    df["wtd_projection"] = (
+        df["composite_smooth"]
+        + df["d1_smooth"] * k
+        + df["d2_smooth"] * (k * k * 0.5)
+        + df["d3_smooth"] * (k * k * k / 6.0)
+    )
+    # 500ms projection from 1s derivatives (best feasible without silver edits).
+    df["wtd_projection_500ms"] = (
+        df["composite_smooth"]
+        + df["d1_smooth"] * k_fast
+        + df["d2_smooth"] * (k_fast * k_fast * 0.5)
+        + df["d3_smooth"] * (k_fast * k_fast * k_fast / 6.0)
+    )
+
+    d_signs = np.column_stack([
+        np.sign(df["d1_smooth"].values),
+        np.sign(df["d2_smooth"].values),
+        np.sign(df["d3_smooth"].values),
+    ])
+    wtd_sign = np.sign(df["wtd_slope"].values)
+    safe_sign = np.where(wtd_sign == 0, 1.0, wtd_sign)
+    df["wtd_deriv_conf"] = (d_signs == safe_sign[:, np.newaxis]).mean(axis=1)
+
+    cols = [
+        "composite_smooth",
+        "d1_smooth",
+        "d2_smooth",
+        "d3_smooth",
+        "wtd_slope",
+        "wtd_projection",
+        "wtd_projection_500ms",
+        "wtd_deriv_conf",
+    ]
+    df[cols] = df[cols].fillna(0.0)
+    return df
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Full Pipeline
 # ──────────────────────────────────────────────────────────────────────
@@ -506,6 +702,7 @@ def run_full_pipeline(
     df_flow: pd.DataFrame,
     df_snap: pd.DataFrame,
     config: VPRuntimeConfig,
+    gold_signal_config: GoldSignalConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the complete vacuum / pressure computation pipeline.
 
@@ -515,7 +712,9 @@ def run_full_pipeline(
         3. Compute composite directional signal.
         4. Compute 1st / 2nd / 3rd derivatives.
         5. Compute signal strength (z-score normalised).
-        6. Join spot reference from book snapshots.
+        6. Compute smoothed weighted-derivative projection fields.
+        7. Compute smoothed signal strength.
+        8. Join spot reference from book snapshots.
 
     All spatial parameters are derived from ``config.bucket_size_dollars``
     so the same formulas work correctly across equity and futures instruments.
@@ -524,6 +723,8 @@ def run_full_pipeline(
         df_flow: Silver ``depth_and_flow_1s`` DataFrame.
         df_snap: Silver ``book_snapshot_1s`` DataFrame.
         config: Resolved runtime config.
+        gold_signal_config: Optional runtime overrides for gold-layer
+            smoothing and projection knobs.
 
     Returns:
         ``(df_signals, df_flow_enriched)``
@@ -553,7 +754,32 @@ def run_full_pipeline(
     # Step 5: signal strength
     df_signals = compute_signal_strength(df_signals)
 
-    # Step 6: join spot reference
+    # Step 6: gold-layer weighted derivative projection
+    gold_cfg = gold_signal_config or GoldSignalConfig()
+    gold_cfg.validate()
+    df_signals = compute_weighted_projection_signals(
+        df_signals,
+        signal_col="composite",
+        config=gold_cfg,
+    )
+
+    # Step 7: smoothed signal strength
+    raw_strength = df_signals["strength"].copy()
+    raw_z = (
+        df_signals["z_composite"].copy()
+        if "z_composite" in df_signals.columns
+        else pd.Series(np.zeros(len(df_signals), dtype=np.float64), index=df_signals.index)
+    )
+    df_signals = compute_signal_strength(
+        df_signals,
+        signal_col="composite_smooth",
+        window=gold_cfg.smooth_zscore_window,
+    )
+    df_signals = df_signals.rename(columns={"strength": "strength_smooth"})
+    df_signals["strength"] = raw_strength.values
+    df_signals["z_composite_raw"] = raw_z.values
+
+    # Step 8: join spot reference
     if not df_snap.empty:
         snap_cols = [
             "window_end_ts_ns", "mid_price",
@@ -570,6 +796,8 @@ def run_full_pipeline(
         if c.startswith(("d1_", "d2_", "d3_", "z_"))
     ]
     df_signals[deriv_cols] = df_signals[deriv_cols].fillna(0.0)
+    df_signals["z_composite_raw"] = df_signals["z_composite_raw"].fillna(0.0)
+    df_signals["strength_smooth"] = df_signals["strength_smooth"].fillna(0.0)
     df_signals["strength"] = df_signals["strength"].fillna(0.0)
     df_signals["confidence"] = df_signals["confidence"].fillna(0.0)
 

@@ -284,6 +284,32 @@ tail -20 /tmp/backend.log
 WebSocket sends `runtime_config` control message with full instrument config before first data batch.
 Cache keys: `product_type:symbol:dt:config_version`.
 
+### Gold Signal Variants (Smoothing + Projection)
+
+Vacuum-pressure now exposes additive gold-layer signal variants from existing silver inputs (no bronze/silver changes):
+
+- `composite_smooth`: pre-smoothed composite (`EMA`, tunable span)
+- `d1_smooth`, `d2_smooth`, `d3_smooth`: smoothed 1st/2nd/3rd derivatives of `composite_smooth`
+- `wtd_slope`: weighted derivative slope composite
+- `wtd_projection`: Taylor forward projection (seconds horizon, tunable)
+- `wtd_projection_500ms`: 500ms projection derived from 1s derivatives (sub-second interpolation path without silver changes)
+- `wtd_deriv_conf`: derivative sign-agreement confidence
+- `z_composite_raw`, `z_composite_smooth`, `strength_smooth`
+
+Runtime query params for tuning (all optional):
+
+- `pre_smooth_span`
+- `d1_span`, `d2_span`, `d3_span`
+- `w_d1`, `w_d2`, `w_d3`
+- `projection_horizon_s`
+- `fast_projection_horizon_s`
+- `smooth_zscore_window`
+
+Constraints:
+
+- Lookbacks are validated fail-fast and capped to 600s (10 minutes).
+- 500ms mode is a projection/interpolation variant from 1s data; true 500ms book windows still require silver-layer changes.
+
 ### Commands
 
 ```bash
@@ -298,14 +324,32 @@ uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol 
 # Start vacuum/pressure server (futures)
 uv run python scripts/run_vacuum_pressure.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002
 
+# Start server with tuned smoothing/projection knobs
+uv run python scripts/run_vacuum_pressure.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002 \
+  --pre-smooth-span 15 --d1-span 10 --d2-span 20 --d3-span 40 \
+  --w-d1 0.50 --w-d2 0.35 --w-d3 0.15 \
+  --projection-horizon-s 10.0 --fast-projection-horizon-s 0.5 \
+  --smooth-zscore-window 120
+
 # Start frontend (separate terminal)
 cd frontend2 && npm run dev
 
 # Open equity: http://localhost:5174/vacuum-pressure.html?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06
 # Open futures: http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06
+# Optional tuning params can be appended to URL, e.g.:
+# ...&pre_smooth_span=15&d1_span=10&d2_span=20&d3_span=40&w_d1=0.50&w_d2=0.35&w_d3=0.15&projection_horizon_s=10&fast_projection_horizon_s=0.5&smooth_zscore_window=120
 
 # Compute-only (save to parquet)
 uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only
+
+# Compute-only with tuned gold signal config
+uv run python scripts/run_vacuum_pressure.py \
+  --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only \
+  --pre-smooth-span 15 --d1-span 10 --d2-span 20 --d3-span 40 \
+  --w-d1 0.50 --w-d2 0.35 --w-d3 0.15 \
+  --projection-horizon-s 10.0 --fast-projection-horizon-s 0.5 \
+  --smooth-zscore-window 120
 
 # Run tests
 uv run pytest tests/test_vacuum_pressure_config.py -v

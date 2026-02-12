@@ -39,13 +39,16 @@ from src.vacuum_pressure.engine import (
 )
 from src.vacuum_pressure.formulas import (
     DEPTH_RANGE_DOLLARS,
+    GoldSignalConfig,
     NEAR_SPOT_DOLLARS,
     PROXIMITY_TAU_DOLLARS,
     _depth_range_ticks,
     _near_spot_ticks,
     _proximity_tau_ticks,
     aggregate_window_metrics,
+    compute_derivatives,
     compute_per_bucket_scores,
+    compute_weighted_projection_signals,
     proximity_weight,
     run_full_pipeline,
 )
@@ -517,6 +520,79 @@ class TestFormulaInvariants:
         assert not m_025.empty
         # With different ranges, flow_imbalance should differ
         # (more ticks included with wider range)
+
+
+class TestGoldSignalVariants:
+    """Test gold-layer smoothing/projection variants for vacuum-pressure."""
+
+    def test_gold_signal_config_validation_fails_large_lookback(self) -> None:
+        """Lookback windows above 10 minutes fail fast."""
+        cfg = GoldSignalConfig(pre_smooth_span=601)
+        with pytest.raises(ValueError, match="<= 600s"):
+            cfg.validate()
+
+    def test_pipeline_emits_weighted_projection_columns(
+        self,
+        qqq_config: VPRuntimeConfig,
+    ) -> None:
+        """Full pipeline emits added smoothed derivative/projection columns."""
+        df_flow = _make_flow_df(120, 10)
+        df_snap = _make_snap_df(120)
+        df_signals, _ = run_full_pipeline(df_flow, df_snap, qqq_config)
+
+        expected = {
+            "composite_smooth",
+            "d1_smooth",
+            "d2_smooth",
+            "d3_smooth",
+            "wtd_slope",
+            "wtd_projection",
+            "wtd_projection_500ms",
+            "wtd_deriv_conf",
+            "z_composite_raw",
+            "z_composite_smooth",
+            "strength",
+            "strength_smooth",
+        }
+        missing = expected.difference(df_signals.columns)
+        assert not missing, f"Missing columns: {sorted(missing)}"
+
+    def test_weighted_derivative_confidence_is_bounded(
+        self,
+        qqq_config: VPRuntimeConfig,
+    ) -> None:
+        """Derivative agreement confidence remains in [0, 1]."""
+        df_flow = _make_flow_df(80, 10)
+        df_snap = _make_snap_df(80)
+        df_signals, _ = run_full_pipeline(df_flow, df_snap, qqq_config)
+        conf = df_signals["wtd_deriv_conf"]
+        assert (conf >= 0.0).all()
+        assert (conf <= 1.0).all()
+
+    def test_pre_smoothing_reduces_d1_variance(self) -> None:
+        """Smoothed first derivative has lower variance than raw d1."""
+        rng = np.random.default_rng(42)
+        n = 600
+        trend = np.linspace(-50.0, 50.0, n)
+        noise = rng.normal(0.0, 20.0, size=n)
+        signal = trend + noise
+
+        df = pd.DataFrame({
+            "window_end_ts_ns": np.arange(n, dtype=np.int64),
+            "composite": signal,
+        })
+        raw = compute_derivatives(df, "composite")
+        smooth = compute_weighted_projection_signals(
+            df,
+            "composite",
+            config=GoldSignalConfig(),
+        )
+
+        # Ignore warmup where differencing/EMA start-up effects dominate.
+        tail = slice(80, None)
+        raw_var = raw["d1_composite"].iloc[tail].var()
+        smooth_var = smooth["d1_smooth"].iloc[tail].var()
+        assert smooth_var < raw_var
 
 
 # ──────────────────────────────────────────────────────────────────────

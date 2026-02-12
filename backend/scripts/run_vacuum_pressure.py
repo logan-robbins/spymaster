@@ -62,6 +62,46 @@ def main() -> None:
         help="Output dir for --compute-only (default: lake/gold/vacuum_pressure)",
     )
     parser.add_argument(
+        "--pre-smooth-span", type=int, default=15,
+        help="EMA span for pre-smoothing composite before derivatives (default: 15)",
+    )
+    parser.add_argument(
+        "--d1-span", type=int, default=10,
+        help="EMA span for smoothed 1st derivative (default: 10)",
+    )
+    parser.add_argument(
+        "--d2-span", type=int, default=20,
+        help="EMA span for smoothed 2nd derivative (default: 20)",
+    )
+    parser.add_argument(
+        "--d3-span", type=int, default=40,
+        help="EMA span for smoothed 3rd derivative (default: 40)",
+    )
+    parser.add_argument(
+        "--w-d1", type=float, default=0.50,
+        help="Weight for smoothed 1st derivative (default: 0.50)",
+    )
+    parser.add_argument(
+        "--w-d2", type=float, default=0.35,
+        help="Weight for smoothed 2nd derivative (default: 0.35)",
+    )
+    parser.add_argument(
+        "--w-d3", type=float, default=0.15,
+        help="Weight for smoothed 3rd derivative (default: 0.15)",
+    )
+    parser.add_argument(
+        "--projection-horizon-s", type=float, default=10.0,
+        help="Primary Taylor projection horizon in seconds (default: 10.0)",
+    )
+    parser.add_argument(
+        "--fast-projection-horizon-s", type=float, default=0.5,
+        help="Fast projection horizon in seconds (default: 0.5)",
+    )
+    parser.add_argument(
+        "--smooth-zscore-window", type=int, default=120,
+        help="Rolling window for smoothed composite z-score (default: 120)",
+    )
+    parser.add_argument(
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
@@ -79,15 +119,32 @@ def main() -> None:
     )
 
     from src.vacuum_pressure.config import resolve_config
+    from src.vacuum_pressure.formulas import GoldSignalConfig
 
     # Resolve and print runtime config at startup (4.5)
     config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    gold_signal_config = GoldSignalConfig(
+        pre_smooth_span=args.pre_smooth_span,
+        d1_span=args.d1_span,
+        d2_span=args.d2_span,
+        d3_span=args.d3_span,
+        w_d1=args.w_d1,
+        w_d2=args.w_d2,
+        w_d3=args.w_d3,
+        projection_horizon_s=args.projection_horizon_s,
+        fast_projection_horizon_s=args.fast_projection_horizon_s,
+        smooth_zscore_window=args.smooth_zscore_window,
+    )
+    gold_signal_config.validate()
 
     print()
     print("=" * 60)
     print("  VACUUM & PRESSURE DETECTOR -- Runtime Config")
     print("=" * 60)
     print(json.dumps(config.to_dict(), indent=2))
+    print("-" * 60)
+    print("Gold signal config:")
+    print(json.dumps(vars(gold_signal_config), indent=2))
     print("=" * 60)
     print()
 
@@ -101,7 +158,12 @@ def main() -> None:
             if args.output_dir
             else lake_root / "gold" / "vacuum_pressure"
         )
-        out_path = engine.save_signals(config, args.dt, output_dir)
+        out_path = engine.save_signals(
+            config,
+            args.dt,
+            output_dir,
+            gold_signal_config=gold_signal_config,
+        )
         print(f"Saved vacuum/pressure signals to: {out_path}")
         return
 
@@ -112,13 +174,25 @@ def main() -> None:
 
     app = create_app(lake_root, products_yaml_path)
 
+    tuning_qs = (
+        f"&pre_smooth_span={args.pre_smooth_span}"
+        f"&d1_span={args.d1_span}"
+        f"&d2_span={args.d2_span}"
+        f"&d3_span={args.d3_span}"
+        f"&w_d1={args.w_d1}"
+        f"&w_d2={args.w_d2}"
+        f"&w_d3={args.w_d3}"
+        f"&projection_horizon_s={args.projection_horizon_s}"
+        f"&fast_projection_horizon_s={args.fast_projection_horizon_s}"
+        f"&smooth_zscore_window={args.smooth_zscore_window}"
+    )
     print(f"  WebSocket: ws://localhost:{args.port}"
           f"/v1/vacuum-pressure/stream"
           f"?product_type={args.product_type}"
-          f"&symbol={args.symbol}&dt={args.dt}")
+          f"&symbol={args.symbol}&dt={args.dt}{tuning_qs}")
     print(f"  Frontend:  http://localhost:5174/vacuum-pressure.html"
           f"?product_type={args.product_type}"
-          f"&symbol={args.symbol}&dt={args.dt}")
+          f"&symbol={args.symbol}&dt={args.dt}{tuning_qs}")
     print("=" * 60)
     print()
 

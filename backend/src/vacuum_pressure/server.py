@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import VPRuntimeConfig, resolve_config
 from .engine import VacuumPressureEngine, validate_silver_readiness
+from .formulas import GoldSignalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +81,22 @@ SIGNALS_SCHEMA = pa.schema([
     ("bid_migration_com", pa.float64()),
     ("ask_migration_com", pa.float64()),
     ("composite", pa.float64()),
+    ("composite_smooth", pa.float64()),
     ("d1_composite", pa.float64()),
     ("d2_composite", pa.float64()),
     ("d3_composite", pa.float64()),
+    ("d1_smooth", pa.float64()),
+    ("d2_smooth", pa.float64()),
+    ("d3_smooth", pa.float64()),
+    ("wtd_slope", pa.float64()),
+    ("wtd_projection", pa.float64()),
+    ("wtd_projection_500ms", pa.float64()),
+    ("wtd_deriv_conf", pa.float64()),
+    ("z_composite_raw", pa.float64()),
+    ("z_composite_smooth", pa.float64()),
     ("confidence", pa.float64()),
     ("strength", pa.float64()),
+    ("strength_smooth", pa.float64()),
 ])
 
 
@@ -199,6 +211,16 @@ def create_app(
         dt: str = "2026-02-06",
         speed: float = 1.0,
         skip_minutes: int = 5,
+        pre_smooth_span: int | None = None,
+        d1_span: int | None = None,
+        d2_span: int | None = None,
+        d3_span: int | None = None,
+        w_d1: float | None = None,
+        w_d2: float | None = None,
+        w_d3: float | None = None,
+        projection_horizon_s: float | None = None,
+        fast_projection_horizon_s: float | None = None,
+        smooth_zscore_window: int | None = None,
     ) -> None:
         """Stream vacuum / pressure data per 1-second window.
 
@@ -223,11 +245,46 @@ def create_app(
             await websocket.close(code=1008, reason=str(exc))
             return
 
+        # Resolve optional gold-layer smoothing/projection runtime overrides
+        gold_kwargs: dict[str, int | float] = {}
+        if pre_smooth_span is not None:
+            gold_kwargs["pre_smooth_span"] = pre_smooth_span
+        if d1_span is not None:
+            gold_kwargs["d1_span"] = d1_span
+        if d2_span is not None:
+            gold_kwargs["d2_span"] = d2_span
+        if d3_span is not None:
+            gold_kwargs["d3_span"] = d3_span
+        if w_d1 is not None:
+            gold_kwargs["w_d1"] = w_d1
+        if w_d2 is not None:
+            gold_kwargs["w_d2"] = w_d2
+        if w_d3 is not None:
+            gold_kwargs["w_d3"] = w_d3
+        if projection_horizon_s is not None:
+            gold_kwargs["projection_horizon_s"] = projection_horizon_s
+        if fast_projection_horizon_s is not None:
+            gold_kwargs["fast_projection_horizon_s"] = fast_projection_horizon_s
+        if smooth_zscore_window is not None:
+            gold_kwargs["smooth_zscore_window"] = smooth_zscore_window
+
+        try:
+            gold_signal_config = GoldSignalConfig(**gold_kwargs)
+            gold_signal_config.validate()
+        except ValueError as exc:
+            logger.error("Gold signal config validation failed: %s", exc)
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": str(exc),
+            }))
+            await websocket.close(code=1008, reason=str(exc))
+            return
+
         logger.info(
             "VP stream connected: product_type=%s symbol=%s dt=%s "
-            "speed=%.1f skip=%d config_version=%s",
+            "speed=%.1f skip=%d config_version=%s gold_cfg=%s",
             config.product_type, config.symbol, dt,
-            speed, skip_minutes, config.config_version,
+            speed, skip_minutes, config.config_version, vars(gold_signal_config),
         )
 
         # Readiness check (4.7)
@@ -254,13 +311,18 @@ def create_app(
             await websocket.send_text(json.dumps({
                 "type": "runtime_config",
                 **config.to_dict(),
+                "gold_signal_config": vars(gold_signal_config),
             }))
 
             last_ts: int | None = None
             skip_count = skip_minutes * 60
             skipped = 0
 
-            for wid, batch in engine.iter_windows(config, dt):
+            for wid, batch in engine.iter_windows(
+                config,
+                dt,
+                gold_signal_config=gold_signal_config,
+            ):
                 if skipped < skip_count:
                     skipped += 1
                     continue

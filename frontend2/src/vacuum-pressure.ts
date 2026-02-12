@@ -84,11 +84,22 @@ interface SignalsData {
   bid_migration_com: number;
   ask_migration_com: number;
   composite: number;
+  composite_smooth?: number;
   d1_composite: number;
   d2_composite: number;
   d3_composite: number;
+  d1_smooth?: number;
+  d2_smooth?: number;
+  d3_smooth?: number;
+  wtd_slope?: number;
+  wtd_projection?: number;
+  wtd_projection_500ms?: number;
+  wtd_deriv_conf?: number;
+  z_composite_raw?: number;
+  z_composite_smooth?: number;
   confidence: number;
   strength: number;
+  strength_smooth?: number;
 }
 
 /** Parsed and validated URL query parameters. */
@@ -98,6 +109,16 @@ interface StreamParams {
   dt: string;
   speed: string;
   skip: string;
+  pre_smooth_span?: string;
+  d1_span?: string;
+  d2_span?: string;
+  d3_span?: string;
+  w_d1?: string;
+  w_d2?: string;
+  w_d3?: string;
+  projection_horizon_s?: string;
+  fast_projection_horizon_s?: string;
+  smooth_zscore_window?: string;
 }
 
 // --------------------------------------------------------- Layout constants
@@ -766,29 +787,35 @@ function updateSignalPanel(): void {
   const s = currentSignals;
   if (!s) return;
 
-  $('sig-composite').textContent = fmt(s.composite, 1);
-  $('sig-composite').style.color = signColour(s.composite, 0.01);
+  const compositeShown = s.composite_smooth ?? s.composite;
+  const d1Shown = s.d1_smooth ?? s.d1_composite;
+  const d2Shown = s.d2_smooth ?? s.d2_composite;
+  const d3Shown = s.d3_smooth ?? s.d3_composite;
+  const strengthShown = s.strength_smooth ?? s.strength;
 
-  $('sig-confidence').textContent = `${(s.confidence * 100).toFixed(0)}%`;
-  $('sig-strength').textContent = `${(s.strength * 100).toFixed(0)}%`;
+  $('sig-composite').textContent = fmt(compositeShown, 1);
+  $('sig-composite').style.color = signColour(compositeShown, 0.01);
 
-  const norm = Math.tanh(s.composite / 2000) * 0.5 + 0.5;
+  $('sig-confidence').textContent = `${(Math.max(s.confidence, s.wtd_deriv_conf ?? 0) * 100).toFixed(0)}%`;
+  $('sig-strength').textContent = `${(strengthShown * 100).toFixed(0)}%`;
+
+  const norm = Math.tanh(compositeShown / 2000) * 0.5 + 0.5;
   $compMarker.style.left = `${norm * 100}%`;
 
-  $('sig-d1').textContent = fmt(s.d1_composite, 2);
-  $('sig-d1').style.color = signColour(s.d1_composite, 0.05);
-  $('sig-d2').textContent = fmt(s.d2_composite, 2);
-  $('sig-d2').style.color = signColour(s.d2_composite, 0.1);
-  $('sig-d3').textContent = fmt(s.d3_composite, 3);
-  $('sig-d3').style.color = signColour(s.d3_composite, 0.2);
+  $('sig-d1').textContent = fmt(d1Shown, 2);
+  $('sig-d1').style.color = signColour(d1Shown, 0.05);
+  $('sig-d2').textContent = fmt(d2Shown, 2);
+  $('sig-d2').style.color = signColour(d2Shown, 0.1);
+  $('sig-d3').textContent = fmt(d3Shown, 3);
+  $('sig-d3').style.color = signColour(d3Shown, 0.2);
 
-  fillGauge('d1-fill', s.d1_composite, 500);
-  fillGauge('d2-fill', s.d2_composite, 200);
-  fillGauge('d3-fill', s.d3_composite, 100);
+  fillGauge('d1-fill', d1Shown, 500);
+  fillGauge('d2-fill', d2Shown, 200);
+  fillGauge('d3-fill', d3Shown, 100);
 
-  $('bot-d1').textContent = fmt(s.d1_composite, 1);
-  $('bot-d2').textContent = fmt(s.d2_composite, 1);
-  $('bot-d3').textContent = fmt(s.d3_composite, 2);
+  $('bot-d1').textContent = fmt(d1Shown, 1);
+  $('bot-d2').textContent = fmt(d2Shown, 1);
+  $('bot-d3').textContent = fmt(s.wtd_slope ?? d3Shown, 2);
 
   $('sig-vac-above').textContent = fmt(s.vacuum_above, 0);
   $('sig-vac-above').style.color = signColour(s.vacuum_above, 0.005);
@@ -805,7 +832,7 @@ function updateSignalPanel(): void {
   $('sig-drain-ask').textContent = fmt(s.resting_drain_ask, 0);
   $('sig-drain-bid').textContent = fmt(s.resting_drain_bid, 0);
 
-  const comp = s.composite;
+  const comp = s.wtd_slope ?? compositeShown;
   if (comp > 50) {
     $compLabel.textContent = `BULLISH ${fmt(comp, 0)}`;
     $compLabel.style.color = '#22cc66';
@@ -898,6 +925,16 @@ function parseStreamParams(): StreamParams {
     dt: params.get('dt') || '2026-02-06',
     speed: params.get('speed') || '1',
     skip: params.get('skip') || '5',
+    pre_smooth_span: params.get('pre_smooth_span') || undefined,
+    d1_span: params.get('d1_span') || undefined,
+    d2_span: params.get('d2_span') || undefined,
+    d3_span: params.get('d3_span') || undefined,
+    w_d1: params.get('w_d1') || undefined,
+    w_d2: params.get('w_d2') || undefined,
+    w_d3: params.get('w_d3') || undefined,
+    projection_horizon_s: params.get('projection_horizon_s') || undefined,
+    fast_projection_horizon_s: params.get('fast_projection_horizon_s') || undefined,
+    smooth_zscore_window: params.get('smooth_zscore_window') || undefined,
   };
 }
 
@@ -910,15 +947,35 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, speed, skip } = streamParams;
+  const {
+    product_type, symbol, dt, speed, skip,
+    pre_smooth_span, d1_span, d2_span, d3_span,
+    w_d1, w_d2, w_d3, projection_horizon_s,
+    fast_projection_horizon_s, smooth_zscore_window,
+  } = streamParams;
 
-  const url =
+  const tuningParams = new URLSearchParams();
+  if (pre_smooth_span) tuningParams.set('pre_smooth_span', pre_smooth_span);
+  if (d1_span) tuningParams.set('d1_span', d1_span);
+  if (d2_span) tuningParams.set('d2_span', d2_span);
+  if (d3_span) tuningParams.set('d3_span', d3_span);
+  if (w_d1) tuningParams.set('w_d1', w_d1);
+  if (w_d2) tuningParams.set('w_d2', w_d2);
+  if (w_d3) tuningParams.set('w_d3', w_d3);
+  if (projection_horizon_s) tuningParams.set('projection_horizon_s', projection_horizon_s);
+  if (fast_projection_horizon_s) tuningParams.set('fast_projection_horizon_s', fast_projection_horizon_s);
+  if (smooth_zscore_window) tuningParams.set('smooth_zscore_window', smooth_zscore_window);
+
+  const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
     `?product_type=${encodeURIComponent(product_type)}` +
     `&symbol=${encodeURIComponent(symbol)}` +
     `&dt=${encodeURIComponent(dt)}` +
     `&speed=${encodeURIComponent(speed)}` +
     `&skip_minutes=${encodeURIComponent(skip)}`;
+  const url = tuningParams.toString()
+    ? `${urlBase}&${tuningParams.toString()}`
+    : urlBase;
 
   console.log(`[VP] Connecting to: ${url}`);
   const ws = new WebSocket(url);
@@ -1034,11 +1091,44 @@ function connectWS(): void {
                 bid_migration_com: (j.bid_migration_com ?? 0) as number,
                 ask_migration_com: (j.ask_migration_com ?? 0) as number,
                 composite: (j.composite ?? 0) as number,
+                composite_smooth: typeof j.composite_smooth === 'number'
+                  ? (j.composite_smooth as number)
+                  : undefined,
                 d1_composite: (j.d1_composite ?? 0) as number,
                 d2_composite: (j.d2_composite ?? 0) as number,
                 d3_composite: (j.d3_composite ?? 0) as number,
+                d1_smooth: typeof j.d1_smooth === 'number'
+                  ? (j.d1_smooth as number)
+                  : undefined,
+                d2_smooth: typeof j.d2_smooth === 'number'
+                  ? (j.d2_smooth as number)
+                  : undefined,
+                d3_smooth: typeof j.d3_smooth === 'number'
+                  ? (j.d3_smooth as number)
+                  : undefined,
+                wtd_slope: typeof j.wtd_slope === 'number'
+                  ? (j.wtd_slope as number)
+                  : undefined,
+                wtd_projection: typeof j.wtd_projection === 'number'
+                  ? (j.wtd_projection as number)
+                  : undefined,
+                wtd_projection_500ms: typeof j.wtd_projection_500ms === 'number'
+                  ? (j.wtd_projection_500ms as number)
+                  : undefined,
+                wtd_deriv_conf: typeof j.wtd_deriv_conf === 'number'
+                  ? (j.wtd_deriv_conf as number)
+                  : undefined,
+                z_composite_raw: typeof j.z_composite_raw === 'number'
+                  ? (j.z_composite_raw as number)
+                  : undefined,
+                z_composite_smooth: typeof j.z_composite_smooth === 'number'
+                  ? (j.z_composite_smooth as number)
+                  : undefined,
                 confidence: (j.confidence ?? 0) as number,
                 strength: (j.strength ?? 0) as number,
+                strength_smooth: typeof j.strength_smooth === 'number'
+                  ? (j.strength_smooth as number)
+                  : undefined,
               };
               updateSignalPanel();
             }
