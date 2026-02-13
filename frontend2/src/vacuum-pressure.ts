@@ -206,8 +206,8 @@ interface StreamParams {
 // --------------------------------------------------------- Layout constants
 
 const WS_PORT = 8002;
-const MAX_REL_TICKS = 40;                   // +/-40 buckets from anchor
-const HMAP_LEVELS = MAX_REL_TICKS * 2 + 1;  // 81 rows
+const MAX_REL_TICKS = 50;                   // +/-50 buckets from anchor
+const HMAP_LEVELS = MAX_REL_TICKS * 2 + 1;  // 101 rows
 const HMAP_HISTORY = 360;                    // 6 min of 1-second columns
 const FLOW_NORM_SCALE = 500;                 // characteristic shares for tanh norm
 const DEPTH_NORM_PERCENTILE_DECAY = 0.995;
@@ -1852,6 +1852,13 @@ function setInd(id: string, active: boolean, color: string): void {
  * Updates the metadata display and hides the legacy fallback warning.
  */
 function applyRuntimeConfig(cfg: RuntimeConfig): void {
+  if (cfg.grid_max_ticks !== MAX_REL_TICKS) {
+    streamContractError(
+      'runtime_config',
+      `grid_max_ticks mismatch: frontend supports ${MAX_REL_TICKS}, backend sent ${cfg.grid_max_ticks}`,
+    );
+  }
+
   runtimeConfig = cfg;
   configReceived = true;
 
@@ -1909,7 +1916,7 @@ function parseStreamParams(): StreamParams {
     dt: params.get('dt') || '2026-02-06',
     speed: params.get('speed') || '1',
     skip: params.get('skip') || '5',
-    mode: params.get('mode') || 'replay',
+    mode: params.get('mode') || 'live',
     start_time: params.get('start_time') || undefined,
     pre_smooth_span: params.get('pre_smooth_span') || undefined,
     d1_span: params.get('d1_span') || undefined,
@@ -2058,7 +2065,7 @@ function connectWS(): void {
   } = streamParams;
 
   const tuningParams = new URLSearchParams();
-  if (mode && mode !== 'replay') tuningParams.set('mode', mode);
+  if (mode && mode !== 'live') tuningParams.set('mode', mode);
   if (start_time) tuningParams.set('start_time', start_time);
   if (pre_smooth_span) tuningParams.set('pre_smooth_span', pre_smooth_span);
   if (d1_span) tuningParams.set('d1_span', d1_span);
@@ -2120,11 +2127,13 @@ function connectWS(): void {
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
             });
-            // Detect event mode from runtime config
-            if (optionalString(msg.mode) === 'event') {
+            // Detect dense-grid stream mode from runtime config
+            const cfgMode = optionalString(msg.mode);
+            const cfgFormat = optionalString(msg.stream_format);
+            if (cfgMode === 'event' || cfgMode === 'live' || cfgFormat === 'dense_grid') {
               isEventMode = true;
               console.log(
-                `[VP] Event mode detected, grid_rows=${msg.grid_rows}, ` +
+                `[VP] Dense-grid mode detected, grid_rows=${msg.grid_rows}, ` +
                 `grid_schema_fields=${JSON.stringify(msg.grid_schema_fields)}`
               );
             }
