@@ -145,6 +145,31 @@ interface SignalsData {
   directional_feasible?: boolean;
 }
 
+/** Dense grid bucket row from event-driven mode (mode=event). */
+interface GridBucketRow {
+  k: number;
+  pressure_variant: number;
+  vacuum_variant: number;
+  resistance_variant: number;
+  add_mass: number;
+  pull_mass: number;
+  fill_mass: number;
+  rest_depth: number;
+  v_add: number;
+  v_pull: number;
+  v_fill: number;
+  v_rest_depth: number;
+  a_add: number;
+  a_pull: number;
+  a_fill: number;
+  a_rest_depth: number;
+  j_add: number;
+  j_pull: number;
+  j_fill: number;
+  j_rest_depth: number;
+  last_event_id: number;
+}
+
 type EventState = 'WATCH' | 'ARMED' | 'FIRE' | 'COOLDOWN';
 type EventMarkerPhase = 'ARMED' | 'FIRE';
 
@@ -249,6 +274,15 @@ let lastSlopeSign = 0;
 let lastBackendEventState: string | null = null;
 
 const streamContractErrors = new Set<string>();
+
+// --------------------------------------------------- Event-mode state
+let isEventMode = false;
+let currentGrid: Map<number, GridBucketRow> = new Map();
+let currentEventId = 0;
+/** Per-bucket last_event_id tracker for persistence (keyed by heatmap row). */
+const lastRenderedEventIdByRow: Map<number, number> = new Map();
+/** Running max for |pressure_variant| adaptive normalization. */
+let runningMaxPressure = 10;
 
 // --------------------------------------------------------- Viewport / Zoom
 
@@ -866,6 +900,291 @@ function pushHeatmapColumn(flow: FlowRow[], spotDollars: number): void {
   }
 }
 
+// ------------------------------------------------ Event-mode heatmap column
+
+/**
+ * Push one column of dense grid data into the heatmap pixel buffer.
+ * Analogous to pushHeatmapColumn() but for event-driven mode.
+ *
+ * Uses pressure_variant as the primary color signal (replaces net_flow)
+ * and rest_depth as the depth signal (replaces depth_qty_end).
+ *
+ * Persistence: only updates heatmap pixels for buckets whose last_event_id
+ * differs from the previously rendered event_id at that row position.
+ * Untouched buckets carry forward their existing pixel color.
+ */
+function pushHeatmapColumnFromGrid(
+  grid: Map<number, GridBucketRow>,
+  spotDollars: number,
+): void {
+  if (!anchorInitialized) {
+    anchorPriceDollars = spotDollars;
+    anchorInitialized = true;
+  }
+
+  currentSpotDollars = spotDollars;
+  const spotRow = priceToRow(spotDollars);
+  const bucket = bucketDollars();
+
+  // Auto-scroll when spot nears edge
+  if (!userPanned && (spotRow < SCROLL_MARGIN || spotRow > HMAP_LEVELS - 1 - SCROLL_MARGIN)) {
+    const newAnchor = spotDollars;
+    const shiftRows = Math.round((newAnchor - anchorPriceDollars) / bucket);
+    if (shiftRows !== 0) {
+      shiftGrid(shiftRows);
+      anchorPriceDollars = newAnchor;
+      // Shift the lastRenderedEventIdByRow keys accordingly
+      const shifted = new Map<number, number>();
+      for (const [row, eid] of lastRenderedEventIdByRow) {
+        const newRow = row + shiftRows;
+        if (newRow >= 0 && newRow < HMAP_LEVELS) {
+          shifted.set(newRow, eid);
+        }
+      }
+      lastRenderedEventIdByRow.clear();
+      for (const [row, eid] of shifted) {
+        lastRenderedEventIdByRow.set(row, eid);
+      }
+    }
+  }
+
+  const w = HMAP_HISTORY;
+  const h = HMAP_LEVELS;
+  const d = hmapData;
+
+  // Scroll heatmap left by one column
+  for (let y = 0; y < h; y++) {
+    const rowOff = y * w * 4;
+    d.copyWithin(rowOff, rowOff + 4, rowOff + w * 4);
+  }
+
+  // Clear rightmost column to dark background
+  for (let y = 0; y < h; y++) {
+    const idx = (y * w + (w - 1)) * 4;
+    d[idx] = 10; d[idx + 1] = 10; d[idx + 2] = 15; d[idx + 3] = 255;
+  }
+
+  // Advance spot trail
+  spotTrail.shift();
+  spotTrail.push(priceToRow(spotDollars));
+  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
+    const marker = spotEventMarkers[i];
+    marker.col -= 1;
+    if (marker.col < 0) {
+      spotEventMarkers.splice(i, 1);
+    }
+  }
+
+  // Map grid buckets to heatmap rows and track adaptive normalization
+  let maxP = 0;
+  let maxRestD = 0;
+  for (const bucket_row of grid.values()) {
+    const absPressure = Math.abs(bucket_row.pressure_variant);
+    if (absPressure > maxP) maxP = absPressure;
+    if (bucket_row.rest_depth > maxRestD) maxRestD = bucket_row.rest_depth;
+  }
+  runningMaxPressure = Math.max(
+    runningMaxPressure * DEPTH_NORM_PERCENTILE_DECAY,
+    maxP,
+  );
+  runningMaxDepth = Math.max(
+    runningMaxDepth * DEPTH_NORM_PERCENTILE_DECAY,
+    maxRestD,
+  );
+
+  // Write pixels for each grid bucket
+  for (const [k, bucketData] of grid) {
+    const absPrice = spotDollars + k * bucket;
+    const row = Math.round(priceToRow(absPrice));
+    if (row < 0 || row >= h) continue;
+
+    // Persistence check: skip if this bucket's last_event_id hasn't changed
+    const prevEventId = lastRenderedEventIdByRow.get(row);
+    if (prevEventId !== undefined && prevEventId === bucketData.last_event_id) {
+      continue;
+    }
+    lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
+
+    // Use heatmapRGB with rest_depth as depth and pressure_variant as flow signal.
+    // Scale pressure_variant to match the FLOW_NORM_SCALE range expected by heatmapRGB.
+    const scaledPressure = bucketData.pressure_variant * (FLOW_NORM_SCALE / Math.max(1, runningMaxPressure));
+    const [r, g, b] = heatmapRGB(bucketData.rest_depth, scaledPressure, runningMaxDepth);
+    const idx = (row * w + (w - 1)) * 4;
+    d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
+  }
+}
+
+/**
+ * Compute aggregate pressure/vacuum/resistance from the current grid.
+ * Returns synthetic SignalsData-like values for the signal panel.
+ */
+function computeGridAggregates(grid: Map<number, GridBucketRow>): {
+  pressureAbove: number;
+  pressureBelow: number;
+  vacuumAbove: number;
+  vacuumBelow: number;
+  resistanceAbove: number;
+  resistanceBelow: number;
+  netPressure: number;
+  totalRestDepthAbove: number;
+  totalRestDepthBelow: number;
+} {
+  let pressureAbove = 0;
+  let pressureBelow = 0;
+  let vacuumAbove = 0;
+  let vacuumBelow = 0;
+  let resistanceAbove = 0;
+  let resistanceBelow = 0;
+  let totalRestDepthAbove = 0;
+  let totalRestDepthBelow = 0;
+
+  for (const [k, b] of grid) {
+    if (k > 0) {
+      // Above spot
+      if (b.pressure_variant > 0) pressureAbove += b.pressure_variant;
+      if (b.vacuum_variant < 0) vacuumAbove += b.vacuum_variant;
+      resistanceAbove += b.resistance_variant;
+      totalRestDepthAbove += b.rest_depth;
+    } else if (k < 0) {
+      // Below spot
+      if (b.pressure_variant > 0) pressureBelow += b.pressure_variant;
+      if (b.vacuum_variant < 0) vacuumBelow += b.vacuum_variant;
+      resistanceBelow += b.resistance_variant;
+      totalRestDepthBelow += b.rest_depth;
+    }
+  }
+
+  const netPressure = (pressureBelow - pressureAbove) + (vacuumAbove - vacuumBelow);
+
+  return {
+    pressureAbove, pressureBelow,
+    vacuumAbove, vacuumBelow,
+    resistanceAbove, resistanceBelow,
+    netPressure,
+    totalRestDepthAbove, totalRestDepthBelow,
+  };
+}
+
+/**
+ * Update the signal panel from event-mode grid data.
+ * Shows pressure/vacuum/resistance aggregates instead of multi-timescale signals.
+ */
+function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
+  const agg = computeGridAggregates(grid);
+
+  // Lift gauge: use net pressure as lift analog
+  const netLift = agg.netPressure;
+  $('sig-net-lift').textContent = fmt(netLift, 1);
+  $('sig-net-lift').style.color = signColour(netLift, 0.01);
+  const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
+  $('lift-marker').style.left = `${liftNorm * 100}%`;
+
+  // Condition indicators
+  const vacPresent = agg.vacuumAbove < -1 || agg.vacuumBelow < -1;
+  const pressPresent = agg.pressureAbove > 5 || agg.pressureBelow > 5;
+  const moveSideResist = netLift >= 0 ? agg.resistanceAbove : agg.resistanceBelow;
+  setInd('cond-v', vacPresent, '#22cc66');
+  setInd('cond-p', pressPresent, '#22cc66');
+  setInd('cond-r', moveSideResist < 50, '#22cc66');
+
+  $('sig-cross-conf').textContent = '---';
+  $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
+
+  // Timescale section: show grid aggregate info instead
+  $('sig-lift-5s').textContent = fmt(agg.pressureAbove, 1);
+  $('sig-lift-5s').style.color = signColour(agg.pressureAbove, 0.01);
+  $('sig-d1-5s').textContent = fmt(agg.vacuumAbove, 1);
+  $('sig-d1-5s').style.color = signColour(agg.vacuumAbove, 0.05);
+  $('sig-arrow-5s').textContent = '\u2014';
+  $('sig-arrow-5s').style.color = '#555';
+
+  $('sig-lift-15s').textContent = fmt(agg.pressureBelow, 1);
+  $('sig-lift-15s').style.color = signColour(agg.pressureBelow, 0.01);
+  $('sig-d1-15s').textContent = fmt(agg.vacuumBelow, 1);
+  $('sig-d1-15s').style.color = signColour(agg.vacuumBelow, 0.05);
+  $('sig-arrow-15s').textContent = '\u2014';
+  $('sig-arrow-15s').style.color = '#555';
+
+  $('sig-lift-60s').textContent = fmt(agg.resistanceAbove, 1);
+  $('sig-lift-60s').style.color = signColour(agg.resistanceAbove, 0.01);
+  $('sig-d1-60s').textContent = fmt(agg.resistanceBelow, 1);
+  $('sig-d1-60s').style.color = signColour(agg.resistanceBelow, 0.01);
+  $('sig-arrow-60s').textContent = '\u2014';
+  $('sig-arrow-60s').style.color = '#555';
+
+  // Alignment: direction based on net pressure
+  const alignEl = $('sig-alignment');
+  if (Math.abs(netLift) < 1) {
+    alignEl.textContent = 'NEUTRAL';
+    alignEl.style.color = '#555';
+  } else if (netLift > 0) {
+    alignEl.textContent = 'BULLISH';
+    alignEl.style.color = '#22cc66';
+  } else {
+    alignEl.textContent = 'BEARISH';
+    alignEl.style.color = '#cc2255';
+  }
+
+  // Alerts: not available in event mode
+  setInd('alert-inf', false, '#ccaa22');
+  setInd('alert-dec', false, '#cc7722');
+  setInd('alert-reg', false, '#cc2255');
+  $('alert-none').style.display = '';
+
+  // Projection: derive from net pressure direction
+  const direction = Math.sign(netLift);
+  const directionText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
+  const directionColor = direction > 0 ? '#22cc66' : direction < 0 ? '#cc2255' : '#888';
+  $sigProjDir.textContent = directionText;
+  $sigProjDir.style.color = directionColor;
+  $sigProjDir.style.background = direction === 0 ? '#2f3138' : 'rgba(20, 20, 28, 0.9)';
+  $sigProjConf.textContent = '---';
+  $sigProjConf.style.color = '#888';
+  $sigEventState.textContent = 'EVENT';
+  $sigEventState.style.color = '#00ccff';
+  $sigEventState.style.background = '#1a2a3a';
+  $sigEventTransition.textContent = `#${currentEventId}`;
+  $sigEventTransition.style.color = '#aaa';
+  $sigFeasibility.textContent = '---';
+  $sigFeasibility.style.color = '#888';
+
+  // Components: map grid aggregates to component panel
+  $('sig-vac-above').textContent = fmt(agg.vacuumAbove, 1);
+  $('sig-vac-above').style.color = signColour(agg.vacuumAbove, 0.005);
+  $('sig-vac-below').textContent = fmt(agg.vacuumBelow, 1);
+  $('sig-vac-below').style.color = signColour(-agg.vacuumBelow, 0.005);
+  $('sig-flow').textContent = fmt(agg.netPressure, 1);
+  $('sig-flow').style.color = signColour(agg.netPressure, 0.005);
+  $('sig-fill').textContent = '---';
+  $('sig-fill').style.color = '#888';
+  $('sig-depth').textContent = fmt(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 1);
+  $('sig-depth').style.color = signColour(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 0.005);
+  $('sig-rest-depth').textContent = fmt(agg.totalRestDepthAbove + agg.totalRestDepthBelow, 1);
+  $('sig-rest-depth').style.color = '#aaa';
+  $('sig-press-above').textContent = fmt(agg.pressureAbove, 1);
+  $('sig-press-above').style.color = signColour(agg.pressureAbove, 0.02);
+  $('sig-press-below').textContent = fmt(agg.pressureBelow, 1);
+  $('sig-press-below').style.color = signColour(agg.pressureBelow, 0.02);
+  $('sig-resist-above').textContent = fmt(agg.resistanceAbove, 1);
+  $('sig-resist-above').style.color = signColour(agg.resistanceAbove, 0.01);
+  $('sig-resist-below').textContent = fmt(agg.resistanceBelow, 1);
+  $('sig-resist-below').style.color = signColour(agg.resistanceBelow, 0.01);
+
+  // Bottom bar
+  const regime = netLift > 10 ? 'LIFT' : netLift < -10 ? 'DRAG' : 'NEUTRAL';
+  const regimeColors: Record<string, string> = {
+    LIFT: '#22cc66', DRAG: '#cc2255', NEUTRAL: '#888',
+  };
+  $('regime-label').textContent = regime;
+  $('regime-label').style.color = regimeColors[regime] || '#888';
+  $('regime-lift-val').textContent = fmt(netLift, 1);
+  $('regime-lift-val').style.color = signColour(netLift, 0.01);
+
+  $('bot-d1-5s').textContent = fmt(agg.pressureAbove, 1);
+  $('bot-d1-15s').textContent = fmt(agg.pressureBelow, 1);
+  $('bot-d1-60s').textContent = fmt(agg.netPressure, 1);
+}
+
 // ---------------------------------------------------------------- Rendering
 
 let hmapOffscreen: HTMLCanvasElement | null = null;
@@ -1242,8 +1561,32 @@ function renderProfile(canvas: HTMLCanvasElement): void {
     ctx.fillText(p.toFixed(labelDp), 36, y);
   }
 
-  // Depth bars
-  if (currentFlow.length > 0 && currentSpotDollars > 0) {
+  // Depth bars (two paths: flow-based vs event-mode grid-based)
+  if (isEventMode && currentGrid.size > 0 && currentSpotDollars > 0) {
+    // Event mode: render rest_depth bars colored by pressure_variant
+    const maxP = runningMaxPressure || 1;
+    for (const [k, b] of currentGrid) {
+      const absPrice = currentSpotDollars + k * bucket;
+      const row = Math.round(priceToRow(absPrice));
+      if (row < vpY - 1 || row > vpY + srcH + 1) continue;
+      const y = (row - vpY) * rowH;
+      const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
+      const pressT = Math.tanh(b.pressure_variant / maxP);
+
+      if (pressT >= 0) {
+        ctx.fillStyle = `rgba(30, ${140 + Math.round(80 * pressT)}, ${120 + Math.round(50 * pressT)}, 0.7)`;
+      } else {
+        ctx.fillStyle = `rgba(${140 + Math.round(80 * (-pressT))}, 30, ${60 + Math.round(40 * (-pressT))}, 0.7)`;
+      }
+
+      // k > 0 = above spot (ask side), k < 0 = below spot (bid side)
+      if (k < 0) {
+        ctx.fillRect(midX - barW, y, barW, Math.max(1, rowH - 0.5));
+      } else {
+        ctx.fillRect(midX, y, barW, Math.max(1, rowH - 0.5));
+      }
+    }
+  } else if (currentFlow.length > 0 && currentSpotDollars > 0) {
     for (const r of currentFlow) {
       const absPrice = currentSpotDollars + r.rel_ticks * bucket;
       const row = Math.round(priceToRow(absPrice));
@@ -1629,6 +1972,11 @@ function resetStreamState(): void {
   lastSlopeSign = 0;
   lastBackendEventState = null;
   configReceived = false;
+  isEventMode = false;
+  currentGrid = new Map();
+  currentEventId = 0;
+  lastRenderedEventIdByRow.clear();
+  runningMaxPressure = 10;
 
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -1772,6 +2120,14 @@ function connectWS(): void {
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
             });
+            // Detect event mode from runtime config
+            if (optionalString(msg.mode) === 'event') {
+              isEventMode = true;
+              console.log(
+                `[VP] Event mode detected, grid_rows=${msg.grid_rows}, ` +
+                `grid_schema_fields=${JSON.stringify(msg.grid_schema_fields)}`
+              );
+            }
           } else if (msg.type === 'batch_start') {
             // If config was never received, activate legacy fallback once
             if (!configReceived) {
@@ -1792,6 +2148,36 @@ function connectWS(): void {
             }
           } else if (msg.type === 'surface_header') {
             pendingSurface = msg.surface as string;
+          } else if (msg.type === 'grid_update') {
+            // Event-mode: JSON header with scalar metadata, followed by grid binary
+            isEventMode = true;
+            const tsNs = requireBigIntField('grid_update', msg, 'ts_ns');
+            const eventId = requireNumberField('grid_update', msg, 'event_id');
+            const midPrice = requireNumberField('grid_update', msg, 'mid_price');
+            const spotRefPriceInt = requireBigIntField('grid_update', msg, 'spot_ref_price_int');
+            const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
+            const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
+            const bookValid = requireBooleanField('grid_update', msg, 'book_valid');
+
+            snap = {
+              window_end_ts_ns: tsNs,
+              mid_price: midPrice,
+              spot_ref_price_int: spotRefPriceInt,
+              best_bid_price_int: bestBidPriceInt,
+              best_ask_price_int: bestAskPriceInt,
+              book_valid: bookValid,
+            };
+            currentSpotDollars = midPrice;
+            currentEventId = eventId;
+            windowCount++;
+
+            $spotVal.textContent = `$${midPrice.toFixed(priceDecimals())}`;
+            $tsVal.textContent = formatTs(tsNs);
+            $winVal.textContent = String(windowCount);
+            $winIdVal.textContent = String(eventId);
+
+            // Next binary frame is the grid
+            pendingSurface = 'grid';
           }
         } else if (event.data instanceof Blob) {
           // ── Binary frame (Arrow IPC) ──
@@ -1818,6 +2204,41 @@ function connectWS(): void {
               $spotVal.textContent = `$${snap.mid_price.toFixed(priceDecimals())}`;
               $tsVal.textContent = formatTs(snap.window_end_ts_ns);
             }
+          } else if (surface === 'grid') {
+            // Event-mode: dense grid Arrow IPC (2K+1 rows)
+            const gridMap = new Map<number, GridBucketRow>();
+            for (let i = 0; i < table.numRows; i++) {
+              const row = table.get(i);
+              if (!row) continue;
+              const j = row.toJSON() as Record<string, unknown>;
+              const k = requireNumberField('grid', j, 'k');
+              gridMap.set(k, {
+                k,
+                pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
+                vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
+                resistance_variant: requireNumberField('grid', j, 'resistance_variant'),
+                add_mass: requireNumberField('grid', j, 'add_mass'),
+                pull_mass: requireNumberField('grid', j, 'pull_mass'),
+                fill_mass: requireNumberField('grid', j, 'fill_mass'),
+                rest_depth: requireNumberField('grid', j, 'rest_depth'),
+                v_add: requireNumberField('grid', j, 'v_add'),
+                v_pull: requireNumberField('grid', j, 'v_pull'),
+                v_fill: requireNumberField('grid', j, 'v_fill'),
+                v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
+                a_add: requireNumberField('grid', j, 'a_add'),
+                a_pull: requireNumberField('grid', j, 'a_pull'),
+                a_fill: requireNumberField('grid', j, 'a_fill'),
+                a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
+                j_add: requireNumberField('grid', j, 'j_add'),
+                j_pull: requireNumberField('grid', j, 'j_pull'),
+                j_fill: requireNumberField('grid', j, 'j_fill'),
+                j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
+                last_event_id: requireNumberField('grid', j, 'last_event_id'),
+              });
+            }
+            currentGrid = gridMap;
+            pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);
+            updateSignalPanelFromGrid(gridMap);
           } else if (surface === 'flow') {
             const rows: FlowRow[] = [];
             for (let i = 0; i < table.numRows; i++) {

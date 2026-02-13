@@ -1,24 +1,34 @@
 """Streaming orchestrator for live vacuum-pressure pipeline.
 
-Wires together:
-    1. DBN replay source (event-by-event from .dbn files)
-    2. Book engine (FuturesBookEngine / EquityBookEngine)
-    3. Incremental signal engine (per-window signal computation)
-    4. Arrow IPC serialization for WebSocket broadcast
+Two streaming architectures coexist in this module:
 
-The book engines accumulate snap_rows and depth_flow_rows internally.
-StreamingBookAdapter wraps them to detect when a window has been emitted
-and extract the new rows, yielding (snap_dict, flow_df) per window.
+**Window-based (legacy, deprecated):**
+    Wires together:
+        1. DBN replay source (event-by-event from .dbn files)
+        2. Book engine (FuturesBookEngine / EquityBookEngine)
+        3. Incremental signal engine (per-window signal computation)
+        4. Arrow IPC serialization for WebSocket broadcast
+    Functions: ``stream_windows()``, ``async_stream_windows()``
 
-Hot path: event -> book engine -> signal engine -> Arrow bytes
-Cold path (optional): async parquet writes for replay/backtest
+**Event-driven (canonical):**
+    Wires together:
+        1. DBN replay source (event-by-event from .dbn files)
+        2. EventDrivenVPEngine (combined book + physics in one pass)
+        3. Dense grid output (2K+1 buckets per event)
+    Functions: ``stream_events()``, ``async_stream_events()``
+
+The event-driven path replaces the window-based path. Both
+StreamingBookAdapter and IncrementalSignalEngine are superseded by
+EventDrivenVPEngine, which processes each MBO event individually with
+no 1-second window aggregation.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -38,11 +48,15 @@ from ..data_eng.stages.silver.future_mbo.book_engine import (
 )
 from ..data_eng.stages.silver.future_mbo.book_engine import FuturesBookEngine
 from .config import VPRuntimeConfig
+from .event_engine import EventDrivenVPEngine
 from .formulas import GoldSignalConfig
 from .incremental import IncrementalSignalEngine
 from .replay_source import iter_mbo_events
 
 logger = logging.getLogger(__name__)
+
+# Price scale imported from data_eng for config -> engine parameter mapping
+DATA_PRICE_SCALE: float = PRICE_SCALE
 
 
 # Type alias for a window yield: (window_end_ts_ns, snap_dict, flow_df)
@@ -486,6 +500,226 @@ async def async_stream_windows(
 
             last_emitted_ts = wid
             yield wid, signals, snap_dict, flow_df
+    finally:
+        await future
+        executor.shutdown(wait=False)
+
+
+# ======================================================================
+# Event-driven streaming (canonical replacement for window-based above)
+# ======================================================================
+
+
+def _create_event_engine(config: VPRuntimeConfig) -> EventDrivenVPEngine:
+    """Create an EventDrivenVPEngine from resolved runtime config.
+
+    Maps VPRuntimeConfig parameters to EventDrivenVPEngine constructor
+    arguments. For futures, tick_int is derived from tick_size. For
+    equities, tick_int is derived from bucket_size_dollars.
+
+    Args:
+        config: Resolved vacuum-pressure runtime configuration.
+
+    Returns:
+        Configured EventDrivenVPEngine instance.
+    """
+    if config.product_type == "future_mbo":
+        tick_int = int(round(config.tick_size / DATA_PRICE_SCALE))
+    else:  # equity_mbo
+        tick_int = int(round(config.bucket_size_dollars / DATA_PRICE_SCALE))
+
+    return EventDrivenVPEngine(
+        K=config.grid_max_ticks,
+        tick_int=tick_int,
+        bucket_size_dollars=config.bucket_size_dollars,
+    )
+
+
+def stream_events(
+    lake_root: Path,
+    config: VPRuntimeConfig,
+    dt: str,
+    start_time: str | None = None,
+    throttle_ms: float = 0,
+) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
+    """Synchronous generator: replay .dbn -> EventDrivenVPEngine -> dense grid.
+
+    Feeds each MBO event from the raw .dbn file directly to the canonical
+    EventDrivenVPEngine. No intermediate book adapter or window aggregation.
+
+    The engine processes every event and maintains internal order book state,
+    spot tracking, per-bucket derivative chains, and force variants. Each
+    yield produces the full dense grid (2K+1 buckets).
+
+    If ``throttle_ms > 0``, only yields when at least ``throttle_ms``
+    milliseconds of event-time have elapsed since the last yield. This
+    reduces output volume for transport-limited consumers (e.g. WebSocket)
+    without losing any engine state (all events are still processed).
+
+    Args:
+        lake_root: Path to the lake directory.
+        config: Resolved VP runtime config.
+        dt: Date string (YYYY-MM-DD).
+        start_time: When to start emitting, as "HH:MM" in ET.
+            Events before (start_time - warmup) are skipped at the
+            source level. Snapshot/Clear records always processed.
+            None = start from beginning of session.
+        throttle_ms: Minimum milliseconds between yields (event-time).
+            0 = yield after every event. Positive values throttle output
+            by skipping intermediate yields (engine still processes all
+            events for correct state).
+
+    Yields:
+        (event_id, grid_dict) where grid_dict contains:
+            ts_ns, event_id, spot_ref_price_int, mid_price,
+            best_bid_price_int, best_ask_price_int, book_valid,
+            buckets (list of 2K+1 dicts), touched_k.
+    """
+    skip_to_ns, emit_after_ns = _compute_time_boundaries(
+        config.product_type, dt, start_time,
+    )
+
+    engine = _create_event_engine(config)
+    throttle_ns = int(throttle_ms * 1_000_000)
+
+    event_count = 0
+    yielded_count = 0
+    warmup_count = 0
+    last_yield_ts_ns: int = 0
+
+    t_wall_start = time.monotonic()
+
+    for event in iter_mbo_events(
+        lake_root, config.product_type, config.symbol, dt,
+        skip_to_ns=skip_to_ns,
+    ):
+        ts_ns, action, side, price, size, order_id, flags = event
+        event_count += 1
+
+        grid = engine.update(
+            ts_ns=ts_ns,
+            action=action,
+            side=side,
+            price_int=price,
+            size=size,
+            order_id=order_id,
+            flags=flags,
+        )
+
+        # Warmup: process through engine but don't yield
+        if emit_after_ns > 0 and ts_ns < emit_after_ns:
+            warmup_count += 1
+            continue
+
+        # Throttle: only yield when enough event-time has elapsed
+        if throttle_ns > 0 and last_yield_ts_ns > 0:
+            if (ts_ns - last_yield_ts_ns) < throttle_ns:
+                continue
+
+        last_yield_ts_ns = ts_ns
+        yielded_count += 1
+        yield grid["event_id"], grid
+
+    elapsed = time.monotonic() - t_wall_start
+    rate = event_count / elapsed if elapsed > 0 else 0.0
+    logger.info(
+        "stream_events complete: %d events, %d yielded, %d warmup, "
+        "%.2fs wall (%.0f evt/s)",
+        event_count, yielded_count, warmup_count, elapsed, rate,
+    )
+
+
+async def async_stream_events(
+    lake_root: Path,
+    config: VPRuntimeConfig,
+    dt: str,
+    speed: float = 1.0,
+    start_time: str | None = None,
+    throttle_ms: float = 100,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Async generator: replay .dbn -> EventDrivenVPEngine -> dense grid with pacing.
+
+    Heavy synchronous work (DBN iteration + engine updates) runs in a
+    background thread. Results are communicated via ``asyncio.Queue`` so
+    the event loop stays responsive for WebSocket I/O.
+
+    Pacing is applied based on event-time deltas scaled by ``1/speed``.
+    The ``throttle_ms`` parameter controls how frequently updates are
+    emitted (in event-time). Default 100ms means max ~10 updates/sec
+    over WebSocket, which is sufficient for frontend rendering.
+
+    Args:
+        lake_root: Path to the lake directory.
+        config: Resolved VP runtime config.
+        dt: Date string (YYYY-MM-DD).
+        speed: Replay speed multiplier. 0 = fire-hose (no delays).
+        start_time: When to start emitting, as "HH:MM" in ET.
+            None = start from beginning of session.
+        throttle_ms: Minimum milliseconds between yields (event-time).
+            Default 100 = max ~10 updates/sec over WebSocket.
+
+    Yields:
+        grid_dict containing: ts_ns, event_id, spot_ref_price_int,
+        mid_price, best_bid_price_int, best_ask_price_int, book_valid,
+        buckets (list of 2K+1 dicts), touched_k.
+    """
+    import concurrent.futures
+    import queue as thread_queue
+
+    q: thread_queue.Queue = thread_queue.Queue(maxsize=256)
+    _SENTINEL = object()
+
+    def _producer() -> None:
+        """Run synchronous event pipeline in background thread."""
+        try:
+            produced = 0
+            for _event_id, grid in stream_events(
+                lake_root=lake_root,
+                config=config,
+                dt=dt,
+                start_time=start_time,
+                throttle_ms=throttle_ms,
+            ):
+                # Blocking put provides natural backpressure
+                q.put(grid)
+                produced += 1
+
+            logger.info(
+                "async_stream_events producer done: %d grids produced",
+                produced,
+            )
+        except Exception as exc:
+            logger.error(
+                "async_stream_events producer error: %s", exc, exc_info=True,
+            )
+        finally:
+            q.put(_SENTINEL)
+
+    loop = asyncio.get_event_loop()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = loop.run_in_executor(executor, _producer)
+
+    last_emitted_ts_ns: int | None = None
+    pacing = speed > 0
+
+    try:
+        while True:
+            item = await loop.run_in_executor(None, q.get)
+            if item is _SENTINEL:
+                break
+
+            grid = item
+
+            # Pacing: sleep between events based on event-time delta
+            ts_ns = grid["ts_ns"]
+            if pacing and last_emitted_ts_ns is not None:
+                delta_s = (ts_ns - last_emitted_ts_ns) / 1e9
+                wait = delta_s / speed
+                if wait > 0:
+                    await asyncio.sleep(wait)
+
+            last_emitted_ts_ns = ts_ns
+            yield grid
     finally:
         await future
         executor.shutdown(wait=False)

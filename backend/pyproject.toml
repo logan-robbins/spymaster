@@ -40,6 +40,11 @@ dependencies = [
     "websockets>=15.0.1",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "real_data: requires real .dbn files in lake (may be slow)",
+]
+
 [dependency-groups]
 dev = [
     "delta-spark>=4.0.1",

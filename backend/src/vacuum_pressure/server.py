@@ -6,12 +6,14 @@ via WebSocket using Arrow IPC binary encoding.
 Supports both ``equity_mbo`` and ``future_mbo`` product types via
 runtime configuration resolved at stream start.
 
-Two streaming modes:
+Three streaming modes:
     **replay** (default): Load precomputed silver parquet, stream windows.
     **live**: Read raw .dbn file event-by-event, reconstruct book in-memory,
         compute signals incrementally, and stream windows in real time.
+    **event**: Read raw .dbn file event-by-event, feed to canonical
+        EventDrivenVPEngine, stream dense grid per event (or throttled).
 
-Protocol (per connection):
+Protocol for replay/live (per connection):
     0. JSON ``{"type": "runtime_config", ...}``  (full config block, once)
     Then per 1-second window:
     1. JSON ``{"type": "batch_start", "window_end_ts_ns": "...", ...}``
@@ -21,6 +23,12 @@ Protocol (per connection):
     5. Binary: Arrow IPC bytes for flow (~200 rows, per-bucket)
     6. JSON ``{"type": "surface_header", "surface": "signals"}``
     7. Binary: Arrow IPC bytes for signals (1 row, aggregated)
+
+Protocol for event mode (per connection):
+    0. JSON ``{"type": "runtime_config", ...}``  (full config block, once)
+    Then per event (or throttled batch):
+    1. JSON ``{"type": "grid_update", "ts_ns": ..., "event_id": ..., ...}``
+    2. Binary: Arrow IPC bytes for dense grid (2K+1 rows, one per bucket)
 """
 from __future__ import annotations
 
@@ -28,8 +36,9 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -38,7 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import VPRuntimeConfig, resolve_config
 from .engine import VacuumPressureEngine, validate_silver_readiness
 from .formulas import GoldSignalConfig
-from .stream_pipeline import async_stream_windows
+from .stream_pipeline import async_stream_events, async_stream_windows
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +159,40 @@ SIGNALS_SCHEMA = pa.schema([
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Event-driven dense grid Arrow IPC schema
+# ──────────────────────────────────────────────────────────────────────
+
+GRID_SCHEMA = pa.schema([
+    ("k", pa.int32()),
+    ("pressure_variant", pa.float64()),
+    ("vacuum_variant", pa.float64()),
+    ("resistance_variant", pa.float64()),
+    ("add_mass", pa.float64()),
+    ("pull_mass", pa.float64()),
+    ("fill_mass", pa.float64()),
+    ("rest_depth", pa.float64()),
+    ("v_add", pa.float64()),
+    ("v_pull", pa.float64()),
+    ("v_fill", pa.float64()),
+    ("v_rest_depth", pa.float64()),
+    ("a_add", pa.float64()),
+    ("a_pull", pa.float64()),
+    ("a_fill", pa.float64()),
+    ("a_rest_depth", pa.float64()),
+    ("j_add", pa.float64()),
+    ("j_pull", pa.float64()),
+    ("j_fill", pa.float64()),
+    ("j_rest_depth", pa.float64()),
+    ("last_event_id", pa.int64()),
+])
+"""Arrow schema for the dense per-bucket grid emitted by EventDrivenVPEngine.
+
+Each grid update contains exactly 2K+1 rows (one per bucket from -K to +K).
+All fields are non-nullable by construction (engine guarantees G3: no NaN/Inf).
+"""
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Arrow IPC serialisation
 # ──────────────────────────────────────────────────────────────────────
 
@@ -200,6 +243,49 @@ def _df_to_arrow_ipc(df: pd.DataFrame, schema: pa.Schema) -> bytes:
 
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
+        writer.write_table(table)
+    return sink.getvalue().to_pybytes()
+
+
+def _grid_to_arrow_ipc(grid_dict: Dict[str, Any]) -> bytes:
+    """Convert an EventDrivenVPEngine grid dict to Arrow IPC stream bytes.
+
+    Extracts the bucket list from the grid_dict and serializes each
+    bucket as one row in a table matching ``GRID_SCHEMA``. Uses direct
+    columnar construction from the bucket dicts for efficiency (no
+    pandas intermediate).
+
+    Args:
+        grid_dict: Output from ``EventDrivenVPEngine.update()``.
+            Must contain ``buckets`` key with list of bucket dicts.
+
+    Returns:
+        Arrow IPC stream bytes with 2K+1 rows.
+    """
+    buckets = grid_dict["buckets"]
+    n = len(buckets)
+
+    # Build columnar arrays directly from bucket dicts
+    arrays = []
+    for field in GRID_SCHEMA:
+        if field.name == "k":
+            arr = pa.array(
+                [b["k"] for b in buckets], type=pa.int32(),
+            )
+        elif field.name == "last_event_id":
+            arr = pa.array(
+                [b["last_event_id"] for b in buckets], type=pa.int64(),
+            )
+        else:
+            arr = pa.array(
+                [b[field.name] for b in buckets], type=pa.float64(),
+            )
+        arrays.append(arr)
+
+    table = pa.Table.from_arrays(arrays, schema=GRID_SCHEMA)
+
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, GRID_SCHEMA) as writer:
         writer.write_table(table)
     return sink.getvalue().to_pybytes()
 
@@ -286,10 +372,10 @@ def create_app(
         """
         await websocket.accept()
 
-        if mode not in ("replay", "live"):
+        if mode not in ("replay", "live", "event"):
             await websocket.send_text(json.dumps({
                 "type": "error",
-                "message": f"Invalid mode '{mode}'. Must be 'replay' or 'live'.",
+                "message": f"Invalid mode '{mode}'. Must be 'replay', 'live', or 'event'.",
             }))
             await websocket.close(code=1008, reason="Invalid mode")
             return
@@ -348,7 +434,11 @@ def create_app(
             speed, skip_minutes, config.config_version, vars(gold_signal_config),
         )
 
-        if mode == "live":
+        if mode == "event":
+            await _stream_event_driven(
+                websocket, lake_root, config, dt, speed, start_time,
+            )
+        elif mode == "live":
             await _stream_live(
                 websocket, lake_root, config, dt, speed, skip_minutes,
                 gold_signal_config, start_time,
@@ -628,3 +718,99 @@ def _log_window_snapshot(
         logger.info("VP_WINDOW %s", json.dumps(payload, separators=(",", ":")))
     except Exception as exc:
         logger.warning("Failed to serialize VP_WINDOW payload: %s", exc)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Event-driven streaming handler (mode=event)
+# ──────────────────────────────────────────────────────────────────────
+
+
+async def _stream_event_driven(
+    websocket: WebSocket,
+    lake_root: Path,
+    config: VPRuntimeConfig,
+    dt: str,
+    speed: float,
+    start_time: str | None = None,
+    throttle_ms: float = 100,
+) -> None:
+    """Stream dense grid from EventDrivenVPEngine over WebSocket.
+
+    Protocol per update:
+        1. JSON ``grid_update`` header with scalar metadata.
+        2. Binary Arrow IPC with 2K+1 rows (one per bucket).
+
+    The EventDrivenVPEngine replaces both StreamingBookAdapter and
+    IncrementalSignalEngine. It processes every MBO event, maintains
+    its own internal order book, and computes per-bucket derivative
+    chains and force variants.
+
+    Args:
+        websocket: Active WebSocket connection.
+        lake_root: Path to the lake directory.
+        config: Resolved VP runtime config.
+        dt: Date string (YYYY-MM-DD).
+        speed: Replay speed multiplier. 0 = fire-hose.
+        start_time: When to start emitting, as "HH:MM" in ET.
+        throttle_ms: Minimum ms between updates (event-time).
+            Default 100 = max ~10 updates/sec.
+    """
+    logger.info(
+        "VP event stream starting: config=%s start_time=%s throttle_ms=%.0f",
+        json.dumps(config.to_dict()), start_time, throttle_ms,
+    )
+
+    grid_count = 0
+
+    try:
+        # First control message: full runtime config
+        await websocket.send_text(json.dumps({
+            "type": "runtime_config",
+            **config.to_dict(),
+            "mode": "event",
+            "grid_schema_fields": [f.name for f in GRID_SCHEMA],
+            "grid_rows": 2 * config.grid_max_ticks + 1,
+        }))
+
+        async for grid in async_stream_events(
+            lake_root=lake_root,
+            config=config,
+            dt=dt,
+            speed=speed,
+            start_time=start_time,
+            throttle_ms=throttle_ms,
+        ):
+            grid_count += 1
+
+            # JSON header with scalar metadata
+            await websocket.send_text(json.dumps({
+                "type": "grid_update",
+                "ts_ns": str(grid["ts_ns"]),
+                "event_id": grid["event_id"],
+                "mid_price": grid["mid_price"],
+                "spot_ref_price_int": str(grid["spot_ref_price_int"]),
+                "best_bid_price_int": str(grid["best_bid_price_int"]),
+                "best_ask_price_int": str(grid["best_ask_price_int"]),
+                "book_valid": grid["book_valid"],
+            }))
+
+            # Binary: Arrow IPC with dense grid (2K+1 rows)
+            await websocket.send_bytes(_grid_to_arrow_ipc(grid))
+
+            if grid_count % 1000 == 0:
+                logger.info(
+                    "VP event stream: %d grids sent (event_id=%d, "
+                    "mid=%.2f, spot=%s)",
+                    grid_count, grid["event_id"],
+                    grid["mid_price"],
+                    grid["spot_ref_price_int"],
+                )
+
+    except WebSocketDisconnect:
+        logger.info("VP event stream client disconnected")
+    except Exception as exc:
+        logger.error("VP event stream error: %s", exc, exc_info=True)
+    finally:
+        logger.info(
+            "VP event stream disconnected (%d grids sent)", grid_count,
+        )
