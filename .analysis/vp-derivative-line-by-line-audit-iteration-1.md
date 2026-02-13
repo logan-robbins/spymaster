@@ -41,17 +41,17 @@ This document records how current code differs from that intent.
 2. Current "pressure/vacuum" is largely formed from level-time aggregations before derivatives; target requires derivative-led force definitions at bucket level.
 3. Current timescale lanes are filter labels, not true local-force horizons at each relative bucket.
 4. Frontend heatmap is net-flow/depth color and does not render derivative-defined force surfaces:
-   - current color mapping: `frontend2/src/vacuum-pressure.ts:697`
-   - parsed but unused force-intensity fields in color logic: `frontend2/src/vacuum-pressure.ts:1837`
+   - current color mapping: `frontend/src/vacuum-pressure.ts:697`
+   - parsed but unused force-intensity fields in color logic: `frontend/src/vacuum-pressure.ts:1837`
 5. Frontend anchoring uses `mid_price` flow mapping rather than strict spot-ref frame semantics for force-field indexing:
-   - spot set: `frontend2/src/vacuum-pressure.ts:1817`
-   - row map: `frontend2/src/vacuum-pressure.ts:841`
+   - spot set: `frontend/src/vacuum-pressure.ts:1817`
+   - row map: `frontend/src/vacuum-pressure.ts:841`
 
 ## 3) Rendering persistence requirement status
 - Required behavior: "no updates at a level => shade persists."
 - Current buffer behavior already shifts prior columns forward and only writes new rightmost-column values:
-  - shift existing pixels: `frontend2/src/vacuum-pressure.ts:819`
-  - initialize new column dark then overwrite where rows exist: `frontend2/src/vacuum-pressure.ts:824`
+  - shift existing pixels: `frontend/src/vacuum-pressure.ts:819`
+  - initialize new column dark then overwrite where rows exist: `frontend/src/vacuum-pressure.ts:824`
 - This persistence exists in time-history columns, but not yet as derivative-defined force shading.
 
 ## 4) Direct conclusion

@@ -26,7 +26,7 @@ These are hard acceptance constraints:
 ## Scope
 Modify only vacuum-pressure product components:
 - backend: `backend/src/vacuum_pressure/*`, `backend/scripts/run_vacuum_pressure.py`, `backend/tests/test_vacuum_pressure_*`
-- frontend: `frontend2/src/vacuum-pressure.ts`, `frontend2/vacuum-pressure.html`
+- frontend: `frontend/src/vacuum-pressure.ts`, `frontend/vacuum-pressure.html`
 
 If existing VP code blocks requirements, replace it.
 
@@ -91,7 +91,7 @@ Requirements:
 
 Primary files:
 - `backend/src/vacuum_pressure/server.py`
-- `frontend2/src/vacuum-pressure.ts`
+- `frontend/src/vacuum-pressure.ts`
 
 ### Step 6: Frontend persistent shading
 Renderer must reflect state persistence:
@@ -100,8 +100,8 @@ Renderer must reflect state persistence:
 3. force-layer rendering uses pressure-variant field, not net-flow-only fallback.
 
 Primary files:
-- `frontend2/src/vacuum-pressure.ts`
-- `frontend2/vacuum-pressure.html`
+- `frontend/src/vacuum-pressure.ts`
+- `frontend/vacuum-pressure.html`
 
 ## Proof plan (must be implemented as tests)
 

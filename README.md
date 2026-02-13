@@ -17,7 +17,7 @@ Symbol routing:
 Download futures raw data:
 ```bash
 cd backend
-nohup uv run python scripts/batch_download_futures.py daemon \
+nohup uv run scripts/batch_download_futures.py daemon \
   --start YYYY-MM-DD --end YYYY-MM-DD \
   --symbols MNQ \
   --include-futures \
@@ -29,7 +29,7 @@ nohup uv run python scripts/batch_download_futures.py daemon \
 Download equities raw data:
 ```bash
 cd backend
-nohup uv run python scripts/batch_download_equities.py daemon \
+nohup uv run scripts/batch_download_equities.py daemon \
   --start YYYY-MM-DD --end YYYY-MM-DD \
   --symbols QQQ \
   --equity-schemas mbo \
@@ -53,7 +53,7 @@ kill $(lsof -t -iTCP:5174) 2>/dev/null
 2. Start VP live dense-grid server:
 ```bash
 cd backend
-nohup uv run python scripts/run_vacuum_pressure.py \
+nohup uv run scripts/run_vacuum_pressure.py \
   --product-type future_mbo \
   --symbol MNQH6 \
   --dt YYYY-MM-DD \
@@ -65,8 +65,9 @@ nohup uv run python scripts/run_vacuum_pressure.py \
 
 3. Start frontend:
 ```bash
-cd frontend2
-nohup npm run dev > /tmp/frontend2_vp.log 2>&1 &
+cd frontend
+npm ci
+nohup npm run dev > /tmp/frontend_vp.log 2>&1 &
 ```
 
 4. Open VP UI:
@@ -79,49 +80,28 @@ VP websocket:
 ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=YYYY-MM-DD&speed=1&start_time=09:30&throttle_ms=25
 ```
 
-## Bring Up Velocity (Optional)
-Requires pipeline + calibration.
-
-Pipeline:
-```bash
-cd backend
-uv run python -m src.data_eng.runner --product-type future_mbo --layer bronze --symbol MNQ --dt YYYY-MM-DD --workers 4
-uv run python -m src.data_eng.runner --product-type future_mbo --layer silver --symbol MNQH6 --dt YYYY-MM-DD --workers 4
-uv run python -m src.data_eng.runner --product-type future_mbo --layer gold --symbol MNQH6 --dt YYYY-MM-DD --workers 4
-```
-
-Calibration + server:
-```bash
-cd backend
-uv run python -m scripts.fit_lookahead_beta_gamma
-nohup uv run python -m src.serving.velocity_main > /tmp/velocity.log 2>&1 &
-```
-
-Velocity websocket:
-```text
-ws://localhost:8001/v1/velocity/stream?symbol=MNQH6&dt=YYYY-MM-DD&speed=10
-```
-
 ## Health / Debug
 ```bash
-lsof -iTCP:8001 -sTCP:LISTEN
 lsof -iTCP:8002 -sTCP:LISTEN
 lsof -iTCP:5174 -sTCP:LISTEN
 curl -s http://localhost:8002/health
 tail -f /tmp/vp_live.log
-tail -f /tmp/frontend2_vp.log
+tail -f /tmp/frontend_vp.log
 ```
 
 ## Tests
-VP live dense-grid engine:
+VP backend sanity checks (trimmed backend):
 ```bash
 cd backend
-uv run pytest tests/test_event_engine.py tests/test_event_engine_invariants.py -v
+uv run scripts/run_vacuum_pressure.py --help
+uv run scripts/batch_download_futures.py --help
+uv run scripts/batch_download_equities.py --help
 ```
 
 Frontend type check:
 ```bash
-cd frontend2
+cd frontend
+npm ci
 npx tsc --noEmit
 ```
 
@@ -132,5 +112,6 @@ npx tsc --noEmit
 - VP event engine: `backend/src/vacuum_pressure/event_engine.py`
 - VP ingest adapter (.dbn): `backend/src/vacuum_pressure/replay_source.py`
 - VP config resolver: `backend/src/vacuum_pressure/config.py`
-- VP frontend: `frontend2/src/vacuum-pressure.ts`
+- VP frontend: `frontend/src/vacuum-pressure.ts`
+- VP frontend page: `frontend/vacuum-pressure.html`
 - Product config: `backend/src/data_eng/config/products.yaml`

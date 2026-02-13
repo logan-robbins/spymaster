@@ -1,6 +1,0 @@
-$schema: https://azuremlschemas.azureedge.net/latest/model.schema.json
-name: es_logreg_model
-version: "1"
-description: ES futures logistic regression model trained with Hyperopt
-path: /tmp/best_run/named-outputs/model_out/model_out
-type: custom_model

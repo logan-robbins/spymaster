@@ -19,7 +19,7 @@ Current implementation is effectively equity-only and hardcoded around QQQ assum
 - Engine reads only `silver/product_type=equity_mbo/...` (`backend/src/vacuum_pressure/engine.py`).
 - Server emits fixed `bucket_size=0.50` and `tick_size=0.50` (`backend/src/vacuum_pressure/server.py`).
 - Formulas assume fixed bucket dollars and proximity constants in equity units (`backend/src/vacuum_pressure/formulas.py`).
-- Frontend hardcodes `BUCKET_DOLLARS = 0.50` and fixed UI scale constants (`frontend2/src/vacuum-pressure.ts`).
+- Frontend hardcodes `BUCKET_DOLLARS = 0.50` and fixed UI scale constants (`frontend/src/vacuum-pressure.ts`).
 
 Result: futures silver data exists but cannot be consumed correctly without semantic drift.
 
@@ -160,7 +160,7 @@ Before stream starts:
 
 ## 5.1 Runtime Config Consumption
 
-Replace all hardcoded instrument constants in `frontend2/src/vacuum-pressure.ts` with server-driven config:
+Replace all hardcoded instrument constants in `frontend/src/vacuum-pressure.ts` with server-driven config:
 
 - bucket size used for row/price mapping
 - price axis label interval
