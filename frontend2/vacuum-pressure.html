@@ -61,6 +61,43 @@
     #top-bar .meta-val   { color: #aaa; font-size: 10px; font-weight: 500; }
     #spot-val  { color: #00ffcc; font-weight: 700; font-size: 13px; }
     #ts-val    { color: #aaa; }
+    #top-controls {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ctrl-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid rgba(100, 100, 150, 0.35);
+      background: rgba(30, 32, 46, 0.85);
+      color: #b8bfd6;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .ctrl-btn:hover {
+      border-color: rgba(0, 255, 170, 0.45);
+      color: #00ffaa;
+    }
+    .ctrl-btn:active {
+      transform: translateY(1px);
+    }
+    #stream-state {
+      margin-left: 6px;
+      font-size: 9px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #00ffaa;
+      min-width: 46px;
+      text-align: right;
+    }
 
     /* -- Main content -- */
     #main {
@@ -289,6 +326,8 @@
       <div class="sep"></div>
       <span class="info">Window</span>
       <span id="win-val" class="val">0</span>
+      <span class="meta-label">WinID</span>
+      <span id="win-id-val" class="meta-val">--</span>
       <div class="sep"></div>
       <!-- Runtime metadata (populated once config arrives from server) -->
       <span class="meta-label">Type</span>
@@ -301,6 +340,12 @@
       <span id="meta-bucket" class="meta-val">--</span>
       <span class="meta-label">Mult</span>
       <span id="meta-mult" class="meta-val">--</span>
+      <div id="top-controls">
+        <button id="ctrl-pause" class="ctrl-btn" title="Pause stream" aria-label="Pause stream">&#9208;</button>
+        <button id="ctrl-play" class="ctrl-btn" title="Play stream" aria-label="Play stream">&#9654;</button>
+        <button id="ctrl-restart" class="ctrl-btn" title="Restart stream" aria-label="Restart stream">&#8635;</button>
+        <span id="stream-state">LIVE</span>
+      </div>
     </div>
 
     <!-- Main content -->

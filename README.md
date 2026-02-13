@@ -211,6 +211,7 @@ Location: `frontend2/`
 - Entry: `src/main.ts`
 - WebSocket client: `src/ws-client.ts`
 - Layout: `index.html`
+- Vacuum-pressure controls: top-right `pause` / `play` / `restart` plus `WinID` display in `vacuum-pressure.html`
 
 ```bash
 cd frontend2
@@ -311,6 +312,8 @@ Health checks:
   - `lsof -iTCP:5174 -sTCP:LISTEN`
 - Sidecar output:
   - `tail -n 40 backend/logs/vp_fire_sidecar_mnqh6_live.jsonl`
+- Per-window stream diagnostics (backend snapshot + signal summary, includes `window_end_ts_ns`):
+  - `rg "VP_WINDOW" /tmp/vp_live.log | tail -n 20`
 
 ### Streaming Modes
 
@@ -372,7 +375,7 @@ The live-mode incremental engine (`incremental.py`) uses a fluid-dynamics-inspir
 - Medium (15s): pre-smooth=8, d1_span=8, d2_span=15, projection=10s
 - Slow (60s): pre-smooth=30, d1_span=20, d2_span=40, projection=30s
 
-**Cross-timescale confidence:** `min(magnitude) / max(magnitude)` when all 3 timescales agree in sign; 0.0 when they disagree.
+**Cross-timescale confidence:** soft signed-coherence in `[0,1]` using majority sign agreement across non-zero 5s/15s/60s plus magnitude balance among agreeing timescales (not hard all-or-nothing).
 
 **Regime classification:**
 - `LIFT` — net_lift > 0.5, all timescales agree (green)
@@ -391,7 +394,8 @@ Live mode now emits explicit directional readiness/event fields (no ML fitting):
 
 - `feasibility_up`, `feasibility_down` — bounded `[0,1]` directional feasibility from Bernoulli lift asymmetry
 - `directional_bias` — bounded `[-1,1]` directional bias
-- `projection_coherence` — projection sign/magnitude coherence across 5s/15s/60s
+- `projection_coherence` — soft signed-coherence of 5s/15s/60s projections (majority sign + magnitude balance)
+- `dir_5s`, `dir_15s`, `dir_60s` — latched timescale direction (`-1|0|+1`) with increasing hysteresis/persistence by timescale
 - `event_state` — `WATCH | ARMED | FIRE | COOLDOWN`
 - `event_direction` — `UP | DOWN | NONE`
 - `event_strength`, `event_confidence` — bounded `[0,1]` event quality scores
@@ -408,6 +412,7 @@ Frontend event markers are directional:
 
 - `ARMED` marker: outlined triangle pointing event direction (up/down)
 - `FIRE` marker: filled triangle pointing event direction (up/down)
+- Timescale arrows (5s/15s/60s) are sourced from backend latched `dir_*` fields, not raw `projection-lift` deltas
 
 ### Commands
 

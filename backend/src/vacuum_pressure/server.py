@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pyarrow as pa
@@ -104,16 +105,19 @@ SIGNALS_SCHEMA = pa.schema([
     ("d1_5s", pa.float64()),
     ("d2_5s", pa.float64()),
     ("proj_5s", pa.float64()),
+    ("dir_5s", pa.int64()),
     # Multi-timescale (medium ~15s)
     ("lift_15s", pa.float64()),
     ("d1_15s", pa.float64()),
     ("d2_15s", pa.float64()),
     ("proj_15s", pa.float64()),
+    ("dir_15s", pa.int64()),
     # Multi-timescale (slow ~60s)
     ("lift_60s", pa.float64()),
     ("d1_60s", pa.float64()),
     ("d2_60s", pa.float64()),
     ("proj_60s", pa.float64()),
+    ("dir_60s", pa.int64()),
     # Cross-timescale confidence, alerts, regime
     ("cross_confidence", pa.float64()),
     ("projection_coherence", pa.float64()),
@@ -524,6 +528,8 @@ async def _send_window_batch(
     if not batch["signals"].empty:
         surfaces.append("signals")
 
+    _log_window_snapshot(config=config, wid=wid, batch=batch, surfaces=surfaces)
+
     # batch_start
     await websocket.send_text(json.dumps({
         "type": "batch_start",
@@ -562,3 +568,63 @@ async def _send_window_batch(
         await websocket.send_bytes(
             _df_to_arrow_ipc(batch["signals"], SIGNALS_SCHEMA)
         )
+
+
+def _log_window_snapshot(
+    config: VPRuntimeConfig,
+    wid: int,
+    batch: dict[str, pd.DataFrame],
+    surfaces: list[str],
+) -> None:
+    """Emit per-window snapshot diagnostics for pause-and-debug workflows."""
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            if pd.isna(value):
+                return default
+            return int(value)
+        except Exception:
+            return default
+
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            if pd.isna(value):
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    payload: dict[str, Any] = {
+        "window_end_ts_ns": int(wid),
+        "product_type": config.product_type,
+        "symbol": config.symbol,
+        "surfaces": surfaces,
+    }
+
+    if "snap" in surfaces and not batch["snap"].empty:
+        snap_row = batch["snap"].iloc[0]
+        payload["snap"] = {
+            "mid_price": _safe_float(snap_row.get("mid_price", 0.0), 0.0),
+            "best_bid_price_int": _safe_int(snap_row.get("best_bid_price_int", 0), 0),
+            "best_ask_price_int": _safe_int(snap_row.get("best_ask_price_int", 0), 0),
+            "book_valid": bool(snap_row.get("book_valid", False)),
+        }
+
+    if "signals" in surfaces and not batch["signals"].empty:
+        sig_row = batch["signals"].iloc[0]
+        payload["signals"] = {
+            "regime": str(sig_row.get("regime", "")),
+            "net_lift": _safe_float(
+                sig_row.get("net_lift", sig_row.get("composite", 0.0)),
+                0.0,
+            ),
+            "event_state": str(sig_row.get("event_state", "")),
+            "event_direction": str(sig_row.get("event_direction", "")),
+            "dir_5s": _safe_int(sig_row.get("dir_5s", 0), 0),
+            "dir_15s": _safe_int(sig_row.get("dir_15s", 0), 0),
+            "dir_60s": _safe_int(sig_row.get("dir_60s", 0), 0),
+        }
+
+    try:
+        logger.info("VP_WINDOW %s", json.dumps(payload, separators=(",", ":")))
+    except Exception as exc:
+        logger.warning("Failed to serialize VP_WINDOW payload: %s", exc)

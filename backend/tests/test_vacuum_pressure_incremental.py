@@ -4,7 +4,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.vacuum_pressure.incremental import IncrementalSignalEngine
+from src.vacuum_pressure.incremental import (
+    IncrementalSignalEngine,
+    TimescaleDirectionConfig,
+    TimescaleDirectionLatch,
+)
 from src.vacuum_pressure.server import SIGNALS_SCHEMA
 
 
@@ -102,3 +106,60 @@ def test_signals_schema_contains_feasibility_fields() -> None:
     assert "feasibility_up" in names
     assert "feasibility_down" in names
     assert "directional_bias" in names
+    assert "dir_5s" in names
+    assert "dir_15s" in names
+    assert "dir_60s" in names
+
+
+def test_timescale_direction_latch_rejects_small_alternating_jitter() -> None:
+    """Slow latch remains flat under tiny alternating near-zero noise."""
+    latch = TimescaleDirectionLatch(
+        TimescaleDirectionConfig(
+            enter_abs=0.75,
+            exit_abs=0.40,
+            persistence_windows=3,
+        )
+    )
+    noisy = [0.12, -0.15, 0.10, -0.11, 0.09, -0.13, 0.14, -0.10]
+    out = [latch.update(v) for v in noisy]
+    assert out == [0] * len(noisy)
+
+
+def test_direction_flip_count_is_monotone_5s_ge_15s_ge_60s() -> None:
+    """Faster latch can flip at least as often as slower latches."""
+    l5 = TimescaleDirectionLatch(
+        TimescaleDirectionConfig(
+            enter_abs=0.75 * 0.5,
+            exit_abs=0.40 * 0.5,
+            persistence_windows=1,
+        )
+    )
+    l15 = TimescaleDirectionLatch(
+        TimescaleDirectionConfig(
+            enter_abs=1.00 * 0.5,
+            exit_abs=0.50 * 0.5,
+            persistence_windows=2,
+        )
+    )
+    l60 = TimescaleDirectionLatch(
+        TimescaleDirectionConfig(
+            enter_abs=1.50 * 0.5,
+            exit_abs=0.75 * 0.5,
+            persistence_windows=3,
+        )
+    )
+
+    sequence = [0.60 if i % 2 == 0 else -0.60 for i in range(40)]
+    d5 = [l5.update(v) for v in sequence]
+    d15 = [l15.update(v) for v in sequence]
+    d60 = [l60.update(v) for v in sequence]
+
+    def flip_count(series: list[int]) -> int:
+        flips = 0
+        for prev, cur in zip(series[:-1], series[1:]):
+            if cur != prev:
+                flips += 1
+        return flips
+
+    assert flip_count(d5) >= flip_count(d15)
+    assert flip_count(d15) >= flip_count(d60)

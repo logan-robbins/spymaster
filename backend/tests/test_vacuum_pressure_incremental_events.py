@@ -117,6 +117,34 @@ def test_event_machine_anti_flicker_alternating_directions() -> None:
     assert set(states) == {EVENT_STATE_WATCH}
 
 
+def test_event_machine_default_downward_direction_is_not_reversed() -> None:
+    """Default machine preserves bearish sign as DOWN through arm/fire."""
+    machine = DirectionalEventStateMachine()
+
+    bearish_step = dict(
+        net_lift=-1.05,
+        d1_15s=-0.10,
+        d2_15s=-0.01,
+        cross_conf=0.65,
+        proj_coh=0.55,
+        proj_dir=-1,
+    )
+
+    s1 = _tick(machine, **bearish_step)
+    s2 = _tick(machine, **bearish_step)
+    s3 = _tick(machine, **bearish_step)
+    s4 = _tick(machine, **bearish_step)
+
+    assert s1["event_state"] == EVENT_STATE_WATCH
+    assert s1["event_direction"] == "NONE"
+    assert s2["event_state"] == EVENT_STATE_ARMED
+    assert s2["event_direction"] == "DOWN"
+    assert s3["event_state"] == EVENT_STATE_ARMED
+    assert s3["event_direction"] == "DOWN"
+    assert s4["event_state"] == EVENT_STATE_FIRE
+    assert s4["event_direction"] == "DOWN"
+
+
 def test_event_machine_blocks_countertrend_acceleration() -> None:
     """Large opposing d2_15s blocks arming even with strong net_lift and d1."""
     machine = DirectionalEventStateMachine(

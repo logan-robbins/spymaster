@@ -106,20 +106,20 @@ NON_NEGATIVE_FLOW_COLUMNS: tuple[str, ...] = (
 class EventStateConfig:
     """Thresholds and counters for deterministic directional eventing."""
 
-    arm_net_lift_threshold: float = 0.75
-    disarm_net_lift_threshold: float = 0.40
-    fire_net_lift_threshold: float = 1.00
-    min_abs_d1_arm: float = 0.04
-    min_abs_d1_fire: float = 0.08
-    max_countertrend_d2: float = 0.03
-    min_cross_conf_arm: float = 0.25
-    min_cross_conf_fire: float = 0.45
-    min_projection_coh_arm: float = 0.20
-    min_projection_coh_fire: float = 0.35
+    arm_net_lift_threshold: float = 0.60
+    disarm_net_lift_threshold: float = 0.30
+    fire_net_lift_threshold: float = 0.85
+    min_abs_d1_arm: float = 0.03
+    min_abs_d1_fire: float = 0.06
+    max_countertrend_d2: float = 0.04
+    min_cross_conf_arm: float = 0.18
+    min_cross_conf_fire: float = 0.30
+    min_projection_coh_arm: float = 0.12
+    min_projection_coh_fire: float = 0.22
     arm_persistence_windows: int = 2
     fire_persistence_windows: int = 2
     fire_min_hold_windows: int = 1
-    cooldown_windows: int = 5
+    cooldown_windows: int = 3
 
     def validate(self) -> None:
         """Validate configuration and fail fast on invalid thresholds."""
@@ -401,6 +401,100 @@ class DirectionalEventStateMachine:
         }
 
 
+@dataclass(frozen=True)
+class TimescaleDirectionConfig:
+    """Deterministic hysteresis/persistence for timescale direction latching."""
+
+    enter_abs: float
+    exit_abs: float
+    persistence_windows: int
+
+    def validate(self) -> None:
+        if self.enter_abs <= 0.0:
+            raise ValueError("enter_abs must be > 0")
+        if self.exit_abs < 0.0:
+            raise ValueError("exit_abs must be >= 0")
+        if self.exit_abs >= self.enter_abs:
+            raise ValueError("exit_abs must be < enter_abs")
+        if self.persistence_windows < 1:
+            raise ValueError("persistence_windows must be >= 1")
+
+
+class TimescaleDirectionLatch:
+    """Directional latch from smoothed signal with hysteresis + persistence."""
+
+    __slots__ = (
+        "_cfg",
+        "_direction",
+        "_candidate_direction",
+        "_candidate_windows",
+    )
+
+    def __init__(self, config: TimescaleDirectionConfig) -> None:
+        config.validate()
+        self._cfg = config
+        self._direction = 0
+        self._candidate_direction = 0
+        self._candidate_windows = 0
+
+    @staticmethod
+    def _sign(value: float) -> int:
+        return int(np.sign(value))
+
+    def update(self, smooth_value: float) -> int:
+        """Update latch with latest smoothed value, return current direction."""
+        sign_now = self._sign(smooth_value)
+        abs_now = abs(smooth_value)
+
+        if self._direction != 0:
+            # Maintain direction unless signal clearly exits via opposite side.
+            if sign_now == self._direction:
+                if abs_now >= self._cfg.exit_abs:
+                    self._candidate_direction = 0
+                    self._candidate_windows = 0
+                    return self._direction
+            elif sign_now == 0 or abs_now <= self._cfg.exit_abs:
+                self._direction = 0
+                self._candidate_direction = 0
+                self._candidate_windows = 0
+                return 0
+
+            # Opposite direction needs persistence above entry threshold.
+            if sign_now != 0 and abs_now >= self._cfg.enter_abs:
+                if sign_now == self._candidate_direction:
+                    self._candidate_windows += 1
+                else:
+                    self._candidate_direction = sign_now
+                    self._candidate_windows = 1
+                if self._candidate_windows >= self._cfg.persistence_windows:
+                    self._direction = self._candidate_direction
+                    self._candidate_direction = 0
+                    self._candidate_windows = 0
+            else:
+                self._candidate_direction = 0
+                self._candidate_windows = 0
+            return self._direction
+
+        # No active direction: require persistence above enter threshold.
+        if sign_now == 0 or abs_now < self._cfg.enter_abs:
+            self._candidate_direction = 0
+            self._candidate_windows = 0
+            return 0
+
+        if sign_now == self._candidate_direction:
+            self._candidate_windows += 1
+        else:
+            self._candidate_direction = sign_now
+            self._candidate_windows = 1
+
+        if self._candidate_windows >= self._cfg.persistence_windows:
+            self._direction = self._candidate_direction
+            self._candidate_direction = 0
+            self._candidate_windows = 0
+
+        return self._direction
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Incremental math primitives
 # ──────────────────────────────────────────────────────────────────────
@@ -635,6 +729,27 @@ class IncrementalSignalEngine:
         self._event_machine: DirectionalEventStateMachine = (
             DirectionalEventStateMachine(EventStateConfig())
         )
+        self._dir_latch_fast = TimescaleDirectionLatch(
+            TimescaleDirectionConfig(
+                enter_abs=0.75 * REGIME_THRESHOLD,
+                exit_abs=0.40 * REGIME_THRESHOLD,
+                persistence_windows=1,
+            )
+        )
+        self._dir_latch_medium = TimescaleDirectionLatch(
+            TimescaleDirectionConfig(
+                enter_abs=1.00 * REGIME_THRESHOLD,
+                exit_abs=0.50 * REGIME_THRESHOLD,
+                persistence_windows=2,
+            )
+        )
+        self._dir_latch_slow = TimescaleDirectionLatch(
+            TimescaleDirectionConfig(
+                enter_abs=1.50 * REGIME_THRESHOLD,
+                exit_abs=0.75 * REGIME_THRESHOLD,
+                persistence_windows=3,
+            )
+        )
 
     @staticmethod
     def _validate_flow_df(flow_df: pd.DataFrame) -> None:
@@ -719,6 +834,50 @@ class IncrementalSignalEngine:
         directional_bias = min(1.0, max(-1.0, directional_bias))
         return feasibility_up, feasibility_down, directional_bias
 
+    def _timescale_directions_from_smooth(
+        self,
+        smooth_5s: float,
+        smooth_15s: float,
+        smooth_60s: float,
+    ) -> Dict[str, int]:
+        """Directional latch outputs by timescale (+1 UP, -1 DOWN, 0 FLAT)."""
+        return {
+            "dir_5s": self._dir_latch_fast.update(smooth_5s),
+            "dir_15s": self._dir_latch_medium.update(smooth_15s),
+            "dir_60s": self._dir_latch_slow.update(smooth_60s),
+        }
+
+    @staticmethod
+    def _signed_coherence(
+        signs: tuple[int, int, int],
+        magnitudes: tuple[float, float, float],
+    ) -> tuple[float, int]:
+        """Return directional coherence in [0,1] and voted direction.
+
+        Coherence is intentionally soft (not all-or-nothing):
+        - directional agreement fraction among non-zero signs
+        - multiplied by magnitude balance among agreeing timescales
+        """
+        non_zero_pairs = [(s, m) for s, m in zip(signs, magnitudes) if s != 0]
+        if len(non_zero_pairs) < 2:
+            return 0.0, 0
+
+        vote_sum = sum(s for s, _ in non_zero_pairs)
+        voted_direction = int(np.sign(vote_sum))
+        if voted_direction == 0:
+            return 0.0, 0
+
+        aligned_magnitudes = [
+            m for s, m in non_zero_pairs if s == voted_direction
+        ]
+        if not aligned_magnitudes:
+            return 0.0, 0
+
+        agreement = len(aligned_magnitudes) / len(non_zero_pairs)
+        mag_balance = min(aligned_magnitudes) / (max(aligned_magnitudes) + EPS)
+        coherence = float(min(1.0, max(0.0, agreement * mag_balance)))
+        return coherence, voted_direction
+
     def process_window(
         self,
         snap_dict: Dict[str, Any],
@@ -754,6 +913,7 @@ class IncrementalSignalEngine:
 
         # ── Stage 1+2: Per-bucket scores + window aggregation ────────
         if flow_df.empty:
+            direction_ctx = self._timescale_directions_from_smooth(0.0, 0.0, 0.0)
             event_ctx = self._event_machine.update(
                 net_lift=0.0,
                 d1_15s=0.0,
@@ -762,9 +922,12 @@ class IncrementalSignalEngine:
                 projection_coherence=0.0,
                 projection_direction=0,
             )
-            return self._empty_signals(window_end_ts_ns, snap_dict, event_ctx)
+            return self._empty_signals(
+                window_end_ts_ns, snap_dict, event_ctx, direction_ctx
+            )
         self._validate_flow_df(flow_df)
         if not flow_df["window_valid"].astype(bool).any():
+            direction_ctx = self._timescale_directions_from_smooth(0.0, 0.0, 0.0)
             event_ctx = self._event_machine.update(
                 net_lift=0.0,
                 d1_15s=0.0,
@@ -773,7 +936,9 @@ class IncrementalSignalEngine:
                 projection_coherence=0.0,
                 projection_direction=0,
             )
-            return self._empty_signals(window_end_ts_ns, snap_dict, event_ctx)
+            return self._empty_signals(
+                window_end_ts_ns, snap_dict, event_ctx, direction_ctx
+            )
 
         # compute_per_bucket_scores adds derived columns to flow_df
         compute_per_bucket_scores(flow_df, bucket)
@@ -781,6 +946,7 @@ class IncrementalSignalEngine:
         # aggregate_window_metrics groups by window — we have exactly 1
         metrics_df = aggregate_window_metrics(flow_df, bucket)
         if metrics_df.empty:
+            direction_ctx = self._timescale_directions_from_smooth(0.0, 0.0, 0.0)
             event_ctx = self._event_machine.update(
                 net_lift=0.0,
                 d1_15s=0.0,
@@ -789,7 +955,9 @@ class IncrementalSignalEngine:
                 projection_coherence=0.0,
                 projection_direction=0,
             )
-            return self._empty_signals(window_end_ts_ns, snap_dict, event_ctx)
+            return self._empty_signals(
+                window_end_ts_ns, snap_dict, event_ctx, direction_ctx
+            )
 
         # Extract the single row as a dict
         m = metrics_df.iloc[0].to_dict()
@@ -865,9 +1033,9 @@ class IncrementalSignalEngine:
         ts_slow: Dict[str, float] = self._ts_slow.update(net_lift)
 
         # ── Stage 6: Cross-timescale confidence ──────────────────────
-        sign_fast = np.sign(ts_fast["smooth"])
-        sign_medium = np.sign(ts_medium["smooth"])
-        sign_slow = np.sign(ts_slow["smooth"])
+        sign_fast = int(np.sign(ts_fast["smooth"]))
+        sign_medium = int(np.sign(ts_medium["smooth"]))
+        sign_slow = int(np.sign(ts_slow["smooth"]))
 
         all_agree: bool = (
             sign_fast == sign_medium == sign_slow
@@ -877,33 +1045,22 @@ class IncrementalSignalEngine:
         mag_medium = abs(ts_medium["smooth"])
         mag_slow = abs(ts_slow["smooth"])
 
-        if all_agree:
-            # Confidence = ratio of weakest to strongest timescale
-            confidence: float = (
-                min(mag_fast, mag_medium, mag_slow)
-                / (max(mag_fast, mag_medium, mag_slow) + EPS)
-            )
-        else:
-            confidence = 0.0
+        confidence, _ = self._signed_coherence(
+            signs=(sign_fast, sign_medium, sign_slow),
+            magnitudes=(mag_fast, mag_medium, mag_slow),
+        )
 
-        proj_sign_fast = np.sign(ts_fast["projection"])
-        proj_sign_medium = np.sign(ts_medium["projection"])
-        proj_sign_slow = np.sign(ts_slow["projection"])
-        projections_agree = (
-            proj_sign_fast == proj_sign_medium == proj_sign_slow
-        ) and proj_sign_fast != 0
-        if projections_agree:
-            proj_mag_fast = abs(ts_fast["projection"])
-            proj_mag_medium = abs(ts_medium["projection"])
-            proj_mag_slow = abs(ts_slow["projection"])
-            projection_coherence: float = (
-                min(proj_mag_fast, proj_mag_medium, proj_mag_slow)
-                / (max(proj_mag_fast, proj_mag_medium, proj_mag_slow) + EPS)
-            )
-            projection_direction: int = int(proj_sign_medium)
-        else:
-            projection_coherence = 0.0
-            projection_direction = 0
+        proj_sign_fast = int(np.sign(ts_fast["projection"]))
+        proj_sign_medium = int(np.sign(ts_medium["projection"]))
+        proj_sign_slow = int(np.sign(ts_slow["projection"]))
+        projection_coherence, projection_direction = self._signed_coherence(
+            signs=(proj_sign_fast, proj_sign_medium, proj_sign_slow),
+            magnitudes=(
+                abs(ts_fast["projection"]),
+                abs(ts_medium["projection"]),
+                abs(ts_slow["projection"]),
+            ),
+        )
 
         # ── Stage 7: Regime classification ───────────────────────────
         if not all_agree:
@@ -951,6 +1108,9 @@ class IncrementalSignalEngine:
             projection_coherence=projection_coherence,
             projection_direction=projection_direction,
         )
+        direction_ctx = self._timescale_directions_from_smooth(
+            ts_fast["smooth"], ts_medium["smooth"], ts_slow["smooth"]
+        )
 
         # ── Assemble output ──────────────────────────────────────────
         return {
@@ -983,14 +1143,17 @@ class IncrementalSignalEngine:
             "d1_5s": ts_fast["d1"],
             "d2_5s": ts_fast["d2"],
             "proj_5s": ts_fast["projection"],
+            "dir_5s": direction_ctx["dir_5s"],
             "lift_15s": ts_medium["smooth"],
             "d1_15s": ts_medium["d1"],
             "d2_15s": ts_medium["d2"],
             "proj_15s": ts_medium["projection"],
+            "dir_15s": direction_ctx["dir_15s"],
             "lift_60s": ts_slow["smooth"],
             "d1_60s": ts_slow["d1"],
             "d2_60s": ts_slow["d2"],
             "proj_60s": ts_slow["projection"],
+            "dir_60s": direction_ctx["dir_60s"],
             # NEW: Confidence and alerts
             "cross_confidence": confidence,
             "projection_coherence": projection_coherence,
@@ -1031,6 +1194,7 @@ class IncrementalSignalEngine:
         window_end_ts_ns: int,
         snap_dict: Dict[str, Any],
         event_ctx: Dict[str, Any] | None = None,
+        direction_ctx: Dict[str, int] | None = None,
     ) -> Dict[str, Any]:
         """Return a zero-filled signals dict for invalid/empty windows."""
         event_ctx = event_ctx or {
@@ -1038,6 +1202,11 @@ class IncrementalSignalEngine:
             "event_direction": EVENT_DIRECTION_NONE,
             "event_strength": 0.0,
             "event_confidence": 0.0,
+        }
+        direction_ctx = direction_ctx or {
+            "dir_5s": 0,
+            "dir_15s": 0,
+            "dir_60s": 0,
         }
         return {
             "window_end_ts_ns": window_end_ts_ns,
@@ -1069,14 +1238,17 @@ class IncrementalSignalEngine:
             "d1_5s": 0.0,
             "d2_5s": 0.0,
             "proj_5s": 0.0,
+            "dir_5s": direction_ctx["dir_5s"],
             "lift_15s": 0.0,
             "d1_15s": 0.0,
             "d2_15s": 0.0,
             "proj_15s": 0.0,
+            "dir_15s": direction_ctx["dir_15s"],
             "lift_60s": 0.0,
             "d1_60s": 0.0,
             "d2_60s": 0.0,
             "proj_60s": 0.0,
+            "dir_60s": direction_ctx["dir_60s"],
             # Confidence and alerts
             "cross_confidence": 0.0,
             "projection_coherence": 0.0,

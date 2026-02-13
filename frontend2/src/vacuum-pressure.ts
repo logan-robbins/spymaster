@@ -114,16 +114,19 @@ interface SignalsData {
   d1_5s?: number;
   d2_5s?: number;
   proj_5s?: number;
+  dir_5s?: number;
   // Multi-timescale (medium ~15s)
   lift_15s?: number;
   d1_15s?: number;
   d2_15s?: number;
   proj_15s?: number;
+  dir_15s?: number;
   // Multi-timescale (slow ~60s)
   lift_60s?: number;
   d1_60s?: number;
   d2_60s?: number;
   proj_60s?: number;
+  dir_60s?: number;
   // Cross-timescale
   cross_confidence?: number;
   projection_coherence?: number;
@@ -217,6 +220,7 @@ let snap: SnapData | null = null;
 let currentFlow: FlowRow[] = [];
 let currentSignals: SignalsData | null = null;
 let windowCount = 0;
+let currentWindowId: bigint | null = null;
 
 // Price-anchored grid
 let anchorPriceDollars = 0;
@@ -273,6 +277,7 @@ let panStartVpY = 0;
 const $spotVal     = document.getElementById('spot-val')!;
 const $tsVal       = document.getElementById('ts-val')!;
 const $winVal      = document.getElementById('win-val')!;
+const $winIdVal    = document.getElementById('win-id-val')!;
 const $spotLine    = document.getElementById('spot-line-label')!;
 
 // Metadata display elements
@@ -289,6 +294,10 @@ const $sigProjConf = document.getElementById('sig-proj-conf')!;
 const $sigEventState = document.getElementById('sig-event-state')!;
 const $sigEventTransition = document.getElementById('sig-event-transition')!;
 const $sigFeasibility = document.getElementById('sig-feasibility')!;
+const $ctrlPause = document.getElementById('ctrl-pause') as HTMLButtonElement;
+const $ctrlPlay = document.getElementById('ctrl-play') as HTMLButtonElement;
+const $ctrlRestart = document.getElementById('ctrl-restart') as HTMLButtonElement;
+const $streamState = document.getElementById('stream-state')!;
 
 function $(id: string) { return document.getElementById(id)!; }
 
@@ -584,6 +593,14 @@ function directionFromLabel(label: string | undefined): number {
   return 0;
 }
 
+function fallbackDirectionFromSignals(s: SignalsData): number {
+  const biasDirection = Math.sign(optionalNumber(s.directional_bias) ?? 0);
+  if (biasDirection !== 0) return biasDirection;
+  const liftDirection = Math.sign(s.net_lift ?? s.composite ?? 0);
+  if (liftDirection !== 0) return liftDirection;
+  return Math.sign(projectionImpulse(s));
+}
+
 function updateDerivedEventState(s: SignalsData): void {
   const backendState = optionalString(s.event_state)?.toUpperCase();
   const backendDirection = directionFromLabel(optionalString(s.event_direction));
@@ -606,22 +623,25 @@ function updateDerivedEventState(s: SignalsData): void {
         ? `${lastBackendEventState}->${derivedEventPhase}`
         : '---';
     derivedEventTransition = backendTransition ?? detectedTransition;
+    if (backendDirection !== 0) {
+      derivedEventDirection = backendDirection;
+    }
 
     if (
       detectedTransition !== '---'
       && (derivedEventPhase === 'ARMED' || derivedEventPhase === 'FIRE')
     ) {
-      pushEventMarker(
-        derivedEventPhase as EventMarkerPhase,
-        backendDirection || derivedEventDirection || Math.sign(projectionImpulse(s)),
-        projectionConfidence(s),
-        'backend',
-      );
+      // Backend transitions must carry explicit direction; avoid stale fallback.
+      if (backendDirection !== 0) {
+        pushEventMarker(
+          derivedEventPhase as EventMarkerPhase,
+          backendDirection,
+          projectionConfidence(s),
+          'backend',
+        );
+      }
     }
     lastBackendEventState = derivedEventPhase;
-    if (backendDirection !== 0) {
-      derivedEventDirection = backendDirection;
-    }
     return;
   }
   lastBackendEventState = null;
@@ -1303,9 +1323,9 @@ function updateSignalPanel(): void {
 
   // ── Section 2: Multi-Timescale ──
   const timescales = [
-    { key: '5s', lift: s.lift_5s ?? 0, d1: s.d1_5s ?? 0, proj: s.proj_5s ?? 0 },
-    { key: '15s', lift: s.lift_15s ?? 0, d1: s.d1_15s ?? 0, proj: s.proj_15s ?? 0 },
-    { key: '60s', lift: s.lift_60s ?? 0, d1: s.d1_60s ?? 0, proj: s.proj_60s ?? 0 },
+    { key: '5s', lift: s.lift_5s ?? 0, d1: s.d1_5s ?? 0, dir: Math.sign(s.dir_5s ?? 0) },
+    { key: '15s', lift: s.lift_15s ?? 0, d1: s.d1_15s ?? 0, dir: Math.sign(s.dir_15s ?? 0) },
+    { key: '60s', lift: s.lift_60s ?? 0, d1: s.d1_60s ?? 0, dir: Math.sign(s.dir_60s ?? 0) },
   ];
 
   for (const ts of timescales) {
@@ -1316,10 +1336,10 @@ function updateSignalPanel(): void {
     fillGauge(`d1-${ts.key}-fill`, ts.d1, 50);
 
     const arrowEl = $(`sig-arrow-${ts.key}`);
-    if (ts.proj > ts.lift) {
+    if (ts.dir > 0) {
       arrowEl.textContent = '\u25B2';
       arrowEl.style.color = '#22cc66';
-    } else if (ts.proj < ts.lift) {
+    } else if (ts.dir < 0) {
       arrowEl.textContent = '\u25BC';
       arrowEl.style.color = '#cc2255';
     } else {
@@ -1360,7 +1380,9 @@ function updateSignalPanel(): void {
   const conf = projectionConfidence(s);
   const directionText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
   const directionColor = direction > 0 ? '#22cc66' : direction < 0 ? '#cc2255' : '#888';
-  const eventDirection = backendDirection !== 0 ? backendDirection : direction;
+  const eventDirection = backendDirection !== 0
+    ? backendDirection
+    : (derivedEventDirection !== 0 ? derivedEventDirection : fallbackDirectionFromSignals(s));
   $sigProjDir.textContent = directionText;
   $sigProjDir.style.color = directionColor;
   $sigProjDir.style.background = direction === 0 ? '#2f3138' : 'rgba(20, 20, 28, 0.9)';
@@ -1563,8 +1585,120 @@ function parseStreamParams(): StreamParams {
 
 /** Cached stream params so reconnect preserves original params. */
 let streamParams: StreamParams | null = null;
+let wsClient: WebSocket | null = null;
+let reconnectTimerId: number | null = null;
+let reconnectEnabled = true;
+let streamPaused = false;
+
+function updateStreamControlUi(): void {
+  $streamState.textContent = streamPaused ? 'PAUSED' : 'LIVE';
+  $streamState.style.color = streamPaused ? '#ccaa22' : '#00ffaa';
+  $ctrlPause.style.opacity = streamPaused ? '0.55' : '1';
+  $ctrlPlay.style.opacity = streamPaused ? '1' : '0.55';
+}
+
+function clearReconnectTimer(): void {
+  if (reconnectTimerId !== null) {
+    window.clearTimeout(reconnectTimerId);
+    reconnectTimerId = null;
+  }
+}
+
+function scheduleReconnect(): void {
+  if (!reconnectEnabled || streamPaused) return;
+  clearReconnectTimer();
+  reconnectTimerId = window.setTimeout(() => {
+    reconnectTimerId = null;
+    connectWS();
+  }, 3000);
+}
+
+function resetStreamState(): void {
+  snap = null;
+  currentFlow = [];
+  currentSignals = null;
+  windowCount = 0;
+  currentWindowId = null;
+  anchorPriceDollars = 0;
+  anchorInitialized = false;
+  currentSpotDollars = 0;
+  runningMaxDepth = 100;
+  derivedEventPhase = 'WATCH';
+  derivedEventTransition = '---';
+  derivedEventDirection = 0;
+  lastSlopeSign = 0;
+  lastBackendEventState = null;
+  configReceived = false;
+
+  for (let i = 0; i < hmapData.length; i += 4) {
+    hmapData[i] = 10;
+    hmapData[i + 1] = 10;
+    hmapData[i + 2] = 15;
+    hmapData[i + 3] = 255;
+  }
+  for (let i = 0; i < spotTrail.length; i++) spotTrail[i] = null;
+  spotEventMarkers.length = 0;
+
+  $spotVal.textContent = '--';
+  $tsVal.textContent = '--:--:--';
+  $winVal.textContent = '0';
+  $winIdVal.textContent = '--';
+}
+
+function closeSocketForControl(reason: string): void {
+  clearReconnectTimer();
+  if (
+    wsClient &&
+    (wsClient.readyState === WebSocket.OPEN || wsClient.readyState === WebSocket.CONNECTING)
+  ) {
+    wsClient.close(1000, reason);
+  }
+}
+
+function pauseStream(): void {
+  if (streamPaused) return;
+  streamPaused = true;
+  reconnectEnabled = false;
+  closeSocketForControl('user-pause');
+  updateStreamControlUi();
+}
+
+function playStream(): void {
+  if (!streamPaused && wsClient && wsClient.readyState === WebSocket.OPEN) return;
+  streamPaused = false;
+  reconnectEnabled = true;
+  updateStreamControlUi();
+  connectWS();
+}
+
+function restartStream(): void {
+  streamPaused = false;
+  reconnectEnabled = false;
+  resetStreamState();
+  closeSocketForControl('user-restart');
+  wsClient = null;
+  reconnectEnabled = true;
+  updateStreamControlUi();
+  connectWS();
+}
+
+function setupStreamControls(): void {
+  $ctrlPause.addEventListener('click', () => pauseStream());
+  $ctrlPlay.addEventListener('click', () => playStream());
+  $ctrlRestart.addEventListener('click', () => restartStream());
+  updateStreamControlUi();
+}
 
 function connectWS(): void {
+  if (
+    wsClient &&
+    (wsClient.readyState === WebSocket.OPEN || wsClient.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+  if (streamPaused) {
+    return;
+  }
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
@@ -1602,6 +1736,7 @@ function connectWS(): void {
 
   console.log(`[VP] Connecting to: ${url}`);
   const ws = new WebSocket(url);
+  wsClient = ws;
 
   // Message queue pattern (aligned with velocity ws-client.ts)
   let pendingSurface: string | null = null;
@@ -1646,6 +1781,15 @@ function connectWS(): void {
             }
             windowCount++;
             $winVal.textContent = String(windowCount);
+            const rawWindowId = msg.window_end_ts_ns;
+            if (rawWindowId !== undefined && rawWindowId !== null) {
+              try {
+                currentWindowId = BigInt(String(rawWindowId));
+                $winIdVal.textContent = currentWindowId.toString();
+              } catch {
+                $winIdVal.textContent = String(rawWindowId);
+              }
+            }
           } else if (msg.type === 'surface_header') {
             pendingSurface = msg.surface as string;
           }
@@ -1743,14 +1887,17 @@ function connectWS(): void {
                 d1_5s: optionalNumber(j.d1_5s) ?? 0,
                 d2_5s: optionalNumber(j.d2_5s) ?? 0,
                 proj_5s: optionalNumber(j.proj_5s) ?? 0,
+                dir_5s: Math.trunc(optionalNumber(j.dir_5s) ?? 0),
                 lift_15s: optionalNumber(j.lift_15s) ?? 0,
                 d1_15s: optionalNumber(j.d1_15s) ?? 0,
                 d2_15s: optionalNumber(j.d2_15s) ?? 0,
                 proj_15s: optionalNumber(j.proj_15s) ?? 0,
+                dir_15s: Math.trunc(optionalNumber(j.dir_15s) ?? 0),
                 lift_60s: optionalNumber(j.lift_60s) ?? 0,
                 d1_60s: optionalNumber(j.d1_60s) ?? 0,
                 d2_60s: optionalNumber(j.d2_60s) ?? 0,
                 proj_60s: optionalNumber(j.proj_60s) ?? 0,
+                dir_60s: Math.trunc(optionalNumber(j.dir_60s) ?? 0),
                 // Cross-timescale
                 cross_confidence: optionalNumber(j.cross_confidence) ?? 0,
                 projection_coherence: optionalNumber(j.projection_coherence),
@@ -1779,15 +1926,23 @@ function connectWS(): void {
     isProcessing = false;
   };
 
-  ws.onopen = () => console.log('[VP] WebSocket connected');
+  ws.onopen = () => {
+    console.log('[VP] WebSocket connected');
+    updateStreamControlUi();
+  };
   ws.onmessage = (event: MessageEvent) => {
     messageQueue.push(event);
     processQueue();
   };
   ws.onerror = (err) => console.error('[VP] WebSocket error:', err);
   ws.onclose = () => {
-    console.log('[VP] WebSocket closed, reconnecting in 3s...');
-    setTimeout(connectWS, 3000);
+    wsClient = null;
+    if (reconnectEnabled && !streamPaused) {
+      console.log('[VP] WebSocket closed, reconnecting in 3s...');
+      scheduleReconnect();
+    } else {
+      console.log('[VP] WebSocket closed');
+    }
   };
 }
 
@@ -1896,5 +2051,6 @@ function startRenderLoop(): void {
 
 // -------------------------------------------------------------------- Init
 
+setupStreamControls();
 connectWS();
 startRenderLoop();
