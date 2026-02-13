@@ -1143,6 +1143,86 @@ class EventDrivenVPEngine:
             self._spot_ref_price_int = new_spot
 
     # ------------------------------------------------------------------
+    # Book state serialization (for checkpoint caching)
+    # ------------------------------------------------------------------
+
+    _BOOK_STATE_VERSION: int = 1
+
+    def export_book_state(self) -> bytes:
+        """Serialize internal order book state to bytes for caching.
+
+        Captures everything needed to resume from this point: all live
+        orders, depth maps, BBO, spot, event counter, and lifecycle flags.
+        Grid state is NOT included (it's all zeros during book-only mode;
+        warmup will populate it).
+
+        The cached state is independent of VP formula parameters — only
+        the raw event stream determines book state.  Formula changes do
+        NOT require cache regeneration; only re-downloaded .dbn data does.
+
+        Returns:
+            Pickle bytes of the book state dict.
+        """
+        import pickle
+
+        state = {
+            "_v": self._BOOK_STATE_VERSION,
+            "orders": {
+                oid: (e.side, e.price_int, e.qty)
+                for oid, e in self._orders.items()
+            },
+            "depth_bid": self._depth_bid,
+            "depth_ask": self._depth_ask,
+            "best_bid": self._best_bid,
+            "best_ask": self._best_ask,
+            "spot_ref_price_int": self._spot_ref_price_int,
+            "event_counter": self._event_counter,
+            "prev_ts_ns": self._prev_ts_ns,
+            "book_valid": self._book_valid,
+            "snapshot_in_progress": self._snapshot_in_progress,
+        }
+        return pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def import_book_state(self, data: bytes) -> None:
+        """Restore internal order book state from cached bytes.
+
+        Resets the grid to fresh zero state (warmup will populate it).
+        Caller should invoke ``sync_rest_depth_from_book()`` after import
+        to initialize grid rest_depth from the restored book.
+
+        Args:
+            data: Bytes previously returned by ``export_book_state()``.
+
+        Raises:
+            ValueError: If the state version is unsupported.
+        """
+        import pickle
+
+        state = pickle.loads(data)  # noqa: S301 — internal cache, not untrusted input
+        if state.get("_v") != self._BOOK_STATE_VERSION:
+            raise ValueError(
+                f"Unsupported book state version {state.get('_v')}, "
+                f"expected {self._BOOK_STATE_VERSION}. Delete the cache and retry."
+            )
+
+        self._orders = {
+            oid: _OrderEntry(side=s, price_int=p, qty=q)
+            for oid, (s, p, q) in state["orders"].items()
+        }
+        self._depth_bid = state["depth_bid"]
+        self._depth_ask = state["depth_ask"]
+        self._best_bid = state["best_bid"]
+        self._best_ask = state["best_ask"]
+        self._spot_ref_price_int = state["spot_ref_price_int"]
+        self._event_counter = state["event_counter"]
+        self._prev_ts_ns = state["prev_ts_ns"]
+        self._book_valid = state["book_valid"]
+        self._snapshot_in_progress = state["snapshot_in_progress"]
+
+        # Reset grid to fresh state — warmup will populate
+        self._init_grid()
+
+    # ------------------------------------------------------------------
     # Introspection
     # ------------------------------------------------------------------
 

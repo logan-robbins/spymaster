@@ -8,7 +8,8 @@ Three processing phases when ``start_time`` is provided:
        through ``warmup_start_ns`` are processed via the lightweight
        ``apply_book_event()`` path.  This builds correct order book state
        without computing grid mechanics / derivatives / forces (~10-50x
-       faster than full VP).
+       faster than full VP).  **Cached** after first run — subsequent
+       launches with the same symbol/date/start_time skip Phase 1 entirely.
     2. **VP warmup**: Events from ``warmup_start_ns`` through ``emit_after_ns``
        are processed through the full VP engine to populate derivative chains,
        but grid snapshots are not emitted to the consumer.
@@ -16,10 +17,18 @@ Three processing phases when ``start_time`` is provided:
 
 When ``start_time`` is None, all events go through the full VP engine and
 are emitted immediately (subject to throttle).
+
+Book state cache:
+    Stored at ``lake/cache/vp_book/{symbol}_{dt}_{hash}.pkl``.
+    Cache key includes the .dbn file's mtime + size so it auto-invalidates
+    when raw data is re-downloaded.  Book state is independent of VP formula
+    parameters — formula changes do NOT require cache regeneration.
+    To force regeneration: ``rm -rf backend/lake/cache/vp_book/``
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -28,7 +37,7 @@ from typing import Any, AsyncGenerator, Dict, Generator, Tuple
 from ..data_eng.config import PRICE_SCALE
 from .config import VPRuntimeConfig
 from .event_engine import EventDrivenVPEngine
-from .replay_source import iter_mbo_events
+from .replay_source import _resolve_dbn_path, iter_mbo_events
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +118,32 @@ def _create_event_engine(
     )
 
 
+def _resolve_book_cache_path(
+    lake_root: Path,
+    product_type: str,
+    symbol: str,
+    dt: str,
+    warmup_start_ns: int,
+) -> Path | None:
+    """Compute deterministic cache path for book state checkpoint.
+
+    Cache key includes the .dbn file's mtime + size so it auto-invalidates
+    when raw data is re-downloaded.  Returns None if the .dbn file cannot
+    be resolved (e.g. not yet downloaded).
+    """
+    try:
+        dbn_path = _resolve_dbn_path(lake_root, product_type, symbol, dt)
+    except FileNotFoundError:
+        return None
+
+    stat = dbn_path.stat()
+    raw = f"{product_type}:{symbol}:{dt}:{warmup_start_ns}:{stat.st_mtime_ns}:{stat.st_size}"
+    key_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    cache_dir = lake_root / "cache" / "vp_book"
+    return cache_dir / f"{symbol}_{dt}_{key_hash}.pkl"
+
+
 def stream_events(
     lake_root: Path,
     config: VPRuntimeConfig,
@@ -123,6 +158,7 @@ def stream_events(
 
     1. **Book-only** (ts < warmup_start_ns): Lightweight ``apply_book_event``
        builds correct order book / spot from all pre-warmup events.
+       **Cached** after first run for instant restart.
     2. **VP warmup** (warmup_start_ns <= ts < emit_after_ns): Full engine
        processes events to populate derivative chains; grids not emitted.
     3. **Live emit** (ts >= emit_after_ns): Full engine + grid emission.
@@ -151,23 +187,49 @@ def stream_events(
     book_only_count = 0
     last_yield_ts_ns = 0
     transitioned_to_vp = warmup_start_ns == 0  # True if no book-only phase
+    cache_loaded = False
 
     t_wall_start = time.monotonic()
 
-    # Do NOT pass skip_to_ns -- we process ALL events from session start
-    # to build correct order book state.  The old skip_to_ns approach
-    # discarded 9+ hours of book mutations for futures, leaving the
-    # engine with a stale midnight-snapshot book at warmup start.
+    # --- Book state cache: skip Phase 1 on repeat runs ---
+    cache_path: Path | None = None
+    if warmup_start_ns > 0:
+        cache_path = _resolve_book_cache_path(
+            lake_root, config.product_type, config.symbol, dt, warmup_start_ns,
+        )
+
+    if cache_path and cache_path.exists():
+        logger.info("Loading cached book state: %s", cache_path.name)
+        engine.import_book_state(cache_path.read_bytes())
+        engine.sync_rest_depth_from_book()
+        cache_loaded = True
+        transitioned_to_vp = True
+        logger.info(
+            "Book cache loaded in %.2fs: %d orders, spot=%d, book_valid=%s",
+            time.monotonic() - t_wall_start,
+            engine.order_count,
+            engine.spot_ref_price_int,
+            engine.book_valid,
+        )
+
+    # When cache is loaded, skip_to_ns jumps past pre-warmup events.
+    # Snapshot/clear records exempt from skip are caught by the ts guard below.
     for event in iter_mbo_events(
         lake_root,
         config.product_type,
         config.symbol,
         dt,
+        skip_to_ns=warmup_start_ns if cache_loaded else 0,
     ):
         ts_ns, action, side, price, size, order_id, flags = event
         event_count += 1
 
-        # Phase 1: Book-only fast-forward (pre-warmup)
+        # When cache loaded, skip any residual pre-warmup records
+        # (snapshot/clear exempt from skip_to_ns in iter_mbo_events)
+        if cache_loaded and ts_ns < warmup_start_ns:
+            continue
+
+        # Phase 1: Book-only fast-forward (pre-warmup, uncached runs only)
         if warmup_start_ns > 0 and ts_ns < warmup_start_ns:
             engine.apply_book_event(
                 ts_ns=ts_ns,
@@ -192,6 +254,16 @@ def stream_events(
 
         # Transition: book-only -> VP mode
         if not transitioned_to_vp:
+            # Save book cache for next time
+            if cache_path and not cache_loaded:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(engine.export_book_state())
+                logger.info(
+                    "Saved book cache: %s (%d orders)",
+                    cache_path.name,
+                    engine.order_count,
+                )
+
             engine.sync_rest_depth_from_book()
             elapsed_ff = time.monotonic() - t_wall_start
             logger.info(
