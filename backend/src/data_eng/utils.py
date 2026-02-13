@@ -94,7 +94,7 @@ def session_window_ns(
             f"Expected one of {sorted(_EQUITY_PRODUCT_TYPES | _FUTURES_PRODUCT_TYPES)}"
         )
 
-    # Equities: 02:00 ET – 16:00 ET (Etc/GMT+5 = EST = UTC-5, no DST)
-    start_local = pd.Timestamp(f"{session_date} 02:00:00", tz="Etc/GMT+5")
-    end_local = pd.Timestamp(f"{session_date} 16:00:00", tz="Etc/GMT+5")
+    # Equities: 02:00 ET – 16:00 ET (America/New_York handles EST/EDT correctly)
+    start_local = pd.Timestamp(f"{session_date} 02:00:00", tz="America/New_York")
+    end_local = pd.Timestamp(f"{session_date} 16:00:00", tz="America/New_York")
     return int(start_local.tz_convert("UTC").value), int(end_local.tz_convert("UTC").value)

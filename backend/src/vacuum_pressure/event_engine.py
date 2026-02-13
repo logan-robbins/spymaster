@@ -1,4 +1,4 @@
-"""Event-driven vacuum/pressure engine.
+"""Event-driven vacuum/pressure engine — two-force model.
 
 Canonical event-time force-field engine over relative price buckets around spot.
 Every MBO order book event updates pressure-state math. Live and replay run
@@ -10,12 +10,36 @@ Architecture:
     3. Dense grid of 2K+1 buckets centered on spot. Each bucket carries:
        - mechanics: add_mass, pull_mass, fill_mass, rest_depth
        - derivatives: v_*, a_*, j_* (dt-normalized via exponential decay)
-       - force: pressure_variant, vacuum_variant, resistance_variant
+       - force: pressure_variant (building), vacuum_variant (draining)
        - metadata: last_event_id, cell_valid
     4. On each event: resolve bucket, update mechanics, decay-update derivatives,
        recompute force, emit dense grid.
     5. On spot shift: translate grid state by shift amount, fill edge buckets
        with finite defaults.
+
+Two-force model:
+    Only three market states matter:
+        1. Vacuum above + Pressure below → price goes up
+        2. Pressure above + Vacuum below → price goes down
+        3. Weak/balanced → chop
+
+    "Pressure above spot" IS resistance. "Pressure below spot" IS support.
+    A separate resistance variant (formerly log1p(rest_depth)) is redundant —
+    it's a static level in a derivative-led system.
+
+    Pressure (depth BUILDING — liquidity arriving/replenishing):
+        pressure_variant_k = c1*v_add_k
+                           + c2*max(v_rest_depth_k, 0)
+                           + c3*max(a_add_k, 0)
+
+    Vacuum (depth DRAINING — liquidity removed/consumed):
+        vacuum_variant_k = c4*v_pull_k
+                         + c5*v_fill_k
+                         + c6*max(-v_rest_depth_k, 0)
+                         + c7*max(a_pull_k, 0)
+
+    Both forces are non-negative (magnitude of building/draining).
+    Fills belong to VACUUM: they drain the passive side's depth.
 
 Derivative chain math (continuous-time EMA):
     For each mechanics quantity m_k at bucket k, we maintain:
@@ -31,18 +55,8 @@ Derivative chain math (continuous-time EMA):
     Source: Jason S, Stack Overflow #1027808; standard single-pole IIR filter
     theory with continuous-time analog Y + tau * dY/dt = X.
 
-Pressure variant formula (derivative-led):
-    pressure_variant_k = c1*v_add_k + c2*v_fill_k - c3*v_pull_k
-                       + c4*max(-a_rest_depth_k, 0)
-                       + c5*j_flow_k
-
-    where j_flow_k = j_add_k - j_pull_k + j_fill_k
-
-    Raw levels appear only as conditioning terms (rest_depth for resistance),
-    not primary drivers.
-
 Guarantees:
-    G1: For each event, engine state advances once and recomputes pressure variant.
+    G1: For each event, engine state advances once and recomputes force variants.
     G2: Emitted grid contains all buckets k in [-K, +K] every time (2K+1 total).
     G3: No bucket value is null/NaN/Inf.
     G4: Untouched buckets persist prior values (after spot-frame remap).
@@ -90,25 +104,46 @@ TAU_ACCELERATION: float = 5.0
 TAU_JERK: float = 10.0
 """Time constant for jerk EMA (3rd derivative)."""
 
-# Pressure variant coefficients
+# Two-force model coefficients — Pressure (depth building)
 C1_V_ADD: float = 1.0
-"""Weight for velocity of add_mass."""
+"""Weight for v_add in pressure. Primary signal: rate of new order arrival."""
 
-C2_V_FILL: float = 1.5
-"""Weight for velocity of fill_mass."""
+C2_V_REST_POS: float = 0.5
+"""Weight for max(v_rest_depth, 0) in pressure. Conditioning: net depth
+growth confirms building. Half-weight vs primary flow derivative."""
 
-C3_V_PULL: float = 1.0
-"""Weight for velocity of pull_mass."""
+C3_A_ADD: float = 0.3
+"""Weight for max(a_add, 0) in pressure. Detects intensifying adds.
+Noisier than velocity → lower weight (~5-8% of total signal)."""
 
-C4_A_REST: float = 0.5
-"""Weight for acceleration of rest_depth (deceleration -> resistance decay)."""
+# Two-force model coefficients — Vacuum (depth draining)
+C4_V_PULL: float = 1.0
+"""Weight for v_pull in vacuum. Primary drain: cancellation rate."""
 
-C5_J_FLOW: float = 0.3
-"""Weight for jerk of net flow (add - pull + fill)."""
+C5_V_FILL: float = 1.5
+"""Weight for v_fill in vacuum. Fills are realized executions with zero
+spoof risk. Higher weight rewards information quality and compensates
+for lower frequency relative to pulls."""
+
+C6_V_REST_NEG: float = 0.5
+"""Weight for max(-v_rest_depth, 0) in vacuum. Conditioning: net depth
+shrinkage confirms draining. Half-weight vs primary flow derivative."""
+
+C7_A_PULL: float = 0.3
+"""Weight for max(a_pull, 0) in vacuum. Detects intensifying pulls.
+Same noise rationale as C3_A_ADD."""
 
 # Rest depth exponential decay time constant (seconds)
 TAU_REST_DECAY: float = 30.0
 """Time constant for passive rest_depth decay (absent direct events)."""
+
+TAU_FRESHNESS: float = 10.0
+"""Time constant for stale-bucket force/derivative discount in grid output.
+
+Untouched buckets retain frozen derivative and force values (Guarantee G4).
+When emitting the grid, we apply exp(-age / TAU_FRESHNESS) to derivative-led
+fields so stale edge buckets don't display phantom pressure indefinitely.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +152,7 @@ TAU_REST_DECAY: float = 30.0
 
 @dataclass
 class BucketState:
-    """Full per-bucket state model.
+    """Full per-bucket state model (two-force variant).
 
     All fields initialized to finite defaults (zero). No field is ever
     null/NaN/Inf by construction.
@@ -127,17 +162,18 @@ class BucketState:
         pull_mass: cumulative pull quantity (decayed)
         fill_mass: cumulative fill quantity (decayed)
         rest_depth: current resting depth at this bucket
-        rest_decay: decayed resting depth (passive decay when no events)
 
     Derivatives (dt-normalized via exponential decay EMA):
         v_add, v_pull, v_fill, v_rest_depth: velocity (1st derivative)
         a_add, a_pull, a_fill, a_rest_depth: acceleration (2nd derivative)
         j_add, j_pull, j_fill, j_rest_depth: jerk (3rd derivative)
 
-    Force:
-        pressure_variant: derivative-led directional force
-        vacuum_variant: pull-driven vacuum signal
-        resistance_variant: rest-depth-derived resistance
+    Force (two-force model):
+        pressure_variant: non-negative magnitude of depth building
+            pressure = c1*v_add + c2*max(v_rest_depth, 0) + c3*max(a_add, 0)
+        vacuum_variant: non-negative magnitude of depth draining
+            vacuum = c4*v_pull + c5*v_fill + c6*max(-v_rest_depth, 0)
+                   + c7*max(a_pull, 0)
 
     Metadata:
         last_event_id: id of last event that touched this bucket
@@ -168,10 +204,9 @@ class BucketState:
     j_fill: float = 0.0
     j_rest_depth: float = 0.0
 
-    # Force
+    # Force (two-force model: both non-negative)
     pressure_variant: float = 0.0
     vacuum_variant: float = 0.0
-    resistance_variant: float = 0.0
 
     # Metadata
     last_event_id: int = 0
@@ -207,7 +242,6 @@ class BucketState:
             "j_rest_depth": self.j_rest_depth,
             "pressure_variant": self.pressure_variant,
             "vacuum_variant": self.vacuum_variant,
-            "resistance_variant": self.resistance_variant,
             "last_event_id": self.last_event_id,
             "cell_valid": self.cell_valid,
         }
@@ -271,106 +305,166 @@ def _update_derivative_chain(
     tau_a: float = TAU_ACCELERATION,
     tau_j: float = TAU_JERK,
 ) -> Tuple[float, float, float]:
-    """Update a three-level derivative chain with dt normalization.
+    """Update a three-level derivative chain from value changes.
 
     Computes velocity (1st derivative), acceleration (2nd), and jerk (3rd)
-    of a mechanics quantity using exponential-decay EMA for each level.
+    using exponential-decay EMA for each level.  The instantaneous rate is
+    (new_value - prev_value) / dt, then smoothed through the EMA chain.
 
-    The instantaneous rate is (new_value - prev_value) / dt, then smoothed
-    through the EMA chain.
+    Use this for **snapshot** quantities (e.g. rest_depth) where the rate of
+    change of the signal itself is the correct input.
 
-    Args:
-        prev_value: Previous mechanics value.
-        new_value: Current mechanics value.
-        dt_s: Time delta in seconds.
-        v_prev: Previous velocity EMA.
-        a_prev: Previous acceleration EMA.
-        j_prev: Previous jerk EMA.
-        tau_v: Time constant for velocity EMA.
-        tau_a: Time constant for acceleration EMA.
-        tau_j: Time constant for jerk EMA.
+    For **decayed accumulators** (add_mass, pull_mass, fill_mass) use
+    ``_update_derivative_chain_from_delta`` instead to avoid conflating
+    passive decay with market activity.
 
     Returns:
         (v_new, a_new, j_new): Updated derivative chain values.
+        Guaranteed finite (falls back to prev on non-finite result).
     """
     if dt_s <= 0.0:
         return v_prev, a_prev, j_prev
 
-    # Instantaneous rate of change
     rate = (new_value - prev_value) / dt_s
 
-    # Velocity: EMA of rate
     alpha_v = _ema_alpha(dt_s, tau_v)
     v_new = alpha_v * rate + (1.0 - alpha_v) * v_prev
 
-    # Acceleration: EMA of velocity change rate
     dv_rate = (v_new - v_prev) / dt_s
     alpha_a = _ema_alpha(dt_s, tau_a)
     a_new = alpha_a * dv_rate + (1.0 - alpha_a) * a_prev
 
-    # Jerk: EMA of acceleration change rate
     da_rate = (a_new - a_prev) / dt_s
     alpha_j = _ema_alpha(dt_s, tau_j)
     j_new = alpha_j * da_rate + (1.0 - alpha_j) * j_prev
 
+    # G3: guarantee finite outputs
+    if not (math.isfinite(v_new) and math.isfinite(a_new) and math.isfinite(j_new)):
+        return v_prev, a_prev, j_prev
+
     return v_new, a_new, j_new
 
 
-def _compute_pressure_variant(bucket: BucketState) -> float:
-    """Compute derivative-led pressure variant for a bucket.
+def _update_derivative_chain_from_delta(
+    delta: float,
+    dt_s: float,
+    v_prev: float,
+    a_prev: float,
+    j_prev: float,
+    tau_v: float = TAU_VELOCITY,
+    tau_a: float = TAU_ACCELERATION,
+    tau_j: float = TAU_JERK,
+) -> Tuple[float, float, float]:
+    """Update a three-level derivative chain from a raw event delta.
 
-    Formula:
-        pressure_variant = c1*v_add + c2*v_fill - c3*v_pull
-                         + c4*max(-a_rest_depth, 0)
-                         + c5*j_flow
+    Unlike ``_update_derivative_chain``, this takes the **raw event delta**
+    (quantity added/pulled/filled at this bucket) rather than the change in a
+    decayed accumulator.  This separates passive exponential decay from the
+    derivative signal, ensuring that velocity measures *market activity rate*
+    rather than *rate of change of a decaying signal*.
 
-    where j_flow = j_add - j_pull + j_fill
-
-    Positive pressure_variant indicates upward force (buying pressure).
-    Negative indicates downward force (selling pressure).
-
-    The sign semantics depend on the bucket side:
-    - Bid-side bucket (k < 0): positive add velocity = buying pressure = bullish
-    - Ask-side bucket (k > 0): positive add velocity = selling pressure = bearish
-    The caller (or downstream consumer) interprets the sign in context.
+    When delta=0 and dt_s>0, the EMA decays toward zero (no activity).
+    When delta>0, the activity rate delta/dt_s is blended in.
 
     Args:
-        bucket: Current bucket state.
+        delta: Raw event quantity (add_delta, pull_delta, or fill_delta).
+        dt_s: Time delta in seconds (must be > 0 for any update).
+        v_prev, a_prev, j_prev: Previous derivative chain values.
+        tau_v, tau_a, tau_j: Time constants for each derivative level.
 
     Returns:
-        Finite float pressure variant value.
+        (v_new, a_new, j_new): Updated derivative chain values.
+        Guaranteed finite (falls back to prev on non-finite result).
     """
-    j_flow = bucket.j_add - bucket.j_pull + bucket.j_fill
+    if dt_s <= 0.0:
+        return v_prev, a_prev, j_prev
 
-    pv = (
+    # Activity rate: raw delta per unit time
+    rate = delta / dt_s
+
+    alpha_v = _ema_alpha(dt_s, tau_v)
+    v_new = alpha_v * rate + (1.0 - alpha_v) * v_prev
+
+    dv_rate = (v_new - v_prev) / dt_s
+    alpha_a = _ema_alpha(dt_s, tau_a)
+    a_new = alpha_a * dv_rate + (1.0 - alpha_a) * a_prev
+
+    da_rate = (a_new - a_prev) / dt_s
+    alpha_j = _ema_alpha(dt_s, tau_j)
+    j_new = alpha_j * da_rate + (1.0 - alpha_j) * j_prev
+
+    # G3: guarantee finite outputs
+    if not (math.isfinite(v_new) and math.isfinite(a_new) and math.isfinite(j_new)):
+        return v_prev, a_prev, j_prev
+
+    return v_new, a_new, j_new
+
+
+def _compute_pressure(bucket: BucketState) -> float:
+    """Compute pressure force (depth BUILDING — liquidity arriving).
+
+    Pressure measures the rate at which depth is being built at a price
+    level, capturing the intention of participants to defend/establish it.
+
+    Formula:
+        pressure = c1*v_add + c2*max(v_rest_depth, 0) + c3*max(a_add, 0)
+
+    Components:
+        v_add:               velocity of add_mass (rate of new orders arriving)
+        max(v_rest_depth, 0): positive velocity of rest_depth (depth growing)
+        max(a_add, 0):       acceleration of add activity (is adding intensifying?)
+
+    Directional interpretation depends on bucket position relative to spot:
+        k < 0 (below spot): pressure = support being built   (bullish)
+        k > 0 (above spot): pressure = resistance being built (bearish)
+
+    Returns:
+        Non-negative float. Zero when no building activity.
+    """
+    return (
         C1_V_ADD * bucket.v_add
-        + C2_V_FILL * bucket.v_fill
-        - C3_V_PULL * bucket.v_pull
-        + C4_A_REST * max(-bucket.a_rest_depth, 0.0)
-        + C5_J_FLOW * j_flow
+        + C2_V_REST_POS * max(bucket.v_rest_depth, 0.0)
+        + C3_A_ADD * max(bucket.a_add, 0.0)
     )
-    return pv
 
 
-def _compute_vacuum_variant(bucket: BucketState) -> float:
-    """Compute vacuum variant (pull-driven liquidity drainage).
+def _compute_vacuum(bucket: BucketState) -> float:
+    """Compute vacuum force (depth DRAINING — liquidity removed/consumed).
 
-    vacuum_variant = v_pull - v_add (positive = draining = vacuum)
-    """
-    return bucket.v_pull - bucket.v_add
+    Vacuum measures the rate at which depth is being drained from a price
+    level, capturing passive withdrawal (market makers pulling) and
+    aggressive consumption (fills eating through depth).
 
+    Formula:
+        vacuum = c4*v_pull + c5*v_fill + c6*max(-v_rest_depth, 0)
+               + c7*max(a_pull, 0)
 
-def _compute_resistance_variant(bucket: BucketState) -> float:
-    """Compute resistance variant from resting depth.
+    Components:
+        v_pull:                velocity of pull_mass (rate of cancellations)
+        v_fill:                velocity of fill_mass (rate of depth consumed by trades)
+        max(-v_rest_depth, 0): negative velocity of rest_depth (depth shrinking)
+        max(a_pull, 0):        acceleration of pull activity (pulling intensifying?)
 
-    Uses log-compressed rest_depth as the resistance signal.
-    This is a conditioning term (raw level), not derivative-led,
-    but the spec permits raw levels as conditioning terms.
+    Why fills belong to VACUUM:
+        Fills drain the passive side's depth.  When aggressive buyers fill
+        resting asks at k > 0:
+            Old model: fills → pressure > 0 at k > 0 → frontend reads as bearish (WRONG)
+            New model: fills → vacuum > 0 at k > 0 → "depth draining above" → bullish (CORRECT)
+        This fixes the D4 fill-attribution problem.
+
+    Directional interpretation depends on bucket position relative to spot:
+        k < 0 (below spot): vacuum = support draining away  (bearish)
+        k > 0 (above spot): vacuum = resistance being eaten  (bullish)
 
     Returns:
-        Non-negative resistance value.
+        Non-negative float. Zero when no draining activity.
     """
-    return math.log1p(max(bucket.rest_depth, 0.0))
+    return (
+        C4_V_PULL * bucket.v_pull
+        + C5_V_FILL * bucket.v_fill
+        + C6_V_REST_NEG * max(-bucket.v_rest_depth, 0.0)
+        + C7_A_PULL * max(bucket.a_pull, 0.0)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +596,10 @@ class EventDrivenVPEngine:
         event_id = self._event_counter
         is_snapshot = (flags & F_SNAPSHOT) != 0
 
+        # Capture BEFORE lifecycle transitions (B1 fix: enables
+        # snapshot_just_completed detection on the F_LAST event).
+        was_snapshot_in_progress = self._snapshot_in_progress
+
         # --- Handle snapshot lifecycle ---
         if action == ACTION_CLEAR and is_snapshot:
             self._snapshot_in_progress = True
@@ -512,17 +610,14 @@ class EventDrivenVPEngine:
             self._book_valid = True
 
         # --- Compute dt ---
-        dt_s = 0.0
         if self._prev_ts_ns > 0 and ts_ns > self._prev_ts_ns:
-            dt_s = (ts_ns - self._prev_ts_ns) / 1e9
+            pass  # per-bucket dt is used below; global dt removed (was dead code)
         self._prev_ts_ns = ts_ns
 
         # --- Apply event to internal order book ---
         # Track (price_int, event_side) pairs for bucket updates
         touched_info: List[Tuple[int, str, float, float, float]] = []
         # Each entry: (price_int, order_side, add_delta, pull_delta, fill_delta)
-
-        was_snapshot_in_progress = self._snapshot_in_progress
 
         if action == ACTION_CLEAR:
             self._clear_book()
@@ -627,18 +722,17 @@ class EventDrivenVPEngine:
             touched_k.add(k)
             bucket = self._grid[k]
 
-            # Compute rest_depth at this price level (sum both sides)
-            depth_at_price = self._total_depth_at_price(p)
+            # B3 fix: aggregate rest_depth across ALL price levels that
+            # map to this bucket (correct for equities where one bucket
+            # spans multiple penny tick levels).
+            bucket_rest_depth = self._aggregate_bucket_rest_depth(k)
 
             # Compute dt for this specific bucket
             bucket_dt_s = 0.0
             if bucket.last_ts_ns > 0 and ts_ns > bucket.last_ts_ns:
                 bucket_dt_s = (ts_ns - bucket.last_ts_ns) / 1e9
 
-            # Save previous mechanics for derivative computation
-            prev_add = bucket.add_mass
-            prev_pull = bucket.pull_mass
-            prev_fill = bucket.fill_mass
+            # Save previous rest_depth for value-change derivative
             prev_rest = bucket.rest_depth
 
             # Update mechanics (cumulative with passive decay)
@@ -652,29 +746,37 @@ class EventDrivenVPEngine:
                 bucket.pull_mass += pull_delta
                 bucket.fill_mass += fill_delta
 
-            # rest_depth is a snapshot (semi-additive: last across time)
-            bucket.rest_depth = float(depth_at_price)
+            # rest_depth: full bucket aggregate (B3 fix)
+            bucket.rest_depth = bucket_rest_depth
 
-            # Update derivative chains
+            # D1 fix: Use delta-based derivative chain for decayed
+            # accumulators (add/pull/fill).  This separates passive
+            # exponential decay from the derivative signal so velocity
+            # measures *market activity rate* not *rate of change of a
+            # decaying signal*.
+            #
+            # rest_depth uses value-change derivative (no decay artifact
+            # because it's a snapshot value, not a decayed accumulator).
             if bucket_dt_s > 0.0:
                 bucket.v_add, bucket.a_add, bucket.j_add = (
-                    _update_derivative_chain(
-                        prev_add, bucket.add_mass, bucket_dt_s,
+                    _update_derivative_chain_from_delta(
+                        add_delta, bucket_dt_s,
                         bucket.v_add, bucket.a_add, bucket.j_add,
                     )
                 )
                 bucket.v_pull, bucket.a_pull, bucket.j_pull = (
-                    _update_derivative_chain(
-                        prev_pull, bucket.pull_mass, bucket_dt_s,
+                    _update_derivative_chain_from_delta(
+                        pull_delta, bucket_dt_s,
                         bucket.v_pull, bucket.a_pull, bucket.j_pull,
                     )
                 )
                 bucket.v_fill, bucket.a_fill, bucket.j_fill = (
-                    _update_derivative_chain(
-                        prev_fill, bucket.fill_mass, bucket_dt_s,
+                    _update_derivative_chain_from_delta(
+                        fill_delta, bucket_dt_s,
                         bucket.v_fill, bucket.a_fill, bucket.j_fill,
                     )
                 )
+                # rest_depth: value-change chain (no decay artifact)
                 bucket.v_rest_depth, bucket.a_rest_depth, bucket.j_rest_depth = (
                     _update_derivative_chain(
                         prev_rest, bucket.rest_depth, bucket_dt_s,
@@ -683,24 +785,45 @@ class EventDrivenVPEngine:
                     )
                 )
 
-            # Recompute force variables
-            bucket.pressure_variant = _compute_pressure_variant(bucket)
-            bucket.vacuum_variant = _compute_vacuum_variant(bucket)
-            bucket.resistance_variant = _compute_resistance_variant(bucket)
+            # Recompute two-force model
+            bucket.pressure_variant = _compute_pressure(bucket)
+            bucket.vacuum_variant = _compute_vacuum(bucket)
 
             # Mark provenance
             bucket.last_event_id = event_id
             bucket.last_ts_ns = ts_ns
 
-        # --- Build output ---
+        # --- Build output with D2 freshness discount ---
         mid_price = 0.0
         if self._best_bid > 0 and self._best_ask > 0:
             mid_price = (self._best_bid + self._best_ask) * 0.5 * PRICE_SCALE
+
+        _DERIVATIVE_FIELDS = (
+            "v_add", "v_pull", "v_fill", "v_rest_depth",
+            "a_add", "a_pull", "a_fill", "a_rest_depth",
+            "j_add", "j_pull", "j_fill", "j_rest_depth",
+            "pressure_variant", "vacuum_variant",
+        )
+        _MASS_FIELDS = ("add_mass", "pull_mass", "fill_mass")
 
         buckets_out: List[Dict[str, Any]] = []
         for k in range(-self.K, self.K + 1):
             b = self._grid[k]
             d = b.to_dict(k)
+
+            # D2: Freshness discount for untouched buckets.  Derivative-led
+            # fields decay toward zero; mass fields continue natural decay.
+            # rest_depth is NOT discounted (raw level / conditioning term).
+            if b.last_ts_ns > 0 and ts_ns > b.last_ts_ns:
+                age_s = (ts_ns - b.last_ts_ns) / 1e9
+                if age_s > 0.5:  # Only discount if meaningfully stale
+                    freshness = math.exp(-age_s / TAU_FRESHNESS)
+                    mass_decay = math.exp(-age_s / TAU_REST_DECAY)
+                    for f in _DERIVATIVE_FIELDS:
+                        d[f] = d[f] * freshness
+                    for f in _MASS_FIELDS:
+                        d[f] = d[f] * mass_decay
+
             buckets_out.append(d)
 
         return {
@@ -720,14 +843,20 @@ class EventDrivenVPEngine:
     # ------------------------------------------------------------------
 
     def _clear_book(self) -> None:
-        """Clear all orders and depth (snapshot/clear event)."""
+        """Clear all orders and depth (snapshot/clear event).
+
+        Does NOT set ``_snapshot_in_progress``; that is managed by the
+        snapshot lifecycle state machine in ``update()`` /
+        ``apply_book_event()``.  This prevents non-snapshot Clear events
+        (e.g. trading halts) from trapping the engine in permanent
+        snapshot-in-progress state.
+        """
         self._orders.clear()
         self._depth_bid.clear()
         self._depth_ask.clear()
         self._best_bid = 0
         self._best_ask = 0
         self._book_valid = False
-        self._snapshot_in_progress = True
 
     def _add_order(
         self, side: str, price_int: int, size: int, order_id: int
@@ -778,23 +907,31 @@ class EventDrivenVPEngine:
         depth[price_int] = depth.get(price_int, 0) + size
 
     def _fill_order(self, order_id: int, fill_size: int) -> None:
-        """Fill (partially or fully) an order."""
+        """Fill (partially or fully) an order.
+
+        Clamps effective fill to the order's remaining qty to prevent
+        depth corruption across sibling orders at the same price level
+        in the event of a feed anomaly (fill_size > remaining qty).
+        """
         entry = self._orders.get(order_id)
         if entry is None:
             return
+
+        # Defensive clamp: never reduce depth by more than order's remaining qty
+        effective_fill = min(fill_size, entry.qty)
+
         depth = (
             self._depth_bid if entry.side == SIDE_BID else self._depth_ask
         )
-        # Reduce depth
         cur = depth.get(entry.price_int, 0)
-        new_depth = cur - fill_size
+        new_depth = cur - effective_fill
         if new_depth <= 0:
             depth.pop(entry.price_int, None)
         else:
             depth[entry.price_int] = new_depth
 
         # Reduce order qty
-        entry.qty -= fill_size
+        entry.qty -= effective_fill
         if entry.qty <= 0:
             self._orders.pop(order_id, None)
 
@@ -835,12 +972,17 @@ class EventDrivenVPEngine:
     def _compute_spot(self) -> int:
         """Compute spot reference as mid of BBO (in price_int).
 
+        Uses floor(x + 0.5) for consistent half-up rounding instead of
+        Python's round() which uses banker's round-half-to-even.  This
+        avoids tick-boundary asymmetry for 1-tick spreads where the mid
+        falls exactly on a half-tick.
+
         Returns 0 if either side is missing.
         """
         if self._best_bid > 0 and self._best_ask > 0:
-            # Round to nearest tick
             raw_mid = (self._best_bid + self._best_ask) / 2.0
-            return int(round(raw_mid / self.tick_int) * self.tick_int)
+            # Consistent half-up rounding (no banker's asymmetry)
+            return int(math.floor(raw_mid / self.tick_int + 0.5)) * self.tick_int
         return 0
 
     # ------------------------------------------------------------------
@@ -915,6 +1057,91 @@ class EventDrivenVPEngine:
             if k is not None:
                 self._grid[k].rest_depth += float(qty)
 
+    def _aggregate_bucket_rest_depth(self, k: int) -> float:
+        """Compute total rest depth for bucket k across all mapped price levels.
+
+        For futures (1 price level per bucket) this returns the same value as
+        ``_total_depth_at_price(p)``.  For equities (many penny levels per
+        bucket, e.g. 50 for $0.50 bucket / $0.01 tick), this correctly
+        aggregates depth from every price_int that maps to the same bucket.
+        """
+        if self._spot_ref_price_int <= 0:
+            return 0.0
+        total = 0.0
+        for price_int, qty in self._depth_bid.items():
+            if self._price_to_k(price_int) == k:
+                total += qty
+        for price_int, qty in self._depth_ask.items():
+            if self._price_to_k(price_int) == k:
+                total += qty
+        return total
+
+    # ------------------------------------------------------------------
+    # Lightweight book-only processing (pre-warmup fast-forward)
+    # ------------------------------------------------------------------
+
+    def apply_book_event(
+        self,
+        ts_ns: int,
+        action: str,
+        side: str,
+        price_int: int,
+        size: int,
+        order_id: int,
+        flags: int,
+    ) -> None:
+        """Lightweight book-only event processing for pre-warmup fast-forward.
+
+        Updates the internal order book, BBO, and spot reference *without*
+        computing grid mechanics, derivatives, or force variants.  This is
+        10-50x faster than ``update()`` and is used to fast-forward through
+        hours of pre-warmup events where correct book state is needed but
+        VP grid output is not.
+
+        After the last ``apply_book_event`` call (transition to VP mode),
+        the caller should invoke ``sync_rest_depth_from_book()`` to
+        initialize grid rest_depth from the fully-built book.
+
+        Args:
+            Same as ``update()``.
+        """
+        self._event_counter += 1
+        is_snapshot = (flags & F_SNAPSHOT) != 0
+
+        # Snapshot lifecycle (identical to update())
+        was_snapshot_in_progress = self._snapshot_in_progress
+
+        if action == ACTION_CLEAR and is_snapshot:
+            self._snapshot_in_progress = True
+        if self._snapshot_in_progress and (flags & F_LAST) != 0:
+            self._snapshot_in_progress = False
+            self._book_valid = True
+        if not self._book_valid and not self._snapshot_in_progress:
+            self._book_valid = True
+
+        self._prev_ts_ns = ts_ns
+
+        # Apply to order book
+        if action == ACTION_CLEAR:
+            self._clear_book()
+        elif action == ACTION_ADD:
+            self._add_order(side, price_int, size, order_id)
+        elif action == ACTION_CANCEL:
+            self._cancel_order(order_id)
+        elif action == ACTION_MODIFY:
+            self._modify_order(order_id, side, price_int, size)
+        elif action == ACTION_FILL:
+            self._fill_order(order_id, size)
+        # ACTION_TRADE: no book impact
+
+        # Update BBO and spot reference (no grid operations).
+        # We track spot to keep _spot_ref_price_int current so the
+        # first full update() sees zero or minimal grid shift.
+        self._update_bbo()
+        new_spot = self._compute_spot()
+        if new_spot > 0:
+            self._spot_ref_price_int = new_spot
+
     # ------------------------------------------------------------------
     # Introspection
     # ------------------------------------------------------------------
@@ -969,7 +1196,6 @@ class EventDrivenVPEngine:
             "j_rest_depth": np.empty(n, dtype=np.float64),
             "pressure_variant": np.empty(n, dtype=np.float64),
             "vacuum_variant": np.empty(n, dtype=np.float64),
-            "resistance_variant": np.empty(n, dtype=np.float64),
             "last_event_id": np.empty(n, dtype=np.int64),
         }
 
@@ -993,7 +1219,6 @@ class EventDrivenVPEngine:
             arrays["j_rest_depth"][i] = b.j_rest_depth
             arrays["pressure_variant"][i] = b.pressure_variant
             arrays["vacuum_variant"][i] = b.vacuum_variant
-            arrays["resistance_variant"][i] = b.resistance_variant
             arrays["last_event_id"][i] = b.last_event_id
 
         return arrays

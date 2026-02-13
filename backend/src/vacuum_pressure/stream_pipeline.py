@@ -3,8 +3,19 @@
 Canonical path only:
     DBN event source -> EventDrivenVPEngine -> dense grid stream
 
-No window-based aggregation, no silver replay path, and no alternate math
-engines. All computation remains in-memory and updates on every MBO event.
+Three processing phases when ``start_time`` is provided:
+    1. **Book-only fast-forward** (pre-warmup): All events from session start
+       through ``warmup_start_ns`` are processed via the lightweight
+       ``apply_book_event()`` path.  This builds correct order book state
+       without computing grid mechanics / derivatives / forces (~10-50x
+       faster than full VP).
+    2. **VP warmup**: Events from ``warmup_start_ns`` through ``emit_after_ns``
+       are processed through the full VP engine to populate derivative chains,
+       but grid snapshots are not emitted to the consumer.
+    3. **Live emit**: Events after ``emit_after_ns`` are processed and emitted.
+
+When ``start_time`` is None, all events go through the full VP engine and
+are emitted immediately (subject to throttle).
 """
 from __future__ import annotations
 
@@ -34,7 +45,13 @@ def _compute_time_boundaries(
     dt: str,
     start_time: str | None,
 ) -> tuple[int, int]:
-    """Compute (skip_to_ns, emit_after_ns) from ET start_time."""
+    """Compute (warmup_start_ns, emit_after_ns) from ET start_time.
+
+    Uses ``America/New_York`` for correct EST/EDT handling year-round.
+
+    Returns:
+        (warmup_start_ns, emit_after_ns).  Both 0 when start_time is None.
+    """
     if not start_time:
         return 0, 0
 
@@ -45,16 +62,16 @@ def _compute_time_boundaries(
         else EQUITY_WARMUP_HOURS
     )
 
-    # start_time is HH:MM in Eastern (fixed EST)
+    # start_time is HH:MM in Eastern (America/New_York handles EST/EDT)
     et_start = pdt.Timestamp(
-        f"{dt} {start_time}:00", tz="Etc/GMT+5"
+        f"{dt} {start_time}:00", tz="America/New_York"
     ).tz_convert("UTC")
 
     warmup_start = et_start - pdt.Timedelta(hours=warmup_hours)
 
-    skip_to_ns = int(warmup_start.value)
+    warmup_start_ns = int(warmup_start.value)
     emit_after_ns = int(et_start.value)
-    return skip_to_ns, emit_after_ns
+    return warmup_start_ns, emit_after_ns
 
 
 def _resolve_tick_int(config: VPRuntimeConfig) -> int:
@@ -101,6 +118,15 @@ def stream_events(
 ) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
     """Synchronous live pipeline: DBN events -> EventDrivenVPEngine grids.
 
+    Three-phase processing ensures correct book state without replaying
+    the full session through the expensive VP engine:
+
+    1. **Book-only** (ts < warmup_start_ns): Lightweight ``apply_book_event``
+       builds correct order book / spot from all pre-warmup events.
+    2. **VP warmup** (warmup_start_ns <= ts < emit_after_ns): Full engine
+       processes events to populate derivative chains; grids not emitted.
+    3. **Live emit** (ts >= emit_after_ns): Full engine + grid emission.
+
     Args:
         lake_root: Path to the lake directory.
         config: Resolved runtime config.
@@ -112,7 +138,7 @@ def stream_events(
     if throttle_ms < 0:
         raise ValueError(f"throttle_ms must be >= 0, got {throttle_ms}")
 
-    skip_to_ns, emit_after_ns = _compute_time_boundaries(
+    warmup_start_ns, emit_after_ns = _compute_time_boundaries(
         config.product_type, dt, start_time,
     )
 
@@ -122,20 +148,64 @@ def stream_events(
     event_count = 0
     yielded_count = 0
     warmup_count = 0
+    book_only_count = 0
     last_yield_ts_ns = 0
+    transitioned_to_vp = warmup_start_ns == 0  # True if no book-only phase
 
     t_wall_start = time.monotonic()
 
+    # Do NOT pass skip_to_ns -- we process ALL events from session start
+    # to build correct order book state.  The old skip_to_ns approach
+    # discarded 9+ hours of book mutations for futures, leaving the
+    # engine with a stale midnight-snapshot book at warmup start.
     for event in iter_mbo_events(
         lake_root,
         config.product_type,
         config.symbol,
         dt,
-        skip_to_ns=skip_to_ns,
     ):
         ts_ns, action, side, price, size, order_id, flags = event
         event_count += 1
 
+        # Phase 1: Book-only fast-forward (pre-warmup)
+        if warmup_start_ns > 0 and ts_ns < warmup_start_ns:
+            engine.apply_book_event(
+                ts_ns=ts_ns,
+                action=action,
+                side=side,
+                price_int=price,
+                size=size,
+                order_id=order_id,
+                flags=flags,
+            )
+            book_only_count += 1
+            if book_only_count % 1_000_000 == 0:
+                elapsed_so_far = time.monotonic() - t_wall_start
+                logger.info(
+                    "book-only fast-forward: %dM events (%.1fs, %d orders, spot=%d)",
+                    book_only_count // 1_000_000,
+                    elapsed_so_far,
+                    engine.order_count,
+                    engine.spot_ref_price_int,
+                )
+            continue
+
+        # Transition: book-only -> VP mode
+        if not transitioned_to_vp:
+            engine.sync_rest_depth_from_book()
+            elapsed_ff = time.monotonic() - t_wall_start
+            logger.info(
+                "VP warmup started: %d book-only events in %.2fs "
+                "(%d orders, spot=%d, book_valid=%s)",
+                book_only_count,
+                elapsed_ff,
+                engine.order_count,
+                engine.spot_ref_price_int,
+                engine.book_valid,
+            )
+            transitioned_to_vp = True
+
+        # Phases 2 & 3: Full VP engine processing
         grid = engine.update(
             ts_ns=ts_ns,
             action=action,
@@ -146,10 +216,12 @@ def stream_events(
             flags=flags,
         )
 
+        # Phase 2: Warmup -- process but don't emit
         if emit_after_ns > 0 and ts_ns < emit_after_ns:
             warmup_count += 1
             continue
 
+        # Phase 3: Live emit (with throttle)
         if throttle_ns > 0 and last_yield_ts_ns > 0:
             if (ts_ns - last_yield_ts_ns) < throttle_ns:
                 continue
@@ -161,10 +233,12 @@ def stream_events(
     elapsed = time.monotonic() - t_wall_start
     rate = event_count / elapsed if elapsed > 0 else 0.0
     logger.info(
-        "live stream complete: %d events processed, %d grids emitted, %d warmup, %.2fs wall (%.0f evt/s)",
+        "live stream complete: %d events (%d book-only, %d warmup, %d emitted), "
+        "%.2fs wall (%.0f evt/s)",
         event_count,
-        yielded_count,
+        book_only_count,
         warmup_count,
+        yielded_count,
         elapsed,
         rate,
     )

@@ -100,11 +100,9 @@ interface SignalsData {
   confidence: number;
   strength: number;
   strength_smooth?: number;
-  // Pressure and resistance
+  // Pressure (depth building) and vacuum aggregates
   pressure_above?: number;
   pressure_below?: number;
-  resistance_above?: number;
-  resistance_below?: number;
   // Bernoulli lift model
   lift_up?: number;
   lift_down?: number;
@@ -145,12 +143,13 @@ interface SignalsData {
   directional_feasible?: boolean;
 }
 
-/** Dense grid bucket row from event-driven mode (mode=event). */
+/** Dense grid bucket row from event-driven mode (mode=event).
+ *  Two-force model: pressure (depth building, always >= 0) and
+ *  vacuum (depth draining, always >= 0).  resistance_variant removed. */
 interface GridBucketRow {
   k: number;
   pressure_variant: number;
   vacuum_variant: number;
-  resistance_variant: number;
   add_mass: number;
   pull_mass: number;
   fill_mass: number;
@@ -975,17 +974,19 @@ function pushHeatmapColumnFromGrid(
     }
   }
 
-  // Map grid buckets to heatmap rows and track adaptive normalization
-  let maxP = 0;
+  // Map grid buckets to heatmap rows and track adaptive normalization.
+  // Two-force model: both pressure_variant and vacuum_variant are >= 0.
+  // Net flow = pressure - vacuum: positive = building, negative = draining.
+  let maxNetForce = 0;
   let maxRestD = 0;
   for (const bucket_row of grid.values()) {
-    const absPressure = Math.abs(bucket_row.pressure_variant);
-    if (absPressure > maxP) maxP = absPressure;
+    const netForce = Math.abs(bucket_row.pressure_variant - bucket_row.vacuum_variant);
+    if (netForce > maxNetForce) maxNetForce = netForce;
     if (bucket_row.rest_depth > maxRestD) maxRestD = bucket_row.rest_depth;
   }
   runningMaxPressure = Math.max(
     runningMaxPressure * DEPTH_NORM_PERCENTILE_DECAY,
-    maxP,
+    maxNetForce,
   );
   runningMaxDepth = Math.max(
     runningMaxDepth * DEPTH_NORM_PERCENTILE_DECAY,
@@ -1005,26 +1006,35 @@ function pushHeatmapColumnFromGrid(
     }
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
-    // Use heatmapRGB with rest_depth as depth and pressure_variant as flow signal.
-    // Scale pressure_variant to match the FLOW_NORM_SCALE range expected by heatmapRGB.
-    const scaledPressure = bucketData.pressure_variant * (FLOW_NORM_SCALE / Math.max(1, runningMaxPressure));
-    const [r, g, b] = heatmapRGB(bucketData.rest_depth, scaledPressure, runningMaxDepth);
+    // Heatmap colour: net force = pressure (building) - vacuum (draining).
+    //   Positive (building) → cyan-green (pressure zone)
+    //   Negative (draining) → red-magenta (vacuum zone)
+    const netForce = bucketData.pressure_variant - bucketData.vacuum_variant;
+    const scaledForce = netForce * (FLOW_NORM_SCALE / Math.max(1, runningMaxPressure));
+    const [r, g, b] = heatmapRGB(bucketData.rest_depth, scaledForce, runningMaxDepth);
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
 }
 
 /**
- * Compute aggregate pressure/vacuum/resistance from the current grid.
- * Returns synthetic SignalsData-like values for the signal panel.
+ * Compute aggregate pressure/vacuum from the current grid (two-force model).
+ *
+ * Both pressure_variant and vacuum_variant are always >= 0:
+ *   pressure = rate of depth BUILDING at a level
+ *   vacuum   = rate of depth DRAINING at a level
+ *
+ * Net signal (positive = bullish, negative = bearish):
+ *   pressureBelow (support forming)     → +bullish
+ *   pressureAbove (resistance forming)  → −bearish
+ *   vacuumAbove   (path clearing up)    → +bullish
+ *   vacuumBelow   (support crumbling)   → −bearish
  */
 function computeGridAggregates(grid: Map<number, GridBucketRow>): {
   pressureAbove: number;
   pressureBelow: number;
   vacuumAbove: number;
   vacuumBelow: number;
-  resistanceAbove: number;
-  resistanceBelow: number;
   netPressure: number;
   totalRestDepthAbove: number;
   totalRestDepthBelow: number;
@@ -1033,23 +1043,19 @@ function computeGridAggregates(grid: Map<number, GridBucketRow>): {
   let pressureBelow = 0;
   let vacuumAbove = 0;
   let vacuumBelow = 0;
-  let resistanceAbove = 0;
-  let resistanceBelow = 0;
   let totalRestDepthAbove = 0;
   let totalRestDepthBelow = 0;
 
   for (const [k, b] of grid) {
     if (k > 0) {
-      // Above spot
-      if (b.pressure_variant > 0) pressureAbove += b.pressure_variant;
-      if (b.vacuum_variant < 0) vacuumAbove += b.vacuum_variant;
-      resistanceAbove += b.resistance_variant;
+      // Above spot: pressure = resistance forming, vacuum = path clearing
+      pressureAbove += b.pressure_variant;
+      vacuumAbove += b.vacuum_variant;
       totalRestDepthAbove += b.rest_depth;
     } else if (k < 0) {
-      // Below spot
-      if (b.pressure_variant > 0) pressureBelow += b.pressure_variant;
-      if (b.vacuum_variant < 0) vacuumBelow += b.vacuum_variant;
-      resistanceBelow += b.resistance_variant;
+      // Below spot: pressure = support forming, vacuum = support crumbling
+      pressureBelow += b.pressure_variant;
+      vacuumBelow += b.vacuum_variant;
       totalRestDepthBelow += b.rest_depth;
     }
   }
@@ -1059,15 +1065,14 @@ function computeGridAggregates(grid: Map<number, GridBucketRow>): {
   return {
     pressureAbove, pressureBelow,
     vacuumAbove, vacuumBelow,
-    resistanceAbove, resistanceBelow,
     netPressure,
     totalRestDepthAbove, totalRestDepthBelow,
   };
 }
 
 /**
- * Update the signal panel from event-mode grid data.
- * Shows pressure/vacuum/resistance aggregates instead of multi-timescale signals.
+ * Update the signal panel from event-mode grid data (two-force model).
+ * Shows pressure/vacuum aggregates — resistance removed.
  */
 function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   const agg = computeGridAggregates(grid);
@@ -1079,36 +1084,38 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
   $('lift-marker').style.left = `${liftNorm * 100}%`;
 
-  // Condition indicators
-  const vacPresent = agg.vacuumAbove < -1 || agg.vacuumBelow < -1;
+  // Condition indicators: V=vacuum active, P=pressure active (resistance removed)
+  const vacPresent = agg.vacuumAbove > 1 || agg.vacuumBelow > 1;
   const pressPresent = agg.pressureAbove > 5 || agg.pressureBelow > 5;
-  const moveSideResist = netLift >= 0 ? agg.resistanceAbove : agg.resistanceBelow;
   setInd('cond-v', vacPresent, '#22cc66');
   setInd('cond-p', pressPresent, '#22cc66');
-  setInd('cond-r', moveSideResist < 50, '#22cc66');
+  setInd('cond-r', false, '#333');  // resistance indicator disabled
 
   $('sig-cross-conf').textContent = '---';
   $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
 
-  // Timescale section: show grid aggregate info instead
+  // Timescale section: repurposed for pressure/vacuum above/below grid view
+  // Row 1 (5s slot): Pressure above | Vacuum above
   $('sig-lift-5s').textContent = fmt(agg.pressureAbove, 1);
-  $('sig-lift-5s').style.color = signColour(agg.pressureAbove, 0.01);
+  $('sig-lift-5s').style.color = signColour(-agg.pressureAbove, 0.01);  // above = bearish
   $('sig-d1-5s').textContent = fmt(agg.vacuumAbove, 1);
-  $('sig-d1-5s').style.color = signColour(agg.vacuumAbove, 0.05);
+  $('sig-d1-5s').style.color = signColour(agg.vacuumAbove, 0.05);      // above = bullish
   $('sig-arrow-5s').textContent = '\u2014';
   $('sig-arrow-5s').style.color = '#555';
 
+  // Row 2 (15s slot): Pressure below | Vacuum below
   $('sig-lift-15s').textContent = fmt(agg.pressureBelow, 1);
-  $('sig-lift-15s').style.color = signColour(agg.pressureBelow, 0.01);
+  $('sig-lift-15s').style.color = signColour(agg.pressureBelow, 0.01);  // below = bullish
   $('sig-d1-15s').textContent = fmt(agg.vacuumBelow, 1);
-  $('sig-d1-15s').style.color = signColour(agg.vacuumBelow, 0.05);
+  $('sig-d1-15s').style.color = signColour(-agg.vacuumBelow, 0.05);    // below = bearish
   $('sig-arrow-15s').textContent = '\u2014';
   $('sig-arrow-15s').style.color = '#555';
 
-  $('sig-lift-60s').textContent = fmt(agg.resistanceAbove, 1);
-  $('sig-lift-60s').style.color = signColour(agg.resistanceAbove, 0.01);
-  $('sig-d1-60s').textContent = fmt(agg.resistanceBelow, 1);
-  $('sig-d1-60s').style.color = signColour(agg.resistanceBelow, 0.01);
+  // Row 3 (60s slot): Net pressure | Rest depth imbalance
+  $('sig-lift-60s').textContent = fmt(agg.netPressure, 1);
+  $('sig-lift-60s').style.color = signColour(agg.netPressure, 0.01);
+  $('sig-d1-60s').textContent = fmt(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 1);
+  $('sig-d1-60s').style.color = signColour(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 0.005);
   $('sig-arrow-60s').textContent = '\u2014';
   $('sig-arrow-60s').style.color = '#555';
 
@@ -1149,8 +1156,10 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   $sigFeasibility.style.color = '#888';
 
   // Components: map grid aggregates to component panel
+  // vacuumAbove = path clearing upward (bullish → green)
   $('sig-vac-above').textContent = fmt(agg.vacuumAbove, 1);
   $('sig-vac-above').style.color = signColour(agg.vacuumAbove, 0.005);
+  // vacuumBelow = support crumbling (bearish → red via negation)
   $('sig-vac-below').textContent = fmt(agg.vacuumBelow, 1);
   $('sig-vac-below').style.color = signColour(-agg.vacuumBelow, 0.005);
   $('sig-flow').textContent = fmt(agg.netPressure, 1);
@@ -1162,13 +1171,14 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   $('sig-rest-depth').textContent = fmt(agg.totalRestDepthAbove + agg.totalRestDepthBelow, 1);
   $('sig-rest-depth').style.color = '#aaa';
   $('sig-press-above').textContent = fmt(agg.pressureAbove, 1);
-  $('sig-press-above').style.color = signColour(agg.pressureAbove, 0.02);
+  $('sig-press-above').style.color = signColour(-agg.pressureAbove, 0.02);  // resistance forming → red
   $('sig-press-below').textContent = fmt(agg.pressureBelow, 1);
-  $('sig-press-below').style.color = signColour(agg.pressureBelow, 0.02);
-  $('sig-resist-above').textContent = fmt(agg.resistanceAbove, 1);
-  $('sig-resist-above').style.color = signColour(agg.resistanceAbove, 0.01);
-  $('sig-resist-below').textContent = fmt(agg.resistanceBelow, 1);
-  $('sig-resist-below').style.color = signColour(agg.resistanceBelow, 0.01);
+  $('sig-press-below').style.color = signColour(agg.pressureBelow, 0.02);   // support forming → green
+  // Resistance indicators removed — hide or zero them
+  $('sig-resist-above').textContent = '---';
+  $('sig-resist-above').style.color = '#555';
+  $('sig-resist-below').textContent = '---';
+  $('sig-resist-below').style.color = '#555';
 
   // Bottom bar
   const regime = netLift > 10 ? 'LIFT' : netLift < -10 ? 'DRAG' : 'NEUTRAL';
@@ -1563,7 +1573,7 @@ function renderProfile(canvas: HTMLCanvasElement): void {
 
   // Depth bars (two paths: flow-based vs event-mode grid-based)
   if (isEventMode && currentGrid.size > 0 && currentSpotDollars > 0) {
-    // Event mode: render rest_depth bars colored by pressure_variant
+    // Event mode: render rest_depth bars colored by net force (pressure - vacuum)
     const maxP = runningMaxPressure || 1;
     for (const [k, b] of currentGrid) {
       const absPrice = currentSpotDollars + k * bucket;
@@ -1571,12 +1581,15 @@ function renderProfile(canvas: HTMLCanvasElement): void {
       if (row < vpY - 1 || row > vpY + srcH + 1) continue;
       const y = (row - vpY) * rowH;
       const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
-      const pressT = Math.tanh(b.pressure_variant / maxP);
+      const netForce = b.pressure_variant - b.vacuum_variant;
+      const forceT = Math.tanh(netForce / maxP);
 
-      if (pressT >= 0) {
-        ctx.fillStyle = `rgba(30, ${140 + Math.round(80 * pressT)}, ${120 + Math.round(50 * pressT)}, 0.7)`;
+      if (forceT >= 0) {
+        // Building (pressure > vacuum) → cyan-green
+        ctx.fillStyle = `rgba(30, ${140 + Math.round(80 * forceT)}, ${120 + Math.round(50 * forceT)}, 0.7)`;
       } else {
-        ctx.fillStyle = `rgba(${140 + Math.round(80 * (-pressT))}, 30, ${60 + Math.round(40 * (-pressT))}, 0.7)`;
+        // Draining (vacuum > pressure) → red-magenta
+        ctx.fillStyle = `rgba(${140 + Math.round(80 * (-forceT))}, 30, ${60 + Math.round(40 * (-forceT))}, 0.7)`;
       }
 
       // k > 0 = above spot (ask side), k < 0 = below spot (bid side)
@@ -1651,15 +1664,12 @@ function updateSignalPanel(): void {
   const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
   $('lift-marker').style.left = `${liftNorm * 100}%`;
 
-  // Condition indicators: V=vacuum, P=pressure, R=low resistance
-  const vacPresent = (s.vacuum_above > 1) || (s.vacuum_below < -1);
+  // Condition indicators: V=vacuum active, P=pressure active (resistance removed)
+  const vacPresent = (s.vacuum_above > 1) || (s.vacuum_below > 1);
   const pressPresent = ((s.pressure_below ?? 0) > 5) || ((s.pressure_above ?? 0) > 5);
-  const moveSideResist = netLift >= 0
-    ? (s.resistance_above ?? 999)
-    : (s.resistance_below ?? 999);
   setInd('cond-v', vacPresent, '#22cc66');
   setInd('cond-p', pressPresent, '#22cc66');
-  setInd('cond-r', moveSideResist < 50, '#22cc66');
+  setInd('cond-r', false, '#333');  // resistance indicator disabled
 
   $('sig-cross-conf').textContent = `${((s.cross_confidence ?? 0) * 100).toFixed(0)}%`;
   $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
@@ -1793,13 +1803,14 @@ function updateSignalPanel(): void {
   $('sig-rest-depth').textContent = fmt(s.rest_depth_imbalance, 3);
   $('sig-rest-depth').style.color = signColour(s.rest_depth_imbalance, 2);
   $('sig-press-above').textContent = fmt(s.pressure_above ?? 0, 1);
-  $('sig-press-above').style.color = signColour(s.pressure_above ?? 0, 0.02);
+  $('sig-press-above').style.color = signColour(-(s.pressure_above ?? 0), 0.02);  // resistance forming → red
   $('sig-press-below').textContent = fmt(s.pressure_below ?? 0, 1);
-  $('sig-press-below').style.color = signColour(s.pressure_below ?? 0, 0.02);
-  $('sig-resist-above').textContent = fmt(s.resistance_above ?? 0, 1);
-  $('sig-resist-above').style.color = signColour(s.resistance_above ?? 0, 0.01);
-  $('sig-resist-below').textContent = fmt(s.resistance_below ?? 0, 1);
-  $('sig-resist-below').style.color = signColour(s.resistance_below ?? 0, 0.01);
+  $('sig-press-below').style.color = signColour(s.pressure_below ?? 0, 0.02);     // support forming → green
+  // Resistance indicators removed
+  $('sig-resist-above').textContent = '---';
+  $('sig-resist-above').style.color = '#555';
+  $('sig-resist-below').textContent = '---';
+  $('sig-resist-below').style.color = '#555';
 
   // ── Bottom Bar ──
   const regime = s.regime || 'NEUTRAL';
@@ -2225,7 +2236,6 @@ function connectWS(): void {
                 k,
                 pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
                 vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
-                resistance_variant: requireNumberField('grid', j, 'resistance_variant'),
                 add_mass: requireNumberField('grid', j, 'add_mass'),
                 pull_mass: requireNumberField('grid', j, 'pull_mass'),
                 fill_mass: requireNumberField('grid', j, 'fill_mass'),
@@ -2304,11 +2314,10 @@ function connectWS(): void {
                 confidence: requireNumberField('signals', j, 'confidence'),
                 strength: requireNumberField('signals', j, 'strength'),
                 strength_smooth: optionalNumber(j.strength_smooth),
-                // Bernoulli lift model
+                // Pressure (depth building) aggregates
                 pressure_above: optionalNumber(j.pressure_above) ?? 0,
                 pressure_below: optionalNumber(j.pressure_below) ?? 0,
-                resistance_above: optionalNumber(j.resistance_above) ?? 0,
-                resistance_below: optionalNumber(j.resistance_below) ?? 0,
+                // Bernoulli lift model
                 lift_up: optionalNumber(j.lift_up) ?? 0,
                 lift_down: optionalNumber(j.lift_down) ?? 0,
                 net_lift: optionalNumber(j.net_lift) ?? 0,

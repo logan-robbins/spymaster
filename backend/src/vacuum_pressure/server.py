@@ -30,7 +30,6 @@ GRID_SCHEMA = pa.schema([
     ("k", pa.int32()),
     ("pressure_variant", pa.float64()),
     ("vacuum_variant", pa.float64()),
-    ("resistance_variant", pa.float64()),
     ("add_mass", pa.float64()),
     ("pull_mass", pa.float64()),
     ("fill_mass", pa.float64()),

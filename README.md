@@ -5,6 +5,8 @@
 - Long-running processes: use `nohup ... > /tmp/<name>.log 2>&1 &`.
 - Raw data is immutable. Do not modify raw `.dbn` files.
 - Vacuum Pressure (VP) is live-only now: one in-memory event pipeline, dense grid fixed at `K=50` (101 rows), no replay/silver mode.
+- Timezones: all ET boundaries use `America/New_York` (handles EST/EDT automatically). Do not use `Etc/GMT+5`.
+- VP pipeline uses 3-phase processing: book-only fast-forward → VP warmup → live emit. Pre-warmup events build correct book state via lightweight `apply_book_event()` without VP grid computation.
 
 ## Data Download Notes
 Raw path:
