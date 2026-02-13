@@ -6,6 +6,11 @@ via WebSocket using Arrow IPC binary encoding.
 Supports both ``equity_mbo`` and ``future_mbo`` product types via
 runtime configuration resolved at stream start.
 
+Two streaming modes:
+    **replay** (default): Load precomputed silver parquet, stream windows.
+    **live**: Read raw .dbn file event-by-event, reconstruct book in-memory,
+        compute signals incrementally, and stream windows in real time.
+
 Protocol (per connection):
     0. JSON ``{"type": "runtime_config", ...}``  (full config block, once)
     Then per 1-second window:
@@ -32,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import VPRuntimeConfig, resolve_config
 from .engine import VacuumPressureEngine, validate_silver_readiness
 from .formulas import GoldSignalConfig
+from .stream_pipeline import async_stream_windows
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,7 @@ FLOW_SCHEMA = pa.schema([
 
 SIGNALS_SCHEMA = pa.schema([
     ("window_end_ts_ns", pa.int64()),
+    # Existing per-window metrics
     ("vacuum_above", pa.float64()),
     ("vacuum_below", pa.float64()),
     ("resting_drain_ask", pa.float64()),
@@ -80,6 +87,44 @@ SIGNALS_SCHEMA = pa.schema([
     ("rest_depth_imbalance", pa.float64()),
     ("bid_migration_com", pa.float64()),
     ("ask_migration_com", pa.float64()),
+    # Pressure and resistance fields
+    ("pressure_above", pa.float64()),
+    ("pressure_below", pa.float64()),
+    ("resistance_above", pa.float64()),
+    ("resistance_below", pa.float64()),
+    # Bernoulli lift model
+    ("lift_up", pa.float64()),
+    ("lift_down", pa.float64()),
+    ("net_lift", pa.float64()),
+    ("feasibility_up", pa.float64()),
+    ("feasibility_down", pa.float64()),
+    ("directional_bias", pa.float64()),
+    # Multi-timescale (fast ~5s)
+    ("lift_5s", pa.float64()),
+    ("d1_5s", pa.float64()),
+    ("d2_5s", pa.float64()),
+    ("proj_5s", pa.float64()),
+    # Multi-timescale (medium ~15s)
+    ("lift_15s", pa.float64()),
+    ("d1_15s", pa.float64()),
+    ("d2_15s", pa.float64()),
+    ("proj_15s", pa.float64()),
+    # Multi-timescale (slow ~60s)
+    ("lift_60s", pa.float64()),
+    ("d1_60s", pa.float64()),
+    ("d2_60s", pa.float64()),
+    ("proj_60s", pa.float64()),
+    # Cross-timescale confidence, alerts, regime
+    ("cross_confidence", pa.float64()),
+    ("projection_coherence", pa.float64()),
+    ("alert_flags", pa.int64()),
+    ("regime", pa.string()),
+    # Deterministic directional event machine outputs
+    ("event_state", pa.string()),
+    ("event_direction", pa.string()),
+    ("event_strength", pa.float64()),
+    ("event_confidence", pa.float64()),
+    # Backward compat (mapped from new model)
     ("composite", pa.float64()),
     ("composite_smooth", pa.float64()),
     ("d1_composite", pa.float64()),
@@ -211,6 +256,8 @@ def create_app(
         dt: str = "2026-02-06",
         speed: float = 1.0,
         skip_minutes: int = 5,
+        mode: str = "replay",
+        start_time: str | None = None,
         pre_smooth_span: int | None = None,
         d1_span: int | None = None,
         d2_span: int | None = None,
@@ -230,8 +277,18 @@ def create_app(
             dt: Date (YYYY-MM-DD).
             speed: Replay speed multiplier.
             skip_minutes: Minutes of data to skip from start.
+            mode: ``replay`` (default, from silver parquet) or
+                ``live`` (from raw .dbn, incremental computation).
         """
         await websocket.accept()
+
+        if mode not in ("replay", "live"):
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": f"Invalid mode '{mode}'. Must be 'replay' or 'live'.",
+            }))
+            await websocket.close(code=1008, reason="Invalid mode")
+            return
 
         # Resolve runtime config
         try:
@@ -281,113 +338,227 @@ def create_app(
             return
 
         logger.info(
-            "VP stream connected: product_type=%s symbol=%s dt=%s "
+            "VP stream connected: mode=%s product_type=%s symbol=%s dt=%s "
             "speed=%.1f skip=%d config_version=%s gold_cfg=%s",
-            config.product_type, config.symbol, dt,
+            mode, config.product_type, config.symbol, dt,
             speed, skip_minutes, config.config_version, vars(gold_signal_config),
         )
 
-        # Readiness check (4.7)
-        try:
-            row_counts = validate_silver_readiness(lake_root, config, dt)
-        except FileNotFoundError as exc:
-            logger.error("Silver readiness check failed: %s", exc)
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": str(exc),
-            }))
-            await websocket.close(code=1008, reason="Silver data not ready")
-            return
-
-        # Structured startup log (4.7)
-        logger.info(
-            "VP stream ready: config=%s row_counts=%s",
-            json.dumps(config.to_dict()),
-            json.dumps(row_counts),
-        )
-
-        try:
-            # First control message: full runtime config (4.4)
-            await websocket.send_text(json.dumps({
-                "type": "runtime_config",
-                **config.to_dict(),
-                "gold_signal_config": vars(gold_signal_config),
-            }))
-
-            last_ts: int | None = None
-            skip_count = skip_minutes * 60
-            skipped = 0
-
-            for wid, batch in engine.iter_windows(
-                config,
-                dt,
-                gold_signal_config=gold_signal_config,
-            ):
-                if skipped < skip_count:
-                    skipped += 1
-                    continue
-
-                # Simulate real-time delay
-                if last_ts is not None:
-                    delta_s = (wid - last_ts) / 1_000_000_000.0
-                    wait = delta_s / speed
-                    if wait > 0:
-                        await asyncio.sleep(wait)
-                last_ts = wid
-
-                # Determine available surfaces
-                surfaces: list[str] = []
-                if not batch["snap"].empty:
-                    surfaces.append("snap")
-                if not batch["flow"].empty:
-                    surfaces.append("flow")
-                if not batch["signals"].empty:
-                    surfaces.append("signals")
-
-                # batch_start -- includes legacy fields for transition window
-                await websocket.send_text(json.dumps({
-                    "type": "batch_start",
-                    "window_end_ts_ns": str(wid),
-                    "surfaces": surfaces,
-                    "bucket_size": config.bucket_size_dollars,
-                    "tick_size": config.rel_tick_size,
-                }))
-
-                # snap
-                if "snap" in surfaces:
-                    await websocket.send_text(json.dumps({
-                        "type": "surface_header",
-                        "surface": "snap",
-                    }))
-                    await websocket.send_bytes(
-                        _df_to_arrow_ipc(batch["snap"], SNAP_SCHEMA)
-                    )
-
-                # flow
-                if "flow" in surfaces:
-                    await websocket.send_text(json.dumps({
-                        "type": "surface_header",
-                        "surface": "flow",
-                    }))
-                    await websocket.send_bytes(
-                        _df_to_arrow_ipc(batch["flow"], FLOW_SCHEMA)
-                    )
-
-                # signals
-                if "signals" in surfaces:
-                    await websocket.send_text(json.dumps({
-                        "type": "surface_header",
-                        "surface": "signals",
-                    }))
-                    await websocket.send_bytes(
-                        _df_to_arrow_ipc(batch["signals"], SIGNALS_SCHEMA)
-                    )
-
-        except WebSocketDisconnect:
-            logger.info("VP stream client disconnected")
-        except Exception as exc:
-            logger.error("VP stream error: %s", exc, exc_info=True)
-        finally:
-            logger.info("VP stream disconnected")
+        if mode == "live":
+            await _stream_live(
+                websocket, lake_root, config, dt, speed, skip_minutes,
+                gold_signal_config, start_time,
+            )
+        else:
+            await _stream_replay(
+                websocket, engine, lake_root, config, dt, speed, skip_minutes,
+                gold_signal_config,
+            )
 
     return app
+
+
+async def _stream_replay(
+    websocket: WebSocket,
+    engine: VacuumPressureEngine,
+    lake_root: Path,
+    config: VPRuntimeConfig,
+    dt: str,
+    speed: float,
+    skip_minutes: int,
+    gold_signal_config: GoldSignalConfig,
+) -> None:
+    """Stream from precomputed silver parquet (original replay mode)."""
+    # Readiness check
+    try:
+        row_counts = validate_silver_readiness(lake_root, config, dt)
+    except FileNotFoundError as exc:
+        logger.error("Silver readiness check failed: %s", exc)
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": str(exc),
+        }))
+        await websocket.close(code=1008, reason="Silver data not ready")
+        return
+
+    logger.info(
+        "VP replay stream ready: config=%s row_counts=%s",
+        json.dumps(config.to_dict()),
+        json.dumps(row_counts),
+    )
+
+    try:
+        # First control message: full runtime config
+        await websocket.send_text(json.dumps({
+            "type": "runtime_config",
+            **config.to_dict(),
+            "gold_signal_config": vars(gold_signal_config),
+        }))
+
+        last_ts: int | None = None
+        skip_count = skip_minutes * 60
+        skipped = 0
+
+        for wid, batch in engine.iter_windows(
+            config,
+            dt,
+            gold_signal_config=gold_signal_config,
+        ):
+            if skipped < skip_count:
+                skipped += 1
+                continue
+
+            # Simulate real-time delay
+            if last_ts is not None:
+                delta_s = (wid - last_ts) / 1_000_000_000.0
+                wait = delta_s / speed
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            last_ts = wid
+
+            await _send_window_batch(websocket, config, wid, batch)
+
+    except WebSocketDisconnect:
+        logger.info("VP replay stream client disconnected")
+    except Exception as exc:
+        logger.error("VP replay stream error: %s", exc, exc_info=True)
+    finally:
+        logger.info("VP replay stream disconnected")
+
+
+async def _stream_live(
+    websocket: WebSocket,
+    lake_root: Path,
+    config: VPRuntimeConfig,
+    dt: str,
+    speed: float,
+    skip_minutes: int,
+    gold_signal_config: GoldSignalConfig,
+    start_time: str | None = None,
+) -> None:
+    """Stream from raw .dbn file with incremental computation."""
+    from .formulas import compute_per_bucket_scores
+
+    logger.info(
+        "VP live stream starting: config=%s start_time=%s",
+        json.dumps(config.to_dict()), start_time,
+    )
+
+    try:
+        # First control message: full runtime config
+        await websocket.send_text(json.dumps({
+            "type": "runtime_config",
+            **config.to_dict(),
+            "gold_signal_config": vars(gold_signal_config),
+        }))
+
+        window_count = 0
+        async for wid, signals, snap_dict, flow_df in async_stream_windows(
+            lake_root=lake_root,
+            config=config,
+            dt=dt,
+            gold_config=gold_signal_config,
+            speed=speed,
+            skip_minutes=skip_minutes,
+            start_time=start_time,
+        ):
+            window_count += 1
+
+            # Build DataFrames matching the replay mode's format
+            # Snap: single-row DataFrame
+            snap_df = pd.DataFrame([{
+                "window_end_ts_ns": snap_dict.get("window_end_ts_ns", wid),
+                "mid_price": snap_dict.get("mid_price", 0.0),
+                "spot_ref_price_int": snap_dict.get("spot_ref_price_int", 0),
+                "best_bid_price_int": snap_dict.get("best_bid_price_int", 0),
+                "best_ask_price_int": snap_dict.get("best_ask_price_int", 0),
+                "book_valid": snap_dict.get("book_valid", False),
+            }])
+
+            # Flow: enrich with per-bucket scores for the frontend heatmap
+            if not flow_df.empty:
+                flow_enriched = compute_per_bucket_scores(
+                    flow_df, config.bucket_size_dollars
+                )
+            else:
+                flow_enriched = flow_df
+
+            # Signals: single-row DataFrame
+            signals_df = pd.DataFrame([signals])
+
+            batch = {
+                "snap": snap_df,
+                "flow": flow_enriched,
+                "signals": signals_df,
+            }
+
+            await _send_window_batch(websocket, config, wid, batch)
+
+            if window_count % 600 == 0:
+                logger.info(
+                    "VP live stream: %d windows sent (ts=%d)",
+                    window_count, wid,
+                )
+
+    except WebSocketDisconnect:
+        logger.info("VP live stream client disconnected")
+    except Exception as exc:
+        logger.error("VP live stream error: %s", exc, exc_info=True)
+    finally:
+        logger.info("VP live stream disconnected (%d windows sent)", window_count)
+
+
+async def _send_window_batch(
+    websocket: WebSocket,
+    config: VPRuntimeConfig,
+    wid: int,
+    batch: dict[str, pd.DataFrame],
+) -> None:
+    """Send a single window's data over WebSocket (shared by both modes)."""
+    # Determine available surfaces
+    surfaces: list[str] = []
+    if not batch["snap"].empty:
+        surfaces.append("snap")
+    if not batch["flow"].empty:
+        surfaces.append("flow")
+    if not batch["signals"].empty:
+        surfaces.append("signals")
+
+    # batch_start
+    await websocket.send_text(json.dumps({
+        "type": "batch_start",
+        "window_end_ts_ns": str(wid),
+        "surfaces": surfaces,
+        "bucket_size": config.bucket_size_dollars,
+        "tick_size": config.rel_tick_size,
+    }))
+
+    # snap
+    if "snap" in surfaces:
+        await websocket.send_text(json.dumps({
+            "type": "surface_header",
+            "surface": "snap",
+        }))
+        await websocket.send_bytes(
+            _df_to_arrow_ipc(batch["snap"], SNAP_SCHEMA)
+        )
+
+    # flow
+    if "flow" in surfaces:
+        await websocket.send_text(json.dumps({
+            "type": "surface_header",
+            "surface": "flow",
+        }))
+        await websocket.send_bytes(
+            _df_to_arrow_ipc(batch["flow"], FLOW_SCHEMA)
+        )
+
+    # signals
+    if "signals" in surfaces:
+        await websocket.send_text(json.dumps({
+            "type": "surface_header",
+            "surface": "signals",
+        }))
+        await websocket.send_bytes(
+            _df_to_arrow_ipc(batch["signals"], SIGNALS_SCHEMA)
+        )

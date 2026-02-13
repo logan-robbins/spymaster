@@ -3,13 +3,18 @@
 Usage:
     cd backend
 
-    # Start WebSocket server for equity (default)
+    # Start WebSocket server for equity (default, replay from silver)
     uv run python scripts/run_vacuum_pressure.py \\
         --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --port 8002
 
-    # Start WebSocket server for futures
+    # Start WebSocket server for futures (replay mode)
     uv run python scripts/run_vacuum_pressure.py \\
         --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002
+
+    # Start in LIVE mode (stream from raw .dbn, incremental computation)
+    uv run python scripts/run_vacuum_pressure.py \\
+        --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002 \\
+        --mode live
 
     # Compute only -- save to parquet without serving
     uv run python scripts/run_vacuum_pressure.py \\
@@ -52,6 +57,22 @@ def main() -> None:
     parser.add_argument(
         "--host", default="0.0.0.0",
         help="Server bind host (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--mode", default="replay",
+        choices=["replay", "live"],
+        help=(
+            "Streaming mode: 'replay' (default) loads precomputed silver "
+            "parquet; 'live' reads raw .dbn files and computes incrementally"
+        ),
+    )
+    parser.add_argument(
+        "--start-time", type=str, default=None,
+        help=(
+            "Start emitting at this time (HH:MM in ET), e.g. '09:30' for "
+            "market open. Automatically processes 6h warmup for book state. "
+            "Snapshot records always included. Live mode only."
+        ),
     )
     parser.add_argument(
         "--compute-only", action="store_true",
@@ -139,7 +160,7 @@ def main() -> None:
 
     print()
     print("=" * 60)
-    print("  VACUUM & PRESSURE DETECTOR -- Runtime Config")
+    print(f"  VACUUM & PRESSURE DETECTOR -- Mode: {args.mode.upper()}")
     print("=" * 60)
     print(json.dumps(config.to_dict(), indent=2))
     print("-" * 60)
@@ -174,6 +195,9 @@ def main() -> None:
 
     app = create_app(lake_root, products_yaml_path)
 
+    mode_qs = f"&mode={args.mode}" if args.mode != "replay" else ""
+    if args.start_time:
+        mode_qs += f"&start_time={args.start_time}"
     tuning_qs = (
         f"&pre_smooth_span={args.pre_smooth_span}"
         f"&d1_span={args.d1_span}"
@@ -189,10 +213,10 @@ def main() -> None:
     print(f"  WebSocket: ws://localhost:{args.port}"
           f"/v1/vacuum-pressure/stream"
           f"?product_type={args.product_type}"
-          f"&symbol={args.symbol}&dt={args.dt}{tuning_qs}")
+          f"&symbol={args.symbol}&dt={args.dt}{mode_qs}{tuning_qs}")
     print(f"  Frontend:  http://localhost:5174/vacuum-pressure.html"
           f"?product_type={args.product_type}"
-          f"&symbol={args.symbol}&dt={args.dt}{tuning_qs}")
+          f"&symbol={args.symbol}&dt={args.dt}{mode_qs}{tuning_qs}")
     print("=" * 60)
     print()
 

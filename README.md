@@ -266,11 +266,80 @@ tail -20 /tmp/backend.log
 
 - Config resolver: `backend/src/vacuum_pressure/config.py`
 - Formulas: `backend/src/vacuum_pressure/formulas.py`
-- Engine: `backend/src/vacuum_pressure/engine.py`
+- Engine (batch/silver): `backend/src/vacuum_pressure/engine.py`
+- Incremental engine (live): `backend/src/vacuum_pressure/incremental.py`
+- DBN replay source: `backend/src/vacuum_pressure/replay_source.py`
+- Stream pipeline: `backend/src/vacuum_pressure/stream_pipeline.py`
 - Server: `backend/src/vacuum_pressure/server.py`
 - CLI: `backend/scripts/run_vacuum_pressure.py`
+- FIRE sidecar (background accuracy tracker): `backend/scripts/vp_fire_sidecar.py`
+- Threshold evaluator: `backend/scripts/eval_vacuum_pressure_thresholds.py`
+- FIRE experiment harness: `backend/scripts/eval_vacuum_pressure_fire.py`
+- Evaluation core: `backend/src/vacuum_pressure/evaluation.py`
 - Frontend: `frontend2/vacuum-pressure.html`, `frontend2/src/vacuum-pressure.ts`
-- Tests: `backend/tests/test_vacuum_pressure_config.py` (51 tests)
+- Tests: `backend/tests/test_vacuum_pressure_config.py`, `backend/tests/test_vacuum_pressure_incremental.py`, `backend/tests/test_vacuum_pressure_incremental_events.py`, `backend/tests/test_vacuum_pressure_evaluation.py`, `backend/tests/test_vacuum_pressure_fire_sidecar.py`
+
+### Canonical Runbook (No Ambiguity)
+
+Use this exact sequence for live vacuum-pressure streaming:
+
+1. Ensure no stale listeners:
+   - `kill $(lsof -t -iTCP:8002) 2>/dev/null`
+   - `kill $(lsof -t -iTCP:5174) 2>/dev/null`
+2. Start backend with nohup:
+   - `cd backend`
+   - `nohup uv run python scripts/run_vacuum_pressure.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002 --mode live --start-time 09:30 --log-level INFO > /tmp/vp_live.log 2>&1 &`
+3. Start frontend with nohup:
+   - `cd frontend2`
+   - `nohup npm run dev > /tmp/frontend2_vp.log 2>&1 &`
+4. Poll both logs every 15 seconds until healthy:
+   - `tail -n 60 /tmp/vp_live.log`
+   - `tail -n 60 /tmp/frontend2_vp.log`
+5. Start FIRE sidecar in background (tracks `FIRE -> 8 ticks`):
+   - `cd backend`
+   - `nohup uv run python scripts/vp_fire_sidecar.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --mode live --start-time 09:30 --speed 10 --tick-target 8 --max-horizon-s 15 --print-interval-s 15 --output logs/vp_fire_sidecar_mnqh6_live.jsonl --log-level INFO > /tmp/vp_fire_sidecar.log 2>&1 &`
+6. Poll sidecar log every 15 seconds:
+   - `tail -n 80 /tmp/vp_fire_sidecar.log`
+7. Open:
+   - `http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&mode=live&speed=10&start_time=09:30`
+
+Health checks:
+
+- Backend: `curl -s http://localhost:8002/health`
+- Listeners:
+  - `lsof -iTCP:8002 -sTCP:LISTEN`
+  - `lsof -iTCP:5174 -sTCP:LISTEN`
+- Sidecar output:
+  - `tail -n 40 backend/logs/vp_fire_sidecar_mnqh6_live.jsonl`
+
+### Streaming Modes
+
+Two streaming modes, same WebSocket protocol and frontend:
+
+| Mode | Source | Compute | Use Case |
+|---|---|---|---|
+| `replay` (default) | Silver parquet (precomputed) | Batch `run_full_pipeline` | Requires bronze->silver pipeline run |
+| `live` | Raw `.dbn` file (event-by-event) | Incremental per-window | No pipeline needed, just raw data |
+
+**Live mode architecture:**
+1. `replay_source.py` reads raw `.dbn` files record-by-record via `databento.DBNStore`. Snapshot timestamps are normalized to prevent gap-fill explosion (Databento snapshots carry original order placement times spanning days).
+2. `stream_pipeline.py` feeds events to the existing book engine (`FuturesBookEngine`/`EquityBookEngine`), captures window emissions via `StreamingBookAdapter`. Large gaps (>3600s) are fast-forwarded.
+3. `incremental.py` computes Bernoulli lift signals per-window using stateful EMA accumulators at 3 timescales (5s/15s/60s).
+4. Background thread produces windows; async consumer paces and sends over WebSocket.
+5. Frontend receives identical protocol.
+
+**`--start-time` parameter (live mode only):**
+- `--start-time 09:30` means "start emitting windows at 9:30 AM EST"
+- Automatically processes 30 minutes of warmup (book state + EMA warmup) before emitting
+- Snapshot records are always processed regardless (they seed the initial book)
+- Startup time: ~30 seconds from connect to first window at market open
+- Without `--start-time`, replay starts from midnight UTC (beginning of .dbn file)
+- The `start_time` param must also be in the browser URL: `&start_time=09:30`
+
+**`speed` parameter:**
+- `speed=1` = real-time (1 wall-clock second per 1-second window)
+- `speed=10` = 10x (1 wall-clock second = 10 windows)
+- `speed=0` = fire-hose (as fast as producer thread can generate)
 
 ### Runtime Configuration
 
@@ -284,44 +353,104 @@ tail -20 /tmp/backend.log
 WebSocket sends `runtime_config` control message with full instrument config before first data batch.
 Cache keys: `product_type:symbol:dt:config_version`.
 
-### Gold Signal Variants (Smoothing + Projection)
+### Signal Model: Bernoulli Lift (live mode)
 
-Vacuum-pressure now exposes additive gold-layer signal variants from existing silver inputs (no bronze/silver changes):
+The live-mode incremental engine (`incremental.py`) uses a fluid-dynamics-inspired model. Price moves when there is **asymmetric lift**: pressure pushing from one side into vacuum on the other, with low resistance.
 
-- `composite_smooth`: pre-smoothed composite (`EMA`, tunable span)
-- `d1_smooth`, `d2_smooth`, `d3_smooth`: smoothed 1st/2nd/3rd derivatives of `composite_smooth`
-- `wtd_slope`: weighted derivative slope composite
-- `wtd_projection`: Taylor forward projection (seconds horizon, tunable)
-- `wtd_projection_500ms`: 500ms projection derived from 1s derivatives (sub-second interpolation path without silver changes)
-- `wtd_deriv_conf`: derivative sign-agreement confidence
-- `z_composite_raw`, `z_composite_smooth`, `strength_smooth`
+**Per-window fields computed from flow_df:**
+- `vacuum_above` / `vacuum_below` — liquidity drainage rate (pull > add), proximity-weighted
+- `pressure_above` / `pressure_below` — active force near spot (fills + adds), proximity-weighted
+- `resistance_above` / `resistance_below` — resting depth walls, proximity-weighted
 
-Runtime query params for tuning (all optional):
+**Bernoulli lift:**
+- `lift_up = pressure_below * vacuum_above / (resistance_above + eps)`
+- `lift_down = pressure_above * vacuum_below / (resistance_below + eps)`
+- `net_lift = lift_up - lift_down` (core signal, replaces old composite)
 
-- `pre_smooth_span`
-- `d1_span`, `d2_span`, `d3_span`
-- `w_d1`, `w_d2`, `w_d3`
-- `projection_horizon_s`
-- `fast_projection_horizon_s`
-- `smooth_zscore_window`
+**Multi-timescale derivatives (3 chains fed with net_lift):**
+- Fast (5s): pre-smooth=3, d1_span=3, d2_span=5, projection=2s
+- Medium (15s): pre-smooth=8, d1_span=8, d2_span=15, projection=10s
+- Slow (60s): pre-smooth=30, d1_span=20, d2_span=40, projection=30s
 
-Constraints:
+**Cross-timescale confidence:** `min(magnitude) / max(magnitude)` when all 3 timescales agree in sign; 0.0 when they disagree.
 
-- Lookbacks are validated fail-fast and capped to 600s (10 minutes).
-- 500ms mode is a projection/interpolation variant from 1s data; true 500ms book windows still require silver-layer changes.
+**Regime classification:**
+- `LIFT` — net_lift > 0.5, all timescales agree (green)
+- `DRAG` — net_lift < -0.5, all timescales agree (red)
+- `NEUTRAL` — balanced forces (gray)
+- `CHOP` — timescales disagree (amber)
+
+**Slope change alerts (bitmask on medium timescale):**
+- `1` = INFLECTION (d1 crossed zero)
+- `2` = DECELERATION (d2 opposes d1)
+- `4` = REGIME_SHIFT (d2 crossed zero while d1 sustained)
+
+### Deterministic Eventing + Feasibility
+
+Live mode now emits explicit directional readiness/event fields (no ML fitting):
+
+- `feasibility_up`, `feasibility_down` — bounded `[0,1]` directional feasibility from Bernoulli lift asymmetry
+- `directional_bias` — bounded `[-1,1]` directional bias
+- `projection_coherence` — projection sign/magnitude coherence across 5s/15s/60s
+- `event_state` — `WATCH | ARMED | FIRE | COOLDOWN`
+- `event_direction` — `UP | DOWN | NONE`
+- `event_strength`, `event_confidence` — bounded `[0,1]` event quality scores
+
+State machine behavior:
+
+- `WATCH -> ARMED` after persistence on aligned `net_lift`, `d1_15s`, confidence, and projection coherence
+- `ARMED -> FIRE` on stronger sustained directional thresholds
+- `FIRE -> COOLDOWN` on hold failure, then refractory windows before `WATCH`
+
+This path is deterministic/hysteretic to reduce high-frequency flicker.
+
+Frontend event markers are directional:
+
+- `ARMED` marker: outlined triangle pointing event direction (up/down)
+- `FIRE` marker: filled triangle pointing event direction (up/down)
 
 ### Commands
 
 ```bash
 cd backend
 
+# ── LIVE MODE (from raw .dbn, no pipeline needed) ──
+
+# Start live-mode server at market open (futures, ~30s startup)
+uv run python scripts/run_vacuum_pressure.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+  --port 8002 --mode live --start-time 09:30
+
+# Start live-mode server from beginning of session (no skip)
+uv run python scripts/run_vacuum_pressure.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+  --port 8002 --mode live
+
+# Start frontend (separate terminal)
+cd ../frontend2 && npm run dev
+
+# Start FIRE sidecar (background accuracy tracking: FIRE -> 8 ticks)
+cd ../backend
+nohup uv run python scripts/vp_fire_sidecar.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+  --mode live --start-time 09:30 --speed 10 \
+  --tick-target 8 --max-horizon-s 15 --print-interval-s 15 \
+  --output logs/vp_fire_sidecar_mnqh6_live.jsonl > /tmp/vp_fire_sidecar.log 2>&1 &
+
+# Open in browser -- start_time MUST match server's --start-time:
+# http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&mode=live&speed=10&start_time=09:30
+# Without start_time (from beginning):
+# http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&mode=live&speed=10
+
+# ── REPLAY MODE (from silver parquet, default) ──
+
 # Equity: requires silver equity_mbo
 uv run python -m src.data_eng.runner --product-type equity_mbo --layer silver --symbol QQQ --dt 2026-02-06 --workers 4
 
-# Start vacuum/pressure server (equity)
+# Start replay server (equity, default mode)
 uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --port 8002
 
-# Start vacuum/pressure server (futures)
+# Start replay server (futures)
 uv run python scripts/run_vacuum_pressure.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --port 8002
 
 # Start server with tuned smoothing/projection knobs
@@ -332,27 +461,31 @@ uv run python scripts/run_vacuum_pressure.py \
   --projection-horizon-s 10.0 --fast-projection-horizon-s 0.5 \
   --smooth-zscore-window 120
 
-# Start frontend (separate terminal)
-cd frontend2 && npm run dev
-
 # Open equity: http://localhost:5174/vacuum-pressure.html?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06
 # Open futures: http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06
 # Optional tuning params can be appended to URL, e.g.:
 # ...&pre_smooth_span=15&d1_span=10&d2_span=20&d3_span=40&w_d1=0.50&w_d2=0.35&w_d3=0.15&projection_horizon_s=10&fast_projection_horizon_s=0.5&smooth_zscore_window=120
 
+# ── COMPUTE-ONLY ──
+
 # Compute-only (save to parquet)
 uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only
 
-# Compute-only with tuned gold signal config
-uv run python scripts/run_vacuum_pressure.py \
-  --product-type equity_mbo --symbol QQQ --dt 2026-02-06 --compute-only \
-  --pre-smooth-span 15 --d1-span 10 --d2-span 20 --d3-span 40 \
-  --w-d1 0.50 --w-d2 0.35 --w-d3 0.15 \
-  --projection-horizon-s 10.0 --fast-projection-horizon-s 0.5 \
-  --smooth-zscore-window 120
+# Deterministic threshold evaluation (no model fitting)
+uv run python scripts/eval_vacuum_pressure_thresholds.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+  --source live --start-time 09:30 --max-windows 5000 \
+  --output-json data/physics/vacuum_pressure_threshold_eval_mnqh6_open.json --pretty
+
+# Deterministic FIRE harness (first-touch FIRE -> target ticks)
+uv run python scripts/eval_vacuum_pressure_fire.py \
+  --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+  --source replay --max-windows 5000 --horizons 15 --target-ticks 8 --top-k 3 \
+  --output-json data/physics/vacuum_pressure_fire_eval_mnqh6.json --pretty
 
 # Run tests
 uv run pytest tests/test_vacuum_pressure_config.py -v
+uv run pytest tests/test_vacuum_pressure_incremental.py tests/test_vacuum_pressure_incremental_events.py tests/test_vacuum_pressure_evaluation.py tests/test_vacuum_pressure_fire_sidecar.py -v
 ```
 
 ---
@@ -368,10 +501,26 @@ uv run pytest tests/test_vacuum_pressure_config.py -v
 5. Start frontend (section 5): `cd frontend2 && npm run dev`
 6. Open: http://localhost:5174
 
-### Vacuum Pressure (equities or futures, silver only)
+### Vacuum Pressure -- Live Mode (raw .dbn, no pipeline)
+
+1. Download raw data (section 1) -- futures or equities
+2. Kill any existing server: `kill $(lsof -t -iTCP:8002) 2>/dev/null`
+3. Start live server at market open (section 9):
+   ```bash
+   cd backend
+   uv run python scripts/run_vacuum_pressure.py \
+     --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 \
+     --port 8002 --mode live --start-time 09:30
+   ```
+4. Start frontend (separate terminal): `cd frontend2 && npm run dev`
+5. Start sidecar (separate terminal): `cd backend && nohup uv run python scripts/vp_fire_sidecar.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --mode live --start-time 09:30 --speed 10 --tick-target 8 --max-horizon-s 15 --print-interval-s 15 --output logs/vp_fire_sidecar_mnqh6_live.jsonl > /tmp/vp_fire_sidecar.log 2>&1 &`
+6. Open: http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&mode=live&speed=10&start_time=09:30
+7. First window appears ~30s after page load (warmup processing). `speed=1` for real-time, `speed=10` for 10x.
+
+### Vacuum Pressure -- Replay Mode (silver parquet)
 
 1. Download data (section 1) -- equities or futures
 2. Run pipeline: bronze -> silver (section 2) -- `equity_mbo` or `future_mbo`
-3. Start vacuum pressure server (section 9): `uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt YYYY-MM-DD --port 8002`
+3. Start replay server (section 9): `uv run python scripts/run_vacuum_pressure.py --product-type equity_mbo --symbol QQQ --dt YYYY-MM-DD --port 8002`
 4. Start frontend (section 5): `cd frontend2 && npm run dev`
 5. Open: http://localhost:5174/vacuum-pressure.html?product_type=equity_mbo&symbol=QQQ&dt=YYYY-MM-DD

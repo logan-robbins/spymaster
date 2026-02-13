@@ -100,6 +100,58 @@ interface SignalsData {
   confidence: number;
   strength: number;
   strength_smooth?: number;
+  // Pressure and resistance
+  pressure_above?: number;
+  pressure_below?: number;
+  resistance_above?: number;
+  resistance_below?: number;
+  // Bernoulli lift model
+  lift_up?: number;
+  lift_down?: number;
+  net_lift?: number;
+  // Multi-timescale (fast ~5s)
+  lift_5s?: number;
+  d1_5s?: number;
+  d2_5s?: number;
+  proj_5s?: number;
+  // Multi-timescale (medium ~15s)
+  lift_15s?: number;
+  d1_15s?: number;
+  d2_15s?: number;
+  proj_15s?: number;
+  // Multi-timescale (slow ~60s)
+  lift_60s?: number;
+  d1_60s?: number;
+  d2_60s?: number;
+  proj_60s?: number;
+  // Cross-timescale
+  cross_confidence?: number;
+  projection_coherence?: number;
+  alert_flags?: number;
+  regime?: string;
+  // Optional backend-provided event metadata
+  event_state?: string;
+  event_direction?: string;
+  event_strength?: number;
+  event_confidence?: number;
+  event_transition?: string;
+  feasibility_up?: number;
+  feasibility_down?: number;
+  directional_bias?: number;
+  directional_feasibility?: number;
+  directional_feasible?: boolean;
+}
+
+type EventState = 'WATCH' | 'ARMED' | 'FIRE' | 'COOLDOWN';
+type EventMarkerPhase = 'ARMED' | 'FIRE';
+
+interface SpotEventMarker {
+  col: number;
+  row: number;
+  phase: EventMarkerPhase;
+  direction: number;
+  confidence: number;
+  source: 'derived' | 'backend';
 }
 
 /** Parsed and validated URL query parameters. */
@@ -109,6 +161,8 @@ interface StreamParams {
   dt: string;
   speed: string;
   skip: string;
+  mode: string;
+  start_time?: string;
   pre_smooth_span?: string;
   d1_span?: string;
   d2_span?: string;
@@ -130,6 +184,13 @@ const HMAP_HISTORY = 360;                    // 6 min of 1-second columns
 const FLOW_NORM_SCALE = 500;                 // characteristic shares for tanh norm
 const DEPTH_NORM_PERCENTILE_DECAY = 0.995;
 const SCROLL_MARGIN = 10;                    // rows from edge before auto-scroll
+const PROJECTION_MARGIN = 0.18;              // reserve right margin for future projection
+const PROJECTION_MAX_ROW_DELTA = 12;
+const PROJECTION_IMPULSE_SCALE = 40;
+const EVENT_MAX_MARKERS = 80;
+const EVENT_SLOPE_EPS = 0.08;
+const EVENT_FIRE_CONF_MIN = 0.58;
+const EVENT_FIRE_IMPULSE_MIN = 0.22;
 
 // Legacy equity fallback (used only when server config is absent)
 const LEGACY_BUCKET_DOLLARS = 0.50;
@@ -164,6 +225,7 @@ let currentSpotDollars = 0;
 
 // Spot trail: fractional row position per heatmap column (null = no data)
 const spotTrail: (number | null)[] = new Array(HMAP_HISTORY).fill(null);
+const spotEventMarkers: SpotEventMarker[] = [];
 
 // Heatmap pixel buffer (RGBA, HMAP_HISTORY x HMAP_LEVELS)
 const hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
@@ -176,6 +238,13 @@ for (let i = 0; i < hmapData.length; i += 4) {
 }
 
 let runningMaxDepth = 100; // adaptive normalisation
+let derivedEventPhase: EventState = 'WATCH';
+let derivedEventTransition = '---';
+let derivedEventDirection = 0;
+let lastSlopeSign = 0;
+let lastBackendEventState: string | null = null;
+
+const streamContractErrors = new Set<string>();
 
 // --------------------------------------------------------- Viewport / Zoom
 
@@ -185,9 +254,10 @@ let vpX = 0;
 let vpY = 0;
 let userPanned = false;
 
-const MIN_ZOOM = 1.0;
-const MAX_ZOOM_X = HMAP_HISTORY / 30;
-const MAX_ZOOM_Y = HMAP_LEVELS / 10;
+const MIN_ZOOM_X = 1.0;       // no horizontal zoom-out (buffer only holds 360 cols)
+const MIN_ZOOM_Y = 0.15;      // vertical zoom-out: see ~540 price levels compressed
+const MAX_ZOOM_X = HMAP_HISTORY / 30;  // 12× zoom in
+const MAX_ZOOM_Y = HMAP_LEVELS / 10;   // ~8× zoom in
 const ZOOM_STEP = 1.08;
 
 // Pan drag state
@@ -203,8 +273,6 @@ let panStartVpY = 0;
 const $spotVal     = document.getElementById('spot-val')!;
 const $tsVal       = document.getElementById('ts-val')!;
 const $winVal      = document.getElementById('win-val')!;
-const $compLabel   = document.getElementById('composite-label')!;
-const $compMarker  = document.getElementById('composite-marker')!;
 const $spotLine    = document.getElementById('spot-line-label')!;
 
 // Metadata display elements
@@ -216,6 +284,11 @@ const $metaMult     = document.getElementById('meta-mult')!;
 
 // Warning banner
 const $warningBanner = document.getElementById('warning-banner')!;
+const $sigProjDir = document.getElementById('sig-proj-dir')!;
+const $sigProjConf = document.getElementById('sig-proj-conf')!;
+const $sigEventState = document.getElementById('sig-event-state')!;
+const $sigEventTransition = document.getElementById('sig-event-transition')!;
+const $sigFeasibility = document.getElementById('sig-feasibility')!;
 
 function $(id: string) { return document.getElementById(id)!; }
 
@@ -237,10 +310,24 @@ function visibleCols(): number { return HMAP_HISTORY / zoomX; }
 function visibleRows(): number { return HMAP_LEVELS / zoomY; }
 
 function clampViewport(): void {
-  const maxVpX = Math.max(0, HMAP_HISTORY - visibleCols());
-  const maxVpY = Math.max(0, HMAP_LEVELS - visibleRows());
-  vpX = Math.max(0, Math.min(vpX, maxVpX));
-  vpY = Math.max(0, Math.min(vpY, maxVpY));
+  const vCols = visibleCols();
+  const vRows = visibleRows();
+
+  if (vCols >= HMAP_HISTORY) {
+    // Zoomed out horizontally: pin right edge (latest data visible)
+    vpX = HMAP_HISTORY - vCols;
+  } else {
+    vpX = Math.max(0, Math.min(vpX, HMAP_HISTORY - vCols));
+  }
+
+  if (vRows >= HMAP_LEVELS) {
+    // Zoomed out vertically: centre the data band, allow limited panning
+    const slack = (vRows - HMAP_LEVELS) * 0.25;
+    const centre = (HMAP_LEVELS - vRows) / 2;
+    vpY = Math.max(centre - slack, Math.min(vpY, centre + slack));
+  } else {
+    vpY = Math.max(0, Math.min(vpY, HMAP_LEVELS - vRows));
+  }
 }
 
 /** Reset viewport to rightmost data, vertically centred on spot. */
@@ -264,8 +351,8 @@ function applyZoom(
   const dataX = vpX + (mx / cw) * oldW;
   const dataY = vpY + (my / ch) * oldH;
 
-  zoomX = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM_X, zoomX * fx));
-  zoomY = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM_Y, zoomY * fy));
+  zoomX = Math.max(MIN_ZOOM_X, Math.min(MAX_ZOOM_X, zoomX * fx));
+  zoomY = Math.max(MIN_ZOOM_Y, Math.min(MAX_ZOOM_Y, zoomY * fy));
 
   vpX = dataX - (mx / cw) * visibleCols();
   vpY = dataY - (my / ch) * visibleRows();
@@ -295,16 +382,18 @@ function nicePriceInterval(visDollars: number, target: number): number {
 
 // ---------------------------------------------------------- General helpers
 
-/** Format nanosecond timestamp as HH:MM:SS ET. */
+/** Format nanosecond timestamp as "h:MM:SS AM/PM EST". */
 function formatTs(ns: bigint): string {
   const ms = Number(ns / 1_000_000n);
   const d = new Date(ms);
-  // Offset to US/Eastern (rough: UTC-5)
+  // Fixed EST offset (UTC-5). Covers regular + extended trading hours.
   const et = new Date(d.getTime() - 5 * 3600_000);
-  const hh = String(et.getUTCHours()).padStart(2, '0');
+  let h = et.getUTCHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
   const mm = String(et.getUTCMinutes()).padStart(2, '0');
   const ss = String(et.getUTCSeconds()).padStart(2, '0');
-  return `${hh}:${mm}:${ss}`;
+  return `${h}:${mm}:${ss} ${ampm} EST`;
 }
 
 /** Colour a value: positive -> green, negative -> red, zero -> grey. */
@@ -319,6 +408,266 @@ function fmt(v: number, dp: number = 1): string {
   if (v == null || isNaN(v)) return '0';
   const s = v.toFixed(dp);
   return v > 0 ? `+${s}` : s;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function projectionDataWidth(totalWidth: number): number {
+  return Math.max(32, totalWidth * (1 - PROJECTION_MARGIN));
+}
+
+function streamContractError(surface: string, detail: string): never {
+  const key = `${surface}:${detail}`;
+  if (!streamContractErrors.has(key)) {
+    streamContractErrors.add(key);
+    const msg = `[VP] Stream contract error (${surface}): ${detail}`;
+    console.error(msg);
+    $warningBanner.textContent = msg;
+    $warningBanner.style.display = '';
+    $warningBanner.style.background = '#660000';
+    $warningBanner.style.color = '#ffbbbb';
+  }
+  throw new Error(`[VP] stream contract violation in ${surface}: ${detail}`);
+}
+
+function requireField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): unknown {
+  const value = obj[field];
+  if (value === undefined || value === null) {
+    streamContractError(surface, `missing required field "${field}"`);
+  }
+  return value;
+}
+
+function requireNumberField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): number {
+  const raw = requireField(surface, obj, field);
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    streamContractError(surface, `field "${field}" is not a finite number`);
+  }
+  return parsed;
+}
+
+function requireStringField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): string {
+  const raw = requireField(surface, obj, field);
+  if (typeof raw !== 'string') {
+    streamContractError(surface, `field "${field}" is not a string`);
+  }
+  return raw;
+}
+
+function requireBooleanField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): boolean {
+  const raw = requireField(surface, obj, field);
+  if (typeof raw !== 'boolean') {
+    streamContractError(surface, `field "${field}" is not a boolean`);
+  }
+  return raw;
+}
+
+function requireBigIntField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): bigint {
+  const raw = requireField(surface, obj, field);
+  try {
+    return typeof raw === 'bigint' ? raw : BigInt(String(raw));
+  } catch {
+    streamContractError(surface, `field "${field}" is not bigint-coercible`);
+  }
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function slopeSign(value: number): number {
+  if (value > EVENT_SLOPE_EPS) return 1;
+  if (value < -EVENT_SLOPE_EPS) return -1;
+  return 0;
+}
+
+function projectionConfidence(s: SignalsData): number {
+  return clamp(
+    s.event_confidence
+      ?? s.wtd_deriv_conf
+      ?? s.projection_coherence
+      ?? s.cross_confidence
+      ?? s.confidence
+      ?? 0,
+    0,
+    1,
+  );
+}
+
+function projectionImpulse(s: SignalsData): number {
+  const base = s.composite_smooth ?? s.composite ?? 0;
+  const projected = s.wtd_projection ?? s.proj_15s ?? base;
+  const impulse = projected - base;
+  if (Math.abs(impulse) > 1e-6) return impulse;
+  return s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0;
+}
+
+function projectionRowDelta(s: SignalsData): number {
+  const raw = Math.tanh(projectionImpulse(s) / PROJECTION_IMPULSE_SCALE) * PROJECTION_MAX_ROW_DELTA;
+  return clamp(-raw, -PROJECTION_MAX_ROW_DELTA, PROJECTION_MAX_ROW_DELTA);
+}
+
+function derivedFeasibilityScore(s: SignalsData): number {
+  const conf = projectionConfidence(s);
+  const impulse = Math.abs(projectionImpulse(s));
+  const impulseScore = clamp(Math.tanh(impulse / 40), 0, 1);
+  const dirBySlope = slopeSign(s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0);
+  const dirByProjection = Math.sign(projectionImpulse(s));
+  const alignment = dirByProjection !== 0 && dirByProjection === dirBySlope ? 1 : 0;
+  return clamp(conf * 0.55 + impulseScore * 0.3 + alignment * 0.15, 0, 1);
+}
+
+function feasibilityLabel(score: number): string {
+  if (score >= 0.7) return 'FEASIBLE';
+  if (score >= 0.45) return 'WATCH';
+  return 'BLOCKED';
+}
+
+function pushEventMarker(
+  phase: EventMarkerPhase,
+  direction: number,
+  confidence: number,
+  source: 'derived' | 'backend',
+): void {
+  const row = spotTrail[HMAP_HISTORY - 1] ?? priceToRow(currentSpotDollars);
+  if (!Number.isFinite(row)) return;
+  spotEventMarkers.push({
+    col: HMAP_HISTORY - 1,
+    row,
+    phase,
+    direction,
+    confidence: clamp(confidence, 0, 1),
+    source,
+  });
+  while (spotEventMarkers.length > EVENT_MAX_MARKERS) {
+    spotEventMarkers.shift();
+  }
+}
+
+function directionFromLabel(label: string | undefined): number {
+  const normalized = (label ?? '').toUpperCase();
+  if (normalized === 'UP') return 1;
+  if (normalized === 'DOWN') return -1;
+  return 0;
+}
+
+function updateDerivedEventState(s: SignalsData): void {
+  const backendState = optionalString(s.event_state)?.toUpperCase();
+  const backendDirection = directionFromLabel(optionalString(s.event_direction));
+  const backendTransition = optionalString(s.event_transition)?.toUpperCase();
+
+  if (backendState) {
+    if (
+      backendState === 'WATCH'
+      || backendState === 'ARMED'
+      || backendState === 'FIRE'
+      || backendState === 'COOLDOWN'
+    ) {
+      derivedEventPhase = backendState;
+    } else if (backendState === 'IDLE') {
+      derivedEventPhase = 'WATCH';
+    }
+
+    const detectedTransition =
+      (lastBackendEventState && lastBackendEventState !== derivedEventPhase)
+        ? `${lastBackendEventState}->${derivedEventPhase}`
+        : '---';
+    derivedEventTransition = backendTransition ?? detectedTransition;
+
+    if (
+      detectedTransition !== '---'
+      && (derivedEventPhase === 'ARMED' || derivedEventPhase === 'FIRE')
+    ) {
+      pushEventMarker(
+        derivedEventPhase as EventMarkerPhase,
+        backendDirection || derivedEventDirection || Math.sign(projectionImpulse(s)),
+        projectionConfidence(s),
+        'backend',
+      );
+    }
+    lastBackendEventState = derivedEventPhase;
+    if (backendDirection !== 0) {
+      derivedEventDirection = backendDirection;
+    }
+    return;
+  }
+  lastBackendEventState = null;
+
+  const currentSlopeSign = slopeSign(s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0);
+  const confidence = projectionConfidence(s);
+  const impulse = Math.abs(projectionImpulse(s));
+  const hasInflectionFlag = ((s.alert_flags ?? 0) & 1) !== 0;
+  derivedEventTransition = '---';
+
+  if (lastSlopeSign !== 0 && currentSlopeSign !== 0 && currentSlopeSign !== lastSlopeSign) {
+    derivedEventPhase = 'ARMED';
+    derivedEventDirection = currentSlopeSign;
+    derivedEventTransition = 'SLOPE_FLIP';
+    pushEventMarker('ARMED', currentSlopeSign, confidence, 'derived');
+  } else if (hasInflectionFlag && currentSlopeSign !== 0) {
+    derivedEventPhase = 'ARMED';
+    derivedEventDirection = currentSlopeSign;
+    derivedEventTransition = 'INFLECTION';
+    pushEventMarker('ARMED', currentSlopeSign, confidence, 'derived');
+  }
+
+  if (derivedEventPhase === 'ARMED') {
+    if (
+      currentSlopeSign !== 0 &&
+      currentSlopeSign === derivedEventDirection &&
+      confidence >= EVENT_FIRE_CONF_MIN &&
+      impulse >= EVENT_FIRE_IMPULSE_MIN
+    ) {
+      derivedEventPhase = 'FIRE';
+      derivedEventTransition = 'ARMED->FIRE';
+      pushEventMarker('FIRE', derivedEventDirection, confidence, 'derived');
+    } else if (currentSlopeSign === 0 && confidence < 0.25) {
+      derivedEventPhase = 'WATCH';
+      derivedEventDirection = 0;
+      derivedEventTransition = 'ARMED->WATCH';
+    }
+  } else if (derivedEventPhase === 'FIRE' && currentSlopeSign === 0 && confidence < 0.2) {
+    derivedEventPhase = 'WATCH';
+    derivedEventDirection = 0;
+    derivedEventTransition = 'FIRE->WATCH';
+  }
+
+  if (currentSlopeSign !== 0) {
+    lastSlopeSign = currentSlopeSign;
+  }
 }
 
 /** Heatmap cell colour from depth + net flow.
@@ -406,6 +755,13 @@ function shiftGrid(shiftRows: number): void {
       spotTrail[i] = spotTrail[i]! + shiftRows;
     }
   }
+  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
+    const marker = spotEventMarkers[i];
+    marker.row += shiftRows;
+    if (marker.row < 0 || marker.row >= HMAP_LEVELS) {
+      spotEventMarkers.splice(i, 1);
+    }
+  }
 
   vpY += shiftRows;
   clampViewport();
@@ -452,6 +808,13 @@ function pushHeatmapColumn(flow: FlowRow[], spotDollars: number): void {
 
   spotTrail.shift();
   spotTrail.push(priceToRow(spotDollars));
+  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
+    const marker = spotEventMarkers[i];
+    marker.col -= 1;
+    if (marker.col < 0) {
+      spotEventMarkers.splice(i, 1);
+    }
+  }
 
   const byRow = new Map<number, { depth: number; net: number }>();
   for (const r of flow) {
@@ -500,6 +863,8 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, cw, ch);
 
   if (!userPanned) {
     resetViewport();
@@ -507,6 +872,8 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
 
   const srcW = visibleCols();
   const srcH = visibleRows();
+  const dataWidth = projectionDataWidth(cw);
+  const projectionStartX = dataWidth;
 
   if (!hmapOffscreen) {
     hmapOffscreen = document.createElement('canvas');
@@ -518,12 +885,40 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   offCtx.putImageData(imgData, 0, 0);
 
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(hmapOffscreen, vpX, vpY, srcW, srcH, 0, 0, cw, ch);
+
+  // When zoomed out (vpX < 0 or vpY < 0), the source rect extends
+  // beyond the pixel buffer. drawImage clips negative source coords,
+  // so we compute the visible overlap and position the dest accordingly.
+  const sx = Math.max(0, vpX);
+  const sy = Math.max(0, vpY);
+  const sx2 = Math.min(HMAP_HISTORY, vpX + srcW);
+  const sy2 = Math.min(HMAP_LEVELS, vpY + srcH);
+  const sw = Math.max(0, sx2 - sx);
+  const sh = Math.max(0, sy2 - sy);
+
+  if (sw > 0 && sh > 0) {
+    // Map source pixel range to destination canvas range
+    const dx = ((sx - vpX) / srcW) * dataWidth;
+    const dy = ((sy - vpY) / srcH) * ch;
+    const dw = (sw / srcW) * dataWidth;
+    const dh = (sh / srcH) * ch;
+    ctx.drawImage(hmapOffscreen, sx, sy, sw, sh, dx, dy, dw, dh);
+  }
 
   if (!anchorInitialized) return;
 
   const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
-  const colToX = (col: number): number => ((col - vpX) / srcW) * cw;
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+
+  // Projection margin with separator
+  ctx.fillStyle = 'rgba(12, 14, 24, 0.85)';
+  ctx.fillRect(projectionStartX, 0, cw - projectionStartX, ch);
+  ctx.strokeStyle = 'rgba(120, 150, 180, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(projectionStartX + 0.5, 0);
+  ctx.lineTo(projectionStartX + 0.5, ch);
+  ctx.stroke();
 
   // Gridlines
   const topPrice = rowToPrice(vpY);
@@ -539,7 +934,7 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     if (y < -1 || y > ch + 1) continue;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.lineTo(cw, y);
+    ctx.lineTo(dataWidth, y);
     ctx.stroke();
   }
 
@@ -551,13 +946,14 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   let started = false;
   for (let i = 0; i < HMAP_HISTORY; i++) {
     const row = spotTrail[i];
-    if (row === null || row < -2 || row > HMAP_LEVELS + 2) {
+    if (row === null) {
       started = false;
       continue;
     }
     const x = colToX(i + 0.5);
     const y = rowToY(row);
-    if (x < -50 || x > cw + 50) { started = false; continue; }
+    // Clip to canvas bounds (not buffer bounds -- zoom-out may extend past)
+    if (x < -50 || x > dataWidth + 50 || y < -50 || y > ch + 50) { started = false; continue; }
     if (!started) {
       ctx.moveTo(x, y);
       started = true;
@@ -566,6 +962,57 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     }
   }
   ctx.stroke();
+
+  // Event markers on spot trail
+  for (const marker of spotEventMarkers) {
+    const x = colToX(marker.col + 0.5);
+    const y = rowToY(marker.row);
+    if (x < -16 || x > dataWidth + 16 || y < -16 || y > ch + 16) continue;
+
+    const dir = marker.direction > 0 ? 1 : marker.direction < 0 ? -1 : 0;
+    const directionColor = dir >= 0 ? '#22cc66' : '#cc2255';
+    const color = marker.phase === 'FIRE' ? directionColor : '#ccaa22';
+    const radius = marker.phase === 'FIRE' ? 4.8 : 3.8;
+    const confAlpha = 0.35 + marker.confidence * 0.55;
+
+    ctx.fillStyle = `rgba(12, 12, 20, ${confAlpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 2.0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Directional marker: triangle points UP for +1, DOWN for -1.
+    const tipY = dir >= 0 ? y - radius : y + radius;
+    const baseY = dir >= 0 ? y + radius * 0.8 : y - radius * 0.8;
+    const halfW = radius * 0.9;
+
+    if (marker.phase === 'FIRE') {
+      ctx.fillStyle = color;
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0)';
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = marker.phase === 'FIRE' ? 1.9 : 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x, tipY);
+    ctx.lineTo(x + halfW, baseY);
+    ctx.lineTo(x - halfW, baseY);
+    ctx.closePath();
+    if (marker.phase === 'FIRE') {
+      ctx.fill();
+    }
+    ctx.stroke();
+
+    // ARMED gets an inner notch to visually differ from FIRE.
+    if (marker.phase === 'ARMED') {
+      const notchY = dir >= 0 ? y - radius * 0.25 : y + radius * 0.25;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(x - halfW * 0.45, notchY);
+      ctx.lineTo(x + halfW * 0.45, notchY);
+      ctx.stroke();
+    }
+  }
 
   // Spot dot at current position (rightmost)
   const lastSpot = spotTrail[HMAP_HISTORY - 1];
@@ -593,6 +1040,51 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
       ctx.stroke();
       ctx.setLineDash([]);
 
+      // Forward projection cone and direction line (anchored at spot)
+      if (currentSignals) {
+        const conf = projectionConfidence(currentSignals);
+        const rowDelta = projectionRowDelta(currentSignals);
+        const impulse = projectionImpulse(currentSignals);
+        const direction = Math.sign(impulse) || Math.sign(-rowDelta);
+        const yEnd = rowToY(lastSpot + rowDelta);
+        const coneRows = 1 + (1 - conf) * 8;
+        const yUpper = rowToY(lastSpot + rowDelta - coneRows);
+        const yLower = rowToY(lastSpot + rowDelta + coneRows);
+        const xEnd = cw - 8;
+        const color = direction > 0 ? '#22cc66' : (direction < 0 ? '#cc2255' : '#888');
+
+        ctx.fillStyle = direction > 0
+          ? `rgba(34, 204, 102, ${0.1 + conf * 0.22})`
+          : direction < 0
+            ? `rgba(204, 34, 85, ${0.1 + conf * 0.22})`
+            : `rgba(120, 120, 120, ${0.08 + conf * 0.12})`;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(xEnd, yUpper);
+        ctx.lineTo(xEnd, yLower);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(xEnd, yEnd);
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(xEnd, yEnd, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        const dirText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'rgba(200, 210, 230, 0.85)';
+        ctx.fillText(`${dirText} ${(conf * 100).toFixed(0)}%`, projectionStartX + 6, 6);
+      }
+
       if (y >= 0 && y <= ch) {
         $spotLine.style.top = `${y - 10}px`;
         $spotLine.style.display = '';
@@ -605,7 +1097,7 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   }
 
   // Zoom indicator (only when zoomed)
-  if (zoomX > 1.01 || zoomY > 1.01) {
+  if (Math.abs(zoomX - 1.0) > 0.01 || Math.abs(zoomY - 1.0) > 0.01) {
     ctx.save();
     ctx.font = '10px monospace';
     ctx.fillStyle = 'rgba(0, 255, 170, 0.5)';
@@ -786,37 +1278,143 @@ function renderProfile(canvas: HTMLCanvasElement): void {
 function updateSignalPanel(): void {
   const s = currentSignals;
   if (!s) return;
+  updateDerivedEventState(s);
 
-  const compositeShown = s.composite_smooth ?? s.composite;
-  const d1Shown = s.d1_smooth ?? s.d1_composite;
-  const d2Shown = s.d2_smooth ?? s.d2_composite;
-  const d3Shown = s.d3_smooth ?? s.d3_composite;
-  const strengthShown = s.strength_smooth ?? s.strength;
+  // ── Section 1: Lift Gauge ──
+  const netLift = s.net_lift ?? 0;
+  $('sig-net-lift').textContent = fmt(netLift, 1);
+  $('sig-net-lift').style.color = signColour(netLift, 0.01);
 
-  $('sig-composite').textContent = fmt(compositeShown, 1);
-  $('sig-composite').style.color = signColour(compositeShown, 0.01);
+  const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
+  $('lift-marker').style.left = `${liftNorm * 100}%`;
 
-  $('sig-confidence').textContent = `${(Math.max(s.confidence, s.wtd_deriv_conf ?? 0) * 100).toFixed(0)}%`;
-  $('sig-strength').textContent = `${(strengthShown * 100).toFixed(0)}%`;
+  // Condition indicators: V=vacuum, P=pressure, R=low resistance
+  const vacPresent = (s.vacuum_above > 1) || (s.vacuum_below < -1);
+  const pressPresent = ((s.pressure_below ?? 0) > 5) || ((s.pressure_above ?? 0) > 5);
+  const moveSideResist = netLift >= 0
+    ? (s.resistance_above ?? 999)
+    : (s.resistance_below ?? 999);
+  setInd('cond-v', vacPresent, '#22cc66');
+  setInd('cond-p', pressPresent, '#22cc66');
+  setInd('cond-r', moveSideResist < 50, '#22cc66');
 
-  const norm = Math.tanh(compositeShown / 2000) * 0.5 + 0.5;
-  $compMarker.style.left = `${norm * 100}%`;
+  $('sig-cross-conf').textContent = `${((s.cross_confidence ?? 0) * 100).toFixed(0)}%`;
+  $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
 
-  $('sig-d1').textContent = fmt(d1Shown, 2);
-  $('sig-d1').style.color = signColour(d1Shown, 0.05);
-  $('sig-d2').textContent = fmt(d2Shown, 2);
-  $('sig-d2').style.color = signColour(d2Shown, 0.1);
-  $('sig-d3').textContent = fmt(d3Shown, 3);
-  $('sig-d3').style.color = signColour(d3Shown, 0.2);
+  // ── Section 2: Multi-Timescale ──
+  const timescales = [
+    { key: '5s', lift: s.lift_5s ?? 0, d1: s.d1_5s ?? 0, proj: s.proj_5s ?? 0 },
+    { key: '15s', lift: s.lift_15s ?? 0, d1: s.d1_15s ?? 0, proj: s.proj_15s ?? 0 },
+    { key: '60s', lift: s.lift_60s ?? 0, d1: s.d1_60s ?? 0, proj: s.proj_60s ?? 0 },
+  ];
 
-  fillGauge('d1-fill', d1Shown, 500);
-  fillGauge('d2-fill', d2Shown, 200);
-  fillGauge('d3-fill', d3Shown, 100);
+  for (const ts of timescales) {
+    $(`sig-lift-${ts.key}`).textContent = fmt(ts.lift, 1);
+    $(`sig-lift-${ts.key}`).style.color = signColour(ts.lift, 0.01);
+    $(`sig-d1-${ts.key}`).textContent = fmt(ts.d1, 1);
+    $(`sig-d1-${ts.key}`).style.color = signColour(ts.d1, 0.05);
+    fillGauge(`d1-${ts.key}-fill`, ts.d1, 50);
 
-  $('bot-d1').textContent = fmt(d1Shown, 1);
-  $('bot-d2').textContent = fmt(d2Shown, 1);
-  $('bot-d3').textContent = fmt(s.wtd_slope ?? d3Shown, 2);
+    const arrowEl = $(`sig-arrow-${ts.key}`);
+    if (ts.proj > ts.lift) {
+      arrowEl.textContent = '\u25B2';
+      arrowEl.style.color = '#22cc66';
+    } else if (ts.proj < ts.lift) {
+      arrowEl.textContent = '\u25BC';
+      arrowEl.style.color = '#cc2255';
+    } else {
+      arrowEl.textContent = '\u2014';
+      arrowEl.style.color = '#555';
+    }
+  }
 
+  // Alignment: all timescales agree on sign?
+  const signs = timescales.map(t => Math.sign(t.lift));
+  const nonZero = signs.filter(v => v !== 0);
+  const alignEl = $('sig-alignment');
+  if (nonZero.length === 0) {
+    alignEl.textContent = '---';
+    alignEl.style.color = '#555';
+  } else if (nonZero.every(v => v === nonZero[0])) {
+    alignEl.textContent = 'ALIGNED';
+    alignEl.style.color = '#22cc66';
+  } else {
+    alignEl.textContent = 'DIVERGENT';
+    alignEl.style.color = '#ccaa22';
+  }
+
+  // ── Section 3: Alerts ──
+  const flags = s.alert_flags ?? 0;
+  const hasInf = (flags & 1) !== 0;
+  const hasDec = (flags & 2) !== 0;
+  const hasReg = (flags & 4) !== 0;
+  setInd('alert-inf', hasInf, '#ccaa22');
+  setInd('alert-dec', hasDec, '#cc7722');
+  setInd('alert-reg', hasReg, '#cc2255');
+  $('alert-none').style.display = (hasInf || hasDec || hasReg) ? 'none' : '';
+
+  // ── Section 4: Projection/Event badges ──
+  const impulse = projectionImpulse(s);
+  const direction = Math.sign(impulse);
+  const backendDirection = directionFromLabel(optionalString(s.event_direction));
+  const conf = projectionConfidence(s);
+  const directionText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
+  const directionColor = direction > 0 ? '#22cc66' : direction < 0 ? '#cc2255' : '#888';
+  const eventDirection = backendDirection !== 0 ? backendDirection : direction;
+  $sigProjDir.textContent = directionText;
+  $sigProjDir.style.color = directionColor;
+  $sigProjDir.style.background = direction === 0 ? '#2f3138' : 'rgba(20, 20, 28, 0.9)';
+  $sigProjConf.textContent = `${(conf * 100).toFixed(0)}%`;
+  $sigProjConf.style.color = conf >= 0.6 ? '#22cc66' : conf >= 0.35 ? '#ccaa22' : '#888';
+
+  const eventState = optionalString(s.event_state)?.toUpperCase() ?? derivedEventPhase;
+  const eventTransition = optionalString(s.event_transition)?.toUpperCase() ?? derivedEventTransition;
+  $sigEventState.textContent = eventState;
+  if (eventState === 'FIRE') {
+    $sigEventState.style.color = '#ffffff';
+    $sigEventState.style.background = eventDirection > 0 ? '#22cc66' : '#cc2255';
+  } else if (eventState === 'ARMED') {
+    $sigEventState.style.color = '#111';
+    $sigEventState.style.background = '#ccaa22';
+  } else {
+    $sigEventState.style.color = '#888';
+    $sigEventState.style.background = '#2f3138';
+  }
+  $sigEventTransition.textContent = eventTransition;
+  $sigEventTransition.style.color = eventTransition === '---' ? '#666' : '#ddd';
+
+  const backendFeasibilityUp = optionalNumber(s.feasibility_up);
+  const backendFeasibilityDown = optionalNumber(s.feasibility_down);
+  const backendDirectionalFeasibility = optionalNumber(s.directional_feasibility);
+  const backendDirectionalFlag = optionalBoolean(s.directional_feasible);
+  const biasDirection = Math.sign(optionalNumber(s.directional_bias) ?? 0);
+
+  let feasibilityScore: number | undefined;
+  if (eventDirection > 0 && backendFeasibilityUp !== undefined) {
+    feasibilityScore = backendFeasibilityUp;
+  } else if (eventDirection < 0 && backendFeasibilityDown !== undefined) {
+    feasibilityScore = backendFeasibilityDown;
+  } else if (backendFeasibilityUp !== undefined || backendFeasibilityDown !== undefined) {
+    feasibilityScore = Math.max(backendFeasibilityUp ?? 0, backendFeasibilityDown ?? 0);
+  } else if (backendDirectionalFeasibility !== undefined) {
+    feasibilityScore = backendDirectionalFeasibility;
+  } else if (backendDirectionalFlag !== undefined) {
+    feasibilityScore = backendDirectionalFlag ? 1 : 0;
+  } else {
+    feasibilityScore = derivedFeasibilityScore(s);
+  }
+  feasibilityScore = clamp(feasibilityScore, 0, 1);
+
+  if (eventDirection === 0 && biasDirection !== 0) {
+    $sigProjDir.textContent = biasDirection > 0 ? 'UP' : 'DOWN';
+    $sigProjDir.style.color = biasDirection > 0 ? '#22cc66' : '#cc2255';
+  }
+
+  const feasibility = feasibilityLabel(feasibilityScore);
+  $sigFeasibility.textContent = feasibility;
+  $sigFeasibility.style.color = feasibilityScore >= 0.7 ? '#22cc66' : feasibilityScore >= 0.45 ? '#ccaa22' : '#cc2255';
+
+  // ── Section 5: Components ──
   $('sig-vac-above').textContent = fmt(s.vacuum_above, 0);
   $('sig-vac-above').style.color = signColour(s.vacuum_above, 0.005);
   $('sig-vac-below').textContent = fmt(s.vacuum_below, 0);
@@ -829,20 +1427,28 @@ function updateSignalPanel(): void {
   $('sig-depth').style.color = signColour(s.depth_imbalance, 2);
   $('sig-rest-depth').textContent = fmt(s.rest_depth_imbalance, 3);
   $('sig-rest-depth').style.color = signColour(s.rest_depth_imbalance, 2);
-  $('sig-drain-ask').textContent = fmt(s.resting_drain_ask, 0);
-  $('sig-drain-bid').textContent = fmt(s.resting_drain_bid, 0);
+  $('sig-press-above').textContent = fmt(s.pressure_above ?? 0, 1);
+  $('sig-press-above').style.color = signColour(s.pressure_above ?? 0, 0.02);
+  $('sig-press-below').textContent = fmt(s.pressure_below ?? 0, 1);
+  $('sig-press-below').style.color = signColour(s.pressure_below ?? 0, 0.02);
+  $('sig-resist-above').textContent = fmt(s.resistance_above ?? 0, 1);
+  $('sig-resist-above').style.color = signColour(s.resistance_above ?? 0, 0.01);
+  $('sig-resist-below').textContent = fmt(s.resistance_below ?? 0, 1);
+  $('sig-resist-below').style.color = signColour(s.resistance_below ?? 0, 0.01);
 
-  const comp = s.wtd_slope ?? compositeShown;
-  if (comp > 50) {
-    $compLabel.textContent = `BULLISH ${fmt(comp, 0)}`;
-    $compLabel.style.color = '#22cc66';
-  } else if (comp < -50) {
-    $compLabel.textContent = `BEARISH ${fmt(comp, 0)}`;
-    $compLabel.style.color = '#cc2255';
-  } else {
-    $compLabel.textContent = `NEUTRAL ${fmt(comp, 0)}`;
-    $compLabel.style.color = '#888';
-  }
+  // ── Bottom Bar ──
+  const regime = s.regime || 'NEUTRAL';
+  const regimeColors: Record<string, string> = {
+    LIFT: '#22cc66', DRAG: '#cc2255', NEUTRAL: '#888', CHOP: '#ccaa22',
+  };
+  $('regime-label').textContent = regime;
+  $('regime-label').style.color = regimeColors[regime] || '#888';
+  $('regime-lift-val').textContent = fmt(netLift, 1);
+  $('regime-lift-val').style.color = signColour(netLift, 0.01);
+
+  $('bot-d1-5s').textContent = fmt(s.d1_5s ?? 0, 1);
+  $('bot-d1-15s').textContent = fmt(s.d1_15s ?? 0, 1);
+  $('bot-d1-60s').textContent = fmt(s.d1_60s ?? 0, 1);
 }
 
 function fillGauge(id: string, value: number, scale: number): void {
@@ -858,6 +1464,19 @@ function fillGauge(id: string, value: number, scale: number): void {
     el.style.left = `${50 - pct}%`;
     el.style.width = `${pct}%`;
     el.style.background = '#cc2255';
+  }
+}
+
+/** Toggle an indicator badge between dim and lit states. */
+function setInd(id: string, active: boolean, color: string): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (active) {
+    el.style.background = color;
+    el.style.color = '#fff';
+  } else {
+    el.style.background = '#333';
+    el.style.color = '#555';
   }
 }
 
@@ -925,6 +1544,8 @@ function parseStreamParams(): StreamParams {
     dt: params.get('dt') || '2026-02-06',
     speed: params.get('speed') || '1',
     skip: params.get('skip') || '5',
+    mode: params.get('mode') || 'replay',
+    start_time: params.get('start_time') || undefined,
     pre_smooth_span: params.get('pre_smooth_span') || undefined,
     d1_span: params.get('d1_span') || undefined,
     d2_span: params.get('d2_span') || undefined,
@@ -948,13 +1569,15 @@ function connectWS(): void {
     streamParams = parseStreamParams();
   }
   const {
-    product_type, symbol, dt, speed, skip,
+    product_type, symbol, dt, speed, skip, mode, start_time,
     pre_smooth_span, d1_span, d2_span, d3_span,
     w_d1, w_d2, w_d3, projection_horizon_s,
     fast_projection_horizon_s, smooth_zscore_window,
   } = streamParams;
 
   const tuningParams = new URLSearchParams();
+  if (mode && mode !== 'replay') tuningParams.set('mode', mode);
+  if (start_time) tuningParams.set('start_time', start_time);
   if (pre_smooth_span) tuningParams.set('pre_smooth_span', pre_smooth_span);
   if (d1_span) tuningParams.set('d1_span', d1_span);
   if (d2_span) tuningParams.set('d2_span', d2_span);
@@ -1001,18 +1624,18 @@ function connectWS(): void {
           if (msg.type === 'runtime_config') {
             // Runtime config -- must arrive before first data batch
             applyRuntimeConfig({
-              product_type: msg.product_type as string,
-              symbol: msg.symbol as string,
-              symbol_root: (msg.symbol_root ?? '') as string,
-              price_scale: msg.price_scale as number,
-              tick_size: msg.tick_size as number,
-              bucket_size_dollars: msg.bucket_size_dollars as number,
-              rel_tick_size: msg.rel_tick_size as number,
-              grid_max_ticks: msg.grid_max_ticks as number,
-              contract_multiplier: msg.contract_multiplier as number,
-              qty_unit: (msg.qty_unit ?? 'shares') as string,
-              price_decimals: msg.price_decimals as number,
-              config_version: (msg.config_version ?? '') as string,
+              product_type: requireStringField('runtime_config', msg, 'product_type'),
+              symbol: requireStringField('runtime_config', msg, 'symbol'),
+              symbol_root: optionalString(msg.symbol_root) ?? '',
+              price_scale: requireNumberField('runtime_config', msg, 'price_scale'),
+              tick_size: requireNumberField('runtime_config', msg, 'tick_size'),
+              bucket_size_dollars: requireNumberField('runtime_config', msg, 'bucket_size_dollars'),
+              rel_tick_size: requireNumberField('runtime_config', msg, 'rel_tick_size'),
+              grid_max_ticks: requireNumberField('runtime_config', msg, 'grid_max_ticks'),
+              contract_multiplier: requireNumberField('runtime_config', msg, 'contract_multiplier'),
+              qty_unit: optionalString(msg.qty_unit) ?? 'shares',
+              price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
+              config_version: optionalString(msg.config_version) ?? '',
             });
           } else if (msg.type === 'batch_start') {
             // If config was never received, activate legacy fallback once
@@ -1040,12 +1663,12 @@ function connectWS(): void {
             if (row) {
               const j = row.toJSON() as Record<string, unknown>;
               snap = {
-                window_end_ts_ns: BigInt(j.window_end_ts_ns as string),
-                mid_price: j.mid_price as number,
-                spot_ref_price_int: BigInt(j.spot_ref_price_int as string),
-                best_bid_price_int: BigInt(j.best_bid_price_int as string),
-                best_ask_price_int: BigInt(j.best_ask_price_int as string),
-                book_valid: j.book_valid as boolean,
+                window_end_ts_ns: requireBigIntField('snap', j, 'window_end_ts_ns'),
+                mid_price: requireNumberField('snap', j, 'mid_price'),
+                spot_ref_price_int: requireBigIntField('snap', j, 'spot_ref_price_int'),
+                best_bid_price_int: requireBigIntField('snap', j, 'best_bid_price_int'),
+                best_ask_price_int: requireBigIntField('snap', j, 'best_ask_price_int'),
+                book_valid: requireBooleanField('snap', j, 'book_valid'),
               };
               currentSpotDollars = snap.mid_price;
               $spotVal.textContent = `$${snap.mid_price.toFixed(priceDecimals())}`;
@@ -1058,18 +1681,18 @@ function connectWS(): void {
               if (!row) continue;
               const j = row.toJSON() as Record<string, unknown>;
               rows.push({
-                rel_ticks: Number(j.rel_ticks),
-                side: j.side as string,
-                depth_qty_end: j.depth_qty_end as number,
-                add_qty: j.add_qty as number,
-                pull_qty: j.pull_qty as number,
-                fill_qty: j.fill_qty as number,
-                depth_qty_rest: j.depth_qty_rest as number,
-                pull_qty_rest: j.pull_qty_rest as number,
-                net_flow: j.net_flow as number,
-                vacuum_intensity: j.vacuum_intensity as number,
-                pressure_intensity: j.pressure_intensity as number,
-                rest_fraction: j.rest_fraction as number,
+                rel_ticks: requireNumberField('flow', j, 'rel_ticks'),
+                side: requireStringField('flow', j, 'side'),
+                depth_qty_end: requireNumberField('flow', j, 'depth_qty_end'),
+                add_qty: requireNumberField('flow', j, 'add_qty'),
+                pull_qty: requireNumberField('flow', j, 'pull_qty'),
+                fill_qty: requireNumberField('flow', j, 'fill_qty'),
+                depth_qty_rest: requireNumberField('flow', j, 'depth_qty_rest'),
+                pull_qty_rest: requireNumberField('flow', j, 'pull_qty_rest'),
+                net_flow: requireNumberField('flow', j, 'net_flow'),
+                vacuum_intensity: requireNumberField('flow', j, 'vacuum_intensity'),
+                pressure_intensity: requireNumberField('flow', j, 'pressure_intensity'),
+                rest_fraction: requireNumberField('flow', j, 'rest_fraction'),
               });
             }
             currentFlow = rows;
@@ -1079,56 +1702,70 @@ function connectWS(): void {
             if (row) {
               const j = row.toJSON() as Record<string, unknown>;
               currentSignals = {
-                window_end_ts_ns: BigInt(j.window_end_ts_ns as string),
-                vacuum_above: (j.vacuum_above ?? 0) as number,
-                vacuum_below: (j.vacuum_below ?? 0) as number,
-                resting_drain_ask: (j.resting_drain_ask ?? 0) as number,
-                resting_drain_bid: (j.resting_drain_bid ?? 0) as number,
-                flow_imbalance: (j.flow_imbalance ?? 0) as number,
-                fill_imbalance: (j.fill_imbalance ?? 0) as number,
-                depth_imbalance: (j.depth_imbalance ?? 0) as number,
-                rest_depth_imbalance: (j.rest_depth_imbalance ?? 0) as number,
-                bid_migration_com: (j.bid_migration_com ?? 0) as number,
-                ask_migration_com: (j.ask_migration_com ?? 0) as number,
-                composite: (j.composite ?? 0) as number,
-                composite_smooth: typeof j.composite_smooth === 'number'
-                  ? (j.composite_smooth as number)
-                  : undefined,
-                d1_composite: (j.d1_composite ?? 0) as number,
-                d2_composite: (j.d2_composite ?? 0) as number,
-                d3_composite: (j.d3_composite ?? 0) as number,
-                d1_smooth: typeof j.d1_smooth === 'number'
-                  ? (j.d1_smooth as number)
-                  : undefined,
-                d2_smooth: typeof j.d2_smooth === 'number'
-                  ? (j.d2_smooth as number)
-                  : undefined,
-                d3_smooth: typeof j.d3_smooth === 'number'
-                  ? (j.d3_smooth as number)
-                  : undefined,
-                wtd_slope: typeof j.wtd_slope === 'number'
-                  ? (j.wtd_slope as number)
-                  : undefined,
-                wtd_projection: typeof j.wtd_projection === 'number'
-                  ? (j.wtd_projection as number)
-                  : undefined,
-                wtd_projection_500ms: typeof j.wtd_projection_500ms === 'number'
-                  ? (j.wtd_projection_500ms as number)
-                  : undefined,
-                wtd_deriv_conf: typeof j.wtd_deriv_conf === 'number'
-                  ? (j.wtd_deriv_conf as number)
-                  : undefined,
-                z_composite_raw: typeof j.z_composite_raw === 'number'
-                  ? (j.z_composite_raw as number)
-                  : undefined,
-                z_composite_smooth: typeof j.z_composite_smooth === 'number'
-                  ? (j.z_composite_smooth as number)
-                  : undefined,
-                confidence: (j.confidence ?? 0) as number,
-                strength: (j.strength ?? 0) as number,
-                strength_smooth: typeof j.strength_smooth === 'number'
-                  ? (j.strength_smooth as number)
-                  : undefined,
+                window_end_ts_ns: requireBigIntField('signals', j, 'window_end_ts_ns'),
+                vacuum_above: requireNumberField('signals', j, 'vacuum_above'),
+                vacuum_below: requireNumberField('signals', j, 'vacuum_below'),
+                resting_drain_ask: requireNumberField('signals', j, 'resting_drain_ask'),
+                resting_drain_bid: requireNumberField('signals', j, 'resting_drain_bid'),
+                flow_imbalance: requireNumberField('signals', j, 'flow_imbalance'),
+                fill_imbalance: requireNumberField('signals', j, 'fill_imbalance'),
+                depth_imbalance: requireNumberField('signals', j, 'depth_imbalance'),
+                rest_depth_imbalance: requireNumberField('signals', j, 'rest_depth_imbalance'),
+                bid_migration_com: optionalNumber(j.bid_migration_com) ?? 0,
+                ask_migration_com: optionalNumber(j.ask_migration_com) ?? 0,
+                composite: requireNumberField('signals', j, 'composite'),
+                composite_smooth: optionalNumber(j.composite_smooth),
+                d1_composite: requireNumberField('signals', j, 'd1_composite'),
+                d2_composite: requireNumberField('signals', j, 'd2_composite'),
+                d3_composite: requireNumberField('signals', j, 'd3_composite'),
+                d1_smooth: optionalNumber(j.d1_smooth),
+                d2_smooth: optionalNumber(j.d2_smooth),
+                d3_smooth: optionalNumber(j.d3_smooth),
+                wtd_slope: optionalNumber(j.wtd_slope),
+                wtd_projection: optionalNumber(j.wtd_projection),
+                wtd_projection_500ms: optionalNumber(j.wtd_projection_500ms),
+                wtd_deriv_conf: optionalNumber(j.wtd_deriv_conf),
+                z_composite_raw: optionalNumber(j.z_composite_raw),
+                z_composite_smooth: optionalNumber(j.z_composite_smooth),
+                confidence: requireNumberField('signals', j, 'confidence'),
+                strength: requireNumberField('signals', j, 'strength'),
+                strength_smooth: optionalNumber(j.strength_smooth),
+                // Bernoulli lift model
+                pressure_above: optionalNumber(j.pressure_above) ?? 0,
+                pressure_below: optionalNumber(j.pressure_below) ?? 0,
+                resistance_above: optionalNumber(j.resistance_above) ?? 0,
+                resistance_below: optionalNumber(j.resistance_below) ?? 0,
+                lift_up: optionalNumber(j.lift_up) ?? 0,
+                lift_down: optionalNumber(j.lift_down) ?? 0,
+                net_lift: optionalNumber(j.net_lift) ?? 0,
+                // Multi-timescale
+                lift_5s: optionalNumber(j.lift_5s) ?? 0,
+                d1_5s: optionalNumber(j.d1_5s) ?? 0,
+                d2_5s: optionalNumber(j.d2_5s) ?? 0,
+                proj_5s: optionalNumber(j.proj_5s) ?? 0,
+                lift_15s: optionalNumber(j.lift_15s) ?? 0,
+                d1_15s: optionalNumber(j.d1_15s) ?? 0,
+                d2_15s: optionalNumber(j.d2_15s) ?? 0,
+                proj_15s: optionalNumber(j.proj_15s) ?? 0,
+                lift_60s: optionalNumber(j.lift_60s) ?? 0,
+                d1_60s: optionalNumber(j.d1_60s) ?? 0,
+                d2_60s: optionalNumber(j.d2_60s) ?? 0,
+                proj_60s: optionalNumber(j.proj_60s) ?? 0,
+                // Cross-timescale
+                cross_confidence: optionalNumber(j.cross_confidence) ?? 0,
+                projection_coherence: optionalNumber(j.projection_coherence),
+                alert_flags: Math.trunc(optionalNumber(j.alert_flags) ?? 0),
+                regime: optionalString(j.regime) ?? 'NEUTRAL',
+                event_state: optionalString(j.event_state),
+                event_direction: optionalString(j.event_direction),
+                event_strength: optionalNumber(j.event_strength),
+                event_confidence: optionalNumber(j.event_confidence),
+                event_transition: optionalString(j.event_transition),
+                feasibility_up: optionalNumber(j.feasibility_up),
+                feasibility_down: optionalNumber(j.feasibility_down),
+                directional_bias: optionalNumber(j.directional_bias),
+                directional_feasibility: optionalNumber(j.directional_feasibility),
+                directional_feasible: optionalBoolean(j.directional_feasible),
               };
               updateSignalPanel();
             }
@@ -1165,7 +1802,8 @@ function startRenderLoop(): void {
   hmapCanvas.addEventListener('wheel', (e: WheelEvent) => {
     e.preventDefault();
     const rect = hmapCanvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
+    const drawWidth = projectionDataWidth(rect.width);
+    const mx = clamp(e.clientX - rect.left, 0, drawWidth);
     const my = e.clientY - rect.top;
 
     let magnitude: number;
@@ -1183,11 +1821,11 @@ function startRenderLoop(): void {
       : Math.pow(ZOOM_STEP, steps);
 
     if (e.ctrlKey || e.metaKey) {
-      applyZoom(factor, factor, mx, my, rect.width, rect.height);
+      applyZoom(factor, factor, mx, my, drawWidth, rect.height);
     } else if (e.shiftKey) {
-      applyZoom(factor, 1, mx, my, rect.width, rect.height);
+      applyZoom(factor, 1, mx, my, drawWidth, rect.height);
     } else {
-      applyZoom(1, factor, mx, my, rect.width, rect.height);
+      applyZoom(1, factor, mx, my, drawWidth, rect.height);
     }
   }, { passive: false });
 
@@ -1207,12 +1845,13 @@ function startRenderLoop(): void {
   hmapCanvas.addEventListener('pointermove', (e: PointerEvent) => {
     if (!isPanning || e.pointerId !== panPointerId) return;
     const rect = hmapCanvas.getBoundingClientRect();
+    const drawWidth = projectionDataWidth(rect.width);
     const dxPx = e.clientX - panStartX;
     const dyPx = e.clientY - panStartY;
     const srcW = visibleCols();
     const srcH = visibleRows();
 
-    vpX = panStartVpX - (dxPx / rect.width) * srcW;
+    vpX = panStartVpX - (dxPx / drawWidth) * srcW;
     vpY = panStartVpY - (dyPx / rect.height) * srcH;
     clampViewport();
 
