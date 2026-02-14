@@ -144,6 +144,102 @@ def _resolve_book_cache_path(
     return cache_dir / f"{symbol}_{dt}_{key_hash}.pkl"
 
 
+def ensure_book_cache(
+    engine: EventDrivenVPEngine,
+    lake_root: Path,
+    product_type: str,
+    symbol: str,
+    dt: str,
+    warmup_start_ns: int,
+) -> Path | None:
+    """Build book-state cache if not present. Returns cache path.
+
+    Processes all events from session start through ``warmup_start_ns``
+    via lightweight ``apply_book_event()`` and saves the resulting book
+    state to a deterministic cache file.  Subsequent calls with the same
+    inputs return immediately after loading from cache.
+
+    Args:
+        engine: Event engine to populate with book state.
+        lake_root: Path to the lake directory.
+        product_type: Product type (equity_mbo or future_mbo).
+        symbol: Contract symbol.
+        dt: Date string (YYYY-MM-DD).
+        warmup_start_ns: Nanosecond boundary for book-only phase.
+
+    Returns:
+        Cache file path, or None if warmup_start_ns is 0.
+    """
+    if warmup_start_ns == 0:
+        return None
+
+    cache_path = _resolve_book_cache_path(
+        lake_root, product_type, symbol, dt, warmup_start_ns,
+    )
+    if cache_path is None:
+        return None
+
+    t_wall_start = time.monotonic()
+
+    if cache_path.exists():
+        logger.info("Loading cached book state: %s", cache_path.name)
+        engine.import_book_state(cache_path.read_bytes())
+        engine.sync_rest_depth_from_book()
+        logger.info(
+            "Book cache loaded in %.2fs: %d orders, spot=%d, book_valid=%s",
+            time.monotonic() - t_wall_start,
+            engine.order_count,
+            engine.spot_ref_price_int,
+            engine.book_valid,
+        )
+        return cache_path
+
+    # Build book state from scratch
+    book_only_count = 0
+    for event in iter_mbo_events(lake_root, product_type, symbol, dt):
+        ts_ns, action, side, price, size, order_id, flags = event
+
+        if ts_ns >= warmup_start_ns:
+            break
+
+        engine.apply_book_event(
+            ts_ns=ts_ns,
+            action=action,
+            side=side,
+            price_int=price,
+            size=size,
+            order_id=order_id,
+            flags=flags,
+        )
+        book_only_count += 1
+        if book_only_count % 1_000_000 == 0:
+            elapsed_so_far = time.monotonic() - t_wall_start
+            logger.info(
+                "book-only fast-forward: %dM events (%.1fs, %d orders, spot=%d)",
+                book_only_count // 1_000_000,
+                elapsed_so_far,
+                engine.order_count,
+                engine.spot_ref_price_int,
+            )
+
+    # Save cache
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(engine.export_book_state())
+    engine.sync_rest_depth_from_book()
+
+    elapsed_ff = time.monotonic() - t_wall_start
+    logger.info(
+        "Book cache built: %d events in %.2fs (%d orders, spot=%d, book_valid=%s) -> %s",
+        book_only_count,
+        elapsed_ff,
+        engine.order_count,
+        engine.spot_ref_price_int,
+        engine.book_valid,
+        cache_path.name,
+    )
+    return cache_path
+
+
 def stream_events(
     lake_root: Path,
     config: VPRuntimeConfig,
@@ -184,36 +280,19 @@ def stream_events(
     event_count = 0
     yielded_count = 0
     warmup_count = 0
-    book_only_count = 0
     last_yield_ts_ns = 0
-    transitioned_to_vp = warmup_start_ns == 0  # True if no book-only phase
-    cache_loaded = False
 
     t_wall_start = time.monotonic()
 
-    # --- Book state cache: skip Phase 1 on repeat runs ---
-    cache_path: Path | None = None
+    # --- Phase 1: Book state cache (delegated to ensure_book_cache) ---
+    cache_loaded = False
     if warmup_start_ns > 0:
-        cache_path = _resolve_book_cache_path(
-            lake_root, config.product_type, config.symbol, dt, warmup_start_ns,
+        cache_path = ensure_book_cache(
+            engine, lake_root, config.product_type, config.symbol, dt, warmup_start_ns,
         )
-
-    if cache_path and cache_path.exists():
-        logger.info("Loading cached book state: %s", cache_path.name)
-        engine.import_book_state(cache_path.read_bytes())
-        engine.sync_rest_depth_from_book()
-        cache_loaded = True
-        transitioned_to_vp = True
-        logger.info(
-            "Book cache loaded in %.2fs: %d orders, spot=%d, book_valid=%s",
-            time.monotonic() - t_wall_start,
-            engine.order_count,
-            engine.spot_ref_price_int,
-            engine.book_valid,
-        )
+        cache_loaded = cache_path is not None
 
     # When cache is loaded, skip_to_ns jumps past pre-warmup events.
-    # Snapshot/clear records exempt from skip are caught by the ts guard below.
     for event in iter_mbo_events(
         lake_root,
         config.product_type,
@@ -224,58 +303,9 @@ def stream_events(
         ts_ns, action, side, price, size, order_id, flags = event
         event_count += 1
 
-        # When cache loaded, skip any residual pre-warmup records
-        # (snapshot/clear exempt from skip_to_ns in iter_mbo_events)
-        if cache_loaded and ts_ns < warmup_start_ns:
+        # Skip any residual pre-warmup records
+        if ts_ns < warmup_start_ns:
             continue
-
-        # Phase 1: Book-only fast-forward (pre-warmup, uncached runs only)
-        if warmup_start_ns > 0 and ts_ns < warmup_start_ns:
-            engine.apply_book_event(
-                ts_ns=ts_ns,
-                action=action,
-                side=side,
-                price_int=price,
-                size=size,
-                order_id=order_id,
-                flags=flags,
-            )
-            book_only_count += 1
-            if book_only_count % 1_000_000 == 0:
-                elapsed_so_far = time.monotonic() - t_wall_start
-                logger.info(
-                    "book-only fast-forward: %dM events (%.1fs, %d orders, spot=%d)",
-                    book_only_count // 1_000_000,
-                    elapsed_so_far,
-                    engine.order_count,
-                    engine.spot_ref_price_int,
-                )
-            continue
-
-        # Transition: book-only -> VP mode
-        if not transitioned_to_vp:
-            # Save book cache for next time
-            if cache_path and not cache_loaded:
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cache_path.write_bytes(engine.export_book_state())
-                logger.info(
-                    "Saved book cache: %s (%d orders)",
-                    cache_path.name,
-                    engine.order_count,
-                )
-
-            engine.sync_rest_depth_from_book()
-            elapsed_ff = time.monotonic() - t_wall_start
-            logger.info(
-                "VP warmup started: %d book-only events in %.2fs "
-                "(%d orders, spot=%d, book_valid=%s)",
-                book_only_count,
-                elapsed_ff,
-                engine.order_count,
-                engine.spot_ref_price_int,
-                engine.book_valid,
-            )
-            transitioned_to_vp = True
 
         # Phases 2 & 3: Full VP engine processing
         grid = engine.update(
@@ -305,10 +335,9 @@ def stream_events(
     elapsed = time.monotonic() - t_wall_start
     rate = event_count / elapsed if elapsed > 0 else 0.0
     logger.info(
-        "live stream complete: %d events (%d book-only, %d warmup, %d emitted), "
+        "live stream complete: %d events (%d warmup, %d emitted), "
         "%.2fs wall (%.0f evt/s)",
         event_count,
-        book_only_count,
         warmup_count,
         yielded_count,
         elapsed,
@@ -320,14 +349,10 @@ async def async_stream_events(
     lake_root: Path,
     config: VPRuntimeConfig,
     dt: str,
-    speed: float = 1.0,
     start_time: str | None = None,
     throttle_ms: float = 25.0,
 ) -> AsyncGenerator[Dict[str, Any], None]:
-    """Async live pipeline wrapper with optional replay pacing."""
-    if speed < 0:
-        raise ValueError(f"speed must be >= 0, got {speed}")
-
+    """Async live pipeline wrapper with real-time replay pacing."""
     import concurrent.futures
     import queue as thread_queue
 
@@ -358,7 +383,6 @@ async def async_stream_events(
     future = loop.run_in_executor(executor, _producer)
 
     last_emitted_ts_ns: int | None = None
-    pacing = speed > 0
 
     try:
         while True:
@@ -369,11 +393,10 @@ async def async_stream_events(
             grid = item
             ts_ns = grid["ts_ns"]
 
-            if pacing and last_emitted_ts_ns is not None:
+            if last_emitted_ts_ns is not None:
                 delta_s = (ts_ns - last_emitted_ts_ns) / 1e9
-                wait = delta_s / speed
-                if wait > 0:
-                    await asyncio.sleep(wait)
+                if delta_s > 0:
+                    await asyncio.sleep(delta_s)
 
             last_emitted_ts_ns = ts_ns
             yield grid

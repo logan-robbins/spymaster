@@ -78,7 +78,6 @@ interface StreamParams {
   product_type: string;
   symbol: string;
   dt: string;
-  speed: string;
   start_time?: string;
   throttle_ms?: string;
 }
@@ -1145,7 +1144,7 @@ function renderProfile(canvas: HTMLCanvasElement): void {
 
 /**
  * Apply a runtime config received from the server.
- * Updates the metadata display and hides the legacy fallback warning.
+ * Updates the metadata display and hides the warning banner.
  */
 function applyRuntimeConfig(cfg: RuntimeConfig): void {
   if (cfg.grid_max_ticks !== MAX_REL_TICKS) {
@@ -1165,7 +1164,7 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
   $metaBucket.textContent = `$${cfg.rel_tick_size}`;
   $metaMult.textContent = String(cfg.contract_multiplier);
 
-  // Hide legacy fallback warning
+  // Hide warning banner
   $warningBanner.style.display = 'none';
 
   console.log(
@@ -1185,7 +1184,7 @@ function parseStreamParams(): StreamParams {
   if (!product_type) {
     const msg =
       'Missing required query parameter: product_type. ' +
-      'Example: ?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06&speed=1';
+      'Example: ?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06';
     console.error(`[VP] ${msg}`);
     // Show error in the UI
     $warningBanner.textContent = msg;
@@ -1197,7 +1196,6 @@ function parseStreamParams(): StreamParams {
     product_type: product_type || 'equity_mbo',
     symbol: params.get('symbol') || 'QQQ',
     dt: params.get('dt') || '2026-02-06',
-    speed: params.get('speed') || '1',
     start_time: params.get('start_time') || undefined,
     throttle_ms: params.get('throttle_ms') || undefined,
   };
@@ -1326,14 +1324,13 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, speed, start_time, throttle_ms } = streamParams;
+  const { product_type, symbol, dt, start_time, throttle_ms } = streamParams;
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
     `?product_type=${encodeURIComponent(product_type)}` +
     `&symbol=${encodeURIComponent(symbol)}` +
-    `&dt=${encodeURIComponent(dt)}` +
-    `&speed=${encodeURIComponent(speed)}`;
+    `&dt=${encodeURIComponent(dt)}`;
   const wsParams = new URLSearchParams();
   if (start_time) wsParams.set('start_time', start_time);
   if (throttle_ms) wsParams.set('throttle_ms', throttle_ms);

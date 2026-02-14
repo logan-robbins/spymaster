@@ -1,19 +1,12 @@
 """DBN file event source for canonical vacuum-pressure streaming.
 
-Reads raw Databento .dbn files and yields MBO events one-by-one,
-with optional real-time pacing based on ts_event deltas.
+Reads raw Databento .dbn files and yields MBO events one-by-one.
 
 The generator produces tuples matching the book engine's apply_event()
 signature: (ts, action, side, price, size, order_id, flags).
-
-Two pacing options:
-    speed > 0: Pace events by ts_event deltas scaled by 1/speed.
-               speed=1.0 is wall-clock real-time; speed=10.0 is 10x.
-    speed = 0: Fire-hose path (as fast as possible).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Generator, Tuple
@@ -111,7 +104,7 @@ def iter_mbo_events(
 ) -> Generator[MBOEvent, None, None]:
     """Iterate MBO events from a raw .dbn file.
 
-    Applies the same filtering as the bronze ingestion stage:
+    Applies standard MBO filtering:
     - rtype == 160 (MBO only)
     - Drops spread symbols (futures: symbols containing '-')
     - Session window filter (snapshot/clear records exempt)
@@ -258,60 +251,3 @@ def iter_mbo_events(
     )
 
 
-async def async_iter_mbo_events(
-    lake_root: Path,
-    product_type: str,
-    symbol: str,
-    dt: str,
-    speed: float = 1.0,
-    skip_ns: int = 0,
-) -> "AsyncIterator":
-    """Async generator that yields MBO events with optional pacing.
-
-    Wraps iter_mbo_events with asyncio.sleep-based pacing so the event
-    loop remains responsive during DBN playback.
-
-    Args:
-        lake_root: Path to the lake directory.
-        product_type: Product type.
-        symbol: Contract symbol.
-        dt: Date string.
-        speed: Source pacing multiplier. 0 = fire-hose (no delays).
-        skip_ns: Skip events before this timestamp (nanoseconds).
-            Events before skip_ns are yielded without pacing.
-
-    Yields:
-        Tuples of (ts_event, action, side, price, size, order_id, flags).
-    """
-    prev_ts: int | None = None
-    pacing = speed > 0
-
-    # Batch size for yielding events between sleeps.
-    # We don't sleep after every single event (millions per second);
-    # instead we batch by time boundary.
-    last_window_id: int | None = None
-
-    for event in iter_mbo_events(lake_root, product_type, symbol, dt):
-        ts = event[0]
-
-        # Fast-forward path: yield without pacing until skip_ns
-        if ts < skip_ns:
-            yield event
-            prev_ts = ts
-            continue
-
-        # Pacing: sleep at window boundaries (1-second boundaries)
-        if pacing and prev_ts is not None:
-            window_id = ts // 1_000_000_000
-            if last_window_id is not None and window_id > last_window_id:
-                # Sleep for the inter-window gap
-                delta_ns = ts - prev_ts
-                if delta_ns > 0:
-                    await asyncio.sleep(delta_ns / (1e9 * speed))
-            last_window_id = window_id
-
-        prev_ts = ts
-        if last_window_id is None:
-            last_window_id = ts // 1_000_000_000
-
-        yield event

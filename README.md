@@ -57,6 +57,14 @@ To launch UI quickly at `09:25` ET without rescanning from open each time:
 - First run builds cache.
 - Subsequent runs with same inputs reuse cache and skip pre-warmup book reconstruction.
 
+Pre-warm cache without starting the server:
+```bash
+cd backend
+uv run scripts/warm_cache.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --start-time 09:25
+# Batch mode:
+uv run scripts/warm_cache.py --product-type future_mbo --symbols MNQH6 ESH6 --dt 2026-02-06 --start-time 09:25
+```
+
 ## VP Two-Force Math Contract
 Per bucket:
 
@@ -106,7 +114,6 @@ export VP_PRODUCT_TYPE=future_mbo
 export VP_SYMBOL=MNQH6
 export VP_DT=2026-02-06
 export VP_START_TIME=09:25
-export VP_SPEED=1
 export VP_THROTTLE_MS=25
 export VP_BACKEND_PORT=8002
 export VP_FRONTEND_PORT=5174
@@ -172,7 +179,6 @@ nohup uv run scripts/run_vacuum_pressure.py \
   --dt ${VP_DT} \
   --port ${VP_BACKEND_PORT} \
   --start-time ${VP_START_TIME} \
-  --speed ${VP_SPEED} \
   --throttle-ms ${VP_THROTTLE_MS} > /tmp/vp_preprod.log 2>&1 &
 ```
 
@@ -189,7 +195,7 @@ while true; do date; tail -n 40 /tmp/vp_preprod.log; sleep 15; done
 
 9. Open UI
 ```text
-http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:25&throttle_ms=25
+http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&throttle_ms=25
 ```
 
 10. Health checks
@@ -202,7 +208,7 @@ ls -lah backend/lake/cache/vp_book/
 
 11. Websocket endpoint
 ```text
-ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:25&throttle_ms=25
+ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&throttle_ms=25
 ```
 
 ## Debug Playbook
@@ -227,7 +233,20 @@ cd frontend
 npx tsc --noEmit
 ```
 
+## VP Signal Analysis
+Offline analysis of VP derivative signal predictive power for directional mid-price prediction:
+```bash
+cd backend
+uv run scripts/analyze_vp_signals.py
+uv run scripts/analyze_vp_signals.py --start-time 09:30 --eval-start 09:50 --eval-minutes 5
+uv run scripts/analyze_vp_signals.py --help
+```
+
+Features evaluated: PV net edge (full/near/mid/far/k-weighted), depth tilt (full/near/mid/far), velocity tilts (add/pull/fill/depth), acceleration tilts, jerk magnitude/tilts. Each feature is z-scored at 4 EWM lookback windows (5/15/50/150 snapshots) and tested against 3 forward return horizons (25/100/500 snapshots) via Spearman rank IC, hit rate, and t-stat. A composite signal is built from the top-5 features by IC on the training window and evaluated on the held-out window with regime conditioning (CHOP vs DIRECTIONAL split by median jerk magnitude).
+
 ## Key Files
+- VP signal analysis: `backend/scripts/analyze_vp_signals.py`
+- Cache warming: `backend/scripts/warm_cache.py`
 - VP entrypoint: `backend/scripts/run_vacuum_pressure.py`
 - VP websocket app: `backend/src/vacuum_pressure/server.py`
 - VP pipeline + cache: `backend/src/vacuum_pressure/stream_pipeline.py`

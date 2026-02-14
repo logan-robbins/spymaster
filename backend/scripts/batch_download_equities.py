@@ -604,7 +604,7 @@ def process_session_day(
     log_path: Path,
     pause_seconds: int,
 ) -> None:
-    """Process one session date (legacy convenience wrapper).
+    """Process one session date (convenience wrapper).
 
     Runs phase 1 + phase 2 sequentially. Used by the 'submit' CLI command.
     In daemon mode, the 3-phase architecture is used directly instead.

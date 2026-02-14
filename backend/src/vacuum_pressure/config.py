@@ -76,8 +76,8 @@ _TICK_SIZE_TO_DECIMALS: Dict[float, int] = {
 class VPRuntimeConfig:
     """Resolved runtime instrument configuration for a vacuum-pressure stream.
 
-    All fields from UPGRADE.md section 3.2. This object is the single
-    authoritative config used by server, engine, and formulas.
+    This object is the single authoritative config used by server,
+    engine, and formulas.
     """
 
     product_type: str
@@ -248,7 +248,7 @@ def _resolve_futures(
 ) -> VPRuntimeConfig:
     """Resolve futures config from products.yaml + global futures defaults.
 
-    For futures, ``bucket_size_dollars`` equals ``tick_size`` because silver
+    For futures, ``bucket_size_dollars`` equals ``tick_size`` because
     ``rel_ticks`` is native-tick-based per product config.
     """
     products_raw = _load_products_yaml(products_yaml_path)

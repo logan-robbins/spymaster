@@ -124,7 +124,6 @@ def create_app(
         product_type: str = "future_mbo",
         symbol: str = "MNQH6",
         dt: str = "2026-02-06",
-        speed: float = 1.0,
         start_time: str | None = None,
         throttle_ms: float = 25.0,
     ) -> None:
@@ -134,15 +133,12 @@ def create_app(
             product_type: ``equity_mbo`` or ``future_mbo``.
             symbol: instrument symbol.
             dt: date in YYYY-MM-DD.
-            speed: source pacing multiplier for DBN adapter (0=firehose).
             start_time: optional emit start HH:MM ET (warmup processed in-memory).
             throttle_ms: minimum event-time spacing between emitted updates.
         """
         await websocket.accept()
 
         try:
-            if speed < 0:
-                raise ValueError(f"speed must be >= 0, got {speed}")
             if throttle_ms < 0:
                 raise ValueError(f"throttle_ms must be >= 0, got {throttle_ms}")
 
@@ -158,11 +154,10 @@ def create_app(
             return
 
         logger.info(
-            "VP stream connected: product_type=%s symbol=%s dt=%s speed=%.2f start_time=%s K=%d throttle_ms=%.1f cfg=%s",
+            "VP stream connected: product_type=%s symbol=%s dt=%s start_time=%s K=%d throttle_ms=%.1f cfg=%s",
             config.product_type,
             config.symbol,
             dt,
-            speed,
             start_time,
             config.grid_max_ticks,
             throttle_ms,
@@ -174,7 +169,6 @@ def create_app(
             lake_root=lake_root,
             config=config,
             dt=dt,
-            speed=speed,
             start_time=start_time,
             throttle_ms=throttle_ms,
         )
@@ -187,7 +181,6 @@ async def _stream_live_dense_grid(
     lake_root: Path,
     config: VPRuntimeConfig,
     dt: str,
-    speed: float,
     start_time: str | None,
     throttle_ms: float,
 ) -> None:
@@ -209,7 +202,6 @@ async def _stream_live_dense_grid(
             lake_root=lake_root,
             config=config,
             dt=dt,
-            speed=speed,
             start_time=start_time,
             throttle_ms=throttle_ms,
         ):

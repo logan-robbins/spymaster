@@ -32,12 +32,6 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8002, help="Server port")
     parser.add_argument("--host", default="0.0.0.0", help="Server bind host")
     parser.add_argument(
-        "--speed",
-        type=float,
-        default=1.0,
-        help="Source pacing multiplier for .dbn ingest (0=firehose)",
-    )
-    parser.add_argument(
         "--start-time",
         type=str,
         default=None,
@@ -58,8 +52,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.speed < 0:
-        raise ValueError(f"--speed must be >= 0, got {args.speed}")
     if args.throttle_ms < 0:
         raise ValueError(f"--throttle-ms must be >= 0, got {args.throttle_ms}")
 
@@ -98,7 +90,6 @@ def main() -> None:
         json.dumps(
             {
                 "dt": args.dt,
-                "speed": args.speed,
                 "start_time": args.start_time,
                 "grid_ticks": 50,
                 "throttle_ms": args.throttle_ms,
@@ -118,7 +109,6 @@ def main() -> None:
         f"product_type={args.product_type}",
         f"symbol={args.symbol}",
         f"dt={args.dt}",
-        f"speed={args.speed}",
         f"throttle_ms={args.throttle_ms}",
     ]
     if args.start_time:
