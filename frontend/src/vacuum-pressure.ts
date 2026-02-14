@@ -47,102 +47,6 @@ interface RuntimeConfig {
   config_version: string;
 }
 
-interface SnapData {
-  window_end_ts_ns: bigint;
-  mid_price: number;
-  spot_ref_price_int: bigint;
-  best_bid_price_int: bigint;
-  best_ask_price_int: bigint;
-  book_valid: boolean;
-}
-
-interface FlowRow {
-  rel_ticks: number;
-  side: string;
-  depth_qty_end: number;
-  add_qty: number;
-  pull_qty: number;
-  fill_qty: number;
-  depth_qty_rest: number;
-  pull_qty_rest: number;
-  net_flow: number;
-  vacuum_intensity: number;
-  pressure_intensity: number;
-  rest_fraction: number;
-}
-
-interface SignalsData {
-  window_end_ts_ns: bigint;
-  vacuum_above: number;
-  vacuum_below: number;
-  resting_drain_ask: number;
-  resting_drain_bid: number;
-  flow_imbalance: number;
-  fill_imbalance: number;
-  depth_imbalance: number;
-  rest_depth_imbalance: number;
-  bid_migration_com: number;
-  ask_migration_com: number;
-  composite: number;
-  composite_smooth?: number;
-  d1_composite: number;
-  d2_composite: number;
-  d3_composite: number;
-  d1_smooth?: number;
-  d2_smooth?: number;
-  d3_smooth?: number;
-  wtd_slope?: number;
-  wtd_projection?: number;
-  wtd_projection_500ms?: number;
-  wtd_deriv_conf?: number;
-  z_composite_raw?: number;
-  z_composite_smooth?: number;
-  confidence: number;
-  strength: number;
-  strength_smooth?: number;
-  // Pressure (depth building) and vacuum aggregates
-  pressure_above?: number;
-  pressure_below?: number;
-  // Bernoulli lift model
-  lift_up?: number;
-  lift_down?: number;
-  net_lift?: number;
-  // Multi-timescale (fast ~5s)
-  lift_5s?: number;
-  d1_5s?: number;
-  d2_5s?: number;
-  proj_5s?: number;
-  dir_5s?: number;
-  // Multi-timescale (medium ~15s)
-  lift_15s?: number;
-  d1_15s?: number;
-  d2_15s?: number;
-  proj_15s?: number;
-  dir_15s?: number;
-  // Multi-timescale (slow ~60s)
-  lift_60s?: number;
-  d1_60s?: number;
-  d2_60s?: number;
-  proj_60s?: number;
-  dir_60s?: number;
-  // Cross-timescale
-  cross_confidence?: number;
-  projection_coherence?: number;
-  alert_flags?: number;
-  regime?: string;
-  // Optional backend-provided event metadata
-  event_state?: string;
-  event_direction?: string;
-  event_strength?: number;
-  event_confidence?: number;
-  event_transition?: string;
-  feasibility_up?: number;
-  feasibility_down?: number;
-  directional_bias?: number;
-  directional_feasibility?: number;
-  directional_feasible?: boolean;
-}
-
 /** Dense grid bucket row from event-driven mode (mode=event).
  *  Two-force model: pressure (depth building, always >= 0) and
  *  vacuum (depth draining, always >= 0).  resistance_variant removed. */
@@ -169,37 +73,14 @@ interface GridBucketRow {
   last_event_id: number;
 }
 
-type EventState = 'WATCH' | 'ARMED' | 'FIRE' | 'COOLDOWN';
-type EventMarkerPhase = 'ARMED' | 'FIRE';
-
-interface SpotEventMarker {
-  col: number;
-  row: number;
-  phase: EventMarkerPhase;
-  direction: number;
-  confidence: number;
-  source: 'derived' | 'backend';
-}
-
 /** Parsed and validated URL query parameters. */
 interface StreamParams {
   product_type: string;
   symbol: string;
   dt: string;
   speed: string;
-  skip: string;
-  mode: string;
   start_time?: string;
-  pre_smooth_span?: string;
-  d1_span?: string;
-  d2_span?: string;
-  d3_span?: string;
-  w_d1?: string;
-  w_d2?: string;
-  w_d3?: string;
-  projection_horizon_s?: string;
-  fast_projection_horizon_s?: string;
-  smooth_zscore_window?: string;
+  throttle_ms?: string;
 }
 
 // --------------------------------------------------------- Layout constants
@@ -211,40 +92,31 @@ const HMAP_HISTORY = 360;                    // 6 min of 1-second columns
 const FLOW_NORM_SCALE = 500;                 // characteristic shares for tanh norm
 const DEPTH_NORM_PERCENTILE_DECAY = 0.995;
 const SCROLL_MARGIN = 10;                    // rows from edge before auto-scroll
-const PROJECTION_MARGIN = 0.18;              // reserve right margin for future projection
-const PROJECTION_MAX_ROW_DELTA = 12;
-const PROJECTION_IMPULSE_SCALE = 40;
-const EVENT_MAX_MARKERS = 80;
-const EVENT_SLOPE_EPS = 0.08;
-const EVENT_FIRE_CONF_MIN = 0.58;
-const EVENT_FIRE_IMPULSE_MIN = 0.22;
-
-// Legacy equity fallback (used only when server config is absent)
-const LEGACY_BUCKET_DOLLARS = 0.50;
-const LEGACY_PRICE_DECIMALS = 2;
 
 // --------------------------------------------------- Runtime config state
 
 let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
 
-/** Active bucket size in dollars -- resolved from server config or legacy fallback. */
+/** Active bucket size in dollars from runtime config. */
 function bucketDollars(): number {
-  return runtimeConfig?.bucket_size_dollars ?? LEGACY_BUCKET_DOLLARS;
+  if (!runtimeConfig) {
+    streamContractError('runtime_config', 'runtime config missing before grid data');
+  }
+  return runtimeConfig.bucket_size_dollars;
 }
 
-/** Active price decimal precision -- resolved from server config or legacy fallback. */
+/** Active price decimal precision from runtime config. */
 function priceDecimals(): number {
-  return runtimeConfig?.price_decimals ?? LEGACY_PRICE_DECIMALS;
+  if (!runtimeConfig) {
+    streamContractError('runtime_config', 'runtime config missing before price render');
+  }
+  return runtimeConfig.price_decimals;
 }
 
 // ----------------------------------------------------------- Stream state
 
-let snap: SnapData | null = null;
-let currentFlow: FlowRow[] = [];
-let currentSignals: SignalsData | null = null;
 let windowCount = 0;
-let currentWindowId: bigint | null = null;
 
 // Price-anchored grid
 let anchorPriceDollars = 0;
@@ -253,7 +125,6 @@ let currentSpotDollars = 0;
 
 // Spot trail: fractional row position per heatmap column (null = no data)
 const spotTrail: (number | null)[] = new Array(HMAP_HISTORY).fill(null);
-const spotEventMarkers: SpotEventMarker[] = [];
 
 // Heatmap pixel buffer (RGBA, HMAP_HISTORY x HMAP_LEVELS)
 const hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
@@ -266,18 +137,12 @@ for (let i = 0; i < hmapData.length; i += 4) {
 }
 
 let runningMaxDepth = 100; // adaptive normalisation
-let derivedEventPhase: EventState = 'WATCH';
-let derivedEventTransition = '---';
-let derivedEventDirection = 0;
-let lastSlopeSign = 0;
-let lastBackendEventState: string | null = null;
 
 const streamContractErrors = new Set<string>();
 
 // --------------------------------------------------- Event-mode state
 let isEventMode = false;
 let currentGrid: Map<number, GridBucketRow> = new Map();
-let currentEventId = 0;
 /** Per-bucket last_event_id tracker for persistence (keyed by heatmap row). */
 const lastRenderedEventIdByRow: Map<number, number> = new Map();
 /** Running max for |pressure_variant| adaptive normalization. */
@@ -322,11 +187,6 @@ const $metaMult     = document.getElementById('meta-mult')!;
 
 // Warning banner
 const $warningBanner = document.getElementById('warning-banner')!;
-const $sigProjDir = document.getElementById('sig-proj-dir')!;
-const $sigProjConf = document.getElementById('sig-proj-conf')!;
-const $sigEventState = document.getElementById('sig-event-state')!;
-const $sigEventTransition = document.getElementById('sig-event-transition')!;
-const $sigFeasibility = document.getElementById('sig-feasibility')!;
 const $ctrlPause = document.getElementById('ctrl-pause') as HTMLButtonElement;
 const $ctrlPlay = document.getElementById('ctrl-play') as HTMLButtonElement;
 const $ctrlRestart = document.getElementById('ctrl-restart') as HTMLButtonElement;
@@ -457,7 +317,7 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 function projectionDataWidth(totalWidth: number): number {
-  return Math.max(32, totalWidth * (1 - PROJECTION_MARGIN));
+  return Math.max(32, totalWidth);
 }
 
 function streamContractError(surface: string, detail: string): never {
@@ -536,191 +396,8 @@ function requireBigIntField(
   }
 }
 
-function optionalNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function slopeSign(value: number): number {
-  if (value > EVENT_SLOPE_EPS) return 1;
-  if (value < -EVENT_SLOPE_EPS) return -1;
-  return 0;
-}
-
-function projectionConfidence(s: SignalsData): number {
-  return clamp(
-    s.event_confidence
-      ?? s.wtd_deriv_conf
-      ?? s.projection_coherence
-      ?? s.cross_confidence
-      ?? s.confidence
-      ?? 0,
-    0,
-    1,
-  );
-}
-
-function projectionImpulse(s: SignalsData): number {
-  const base = s.composite_smooth ?? s.composite ?? 0;
-  const projected = s.wtd_projection ?? s.proj_15s ?? base;
-  const impulse = projected - base;
-  if (Math.abs(impulse) > 1e-6) return impulse;
-  return s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0;
-}
-
-function projectionRowDelta(s: SignalsData): number {
-  const raw = Math.tanh(projectionImpulse(s) / PROJECTION_IMPULSE_SCALE) * PROJECTION_MAX_ROW_DELTA;
-  return clamp(-raw, -PROJECTION_MAX_ROW_DELTA, PROJECTION_MAX_ROW_DELTA);
-}
-
-function derivedFeasibilityScore(s: SignalsData): number {
-  const conf = projectionConfidence(s);
-  const impulse = Math.abs(projectionImpulse(s));
-  const impulseScore = clamp(Math.tanh(impulse / 40), 0, 1);
-  const dirBySlope = slopeSign(s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0);
-  const dirByProjection = Math.sign(projectionImpulse(s));
-  const alignment = dirByProjection !== 0 && dirByProjection === dirBySlope ? 1 : 0;
-  return clamp(conf * 0.55 + impulseScore * 0.3 + alignment * 0.15, 0, 1);
-}
-
-function feasibilityLabel(score: number): string {
-  if (score >= 0.7) return 'FEASIBLE';
-  if (score >= 0.45) return 'WATCH';
-  return 'BLOCKED';
-}
-
-function pushEventMarker(
-  phase: EventMarkerPhase,
-  direction: number,
-  confidence: number,
-  source: 'derived' | 'backend',
-): void {
-  const row = spotTrail[HMAP_HISTORY - 1] ?? priceToRow(currentSpotDollars);
-  if (!Number.isFinite(row)) return;
-  spotEventMarkers.push({
-    col: HMAP_HISTORY - 1,
-    row,
-    phase,
-    direction,
-    confidence: clamp(confidence, 0, 1),
-    source,
-  });
-  while (spotEventMarkers.length > EVENT_MAX_MARKERS) {
-    spotEventMarkers.shift();
-  }
-}
-
-function directionFromLabel(label: string | undefined): number {
-  const normalized = (label ?? '').toUpperCase();
-  if (normalized === 'UP') return 1;
-  if (normalized === 'DOWN') return -1;
-  return 0;
-}
-
-function fallbackDirectionFromSignals(s: SignalsData): number {
-  const biasDirection = Math.sign(optionalNumber(s.directional_bias) ?? 0);
-  if (biasDirection !== 0) return biasDirection;
-  const liftDirection = Math.sign(s.net_lift ?? s.composite ?? 0);
-  if (liftDirection !== 0) return liftDirection;
-  return Math.sign(projectionImpulse(s));
-}
-
-function updateDerivedEventState(s: SignalsData): void {
-  const backendState = optionalString(s.event_state)?.toUpperCase();
-  const backendDirection = directionFromLabel(optionalString(s.event_direction));
-  const backendTransition = optionalString(s.event_transition)?.toUpperCase();
-
-  if (backendState) {
-    if (
-      backendState === 'WATCH'
-      || backendState === 'ARMED'
-      || backendState === 'FIRE'
-      || backendState === 'COOLDOWN'
-    ) {
-      derivedEventPhase = backendState;
-    } else if (backendState === 'IDLE') {
-      derivedEventPhase = 'WATCH';
-    }
-
-    const detectedTransition =
-      (lastBackendEventState && lastBackendEventState !== derivedEventPhase)
-        ? `${lastBackendEventState}->${derivedEventPhase}`
-        : '---';
-    derivedEventTransition = backendTransition ?? detectedTransition;
-    if (backendDirection !== 0) {
-      derivedEventDirection = backendDirection;
-    }
-
-    if (
-      detectedTransition !== '---'
-      && (derivedEventPhase === 'ARMED' || derivedEventPhase === 'FIRE')
-    ) {
-      // Backend transitions must carry explicit direction; avoid stale fallback.
-      if (backendDirection !== 0) {
-        pushEventMarker(
-          derivedEventPhase as EventMarkerPhase,
-          backendDirection,
-          projectionConfidence(s),
-          'backend',
-        );
-      }
-    }
-    lastBackendEventState = derivedEventPhase;
-    return;
-  }
-  lastBackendEventState = null;
-
-  const currentSlopeSign = slopeSign(s.wtd_slope ?? s.d1_15s ?? s.d1_composite ?? 0);
-  const confidence = projectionConfidence(s);
-  const impulse = Math.abs(projectionImpulse(s));
-  const hasInflectionFlag = ((s.alert_flags ?? 0) & 1) !== 0;
-  derivedEventTransition = '---';
-
-  if (lastSlopeSign !== 0 && currentSlopeSign !== 0 && currentSlopeSign !== lastSlopeSign) {
-    derivedEventPhase = 'ARMED';
-    derivedEventDirection = currentSlopeSign;
-    derivedEventTransition = 'SLOPE_FLIP';
-    pushEventMarker('ARMED', currentSlopeSign, confidence, 'derived');
-  } else if (hasInflectionFlag && currentSlopeSign !== 0) {
-    derivedEventPhase = 'ARMED';
-    derivedEventDirection = currentSlopeSign;
-    derivedEventTransition = 'INFLECTION';
-    pushEventMarker('ARMED', currentSlopeSign, confidence, 'derived');
-  }
-
-  if (derivedEventPhase === 'ARMED') {
-    if (
-      currentSlopeSign !== 0 &&
-      currentSlopeSign === derivedEventDirection &&
-      confidence >= EVENT_FIRE_CONF_MIN &&
-      impulse >= EVENT_FIRE_IMPULSE_MIN
-    ) {
-      derivedEventPhase = 'FIRE';
-      derivedEventTransition = 'ARMED->FIRE';
-      pushEventMarker('FIRE', derivedEventDirection, confidence, 'derived');
-    } else if (currentSlopeSign === 0 && confidence < 0.25) {
-      derivedEventPhase = 'WATCH';
-      derivedEventDirection = 0;
-      derivedEventTransition = 'ARMED->WATCH';
-    }
-  } else if (derivedEventPhase === 'FIRE' && currentSlopeSign === 0 && confidence < 0.2) {
-    derivedEventPhase = 'WATCH';
-    derivedEventDirection = 0;
-    derivedEventTransition = 'FIRE->WATCH';
-  }
-
-  if (currentSlopeSign !== 0) {
-    lastSlopeSign = currentSlopeSign;
-  }
 }
 
 /** Heatmap cell colour from depth + net flow.
@@ -808,95 +485,9 @@ function shiftGrid(shiftRows: number): void {
       spotTrail[i] = spotTrail[i]! + shiftRows;
     }
   }
-  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
-    const marker = spotEventMarkers[i];
-    marker.row += shiftRows;
-    if (marker.row < 0 || marker.row >= HMAP_LEVELS) {
-      spotEventMarkers.splice(i, 1);
-    }
-  }
 
   vpY += shiftRows;
   clampViewport();
-}
-
-// -------------------------------------------------------- Heatmap buffer ops
-
-/**
- * Push one column of flow data into the heatmap pixel buffer.
- * Maps rel_ticks to absolute price levels on the anchored grid.
- */
-function pushHeatmapColumn(flow: FlowRow[], spotDollars: number): void {
-  if (!anchorInitialized) {
-    anchorPriceDollars = spotDollars;
-    anchorInitialized = true;
-  }
-
-  currentSpotDollars = spotDollars;
-  const spotRow = priceToRow(spotDollars);
-  const bucket = bucketDollars();
-
-  if (!userPanned && (spotRow < SCROLL_MARGIN || spotRow > HMAP_LEVELS - 1 - SCROLL_MARGIN)) {
-    const newAnchor = spotDollars;
-    const shiftRows = Math.round((newAnchor - anchorPriceDollars) / bucket);
-    if (shiftRows !== 0) {
-      shiftGrid(shiftRows);
-      anchorPriceDollars = newAnchor;
-    }
-  }
-
-  const w = HMAP_HISTORY;
-  const h = HMAP_LEVELS;
-  const d = hmapData;
-
-  for (let y = 0; y < h; y++) {
-    const rowOff = y * w * 4;
-    d.copyWithin(rowOff, rowOff + 4, rowOff + w * 4);
-  }
-
-  for (let y = 0; y < h; y++) {
-    const idx = (y * w + (w - 1)) * 4;
-    d[idx] = 10; d[idx + 1] = 10; d[idx + 2] = 15; d[idx + 3] = 255;
-  }
-
-  spotTrail.shift();
-  spotTrail.push(priceToRow(spotDollars));
-  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
-    const marker = spotEventMarkers[i];
-    marker.col -= 1;
-    if (marker.col < 0) {
-      spotEventMarkers.splice(i, 1);
-    }
-  }
-
-  const byRow = new Map<number, { depth: number; net: number }>();
-  for (const r of flow) {
-    const absPrice = spotDollars + r.rel_ticks * bucket;
-    const row = Math.round(priceToRow(absPrice));
-    if (row < 0 || row >= h) continue;
-    const existing = byRow.get(row);
-    if (existing) {
-      existing.depth += r.depth_qty_end;
-      existing.net += r.net_flow;
-    } else {
-      byRow.set(row, { depth: r.depth_qty_end, net: r.net_flow });
-    }
-  }
-
-  let maxD = 0;
-  for (const v of byRow.values()) {
-    if (v.depth > maxD) maxD = v.depth;
-  }
-  runningMaxDepth = Math.max(
-    runningMaxDepth * DEPTH_NORM_PERCENTILE_DECAY,
-    maxD,
-  );
-
-  for (const [row, v] of byRow) {
-    const [r, g, b] = heatmapRGB(v.depth, v.net, runningMaxDepth);
-    const idx = (row * w + (w - 1)) * 4;
-    d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
-  }
 }
 
 // ------------------------------------------------ Event-mode heatmap column
@@ -966,13 +557,6 @@ function pushHeatmapColumnFromGrid(
   // Advance spot trail
   spotTrail.shift();
   spotTrail.push(priceToRow(spotDollars));
-  for (let i = spotEventMarkers.length - 1; i >= 0; i--) {
-    const marker = spotEventMarkers[i];
-    marker.col -= 1;
-    if (marker.col < 0) {
-      spotEventMarkers.splice(i, 1);
-    }
-  }
 
   // Map grid buckets to heatmap rows and track adaptive normalization.
   // Two-force model: both pressure_variant and vacuum_variant are >= 0.
@@ -1072,127 +656,162 @@ function computeGridAggregates(grid: Map<number, GridBucketRow>): {
 
 /**
  * Update the signal panel from event-mode grid data (two-force model).
- * Shows pressure/vacuum aggregates — resistance removed.
+ * Produces explainable, in-trade guidance from pressure/vacuum balance.
  */
 function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   const agg = computeGridAggregates(grid);
+  const bullEdge = agg.pressureBelow + agg.vacuumAbove;
+  const bearEdge = agg.pressureAbove + agg.vacuumBelow;
+  const netEdge = bullEdge - bearEdge;
+  const forceTotal = bullEdge + bearEdge;
+  const conviction = forceTotal > 0 ? clamp(Math.abs(netEdge) / forceTotal, 0, 1) : 0;
+  const restDepthTilt = agg.totalRestDepthBelow - agg.totalRestDepthAbove;
+  const restDepthTotal = agg.totalRestDepthAbove + agg.totalRestDepthBelow;
 
-  // Lift gauge: use net pressure as lift analog
-  const netLift = agg.netPressure;
-  $('sig-net-lift').textContent = fmt(netLift, 1);
-  $('sig-net-lift').style.color = signColour(netLift, 0.01);
-  const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
-  $('lift-marker').style.left = `${liftNorm * 100}%`;
+  const upAligned = agg.vacuumAbove > agg.pressureAbove && agg.pressureBelow > agg.vacuumBelow;
+  const downAligned = agg.pressureAbove > agg.vacuumAbove && agg.vacuumBelow > agg.pressureBelow;
 
-  // Condition indicators: V=vacuum active, P=pressure active (resistance removed)
-  const vacPresent = agg.vacuumAbove > 1 || agg.vacuumBelow > 1;
-  const pressPresent = agg.pressureAbove > 5 || agg.pressureBelow > 5;
-  setInd('cond-v', vacPresent, '#22cc66');
-  setInd('cond-p', pressPresent, '#22cc66');
-  setInd('cond-r', false, '#333');  // resistance indicator disabled
-
-  $('sig-cross-conf').textContent = '---';
-  $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
-
-  // Timescale section: repurposed for pressure/vacuum above/below grid view
-  // Row 1 (5s slot): Pressure above | Vacuum above
-  $('sig-lift-5s').textContent = fmt(agg.pressureAbove, 1);
-  $('sig-lift-5s').style.color = signColour(-agg.pressureAbove, 0.01);  // above = bearish
-  $('sig-d1-5s').textContent = fmt(agg.vacuumAbove, 1);
-  $('sig-d1-5s').style.color = signColour(agg.vacuumAbove, 0.05);      // above = bullish
-  $('sig-arrow-5s').textContent = '\u2014';
-  $('sig-arrow-5s').style.color = '#555';
-
-  // Row 2 (15s slot): Pressure below | Vacuum below
-  $('sig-lift-15s').textContent = fmt(agg.pressureBelow, 1);
-  $('sig-lift-15s').style.color = signColour(agg.pressureBelow, 0.01);  // below = bullish
-  $('sig-d1-15s').textContent = fmt(agg.vacuumBelow, 1);
-  $('sig-d1-15s').style.color = signColour(-agg.vacuumBelow, 0.05);    // below = bearish
-  $('sig-arrow-15s').textContent = '\u2014';
-  $('sig-arrow-15s').style.color = '#555';
-
-  // Row 3 (60s slot): Net pressure | Rest depth imbalance
-  $('sig-lift-60s').textContent = fmt(agg.netPressure, 1);
-  $('sig-lift-60s').style.color = signColour(agg.netPressure, 0.01);
-  $('sig-d1-60s').textContent = fmt(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 1);
-  $('sig-d1-60s').style.color = signColour(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 0.005);
-  $('sig-arrow-60s').textContent = '\u2014';
-  $('sig-arrow-60s').style.color = '#555';
-
-  // Alignment: direction based on net pressure
-  const alignEl = $('sig-alignment');
-  if (Math.abs(netLift) < 1) {
-    alignEl.textContent = 'NEUTRAL';
-    alignEl.style.color = '#555';
-  } else if (netLift > 0) {
-    alignEl.textContent = 'BULLISH';
-    alignEl.style.color = '#22cc66';
-  } else {
-    alignEl.textContent = 'BEARISH';
-    alignEl.style.color = '#cc2255';
+  let state = 'CHOP';
+  let stateColor = '#2f3138';
+  let stateTextColor = '#ccaa22';
+  let stateNote = 'Directional forces are mixed. Reduce conviction and wait for imbalance.';
+  if (netEdge > 5 && upAligned) {
+    state = 'UP BIAS';
+    stateColor = '#163124';
+    stateTextColor = '#22cc66';
+    stateNote = 'Vacuum above and pressure below align for upside continuation.';
+  } else if (netEdge < -5 && downAligned) {
+    state = 'DOWN BIAS';
+    stateColor = '#341722';
+    stateTextColor = '#cc2255';
+    stateNote = 'Pressure above and vacuum below align for downside continuation.';
+  } else if (netEdge > 2) {
+    state = 'UP LEAN';
+    stateColor = '#1b2c24';
+    stateTextColor = '#66d692';
+    stateNote = 'Bull edge leads, but structure is not fully aligned yet.';
+  } else if (netEdge < -2) {
+    state = 'DOWN LEAN';
+    stateColor = '#2f1a22';
+    stateTextColor = '#dd667f';
+    stateNote = 'Bear edge leads, but structure is not fully aligned yet.';
   }
 
-  // Alerts: not available in event mode
-  setInd('alert-inf', false, '#ccaa22');
-  setInd('alert-dec', false, '#cc7722');
-  setInd('alert-reg', false, '#cc2255');
-  $('alert-none').style.display = '';
+  let longAction = 'WAIT';
+  let longColor = '#888';
+  let longBg = '#2f3138';
+  let longNote = 'No clear continuation edge for longs.';
+  if (netEdge > 5 && upAligned) {
+    longAction = 'HOLD';
+    longColor = '#22cc66';
+    longBg = '#163124';
+    longNote = 'Support is building below while liquidity is clearing above.';
+  } else if (netEdge > -2) {
+    longAction = 'TIGHTEN';
+    longColor = '#ccaa22';
+    longBg = '#332a1a';
+    longNote = 'Long edge is weakening. Tighten stop or reduce size.';
+  } else {
+    longAction = 'EXIT';
+    longColor = '#cc2255';
+    longBg = '#341722';
+    longNote = 'Bear pressure dominates. Protection for longs is deteriorating.';
+  }
 
-  // Projection: derive from net pressure direction
-  const direction = Math.sign(netLift);
-  const directionText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
-  const directionColor = direction > 0 ? '#22cc66' : direction < 0 ? '#cc2255' : '#888';
-  $sigProjDir.textContent = directionText;
-  $sigProjDir.style.color = directionColor;
-  $sigProjDir.style.background = direction === 0 ? '#2f3138' : 'rgba(20, 20, 28, 0.9)';
-  $sigProjConf.textContent = '---';
-  $sigProjConf.style.color = '#888';
-  $sigEventState.textContent = 'EVENT';
-  $sigEventState.style.color = '#00ccff';
-  $sigEventState.style.background = '#1a2a3a';
-  $sigEventTransition.textContent = `#${currentEventId}`;
-  $sigEventTransition.style.color = '#aaa';
-  $sigFeasibility.textContent = '---';
-  $sigFeasibility.style.color = '#888';
+  let shortAction = 'WAIT';
+  let shortColor = '#888';
+  let shortBg = '#2f3138';
+  let shortNote = 'No clear continuation edge for shorts.';
+  if (netEdge < -5 && downAligned) {
+    shortAction = 'HOLD';
+    shortColor = '#cc2255';
+    shortBg = '#341722';
+    shortNote = 'Resistance is building above while support is draining below.';
+  } else if (netEdge < 2) {
+    shortAction = 'TIGHTEN';
+    shortColor = '#ccaa22';
+    shortBg = '#332a1a';
+    shortNote = 'Short edge is weakening. Tighten stop or reduce size.';
+  } else {
+    shortAction = 'EXIT';
+    shortColor = '#22cc66';
+    shortBg = '#163124';
+    shortNote = 'Bull pressure dominates. Shorts risk squeeze and reversal.';
+  }
 
-  // Components: map grid aggregates to component panel
-  // vacuumAbove = path clearing upward (bullish → green)
+  let riskFlag = 'BALANCED';
+  let riskColor = '#888';
+  if (agg.vacuumBelow > Math.max(agg.pressureBelow * 1.15, 2)) {
+    riskFlag = 'SUPPORT FAILING';
+    riskColor = '#cc2255';
+  } else if (agg.vacuumAbove > Math.max(agg.pressureAbove * 1.15, 2)) {
+    riskFlag = 'RESISTANCE THINNING';
+    riskColor = '#22cc66';
+  } else if (Math.abs(netEdge) >= 2) {
+    riskFlag = netEdge > 0 ? 'UP ADVANTAGE' : 'DOWN ADVANTAGE';
+    riskColor = netEdge > 0 ? '#22cc66' : '#cc2255';
+  }
+
+  $('sig-net-edge').textContent = fmt(netEdge, 1);
+  $('sig-net-edge').style.color = signColour(netEdge, 0.01);
+  $('sig-bull-edge').textContent = fmt(bullEdge, 1);
+  $('sig-bull-edge').style.color = '#22cc66';
+  $('sig-bear-edge').textContent = fmt(bearEdge, 1);
+  $('sig-bear-edge').style.color = '#cc2255';
+
+  const edgeNorm = Math.tanh(netEdge / 200) * 0.5 + 0.5;
+  $('lift-marker').style.left = `${edgeNorm * 100}%`;
+
   $('sig-vac-above').textContent = fmt(agg.vacuumAbove, 1);
-  $('sig-vac-above').style.color = signColour(agg.vacuumAbove, 0.005);
-  // vacuumBelow = support crumbling (bearish → red via negation)
+  $('sig-vac-above').style.color = signColour(agg.vacuumAbove, 0.01);
   $('sig-vac-below').textContent = fmt(agg.vacuumBelow, 1);
-  $('sig-vac-below').style.color = signColour(-agg.vacuumBelow, 0.005);
-  $('sig-flow').textContent = fmt(agg.netPressure, 1);
-  $('sig-flow').style.color = signColour(agg.netPressure, 0.005);
-  $('sig-fill').textContent = '---';
-  $('sig-fill').style.color = '#888';
-  $('sig-depth').textContent = fmt(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 1);
-  $('sig-depth').style.color = signColour(agg.totalRestDepthAbove - agg.totalRestDepthBelow, 0.005);
-  $('sig-rest-depth').textContent = fmt(agg.totalRestDepthAbove + agg.totalRestDepthBelow, 1);
-  $('sig-rest-depth').style.color = '#aaa';
+  $('sig-vac-below').style.color = signColour(-agg.vacuumBelow, 0.01);
   $('sig-press-above').textContent = fmt(agg.pressureAbove, 1);
-  $('sig-press-above').style.color = signColour(-agg.pressureAbove, 0.02);  // resistance forming → red
+  $('sig-press-above').style.color = signColour(-agg.pressureAbove, 0.01);
   $('sig-press-below').textContent = fmt(agg.pressureBelow, 1);
-  $('sig-press-below').style.color = signColour(agg.pressureBelow, 0.02);   // support forming → green
-  // Resistance indicators removed — hide or zero them
-  $('sig-resist-above').textContent = '---';
-  $('sig-resist-above').style.color = '#555';
-  $('sig-resist-below').textContent = '---';
-  $('sig-resist-below').style.color = '#555';
+  $('sig-press-below').style.color = signColour(agg.pressureBelow, 0.01);
 
-  // Bottom bar
-  const regime = netLift > 10 ? 'LIFT' : netLift < -10 ? 'DRAG' : 'NEUTRAL';
-  const regimeColors: Record<string, string> = {
-    LIFT: '#22cc66', DRAG: '#cc2255', NEUTRAL: '#888',
-  };
-  $('regime-label').textContent = regime;
-  $('regime-label').style.color = regimeColors[regime] || '#888';
-  $('regime-lift-val').textContent = fmt(netLift, 1);
-  $('regime-lift-val').style.color = signColour(netLift, 0.01);
+  const stateEl = $('sig-vp-state');
+  stateEl.textContent = state;
+  stateEl.style.color = stateTextColor;
+  stateEl.style.background = stateColor;
+  $('sig-conviction').textContent = `${(conviction * 100).toFixed(0)}%`;
+  $('sig-conviction').style.color = conviction >= 0.6 ? '#22cc66' : conviction >= 0.35 ? '#ccaa22' : '#888';
+  $('sig-state-note').textContent = stateNote;
 
-  $('bot-d1-5s').textContent = fmt(agg.pressureAbove, 1);
-  $('bot-d1-15s').textContent = fmt(agg.pressureBelow, 1);
-  $('bot-d1-60s').textContent = fmt(agg.netPressure, 1);
+  const longEl = $('sig-long-action');
+  longEl.textContent = longAction;
+  longEl.style.color = longColor;
+  longEl.style.background = longBg;
+  $('sig-long-note').textContent = longNote;
+
+  const shortEl = $('sig-short-action');
+  shortEl.textContent = shortAction;
+  shortEl.style.color = shortColor;
+  shortEl.style.background = shortBg;
+  $('sig-short-note').textContent = shortNote;
+
+  $('sig-risk-flag').textContent = riskFlag;
+  $('sig-risk-flag').style.color = riskColor;
+
+  $('sig-depth').textContent = fmt(restDepthTilt, 1);
+  $('sig-depth').style.color = signColour(restDepthTilt, 0.005);
+  $('sig-rest-depth').textContent = fmt(restDepthTotal, 1);
+  $('sig-rest-depth').style.color = '#aaa';
+  $('sig-force-total').textContent = fmt(forceTotal, 1);
+  $('sig-force-total').style.color = '#ddd';
+  $('sig-model-status').textContent = 'NOT ENABLED';
+  $('sig-model-status').style.color = '#888';
+
+  $('regime-label').textContent = state;
+  $('regime-label').style.color = stateTextColor;
+  $('regime-lift-val').textContent = fmt(netEdge, 1);
+  $('regime-lift-val').style.color = signColour(netEdge, 0.01);
+  $('bot-bull-edge').textContent = fmt(bullEdge, 1);
+  $('bot-bear-edge').textContent = fmt(bearEdge, 1);
+  $('bot-conviction').textContent = `${(conviction * 100).toFixed(0)}%`;
+  $('bot-risk-flag').textContent = riskFlag;
+  $('bot-risk-flag').style.color = riskColor;
 }
 
 // ---------------------------------------------------------------- Rendering
@@ -1222,7 +841,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   const srcW = visibleCols();
   const srcH = visibleRows();
   const dataWidth = projectionDataWidth(cw);
-  const projectionStartX = dataWidth;
 
   if (!hmapOffscreen) {
     hmapOffscreen = document.createElement('canvas');
@@ -1258,16 +876,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
 
   const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
   const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
-
-  // Projection margin with separator
-  ctx.fillStyle = 'rgba(12, 14, 24, 0.85)';
-  ctx.fillRect(projectionStartX, 0, cw - projectionStartX, ch);
-  ctx.strokeStyle = 'rgba(120, 150, 180, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(projectionStartX + 0.5, 0);
-  ctx.lineTo(projectionStartX + 0.5, ch);
-  ctx.stroke();
 
   // Gridlines
   const topPrice = rowToPrice(vpY);
@@ -1312,57 +920,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   }
   ctx.stroke();
 
-  // Event markers on spot trail
-  for (const marker of spotEventMarkers) {
-    const x = colToX(marker.col + 0.5);
-    const y = rowToY(marker.row);
-    if (x < -16 || x > dataWidth + 16 || y < -16 || y > ch + 16) continue;
-
-    const dir = marker.direction > 0 ? 1 : marker.direction < 0 ? -1 : 0;
-    const directionColor = dir >= 0 ? '#22cc66' : '#cc2255';
-    const color = marker.phase === 'FIRE' ? directionColor : '#ccaa22';
-    const radius = marker.phase === 'FIRE' ? 4.8 : 3.8;
-    const confAlpha = 0.35 + marker.confidence * 0.55;
-
-    ctx.fillStyle = `rgba(12, 12, 20, ${confAlpha})`;
-    ctx.beginPath();
-    ctx.arc(x, y, radius + 2.0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Directional marker: triangle points UP for +1, DOWN for -1.
-    const tipY = dir >= 0 ? y - radius : y + radius;
-    const baseY = dir >= 0 ? y + radius * 0.8 : y - radius * 0.8;
-    const halfW = radius * 0.9;
-
-    if (marker.phase === 'FIRE') {
-      ctx.fillStyle = color;
-    } else {
-      ctx.fillStyle = 'rgba(0,0,0,0)';
-    }
-    ctx.strokeStyle = color;
-    ctx.lineWidth = marker.phase === 'FIRE' ? 1.9 : 1.4;
-    ctx.beginPath();
-    ctx.moveTo(x, tipY);
-    ctx.lineTo(x + halfW, baseY);
-    ctx.lineTo(x - halfW, baseY);
-    ctx.closePath();
-    if (marker.phase === 'FIRE') {
-      ctx.fill();
-    }
-    ctx.stroke();
-
-    // ARMED gets an inner notch to visually differ from FIRE.
-    if (marker.phase === 'ARMED') {
-      const notchY = dir >= 0 ? y - radius * 0.25 : y + radius * 0.25;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.0;
-      ctx.beginPath();
-      ctx.moveTo(x - halfW * 0.45, notchY);
-      ctx.lineTo(x + halfW * 0.45, notchY);
-      ctx.stroke();
-    }
-  }
-
   // Spot dot at current position (rightmost)
   const lastSpot = spotTrail[HMAP_HISTORY - 1];
   if (lastSpot !== null) {
@@ -1388,51 +945,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
       ctx.lineTo(cw, y);
       ctx.stroke();
       ctx.setLineDash([]);
-
-      // Forward projection cone and direction line (anchored at spot)
-      if (currentSignals) {
-        const conf = projectionConfidence(currentSignals);
-        const rowDelta = projectionRowDelta(currentSignals);
-        const impulse = projectionImpulse(currentSignals);
-        const direction = Math.sign(impulse) || Math.sign(-rowDelta);
-        const yEnd = rowToY(lastSpot + rowDelta);
-        const coneRows = 1 + (1 - conf) * 8;
-        const yUpper = rowToY(lastSpot + rowDelta - coneRows);
-        const yLower = rowToY(lastSpot + rowDelta + coneRows);
-        const xEnd = cw - 8;
-        const color = direction > 0 ? '#22cc66' : (direction < 0 ? '#cc2255' : '#888');
-
-        ctx.fillStyle = direction > 0
-          ? `rgba(34, 204, 102, ${0.1 + conf * 0.22})`
-          : direction < 0
-            ? `rgba(204, 34, 85, ${0.1 + conf * 0.22})`
-            : `rgba(120, 120, 120, ${0.08 + conf * 0.12})`;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(xEnd, yUpper);
-        ctx.lineTo(xEnd, yLower);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(xEnd, yEnd);
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(xEnd, yEnd, 3.2, 0, Math.PI * 2);
-        ctx.fill();
-
-        const dirText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle = 'rgba(200, 210, 230, 0.85)';
-        ctx.fillText(`${dirText} ${(conf * 100).toFixed(0)}%`, projectionStartX + 6, 6);
-      }
 
       if (y >= 0 && y <= ch) {
         $spotLine.style.top = `${y - 10}px`;
@@ -1571,7 +1083,7 @@ function renderProfile(canvas: HTMLCanvasElement): void {
     ctx.fillText(p.toFixed(labelDp), 36, y);
   }
 
-  // Depth bars (two paths: flow-based vs event-mode grid-based)
+  // Depth bars from event-mode dense grid
   if (isEventMode && currentGrid.size > 0 && currentSpotDollars > 0) {
     // Event mode: render rest_depth bars colored by net force (pressure - vacuum)
     const maxP = runningMaxPressure || 1;
@@ -1594,28 +1106,6 @@ function renderProfile(canvas: HTMLCanvasElement): void {
 
       // k > 0 = above spot (ask side), k < 0 = below spot (bid side)
       if (k < 0) {
-        ctx.fillRect(midX - barW, y, barW, Math.max(1, rowH - 0.5));
-      } else {
-        ctx.fillRect(midX, y, barW, Math.max(1, rowH - 0.5));
-      }
-    }
-  } else if (currentFlow.length > 0 && currentSpotDollars > 0) {
-    for (const r of currentFlow) {
-      const absPrice = currentSpotDollars + r.rel_ticks * bucket;
-      const row = Math.round(priceToRow(absPrice));
-      if (row < vpY - 1 || row > vpY + srcH + 1) continue;
-      const y = (row - vpY) * rowH;
-      const barW = Math.min(barMax, (Math.log1p(r.depth_qty_end) / Math.log1p(maxD)) * barMax);
-      const flowT = Math.tanh(r.net_flow / FLOW_NORM_SCALE);
-      const alpha = 0.4 + r.rest_fraction * 0.5;
-
-      if (flowT >= 0) {
-        ctx.fillStyle = `rgba(30, ${140 + 80 * flowT}, ${120 + 50 * flowT}, ${alpha})`;
-      } else {
-        ctx.fillStyle = `rgba(${140 + 80 * (-flowT)}, 30, ${60 + 40 * (-flowT)}, ${alpha})`;
-      }
-
-      if (r.side === 'B') {
         ctx.fillRect(midX - barW, y, barW, Math.max(1, rowH - 0.5));
       } else {
         ctx.fillRect(midX, y, barW, Math.max(1, rowH - 0.5));
@@ -1649,211 +1139,6 @@ function renderProfile(canvas: HTMLCanvasElement): void {
   ctx.fillText('BID', barLeft + 2, 12);
   ctx.fillStyle = 'rgba(200, 140, 100, 0.6)';
   ctx.fillText('ASK', cw - 24, 12);
-}
-
-function updateSignalPanel(): void {
-  const s = currentSignals;
-  if (!s) return;
-  updateDerivedEventState(s);
-
-  // ── Section 1: Lift Gauge ──
-  const netLift = s.net_lift ?? 0;
-  $('sig-net-lift').textContent = fmt(netLift, 1);
-  $('sig-net-lift').style.color = signColour(netLift, 0.01);
-
-  const liftNorm = Math.tanh(netLift / 200) * 0.5 + 0.5;
-  $('lift-marker').style.left = `${liftNorm * 100}%`;
-
-  // Condition indicators: V=vacuum active, P=pressure active (resistance removed)
-  const vacPresent = (s.vacuum_above > 1) || (s.vacuum_below > 1);
-  const pressPresent = ((s.pressure_below ?? 0) > 5) || ((s.pressure_above ?? 0) > 5);
-  setInd('cond-v', vacPresent, '#22cc66');
-  setInd('cond-p', pressPresent, '#22cc66');
-  setInd('cond-r', false, '#333');  // resistance indicator disabled
-
-  $('sig-cross-conf').textContent = `${((s.cross_confidence ?? 0) * 100).toFixed(0)}%`;
-  $('sig-lift-str').textContent = `${(Math.min(1, Math.abs(netLift) / 100) * 100).toFixed(0)}%`;
-
-  // ── Section 2: Multi-Timescale ──
-  const timescales = [
-    { key: '5s', lift: s.lift_5s ?? 0, d1: s.d1_5s ?? 0, dir: Math.sign(s.dir_5s ?? 0) },
-    { key: '15s', lift: s.lift_15s ?? 0, d1: s.d1_15s ?? 0, dir: Math.sign(s.dir_15s ?? 0) },
-    { key: '60s', lift: s.lift_60s ?? 0, d1: s.d1_60s ?? 0, dir: Math.sign(s.dir_60s ?? 0) },
-  ];
-
-  for (const ts of timescales) {
-    $(`sig-lift-${ts.key}`).textContent = fmt(ts.lift, 1);
-    $(`sig-lift-${ts.key}`).style.color = signColour(ts.lift, 0.01);
-    $(`sig-d1-${ts.key}`).textContent = fmt(ts.d1, 1);
-    $(`sig-d1-${ts.key}`).style.color = signColour(ts.d1, 0.05);
-    fillGauge(`d1-${ts.key}-fill`, ts.d1, 50);
-
-    const arrowEl = $(`sig-arrow-${ts.key}`);
-    if (ts.dir > 0) {
-      arrowEl.textContent = '\u25B2';
-      arrowEl.style.color = '#22cc66';
-    } else if (ts.dir < 0) {
-      arrowEl.textContent = '\u25BC';
-      arrowEl.style.color = '#cc2255';
-    } else {
-      arrowEl.textContent = '\u2014';
-      arrowEl.style.color = '#555';
-    }
-  }
-
-  // Alignment: all timescales agree on sign?
-  const signs = timescales.map(t => Math.sign(t.lift));
-  const nonZero = signs.filter(v => v !== 0);
-  const alignEl = $('sig-alignment');
-  if (nonZero.length === 0) {
-    alignEl.textContent = '---';
-    alignEl.style.color = '#555';
-  } else if (nonZero.every(v => v === nonZero[0])) {
-    alignEl.textContent = 'ALIGNED';
-    alignEl.style.color = '#22cc66';
-  } else {
-    alignEl.textContent = 'DIVERGENT';
-    alignEl.style.color = '#ccaa22';
-  }
-
-  // ── Section 3: Alerts ──
-  const flags = s.alert_flags ?? 0;
-  const hasInf = (flags & 1) !== 0;
-  const hasDec = (flags & 2) !== 0;
-  const hasReg = (flags & 4) !== 0;
-  setInd('alert-inf', hasInf, '#ccaa22');
-  setInd('alert-dec', hasDec, '#cc7722');
-  setInd('alert-reg', hasReg, '#cc2255');
-  $('alert-none').style.display = (hasInf || hasDec || hasReg) ? 'none' : '';
-
-  // ── Section 4: Projection/Event badges ──
-  const impulse = projectionImpulse(s);
-  const direction = Math.sign(impulse);
-  const backendDirection = directionFromLabel(optionalString(s.event_direction));
-  const conf = projectionConfidence(s);
-  const directionText = direction > 0 ? 'UP' : direction < 0 ? 'DOWN' : 'FLAT';
-  const directionColor = direction > 0 ? '#22cc66' : direction < 0 ? '#cc2255' : '#888';
-  const eventDirection = backendDirection !== 0
-    ? backendDirection
-    : (derivedEventDirection !== 0 ? derivedEventDirection : fallbackDirectionFromSignals(s));
-  $sigProjDir.textContent = directionText;
-  $sigProjDir.style.color = directionColor;
-  $sigProjDir.style.background = direction === 0 ? '#2f3138' : 'rgba(20, 20, 28, 0.9)';
-  $sigProjConf.textContent = `${(conf * 100).toFixed(0)}%`;
-  $sigProjConf.style.color = conf >= 0.6 ? '#22cc66' : conf >= 0.35 ? '#ccaa22' : '#888';
-
-  const eventState = optionalString(s.event_state)?.toUpperCase() ?? derivedEventPhase;
-  const eventTransition = optionalString(s.event_transition)?.toUpperCase() ?? derivedEventTransition;
-  $sigEventState.textContent = eventState;
-  if (eventState === 'FIRE') {
-    $sigEventState.style.color = '#ffffff';
-    $sigEventState.style.background = eventDirection > 0 ? '#22cc66' : '#cc2255';
-  } else if (eventState === 'ARMED') {
-    $sigEventState.style.color = '#111';
-    $sigEventState.style.background = '#ccaa22';
-  } else {
-    $sigEventState.style.color = '#888';
-    $sigEventState.style.background = '#2f3138';
-  }
-  $sigEventTransition.textContent = eventTransition;
-  $sigEventTransition.style.color = eventTransition === '---' ? '#666' : '#ddd';
-
-  const backendFeasibilityUp = optionalNumber(s.feasibility_up);
-  const backendFeasibilityDown = optionalNumber(s.feasibility_down);
-  const backendDirectionalFeasibility = optionalNumber(s.directional_feasibility);
-  const backendDirectionalFlag = optionalBoolean(s.directional_feasible);
-  const biasDirection = Math.sign(optionalNumber(s.directional_bias) ?? 0);
-
-  let feasibilityScore: number | undefined;
-  if (eventDirection > 0 && backendFeasibilityUp !== undefined) {
-    feasibilityScore = backendFeasibilityUp;
-  } else if (eventDirection < 0 && backendFeasibilityDown !== undefined) {
-    feasibilityScore = backendFeasibilityDown;
-  } else if (backendFeasibilityUp !== undefined || backendFeasibilityDown !== undefined) {
-    feasibilityScore = Math.max(backendFeasibilityUp ?? 0, backendFeasibilityDown ?? 0);
-  } else if (backendDirectionalFeasibility !== undefined) {
-    feasibilityScore = backendDirectionalFeasibility;
-  } else if (backendDirectionalFlag !== undefined) {
-    feasibilityScore = backendDirectionalFlag ? 1 : 0;
-  } else {
-    feasibilityScore = derivedFeasibilityScore(s);
-  }
-  feasibilityScore = clamp(feasibilityScore, 0, 1);
-
-  if (eventDirection === 0 && biasDirection !== 0) {
-    $sigProjDir.textContent = biasDirection > 0 ? 'UP' : 'DOWN';
-    $sigProjDir.style.color = biasDirection > 0 ? '#22cc66' : '#cc2255';
-  }
-
-  const feasibility = feasibilityLabel(feasibilityScore);
-  $sigFeasibility.textContent = feasibility;
-  $sigFeasibility.style.color = feasibilityScore >= 0.7 ? '#22cc66' : feasibilityScore >= 0.45 ? '#ccaa22' : '#cc2255';
-
-  // ── Section 5: Components ──
-  $('sig-vac-above').textContent = fmt(s.vacuum_above, 0);
-  $('sig-vac-above').style.color = signColour(s.vacuum_above, 0.005);
-  $('sig-vac-below').textContent = fmt(s.vacuum_below, 0);
-  $('sig-vac-below').style.color = signColour(-s.vacuum_below, 0.005);
-  $('sig-flow').textContent = fmt(s.flow_imbalance, 0);
-  $('sig-flow').style.color = signColour(s.flow_imbalance, 0.005);
-  $('sig-fill').textContent = fmt(s.fill_imbalance, 0);
-  $('sig-fill').style.color = signColour(s.fill_imbalance, 0.01);
-  $('sig-depth').textContent = fmt(s.depth_imbalance, 3);
-  $('sig-depth').style.color = signColour(s.depth_imbalance, 2);
-  $('sig-rest-depth').textContent = fmt(s.rest_depth_imbalance, 3);
-  $('sig-rest-depth').style.color = signColour(s.rest_depth_imbalance, 2);
-  $('sig-press-above').textContent = fmt(s.pressure_above ?? 0, 1);
-  $('sig-press-above').style.color = signColour(-(s.pressure_above ?? 0), 0.02);  // resistance forming → red
-  $('sig-press-below').textContent = fmt(s.pressure_below ?? 0, 1);
-  $('sig-press-below').style.color = signColour(s.pressure_below ?? 0, 0.02);     // support forming → green
-  // Resistance indicators removed
-  $('sig-resist-above').textContent = '---';
-  $('sig-resist-above').style.color = '#555';
-  $('sig-resist-below').textContent = '---';
-  $('sig-resist-below').style.color = '#555';
-
-  // ── Bottom Bar ──
-  const regime = s.regime || 'NEUTRAL';
-  const regimeColors: Record<string, string> = {
-    LIFT: '#22cc66', DRAG: '#cc2255', NEUTRAL: '#888', CHOP: '#ccaa22',
-  };
-  $('regime-label').textContent = regime;
-  $('regime-label').style.color = regimeColors[regime] || '#888';
-  $('regime-lift-val').textContent = fmt(netLift, 1);
-  $('regime-lift-val').style.color = signColour(netLift, 0.01);
-
-  $('bot-d1-5s').textContent = fmt(s.d1_5s ?? 0, 1);
-  $('bot-d1-15s').textContent = fmt(s.d1_15s ?? 0, 1);
-  $('bot-d1-60s').textContent = fmt(s.d1_60s ?? 0, 1);
-}
-
-function fillGauge(id: string, value: number, scale: number): void {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const norm = Math.tanh(value / scale);
-  const pct = Math.abs(norm) * 50;
-  if (norm >= 0) {
-    el.style.left = '50%';
-    el.style.width = `${pct}%`;
-    el.style.background = '#22cc66';
-  } else {
-    el.style.left = `${50 - pct}%`;
-    el.style.width = `${pct}%`;
-    el.style.background = '#cc2255';
-  }
-}
-
-/** Toggle an indicator badge between dim and lit states. */
-function setInd(id: string, active: boolean, color: string): void {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (active) {
-    el.style.background = color;
-    el.style.color = '#fff';
-  } else {
-    el.style.background = '#333';
-    el.style.color = '#555';
-  }
 }
 
 // -------------------------------------------- Runtime config application
@@ -1891,19 +1176,6 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
   );
 }
 
-/**
- * Activate the legacy fallback warning banner.
- * Called when the first data batch arrives without a prior config message.
- */
-function activateLegacyFallback(): void {
-  console.warn(
-    '[VP] DEPRECATION: No runtime config received from server. ' +
-    'Falling back to legacy equity defaults (bucket=$0.50, decimals=2). ' +
-    'Update the backend to send a config control message before data.'
-  );
-  $warningBanner.style.display = '';
-}
-
 // -------------------------------------------------------- URL contract
 
 /** Parse and validate URL query parameters.  Fails fast if product_type is missing. */
@@ -1926,19 +1198,8 @@ function parseStreamParams(): StreamParams {
     symbol: params.get('symbol') || 'QQQ',
     dt: params.get('dt') || '2026-02-06',
     speed: params.get('speed') || '1',
-    skip: params.get('skip') || '5',
-    mode: params.get('mode') || 'live',
     start_time: params.get('start_time') || undefined,
-    pre_smooth_span: params.get('pre_smooth_span') || undefined,
-    d1_span: params.get('d1_span') || undefined,
-    d2_span: params.get('d2_span') || undefined,
-    d3_span: params.get('d3_span') || undefined,
-    w_d1: params.get('w_d1') || undefined,
-    w_d2: params.get('w_d2') || undefined,
-    w_d3: params.get('w_d3') || undefined,
-    projection_horizon_s: params.get('projection_horizon_s') || undefined,
-    fast_projection_horizon_s: params.get('fast_projection_horizon_s') || undefined,
-    smooth_zscore_window: params.get('smooth_zscore_window') || undefined,
+    throttle_ms: params.get('throttle_ms') || undefined,
   };
 }
 
@@ -1952,7 +1213,7 @@ let reconnectEnabled = true;
 let streamPaused = false;
 
 function updateStreamControlUi(): void {
-  $streamState.textContent = streamPaused ? 'PAUSED' : 'LIVE';
+  $streamState.textContent = streamPaused ? 'PAUSED' : 'RUNNING';
   $streamState.style.color = streamPaused ? '#ccaa22' : '#00ffaa';
   $ctrlPause.style.opacity = streamPaused ? '0.55' : '1';
   $ctrlPlay.style.opacity = streamPaused ? '1' : '0.55';
@@ -1975,24 +1236,14 @@ function scheduleReconnect(): void {
 }
 
 function resetStreamState(): void {
-  snap = null;
-  currentFlow = [];
-  currentSignals = null;
   windowCount = 0;
-  currentWindowId = null;
   anchorPriceDollars = 0;
   anchorInitialized = false;
   currentSpotDollars = 0;
   runningMaxDepth = 100;
-  derivedEventPhase = 'WATCH';
-  derivedEventTransition = '---';
-  derivedEventDirection = 0;
-  lastSlopeSign = 0;
-  lastBackendEventState = null;
   configReceived = false;
   isEventMode = false;
   currentGrid = new Map();
-  currentEventId = 0;
   lastRenderedEventIdByRow.clear();
   runningMaxPressure = 10;
 
@@ -2003,12 +1254,19 @@ function resetStreamState(): void {
     hmapData[i + 3] = 255;
   }
   for (let i = 0; i < spotTrail.length; i++) spotTrail[i] = null;
-  spotEventMarkers.length = 0;
 
   $spotVal.textContent = '--';
   $tsVal.textContent = '--:--:--';
   $winVal.textContent = '0';
   $winIdVal.textContent = '--';
+  $('regime-label').textContent = 'CHOP';
+  $('regime-label').style.color = '#ccaa22';
+  $('regime-lift-val').textContent = '0.0';
+  $('regime-lift-val').style.color = '#888';
+  $('sig-vp-state').textContent = 'CHOP';
+  $('sig-vp-state').style.color = '#ccaa22';
+  $('sig-vp-state').style.background = '#2f3138';
+  $('sig-state-note').textContent = 'Waiting for directional imbalance.';
 }
 
 function closeSocketForControl(reason: string): void {
@@ -2068,44 +1326,25 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const {
-    product_type, symbol, dt, speed, skip, mode, start_time,
-    pre_smooth_span, d1_span, d2_span, d3_span,
-    w_d1, w_d2, w_d3, projection_horizon_s,
-    fast_projection_horizon_s, smooth_zscore_window,
-  } = streamParams;
-
-  const tuningParams = new URLSearchParams();
-  if (mode && mode !== 'live') tuningParams.set('mode', mode);
-  if (start_time) tuningParams.set('start_time', start_time);
-  if (pre_smooth_span) tuningParams.set('pre_smooth_span', pre_smooth_span);
-  if (d1_span) tuningParams.set('d1_span', d1_span);
-  if (d2_span) tuningParams.set('d2_span', d2_span);
-  if (d3_span) tuningParams.set('d3_span', d3_span);
-  if (w_d1) tuningParams.set('w_d1', w_d1);
-  if (w_d2) tuningParams.set('w_d2', w_d2);
-  if (w_d3) tuningParams.set('w_d3', w_d3);
-  if (projection_horizon_s) tuningParams.set('projection_horizon_s', projection_horizon_s);
-  if (fast_projection_horizon_s) tuningParams.set('fast_projection_horizon_s', fast_projection_horizon_s);
-  if (smooth_zscore_window) tuningParams.set('smooth_zscore_window', smooth_zscore_window);
+  const { product_type, symbol, dt, speed, start_time, throttle_ms } = streamParams;
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
     `?product_type=${encodeURIComponent(product_type)}` +
     `&symbol=${encodeURIComponent(symbol)}` +
     `&dt=${encodeURIComponent(dt)}` +
-    `&speed=${encodeURIComponent(speed)}` +
-    `&skip_minutes=${encodeURIComponent(skip)}`;
-  const url = tuningParams.toString()
-    ? `${urlBase}&${tuningParams.toString()}`
-    : urlBase;
+    `&speed=${encodeURIComponent(speed)}`;
+  const wsParams = new URLSearchParams();
+  if (start_time) wsParams.set('start_time', start_time);
+  if (throttle_ms) wsParams.set('throttle_ms', throttle_ms);
+  const url = wsParams.toString() ? `${urlBase}&${wsParams.toString()}` : urlBase;
 
   console.log(`[VP] Connecting to: ${url}`);
   const ws = new WebSocket(url);
   wsClient = ws;
 
-  // Message queue pattern (aligned with velocity ws-client.ts)
-  let pendingSurface: string | null = null;
+  // Message queue pattern
+  let expectingGridBinary = false;
   const messageQueue: MessageEvent[] = [];
   let isProcessing = false;
 
@@ -2123,7 +1362,6 @@ function connectWS(): void {
           const msg = JSON.parse(event.data) as Record<string, unknown>;
 
           if (msg.type === 'runtime_config') {
-            // Runtime config -- must arrive before first data batch
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -2138,57 +1376,41 @@ function connectWS(): void {
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
             });
-            // Detect dense-grid stream mode from runtime config
             const cfgMode = optionalString(msg.mode);
+            const cfgStage = optionalString(msg.deployment_stage);
             const cfgFormat = optionalString(msg.stream_format);
-            if (cfgMode === 'event' || cfgMode === 'live' || cfgFormat === 'dense_grid') {
+            if (
+              cfgMode === 'event' ||
+              cfgMode === 'live' ||
+              cfgMode === 'pre_prod' ||
+              cfgFormat === 'dense_grid'
+            ) {
               isEventMode = true;
               console.log(
-                `[VP] Dense-grid mode detected, grid_rows=${msg.grid_rows}, ` +
+                `[VP] Dense-grid stream detected, stage=${String(cfgStage ?? cfgMode ?? 'unknown')}, ` +
+                `grid_rows=${msg.grid_rows}, ` +
                 `grid_schema_fields=${JSON.stringify(msg.grid_schema_fields)}`
               );
+            } else {
+              streamContractError(
+                'runtime_config',
+                `unexpected stream format mode=${String(cfgMode)} format=${String(cfgFormat)}`
+              );
             }
-          } else if (msg.type === 'batch_start') {
-            // If config was never received, activate legacy fallback once
-            if (!configReceived) {
-              activateLegacyFallback();
-              // Prevent re-triggering on subsequent batches
-              configReceived = true;
-            }
-            windowCount++;
-            $winVal.textContent = String(windowCount);
-            const rawWindowId = msg.window_end_ts_ns;
-            if (rawWindowId !== undefined && rawWindowId !== null) {
-              try {
-                currentWindowId = BigInt(String(rawWindowId));
-                $winIdVal.textContent = currentWindowId.toString();
-              } catch {
-                $winIdVal.textContent = String(rawWindowId);
-              }
-            }
-          } else if (msg.type === 'surface_header') {
-            pendingSurface = msg.surface as string;
           } else if (msg.type === 'grid_update') {
-            // Event-mode: JSON header with scalar metadata, followed by grid binary
+            if (!configReceived) {
+              streamContractError('grid_update', 'received before runtime_config');
+            }
             isEventMode = true;
             const tsNs = requireBigIntField('grid_update', msg, 'ts_ns');
             const eventId = requireNumberField('grid_update', msg, 'event_id');
             const midPrice = requireNumberField('grid_update', msg, 'mid_price');
-            const spotRefPriceInt = requireBigIntField('grid_update', msg, 'spot_ref_price_int');
-            const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
-            const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
-            const bookValid = requireBooleanField('grid_update', msg, 'book_valid');
+            requireBigIntField('grid_update', msg, 'spot_ref_price_int');
+            requireBigIntField('grid_update', msg, 'best_bid_price_int');
+            requireBigIntField('grid_update', msg, 'best_ask_price_int');
+            requireBooleanField('grid_update', msg, 'book_valid');
 
-            snap = {
-              window_end_ts_ns: tsNs,
-              mid_price: midPrice,
-              spot_ref_price_int: spotRefPriceInt,
-              best_bid_price_int: bestBidPriceInt,
-              best_ask_price_int: bestAskPriceInt,
-              book_valid: bookValid,
-            };
             currentSpotDollars = midPrice;
-            currentEventId = eventId;
             windowCount++;
 
             $spotVal.textContent = `$${midPrice.toFixed(priceDecimals())}`;
@@ -2196,166 +1418,51 @@ function connectWS(): void {
             $winVal.textContent = String(windowCount);
             $winIdVal.textContent = String(eventId);
 
-            // Next binary frame is the grid
-            pendingSurface = 'grid';
+            expectingGridBinary = true;
+          } else if (msg.type === 'error') {
+            const errorMessage = optionalString(msg.message) ?? 'unknown stream error';
+            streamContractError('server', errorMessage);
           }
         } else if (event.data instanceof Blob) {
-          // ── Binary frame (Arrow IPC) ──
-          const surface = pendingSurface;
-          if (!surface) continue;
-          pendingSurface = null;
+          if (!expectingGridBinary) {
+            streamContractError('grid', 'binary frame arrived without grid_update header');
+          }
+          expectingGridBinary = false;
 
           const buffer = await event.data.arrayBuffer();
           const table = tableFromIPC(buffer);
-
-          if (surface === 'snap' && table.numRows > 0) {
-            const row = table.get(0);
-            if (row) {
-              const j = row.toJSON() as Record<string, unknown>;
-              snap = {
-                window_end_ts_ns: requireBigIntField('snap', j, 'window_end_ts_ns'),
-                mid_price: requireNumberField('snap', j, 'mid_price'),
-                spot_ref_price_int: requireBigIntField('snap', j, 'spot_ref_price_int'),
-                best_bid_price_int: requireBigIntField('snap', j, 'best_bid_price_int'),
-                best_ask_price_int: requireBigIntField('snap', j, 'best_ask_price_int'),
-                book_valid: requireBooleanField('snap', j, 'book_valid'),
-              };
-              currentSpotDollars = snap.mid_price;
-              $spotVal.textContent = `$${snap.mid_price.toFixed(priceDecimals())}`;
-              $tsVal.textContent = formatTs(snap.window_end_ts_ns);
-            }
-          } else if (surface === 'grid') {
-            // Event-mode: dense grid Arrow IPC (2K+1 rows)
-            const gridMap = new Map<number, GridBucketRow>();
-            for (let i = 0; i < table.numRows; i++) {
-              const row = table.get(i);
-              if (!row) continue;
-              const j = row.toJSON() as Record<string, unknown>;
-              const k = requireNumberField('grid', j, 'k');
-              gridMap.set(k, {
-                k,
-                pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
-                vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
-                add_mass: requireNumberField('grid', j, 'add_mass'),
-                pull_mass: requireNumberField('grid', j, 'pull_mass'),
-                fill_mass: requireNumberField('grid', j, 'fill_mass'),
-                rest_depth: requireNumberField('grid', j, 'rest_depth'),
-                v_add: requireNumberField('grid', j, 'v_add'),
-                v_pull: requireNumberField('grid', j, 'v_pull'),
-                v_fill: requireNumberField('grid', j, 'v_fill'),
-                v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
-                a_add: requireNumberField('grid', j, 'a_add'),
-                a_pull: requireNumberField('grid', j, 'a_pull'),
-                a_fill: requireNumberField('grid', j, 'a_fill'),
-                a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
-                j_add: requireNumberField('grid', j, 'j_add'),
-                j_pull: requireNumberField('grid', j, 'j_pull'),
-                j_fill: requireNumberField('grid', j, 'j_fill'),
-                j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
-                last_event_id: requireNumberField('grid', j, 'last_event_id'),
-              });
-            }
-            currentGrid = gridMap;
-            pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);
-            updateSignalPanelFromGrid(gridMap);
-          } else if (surface === 'flow') {
-            const rows: FlowRow[] = [];
-            for (let i = 0; i < table.numRows; i++) {
-              const row = table.get(i);
-              if (!row) continue;
-              const j = row.toJSON() as Record<string, unknown>;
-              rows.push({
-                rel_ticks: requireNumberField('flow', j, 'rel_ticks'),
-                side: requireStringField('flow', j, 'side'),
-                depth_qty_end: requireNumberField('flow', j, 'depth_qty_end'),
-                add_qty: requireNumberField('flow', j, 'add_qty'),
-                pull_qty: requireNumberField('flow', j, 'pull_qty'),
-                fill_qty: requireNumberField('flow', j, 'fill_qty'),
-                depth_qty_rest: requireNumberField('flow', j, 'depth_qty_rest'),
-                pull_qty_rest: requireNumberField('flow', j, 'pull_qty_rest'),
-                net_flow: requireNumberField('flow', j, 'net_flow'),
-                vacuum_intensity: requireNumberField('flow', j, 'vacuum_intensity'),
-                pressure_intensity: requireNumberField('flow', j, 'pressure_intensity'),
-                rest_fraction: requireNumberField('flow', j, 'rest_fraction'),
-              });
-            }
-            currentFlow = rows;
-            pushHeatmapColumn(rows, currentSpotDollars);
-          } else if (surface === 'signals' && table.numRows > 0) {
-            const row = table.get(0);
-            if (row) {
-              const j = row.toJSON() as Record<string, unknown>;
-              currentSignals = {
-                window_end_ts_ns: requireBigIntField('signals', j, 'window_end_ts_ns'),
-                vacuum_above: requireNumberField('signals', j, 'vacuum_above'),
-                vacuum_below: requireNumberField('signals', j, 'vacuum_below'),
-                resting_drain_ask: requireNumberField('signals', j, 'resting_drain_ask'),
-                resting_drain_bid: requireNumberField('signals', j, 'resting_drain_bid'),
-                flow_imbalance: requireNumberField('signals', j, 'flow_imbalance'),
-                fill_imbalance: requireNumberField('signals', j, 'fill_imbalance'),
-                depth_imbalance: requireNumberField('signals', j, 'depth_imbalance'),
-                rest_depth_imbalance: requireNumberField('signals', j, 'rest_depth_imbalance'),
-                bid_migration_com: optionalNumber(j.bid_migration_com) ?? 0,
-                ask_migration_com: optionalNumber(j.ask_migration_com) ?? 0,
-                composite: requireNumberField('signals', j, 'composite'),
-                composite_smooth: optionalNumber(j.composite_smooth),
-                d1_composite: requireNumberField('signals', j, 'd1_composite'),
-                d2_composite: requireNumberField('signals', j, 'd2_composite'),
-                d3_composite: requireNumberField('signals', j, 'd3_composite'),
-                d1_smooth: optionalNumber(j.d1_smooth),
-                d2_smooth: optionalNumber(j.d2_smooth),
-                d3_smooth: optionalNumber(j.d3_smooth),
-                wtd_slope: optionalNumber(j.wtd_slope),
-                wtd_projection: optionalNumber(j.wtd_projection),
-                wtd_projection_500ms: optionalNumber(j.wtd_projection_500ms),
-                wtd_deriv_conf: optionalNumber(j.wtd_deriv_conf),
-                z_composite_raw: optionalNumber(j.z_composite_raw),
-                z_composite_smooth: optionalNumber(j.z_composite_smooth),
-                confidence: requireNumberField('signals', j, 'confidence'),
-                strength: requireNumberField('signals', j, 'strength'),
-                strength_smooth: optionalNumber(j.strength_smooth),
-                // Pressure (depth building) aggregates
-                pressure_above: optionalNumber(j.pressure_above) ?? 0,
-                pressure_below: optionalNumber(j.pressure_below) ?? 0,
-                // Bernoulli lift model
-                lift_up: optionalNumber(j.lift_up) ?? 0,
-                lift_down: optionalNumber(j.lift_down) ?? 0,
-                net_lift: optionalNumber(j.net_lift) ?? 0,
-                // Multi-timescale
-                lift_5s: optionalNumber(j.lift_5s) ?? 0,
-                d1_5s: optionalNumber(j.d1_5s) ?? 0,
-                d2_5s: optionalNumber(j.d2_5s) ?? 0,
-                proj_5s: optionalNumber(j.proj_5s) ?? 0,
-                dir_5s: Math.trunc(optionalNumber(j.dir_5s) ?? 0),
-                lift_15s: optionalNumber(j.lift_15s) ?? 0,
-                d1_15s: optionalNumber(j.d1_15s) ?? 0,
-                d2_15s: optionalNumber(j.d2_15s) ?? 0,
-                proj_15s: optionalNumber(j.proj_15s) ?? 0,
-                dir_15s: Math.trunc(optionalNumber(j.dir_15s) ?? 0),
-                lift_60s: optionalNumber(j.lift_60s) ?? 0,
-                d1_60s: optionalNumber(j.d1_60s) ?? 0,
-                d2_60s: optionalNumber(j.d2_60s) ?? 0,
-                proj_60s: optionalNumber(j.proj_60s) ?? 0,
-                dir_60s: Math.trunc(optionalNumber(j.dir_60s) ?? 0),
-                // Cross-timescale
-                cross_confidence: optionalNumber(j.cross_confidence) ?? 0,
-                projection_coherence: optionalNumber(j.projection_coherence),
-                alert_flags: Math.trunc(optionalNumber(j.alert_flags) ?? 0),
-                regime: optionalString(j.regime) ?? 'NEUTRAL',
-                event_state: optionalString(j.event_state),
-                event_direction: optionalString(j.event_direction),
-                event_strength: optionalNumber(j.event_strength),
-                event_confidence: optionalNumber(j.event_confidence),
-                event_transition: optionalString(j.event_transition),
-                feasibility_up: optionalNumber(j.feasibility_up),
-                feasibility_down: optionalNumber(j.feasibility_down),
-                directional_bias: optionalNumber(j.directional_bias),
-                directional_feasibility: optionalNumber(j.directional_feasibility),
-                directional_feasible: optionalBoolean(j.directional_feasible),
-              };
-              updateSignalPanel();
-            }
+          const gridMap = new Map<number, GridBucketRow>();
+          for (let i = 0; i < table.numRows; i++) {
+            const row = table.get(i);
+            if (!row) continue;
+            const j = row.toJSON() as Record<string, unknown>;
+            const k = requireNumberField('grid', j, 'k');
+            gridMap.set(k, {
+              k,
+              pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
+              vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
+              add_mass: requireNumberField('grid', j, 'add_mass'),
+              pull_mass: requireNumberField('grid', j, 'pull_mass'),
+              fill_mass: requireNumberField('grid', j, 'fill_mass'),
+              rest_depth: requireNumberField('grid', j, 'rest_depth'),
+              v_add: requireNumberField('grid', j, 'v_add'),
+              v_pull: requireNumberField('grid', j, 'v_pull'),
+              v_fill: requireNumberField('grid', j, 'v_fill'),
+              v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
+              a_add: requireNumberField('grid', j, 'a_add'),
+              a_pull: requireNumberField('grid', j, 'a_pull'),
+              a_fill: requireNumberField('grid', j, 'a_fill'),
+              a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
+              j_add: requireNumberField('grid', j, 'j_add'),
+              j_pull: requireNumberField('grid', j, 'j_pull'),
+              j_fill: requireNumberField('grid', j, 'j_fill'),
+              j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
+              last_event_id: requireNumberField('grid', j, 'last_event_id'),
+            });
           }
+          currentGrid = gridMap;
+          pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);
+          updateSignalPanelFromGrid(gridMap);
         }
       } catch (e) {
         console.error('[VP] Message processing error:', e);

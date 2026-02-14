@@ -1,7 +1,7 @@
-"""Run the live vacuum-pressure dense-grid websocket server.
+"""Run the canonical vacuum-pressure dense-grid websocket server.
 
 Canonical runtime:
-    .dbn ingest adapter -> in-memory EventDrivenVPEngine -> dense grid stream
+    PRE-PROD .dbn ingest adapter -> in-memory EventDrivenVPEngine -> dense grid stream
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ sys.path.insert(0, str(backend_root))
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Vacuum Pressure Live Dense-Grid Stream",
+        description="Vacuum Pressure Canonical Dense-Grid Stream (PRE-PROD DBN source)",
     )
     parser.add_argument(
         "--product-type",
@@ -35,7 +35,7 @@ def main() -> None:
         "--speed",
         type=float,
         default=1.0,
-        help="Replay pacing multiplier for .dbn ingest (0=firehose)",
+        help="Source pacing multiplier for .dbn ingest (0=firehose)",
     )
     parser.add_argument(
         "--start-time",
@@ -78,7 +78,7 @@ def main() -> None:
     base_config = resolve_config(args.product_type, args.symbol, products_yaml_path)
     if DEFAULT_GRID_TICKS > base_config.grid_max_ticks:
         raise ValueError(
-            f"live default grid K={DEFAULT_GRID_TICKS} exceeds configured max "
+            f"canonical default grid K={DEFAULT_GRID_TICKS} exceeds configured max "
             f"{base_config.grid_max_ticks} for {base_config.product_type}/{base_config.symbol}"
         )
     config = replace(
@@ -89,7 +89,8 @@ def main() -> None:
 
     print()
     print("=" * 64)
-    print("  VACUUM PRESSURE LIVE DENSE-GRID STREAM")
+    print("  VACUUM PRESSURE CANONICAL DENSE-GRID STREAM")
+    print("  PRE-PROD SOURCE ADAPTER: DATABENTO .DBN FILES")
     print("=" * 64)
     print(json.dumps(config.to_dict(), indent=2))
     print("-" * 64)

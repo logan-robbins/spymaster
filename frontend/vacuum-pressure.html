@@ -211,23 +211,6 @@
       transition: left 0.15s ease;
     }
 
-    /* Derivative gauges */
-    .deriv-gauge {
-      height: 8px;
-      background: rgba(40, 40, 60, 0.8);
-      border-radius: 4px;
-      position: relative;
-      margin-top: 4px;
-      overflow: hidden;
-    }
-    .deriv-fill {
-      position: absolute;
-      top: 0;
-      height: 100%;
-      border-radius: 4px;
-      transition: left 0.15s, width 0.15s;
-    }
-
     /* -- Bottom bar -- */
     #bottom-bar {
       height: 50px;
@@ -271,28 +254,12 @@
     }
     .legend-text { color: #888; }
 
-    /* Indicator badges */
-    .sig-ind {
-      font-family: monospace;
+    /* Signal panel helpers */
+    .sig-note {
       font-size: 10px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 3px;
-      background: #333;
-      color: #555;
-      text-align: center;
-    }
-    .sig-ind-row {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 6px;
-    }
-    .sig-badge-row {
-      display: flex;
-      gap: 6px;
-      margin-top: 6px;
-      flex-wrap: wrap;
+      line-height: 1.3;
+      color: #777;
+      margin-top: 4px;
     }
     .sig-badge {
       font-size: 10px;
@@ -309,9 +276,9 @@
 </head>
 <body>
   <div id="app">
-    <!-- Warning banner (hidden by default, shown for legacy fallback or missing params) -->
+    <!-- Warning banner (hidden by default, shown for stream/runtime errors) -->
     <div id="warning-banner">
-      LEGACY MODE: No runtime config received from server. Using fallback equity defaults ($0.50 bucket). Update backend.
+      Stream contract error.
     </div>
 
     <!-- Top bar -->
@@ -368,135 +335,98 @@
 
       <!-- Signal panel -->
       <div id="signal-panel">
-        <!-- Lift Gauge -->
+        <!-- Net Edge -->
         <div class="sig-section">
-          <div class="sig-title">Lift / Drag</div>
+          <div class="sig-title">Net Edge</div>
           <div class="sig-row">
             <span class="sig-label">Value</span>
-            <span id="sig-net-lift" class="sig-value">0.0</span>
+            <span id="sig-net-edge" class="sig-value">0.0</span>
           </div>
           <div id="lift-bar">
             <div id="lift-marker" style="left: 50%"></div>
           </div>
-          <div class="sig-ind-row">
-            <span id="cond-v" class="sig-ind">V</span>
-            <span id="cond-p" class="sig-ind">P</span>
-            <span id="cond-r" class="sig-ind">R</span>
-          </div>
           <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Confidence</span>
-            <span id="sig-cross-conf" class="sig-value">0%</span>
+            <span class="sig-label">Bull Edge</span>
+            <span id="sig-bull-edge" class="sig-value">0.0</span>
           </div>
           <div class="sig-row">
-            <span class="sig-label">Strength</span>
-            <span id="sig-lift-str" class="sig-value">0%</span>
+            <span class="sig-label">Bear Edge</span>
+            <span id="sig-bear-edge" class="sig-value">0.0</span>
           </div>
         </div>
 
-        <!-- Multi-Timescale -->
+        <!-- Force Balance -->
         <div class="sig-section">
-          <div class="sig-title">Timescales</div>
+          <div class="sig-title">Force Balance</div>
           <div class="sig-row">
-            <span class="sig-label" style="min-width: 22px;">5s</span>
-            <span id="sig-lift-5s" class="sig-value">0.0</span>
-            <span id="sig-d1-5s" class="sig-value">0.0</span>
-            <span id="sig-arrow-5s" style="width: 16px; text-align: center; font-size: 11px;">&mdash;</span>
-          </div>
-          <div class="deriv-gauge"><div id="d1-5s-fill" class="deriv-fill"></div></div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label" style="min-width: 22px;">15s</span>
-            <span id="sig-lift-15s" class="sig-value">0.0</span>
-            <span id="sig-d1-15s" class="sig-value">0.0</span>
-            <span id="sig-arrow-15s" style="width: 16px; text-align: center; font-size: 11px;">&mdash;</span>
-          </div>
-          <div class="deriv-gauge"><div id="d1-15s-fill" class="deriv-fill"></div></div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label" style="min-width: 22px;">60s</span>
-            <span id="sig-lift-60s" class="sig-value">0.0</span>
-            <span id="sig-d1-60s" class="sig-value">0.0</span>
-            <span id="sig-arrow-60s" style="width: 16px; text-align: center; font-size: 11px;">&mdash;</span>
-          </div>
-          <div class="deriv-gauge"><div id="d1-60s-fill" class="deriv-fill"></div></div>
-          <div style="text-align: center; margin-top: 8px;">
-            <span id="sig-alignment" style="font-size: 10px; font-weight: 600; letter-spacing: 1px; color: #555;">---</span>
-          </div>
-        </div>
-
-        <!-- Alerts -->
-        <div class="sig-section">
-          <div class="sig-title">Alerts</div>
-          <div class="sig-ind-row">
-            <span id="alert-inf" class="sig-ind">INF</span>
-            <span id="alert-dec" class="sig-ind">DEC</span>
-            <span id="alert-reg" class="sig-ind">REG</span>
-          </div>
-          <div id="alert-none" style="text-align: center; font-size: 10px; color: #444; margin-top: 4px;">---</div>
-        </div>
-
-        <!-- Projection / Event -->
-        <div class="sig-section">
-          <div class="sig-title">Projection</div>
-          <div class="sig-row">
-            <span class="sig-label">Direction</span>
-            <span id="sig-proj-dir" class="sig-badge">FLAT</span>
-          </div>
-          <div class="sig-row">
-            <span class="sig-label">Confidence</span>
-            <span id="sig-proj-conf" class="sig-value">0%</span>
-          </div>
-          <div class="sig-badge-row">
-            <span class="sig-label" style="align-self: center;">Event</span>
-            <span id="sig-event-state" class="sig-badge">IDLE</span>
-            <span id="sig-event-transition" class="sig-badge" style="min-width: 72px;">---</span>
+            <span class="sig-label">Vac Above (up path)</span>
+            <span id="sig-vac-above" class="sig-value">0.0</span>
           </div>
           <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label">Feasibility</span>
-            <span id="sig-feasibility" class="sig-value">WATCH</span>
+            <span class="sig-label">Press Above (resist)</span>
+            <span id="sig-press-above" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Press Below (support)</span>
+            <span id="sig-press-below" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Vac Below (down risk)</span>
+            <span id="sig-vac-below" class="sig-value">0.0</span>
           </div>
         </div>
 
-        <!-- Components -->
+        <!-- State -->
         <div class="sig-section">
-          <div class="sig-title">Components</div>
+          <div class="sig-title">State</div>
           <div class="sig-row">
-            <span class="sig-label">Vac Above</span>
-            <span id="sig-vac-above" class="sig-value">0</span>
+            <span class="sig-label">VP State</span>
+            <span id="sig-vp-state" class="sig-badge">CHOP</span>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Vac Below</span>
-            <span id="sig-vac-below" class="sig-value">0</span>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Conviction</span>
+            <span id="sig-conviction" class="sig-value">0%</span>
           </div>
+          <div id="sig-state-note" class="sig-note">Waiting for directional imbalance.</div>
+        </div>
+
+        <!-- Trade Guidance -->
+        <div class="sig-section">
+          <div class="sig-title">Trade Guidance</div>
           <div class="sig-row">
-            <span class="sig-label">Flow Imbal</span>
-            <span id="sig-flow" class="sig-value">0</span>
+            <span class="sig-label">Long</span>
+            <span id="sig-long-action" class="sig-badge">WAIT</span>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Fill Imbal</span>
-            <span id="sig-fill" class="sig-value">0</span>
+          <div id="sig-long-note" class="sig-note">No clear continuation edge.</div>
+          <div class="sig-row" style="margin-top: 8px;">
+            <span class="sig-label">Short</span>
+            <span id="sig-short-action" class="sig-badge">WAIT</span>
           </div>
+          <div id="sig-short-note" class="sig-note">No clear continuation edge.</div>
+          <div class="sig-row" style="margin-top: 8px;">
+            <span class="sig-label">Risk Flag</span>
+            <span id="sig-risk-flag" class="sig-value">BALANCED</span>
+          </div>
+        </div>
+
+        <!-- Depth Context -->
+        <div class="sig-section">
+          <div class="sig-title">Depth Context</div>
           <div class="sig-row">
-            <span class="sig-label">Depth Imbal</span>
+            <span class="sig-label">Rest Depth Tilt</span>
             <span id="sig-depth" class="sig-value">0.0</span>
           </div>
           <div class="sig-row">
-            <span class="sig-label">Rest Depth</span>
+            <span class="sig-label">Rest Depth Total</span>
             <span id="sig-rest-depth" class="sig-value">0.0</span>
           </div>
           <div class="sig-row">
-            <span class="sig-label">Press Above</span>
-            <span id="sig-press-above" class="sig-value">0</span>
+            <span class="sig-label">Force Total</span>
+            <span id="sig-force-total" class="sig-value">0.0</span>
           </div>
           <div class="sig-row">
-            <span class="sig-label">Press Below</span>
-            <span id="sig-press-below" class="sig-value">0</span>
-          </div>
-          <div class="sig-row">
-            <span class="sig-label">Resist Above</span>
-            <span id="sig-resist-above" class="sig-value">0</span>
-          </div>
-          <div class="sig-row">
-            <span class="sig-label">Resist Below</span>
-            <span id="sig-resist-below" class="sig-value">0</span>
+            <span class="sig-label">Predictive Model</span>
+            <span id="sig-model-status" class="sig-value">NOT ENABLED</span>
           </div>
         </div>
       </div>
@@ -504,12 +434,13 @@
 
     <!-- Bottom bar -->
     <div id="bottom-bar">
-      <span id="regime-label" style="color: #888;">NEUTRAL</span>
+      <span id="regime-label" style="color: #888;">CHOP</span>
       <span id="regime-lift-val" style="color: #888;">0.0</span>
       <div class="sep" style="height: 24px;"></div>
-      <span class="bar-stat">5s: <span id="bot-d1-5s" class="v">0</span></span>
-      <span class="bar-stat">15s: <span id="bot-d1-15s" class="v">0</span></span>
-      <span class="bar-stat">60s: <span id="bot-d1-60s" class="v">0</span></span>
+      <span class="bar-stat">Bull: <span id="bot-bull-edge" class="v">0.0</span></span>
+      <span class="bar-stat">Bear: <span id="bot-bear-edge" class="v">0.0</span></span>
+      <span class="bar-stat">Conv: <span id="bot-conviction" class="v">0%</span></span>
+      <span class="bar-stat">Risk: <span id="bot-risk-flag" class="v">BALANCED</span></span>
 
       <div id="legend">
         <div class="legend-item">
@@ -523,14 +454,6 @@
         <div class="legend-item">
           <div class="legend-dot" style="background: #1a1a2a;"></div>
           <span class="legend-text">Void (empty)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: linear-gradient(to right, #334, #22cc66);"></div>
-          <span class="legend-text">Forward projection</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: #ccaa22;"></div>
-          <span class="legend-text">ARMED/FIRE marker</span>
         </div>
       </div>
     </div>

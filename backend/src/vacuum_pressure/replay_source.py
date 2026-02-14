@@ -1,4 +1,4 @@
-"""DBN file replay source for vacuum-pressure live streaming.
+"""DBN file event source for canonical vacuum-pressure streaming.
 
 Reads raw Databento .dbn files and yields MBO events one-by-one,
 with optional real-time pacing based on ts_event deltas.
@@ -6,10 +6,10 @@ with optional real-time pacing based on ts_event deltas.
 The generator produces tuples matching the book engine's apply_event()
 signature: (ts, action, side, price, size, order_id, flags).
 
-Two pacing modes:
+Two pacing options:
     speed > 0: Pace events by ts_event deltas scaled by 1/speed.
                speed=1.0 is wall-clock real-time; speed=10.0 is 10x.
-    speed = 0: Fire-hose mode (as fast as possible, for backtest).
+    speed = 0: Fire-hose path (as fast as possible).
 """
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def iter_mbo_events(
 
     dbn_path = _resolve_dbn_path(lake_root, product_type, symbol, dt)
     logger.info(
-        "Opening DBN replay: %s (%s, %s, %s)",
+        "Opening DBN source: %s (%s, %s, %s)",
         dbn_path.name, product_type, symbol, dt,
     )
 
@@ -253,7 +253,7 @@ def iter_mbo_events(
         yield (ts_event, action, side, price, size, order_id, flags)
 
     logger.info(
-        "DBN replay complete: %d total records, %d MBO events yielded (%d skipped by skip_to_ns)",
+        "DBN source read complete: %d total records, %d MBO events yielded (%d skipped by skip_to_ns)",
         event_count, yielded_count, event_count - yielded_count,
     )
 
@@ -269,14 +269,14 @@ async def async_iter_mbo_events(
     """Async generator that yields MBO events with optional pacing.
 
     Wraps iter_mbo_events with asyncio.sleep-based pacing so the event
-    loop remains responsive during replay.
+    loop remains responsive during DBN playback.
 
     Args:
         lake_root: Path to the lake directory.
         product_type: Product type.
         symbol: Contract symbol.
         dt: Date string.
-        speed: Replay speed multiplier. 0 = fire-hose (no delays).
+        speed: Source pacing multiplier. 0 = fire-hose (no delays).
         skip_ns: Skip events before this timestamp (nanoseconds).
             Events before skip_ns are yielded without pacing.
 
@@ -294,7 +294,7 @@ async def async_iter_mbo_events(
     for event in iter_mbo_events(lake_root, product_type, symbol, dt):
         ts = event[0]
 
-        # Fast-forward mode: yield without pacing until skip_ns
+        # Fast-forward path: yield without pacing until skip_ns
         if ts < skip_ns:
             yield event
             prev_ts = ts

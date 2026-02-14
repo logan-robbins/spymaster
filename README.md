@@ -1,182 +1,240 @@
 # Spymaster
 
-## Runtime Contract (LLM)
-- Backend commands: run from `backend/` with `uv run ...` only.
-- Long-running processes: use `nohup ... > /tmp/<name>.log 2>&1 &`.
-- Raw data is immutable. Do not modify raw `.dbn` files.
-- Vacuum Pressure (VP) is live-only: one in-memory event pipeline, dense grid fixed at `K=50` (101 rows), no replay/silver mode.
-- Timezones: all ET boundaries use `America/New_York` (handles EST/EDT automatically). Do not use `Etc/GMT+5`.
+## Single Runtime Model (PRE-PROD)
+Spymaster Vacuum Pressure (VP) runs one canonical runtime model.
 
-## VP Two-Force Model
+Current state is `PRE-PROD` only because the event source adapter reads local Databento `.dbn` files.
+Everything else is production-equivalent and unchanged:
+- same VP math
+- same in-memory event engine
+- same 3-phase pipeline behavior
+- same websocket payload contract
+- same frontend rendering and explainability logic
 
-The engine computes two non-negative force variants per price bucket:
+When a live Databento subscription is available, the only planned change is source adapter input (`.dbn` file reader -> live Databento socket). There are no alternate math modes.
 
-**Pressure** (depth building — liquidity arriving):
+## Runtime Contract (Operator + LLM)
+- Run backend commands from `backend/` with `uv run ...` only.
+- Do not use `pip`, raw `python`, or ad-hoc virtualenvs.
+- Run long-lived processes with `nohup ... > /tmp/<name>.log 2>&1 &`.
+- For long-lived jobs, poll logs every 15 seconds and stop on stall/error.
+- Raw `.dbn` data is immutable. Never edit or delete raw files unless explicitly instructed.
+- ET boundaries must use `America/New_York` (handles EST/EDT correctly).
+
+## Canonical VP Pipeline
+With `--start-time HH:MM` in ET, pipeline behavior is deterministic and always identical:
+
+1. Book bootstrap phase
+- Process events from session start through warmup boundary using `apply_book_event()`.
+- Builds book/spot state without running full force derivatives.
+- Saves checkpoint to `backend/lake/cache/vp_book/{symbol}_{dt}_{hash}.pkl`.
+
+2. VP warmup phase
+- Process the next 30 minutes of events through full VP engine.
+- No grid emission yet; used to initialize derivative state.
+
+3. Emit phase
+- Full VP engine updates and dense-grid websocket emission.
+
+If `--start-time` is omitted, all events run through full engine from the first event and no pre-emit book bootstrap cache is used.
+
+## Cache Behavior (Fast Startup)
+Book cache key includes:
+- `product_type`
+- `symbol`
+- `dt`
+- warmup boundary (`start_time - 30m`)
+- raw `.dbn` file `mtime` and `size`
+
+Implications:
+- Re-downloaded raw data auto-invalidates cache.
+- Formula/math changes do not require cache rebuild (cache stores book state only).
+- Changing `--start-time` creates a different cache key.
+- Force rebuild: `rm -rf backend/lake/cache/vp_book/`
+
+To launch UI quickly at `09:25` ET without rescanning from open each time:
+- Keep `--start-time 09:25` consistent for that session/date/symbol.
+- First run builds cache.
+- Subsequent runs with same inputs reuse cache and skip pre-warmup book reconstruction.
+
+## VP Two-Force Math Contract
+Per bucket:
+
+Pressure (depth building / liquidity arriving):
+```text
+pressure = 1.0*v_add + 0.5*max(v_rest_depth, 0) + 0.3*max(a_add, 0)
 ```
-pressure = 1.0·v_add + 0.5·max(v_rest_depth, 0) + 0.3·max(a_add, 0)
+
+Vacuum (depth draining / liquidity removed or consumed):
+```text
+vacuum = 1.0*v_pull + 1.5*v_fill + 0.5*max(-v_rest_depth, 0) + 0.3*max(a_pull, 0)
 ```
 
-**Vacuum** (depth draining — liquidity removed/consumed):
+State interpretation:
+1. vacuum above + pressure below => up bias
+2. pressure above + vacuum below => down bias
+3. weak/balanced => chop
+
+No separate resistance variant exists. Pressure above spot is resistance; pressure below spot is support.
+
+Derivative chain:
+- velocity tau = 2s
+- acceleration tau = 5s
+- jerk tau = 10s
+- continuous-time EMA alpha = `1 - exp(-dt/tau)`
+
+## Frontend Explainability Contract
+The right panel is explainability-only and derived from dense-grid pressure/vacuum aggregates.
+
+Hard constraints:
+- no legacy `signals` surface consumption
+- no `5s/15s/60s` UI fields
+- no projection/event-marker overlays
+
+Panel sections:
+- Net Edge: `bull_edge - bear_edge`
+- Force Balance: `vac_above`, `press_above`, `press_below`, `vac_below`
+- State: `UP BIAS`, `DOWN BIAS`, `UP LEAN`, `DOWN LEAN`, `CHOP`
+- Trade Guidance: posture + reason + risk flag
+- Depth Context: rest-depth tilt/total and force context (`NOT ENABLED` predictive model)
+
+## End-to-End Runbook (Exact Order)
+
+1. Set runtime variables (example)
+```bash
+export VP_PRODUCT_TYPE=future_mbo
+export VP_SYMBOL=MNQH6
+export VP_DT=2026-02-06
+export VP_START_TIME=09:25
+export VP_SPEED=1
+export VP_THROTTLE_MS=25
+export VP_BACKEND_PORT=8002
+export VP_FRONTEND_PORT=5174
 ```
-vacuum = 1.0·v_pull + 1.5·v_fill + 0.5·max(-v_rest_depth, 0) + 0.3·max(a_pull, 0)
+
+2. Install/sync dependencies
+```bash
+cd backend
+uv sync
+cd ../frontend
+npm ci
+cd ..
 ```
 
-Three market states from spatial distribution:
-1. Vacuum above spot + Pressure below → price goes UP
-2. Pressure above spot + Vacuum below → price goes DOWN
-3. Weak/balanced → CHOP
+3. Ensure raw `.dbn` data exists (download if missing)
 
-There is no separate `resistance_variant`. Pressure above spot IS resistance. Pressure below spot IS support.
-
-Derivative chain: velocity (τ=2s), acceleration (τ=5s), jerk (τ=10s) via continuous-time EMA (`α = 1 - exp(-dt/τ)`). Mechanics (add/pull/fill mass) use delta-based derivatives to separate passive decay from market activity. rest_depth uses value-change derivatives.
-
-## VP Pipeline (3-Phase Processing)
-
-When `--start-time` is provided (e.g. `09:30`):
-
-1. **Book-only fast-forward** — All events from session start (midnight UTC for futures) through warmup boundary are processed via lightweight `apply_book_event()` (~40k evt/s). Builds correct order book without grid/derivative computation. **Cached** after first run at `lake/cache/vp_book/{symbol}_{dt}_{hash}.pkl`.
-2. **VP warmup** (30 min before start_time) — Full engine processes events to populate derivative chains. Grids not emitted.
-3. **Live emit** — Full engine + grid emission to WebSocket consumers.
-
-Book state cache:
-- Auto-invalidates when raw `.dbn` data is re-downloaded (key includes file mtime + size).
-- Formula changes do NOT require cache regeneration (book state is formula-independent).
-- Force regeneration: `rm -rf backend/lake/cache/vp_book/`
-
-First run with cache miss: ~6 min book build + ~9 min file scan/warmup for MNQ.
-Subsequent runs with cache hit: book loads in <0.01s, then ~9 min file scan/warmup.
-
-## Data Download Notes
-Raw path:
-- `backend/lake/raw/source=databento/product_type={product_type}/...`
-
-Symbol routing:
-- Futures roots (`ES`, `NQ`, `MES`, `MNQ`, `GC`, `SI`, `CL`, `6E`) use `scripts/batch_download_futures.py`
-- Equities (`QQQ`, `SPY`, `AAPL`) use `scripts/batch_download_equities.py`
-
-Download futures raw data:
+Futures download daemon:
 ```bash
 cd backend
 nohup uv run scripts/batch_download_futures.py daemon \
-  --start YYYY-MM-DD --end YYYY-MM-DD \
+  --start ${VP_DT} --end ${VP_DT} \
   --symbols MNQ \
   --include-futures \
   --options-schemas mbo,statistics \
   --poll-interval 60 \
-  --log-file logs/futures.log > logs/futures_daemon.out 2>&1 &
+  --log-file logs/futures.log > /tmp/futures_daemon.log 2>&1 &
 ```
 
-Download equities raw data:
+Equities download daemon:
 ```bash
 cd backend
 nohup uv run scripts/batch_download_equities.py daemon \
-  --start YYYY-MM-DD --end YYYY-MM-DD \
+  --start ${VP_DT} --end ${VP_DT} \
   --symbols QQQ \
   --equity-schemas mbo \
   --options-schemas cmbp-1,statistics \
   --poll-interval 60 \
-  --log-file logs/equities.log > logs/equities_daemon.out 2>&1 &
+  --log-file logs/equities.log > /tmp/equities_daemon.log 2>&1 &
 ```
 
-Decompress:
+Poll downloader logs every 15 seconds:
+```bash
+while true; do date; tail -n 40 /tmp/futures_daemon.log; sleep 15; done
+```
+
+4. Decompress any downloaded `.dbn.zst` files
 ```bash
 find backend/lake -name "*.dbn.zst" -exec zstd -d --rm {} \;
 ```
 
-## Bring Up VP
-
-1. Kill stale VP/frontend processes:
+5. Stop stale VP/frontend processes
 ```bash
-kill $(lsof -t -iTCP:8002) 2>/dev/null
-kill $(lsof -t -iTCP:5174) 2>/dev/null
+kill $(lsof -t -iTCP:${VP_BACKEND_PORT}) 2>/dev/null
+kill $(lsof -t -iTCP:${VP_FRONTEND_PORT}) 2>/dev/null
 ```
 
-2. Start VP live dense-grid server:
+6. Start VP backend server (single PRE-PROD runtime)
 ```bash
 cd backend
 nohup uv run scripts/run_vacuum_pressure.py \
-  --product-type future_mbo \
-  --symbol MNQH6 \
-  --dt 2026-02-06 \
-  --port 8002 \
-  --start-time 09:30 \
-  --speed 1 \
-  --throttle-ms 25 > /tmp/vp_live.log 2>&1 &
+  --product-type ${VP_PRODUCT_TYPE} \
+  --symbol ${VP_SYMBOL} \
+  --dt ${VP_DT} \
+  --port ${VP_BACKEND_PORT} \
+  --start-time ${VP_START_TIME} \
+  --speed ${VP_SPEED} \
+  --throttle-ms ${VP_THROTTLE_MS} > /tmp/vp_preprod.log 2>&1 &
 ```
 
-3. Start frontend:
+7. Start frontend
 ```bash
 cd frontend
-npm ci
 nohup npm run dev > /tmp/frontend_vp.log 2>&1 &
 ```
 
-4. Open VP UI:
-```text
-http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:30&throttle_ms=25
-```
-
-VP websocket:
-```text
-ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:30&throttle_ms=25
-```
-
-CLI parameters:
-- `--product-type`: `future_mbo` or `equity_mbo`
-- `--symbol`: contract symbol (e.g. `MNQH6`, `QQQ`)
-- `--dt`: session date `YYYY-MM-DD`
-- `--port`: server port (default 8002)
-- `--start-time`: emit start `HH:MM` in ET (warmup 30min before)
-- `--speed`: replay pacing multiplier (1=realtime, 0=firehose)
-- `--throttle-ms`: min event-time spacing between emitted grids (default 25)
-
-## Health / Debug
+8. Poll startup logs every 15 seconds until healthy
 ```bash
-lsof -iTCP:8002 -sTCP:LISTEN
-lsof -iTCP:5174 -sTCP:LISTEN
-curl -s http://localhost:8002/health
-tail -f /tmp/vp_live.log
-tail -f /tmp/frontend_vp.log
+while true; do date; tail -n 40 /tmp/vp_preprod.log; sleep 15; done
 ```
 
-Monitor book cache:
+9. Open UI
+```text
+http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:25&throttle_ms=25
+```
+
+10. Health checks
 ```bash
+lsof -iTCP:${VP_BACKEND_PORT} -sTCP:LISTEN
+lsof -iTCP:${VP_FRONTEND_PORT} -sTCP:LISTEN
+curl -s http://localhost:${VP_BACKEND_PORT}/health
 ls -lah backend/lake/cache/vp_book/
 ```
 
-Clear book cache (force rebuild on next run):
-```bash
-rm -rf backend/lake/cache/vp_book/
+11. Websocket endpoint
+```text
+ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&speed=1&start_time=09:25&throttle_ms=25
 ```
 
-## Tests
-VP backend sanity checks:
+## Debug Playbook
+- Missing data file: run downloader and decompression, then restart VP.
+- Product/symbol resolution error: verify `backend/src/data_eng/config/products.yaml` (futures roots) and symbol spelling.
+- Cache/schema mismatch error: clear `backend/lake/cache/vp_book/` and restart.
+- No grid updates yet: backend is likely still in bootstrap/warmup before `start_time` boundary.
+- Backend unhealthy: check `/tmp/vp_preprod.log` first, then rerun with `--log-level DEBUG`.
+
+## Command Surface Verification
+Backend:
 ```bash
 cd backend
 uv run scripts/run_vacuum_pressure.py --help
-uv run python -c "from src.vacuum_pressure.event_engine import EventDrivenVPEngine; e = EventDrivenVPEngine(K=50, tick_int=250000000); print('OK:', len(e._grid), 'buckets')"
+uv run scripts/batch_download_futures.py daemon --help
+uv run scripts/batch_download_equities.py daemon --help
 ```
 
-Frontend type check:
+Frontend:
 ```bash
 cd frontend
-npm ci
 npx tsc --noEmit
 ```
 
-## Supported Products
-Futures (from `products.yaml`): `ES`, `MES`, `MNQ`, `NQ`, `SI`, `GC`, `CL`, `6E`
-Equities (inline defaults): `QQQ`, `SPY` (bucket_size_dollars=0.50, tick_size=0.01)
-
 ## Key Files
-- VP CLI: `backend/scripts/run_vacuum_pressure.py`
-- VP server: `backend/src/vacuum_pressure/server.py`
-- VP stream pipeline: `backend/src/vacuum_pressure/stream_pipeline.py`
-- VP event engine: `backend/src/vacuum_pressure/event_engine.py`
-- VP ingest adapter (.dbn): `backend/src/vacuum_pressure/replay_source.py`
-- VP config resolver: `backend/src/vacuum_pressure/config.py`
-- VP frontend: `frontend/src/vacuum-pressure.ts`
-- VP frontend page: `frontend/vacuum-pressure.html`
-- Product config: `backend/src/data_eng/config/products.yaml`
-- Data engineering utils: `backend/src/data_eng/utils.py`
-- Book state cache: `backend/lake/cache/vp_book/*.pkl`
+- VP entrypoint: `backend/scripts/run_vacuum_pressure.py`
+- VP websocket app: `backend/src/vacuum_pressure/server.py`
+- VP pipeline + cache: `backend/src/vacuum_pressure/stream_pipeline.py`
+- VP event engine math: `backend/src/vacuum_pressure/event_engine.py`
+- PRE-PROD source adapter (`.dbn`): `backend/src/vacuum_pressure/replay_source.py`
+- Runtime config resolver: `backend/src/vacuum_pressure/config.py`
+- Frontend logic: `frontend/src/vacuum-pressure.ts`
+- Frontend page: `frontend/vacuum-pressure.html`
+- Futures product config: `backend/src/data_eng/config/products.yaml`
+- Book cache directory: `backend/lake/cache/vp_book/`

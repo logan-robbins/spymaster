@@ -1,9 +1,9 @@
-"""WebSocket server for live vacuum-pressure dense-grid streaming.
+"""WebSocket server for canonical vacuum-pressure dense-grid streaming.
 
 Canonical runtime path:
-    ingest (.dbn adapter for now) -> EventDrivenVPEngine (in-memory) -> dense grid
+    ingest (PRE-PROD .dbn adapter for now) -> EventDrivenVPEngine (in-memory) -> dense grid
 
-No replay/silver/window branches are supported in this server.
+No alternate math or window branches are supported in this server.
 """
 from __future__ import annotations
 
@@ -51,10 +51,10 @@ GRID_SCHEMA = pa.schema([
 
 
 def _with_live_grid(config: VPRuntimeConfig) -> VPRuntimeConfig:
-    """Return runtime config with canonical live grid radius baked in."""
+    """Return runtime config with canonical production-equivalent grid radius."""
     if DEFAULT_GRID_TICKS > config.grid_max_ticks:
         raise ValueError(
-            f"default live grid K={DEFAULT_GRID_TICKS} exceeds configured max "
+            f"default canonical grid K={DEFAULT_GRID_TICKS} exceeds configured max "
             f"{config.grid_max_ticks} "
             f"for {config.product_type}/{config.symbol}"
         )
@@ -91,18 +91,18 @@ def create_app(
     lake_root: Path | None = None,
     products_yaml_path: Path | None = None,
 ) -> FastAPI:
-    """Create the FastAPI app for live dense-grid streaming."""
+    """Create the FastAPI app for canonical dense-grid streaming."""
     if lake_root is None:
         lake_root = Path(__file__).resolve().parents[2] / "lake"
     if products_yaml_path is None:
         products_yaml_path = _DEFAULT_PRODUCTS_YAML
 
     app = FastAPI(
-        title="Vacuum Pressure Live Stream Server",
+        title="Vacuum Pressure Stream Server",
         version="3.0.0",
         description=(
-            "Live in-memory dense-grid vacuum-pressure streaming from event feed "
-            "(DBN replay adapter today, live subscription adapter later)."
+            "Canonical in-memory dense-grid vacuum-pressure streaming from event feed "
+            "(PRE-PROD DBN adapter today, Databento socket adapter later)."
         ),
     )
 
@@ -116,7 +116,7 @@ def create_app(
 
     @app.get("/health")
     async def health() -> dict:
-        return {"status": "ok", "service": "vacuum-pressure-live"}
+        return {"status": "ok", "service": "vacuum-pressure"}
 
     @app.websocket("/v1/vacuum-pressure/stream")
     async def vacuum_pressure_stream(
@@ -128,13 +128,13 @@ def create_app(
         start_time: str | None = None,
         throttle_ms: float = 25.0,
     ) -> None:
-        """Stream dense-grid updates from the canonical live event engine.
+        """Stream dense-grid updates from the canonical event engine.
 
         Query params:
             product_type: ``equity_mbo`` or ``future_mbo``.
             symbol: instrument symbol.
             dt: date in YYYY-MM-DD.
-            speed: replay speed multiplier for DBN adapter (0=firehose).
+            speed: source pacing multiplier for DBN adapter (0=firehose).
             start_time: optional emit start HH:MM ET (warmup processed in-memory).
             throttle_ms: minimum event-time spacing between emitted updates.
         """
@@ -149,7 +149,7 @@ def create_app(
             base_config = resolve_config(product_type, symbol, products_yaml_path)
             config = _with_live_grid(base_config)
         except (ValueError, FileNotFoundError) as exc:
-            logger.error("Live VP stream setup failed: %s", exc)
+            logger.error("VP stream setup failed: %s", exc)
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": str(exc),
@@ -158,7 +158,7 @@ def create_app(
             return
 
         logger.info(
-            "VP live stream connected: product_type=%s symbol=%s dt=%s speed=%.2f start_time=%s K=%d throttle_ms=%.1f cfg=%s",
+            "VP stream connected: product_type=%s symbol=%s dt=%s speed=%.2f start_time=%s K=%d throttle_ms=%.1f cfg=%s",
             config.product_type,
             config.symbol,
             dt,
@@ -191,14 +191,15 @@ async def _stream_live_dense_grid(
     start_time: str | None,
     throttle_ms: float,
 ) -> None:
-    """Send dense-grid updates over websocket from live event pipeline."""
+    """Send dense-grid updates over websocket from canonical event pipeline."""
     grid_count = 0
 
     try:
         await websocket.send_text(json.dumps({
             "type": "runtime_config",
             **config.to_dict(),
-            "mode": "live",
+            "mode": "pre_prod",
+            "deployment_stage": "pre_prod",
             "stream_format": "dense_grid",
             "grid_schema_fields": [f.name for f in GRID_SCHEMA],
             "grid_rows": 2 * config.grid_max_ticks + 1,
@@ -228,14 +229,14 @@ async def _stream_live_dense_grid(
 
             if grid_count % 1000 == 0:
                 logger.info(
-                    "VP live dense-grid: %d updates sent (event_id=%d)",
+                    "VP dense-grid: %d updates sent (event_id=%d)",
                     grid_count,
                     grid["event_id"],
                 )
 
     except WebSocketDisconnect:
-        logger.info("VP live stream client disconnected")
+        logger.info("VP stream client disconnected")
     except Exception as exc:
-        logger.error("VP live stream error: %s", exc, exc_info=True)
+        logger.error("VP stream error: %s", exc, exc_info=True)
     finally:
-        logger.info("VP live stream ended (%d dense-grid updates sent)", grid_count)
+        logger.info("VP stream ended (%d dense-grid updates sent)", grid_count)

@@ -1,8 +1,8 @@
 """Event-driven vacuum/pressure engine — two-force model.
 
 Canonical event-time force-field engine over relative price buckets around spot.
-Every MBO order book event updates pressure-state math. Live and replay run
-identical code paths (only the event source differs).
+Every MBO order book event updates pressure-state math. PRE-PROD DBN source and
+future live socket source run identical code paths (only the event source differs).
 
 Architecture:
     1. Maintain internal order book (orders by order_id -> {price_int, size, side}).
@@ -60,7 +60,7 @@ Guarantees:
     G2: Emitted grid contains all buckets k in [-K, +K] every time (2K+1 total).
     G3: No bucket value is null/NaN/Inf.
     G4: Untouched buckets persist prior values (after spot-frame remap).
-    G5: Replay and live produce identical outputs for identical event stream.
+    G5: Any source adapter produces identical outputs for identical event stream.
 """
 from __future__ import annotations
 
@@ -568,7 +568,7 @@ class EventDrivenVPEngine:
     ) -> Dict[str, Any]:
         """Process one MBO event and return dense grid snapshot.
 
-        This is the single entry point for both replay and live feeds.
+        This is the single entry point for all source adapters.
         Every call advances engine state exactly once.
 
         Args:
@@ -1151,7 +1151,7 @@ class EventDrivenVPEngine:
     def export_book_state(self) -> bytes:
         """Serialize internal order book state to bytes for caching.
 
-        Captures everything needed to resume from this point: all live
+        Captures everything needed to resume from this point: all active
         orders, depth maps, BBO, spot, event counter, and lifecycle flags.
         Grid state is NOT included (it's all zeros during book-only mode;
         warmup will populate it).
@@ -1238,7 +1238,7 @@ class EventDrivenVPEngine:
 
     @property
     def order_count(self) -> int:
-        """Number of live orders in the internal book."""
+        """Number of active orders in the internal book."""
         return len(self._orders)
 
     @property
