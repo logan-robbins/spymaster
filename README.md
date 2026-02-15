@@ -1,140 +1,33 @@
 # Spymaster
 
-## Single Runtime Model (PRE-PROD)
-Spymaster Vacuum Pressure (VP) runs one canonical runtime model.
+## System
 
-Current state is `PRE-PROD` only because the event source adapter reads local Databento `.dbn` files.
-Everything else is production-equivalent and unchanged:
-- same VP math
-- same in-memory event engine
-- same 3-phase pipeline behavior
-- same websocket payload contract
-- same frontend rendering and explainability logic
+One canonical VP runtime. PRE-PROD only means source adapter reads `.dbn` files instead of live Databento socket. All math, engine, pipeline, protocol, and frontend are production-equivalent.
 
-When a live Databento subscription is available, the only planned change is source adapter input (`.dbn` file reader -> live Databento socket). There are no alternate math modes.
+## Constraints
 
-## Runtime Contract (Operator + LLM)
-- Run backend commands from `backend/` with `uv run ...` only.
-- Do not use `pip`, raw `python`, or ad-hoc virtualenvs.
-- Run long-lived processes with `nohup ... > /tmp/<name>.log 2>&1 &`.
-- For long-lived jobs, poll logs every 15 seconds and stop on stall/error.
-- Raw `.dbn` data is immutable. Never edit or delete raw files unless explicitly instructed.
-- ET boundaries must use `America/New_York` (handles EST/EDT correctly).
+- All backend commands: `cd backend && uv run ...`. No `pip`, no raw `python`, no ad-hoc venvs.
+- Long-lived processes: `nohup ... > /tmp/<name>.log 2>&1 &`. Poll every 15s, kill on stall/error.
+- Raw `.dbn` files are immutable. Never edit or delete unless explicitly instructed.
+- ET time boundaries: always `America/New_York` (handles EST/EDT).
+- Runtime is single-instrument only, locked by `backend/src/vacuum_pressure/instrument.yaml` (override path with `VP_INSTRUMENT_CONFIG_PATH`).
 
-## Canonical VP Pipeline
-With `--start-time HH:MM` in ET, pipeline behavior is deterministic and always identical:
+## Commands
 
-1. Book bootstrap phase
-- Process events from session start through warmup boundary using `apply_book_event()`.
-- Builds book/spot state without running full force derivatives.
-- Saves checkpoint to `backend/lake/cache/vp_book/{symbol}_{dt}_{hash}.pkl`.
+### 1. Install Dependencies
 
-2. VP warmup phase
-- Process the next 30 minutes of events through full VP engine.
-- No grid emission yet; used to initialize derivative state.
-
-3. Emit phase
-- Full VP engine updates and dense-grid websocket emission.
-
-If `--start-time` is omitted, all events run through full engine from the first event and no pre-emit book bootstrap cache is used.
-
-## Cache Behavior (Fast Startup)
-Book cache key includes:
-- `product_type`
-- `symbol`
-- `dt`
-- warmup boundary (`start_time - 30m`)
-- raw `.dbn` file `mtime` and `size`
-
-Implications:
-- Re-downloaded raw data auto-invalidates cache.
-- Formula/math changes do not require cache rebuild (cache stores book state only).
-- Changing `--start-time` creates a different cache key.
-- Force rebuild: `rm -rf backend/lake/cache/vp_book/`
-
-To launch UI quickly at `09:25` ET without rescanning from open each time:
-- Keep `--start-time 09:25` consistent for that session/date/symbol.
-- First run builds cache.
-- Subsequent runs with same inputs reuse cache and skip pre-warmup book reconstruction.
-
-Pre-warm cache without starting the server:
 ```bash
-cd backend
-uv run scripts/warm_cache.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --start-time 09:25
-# Batch mode:
-uv run scripts/warm_cache.py --product-type future_mbo --symbols MNQH6 ESH6 --dt 2026-02-06 --start-time 09:25
+cd backend && uv sync
+cd frontend && npm ci
 ```
 
-## VP Two-Force Math Contract
-Per bucket:
+### 2. Download Raw Data
 
-Pressure (depth building / liquidity arriving):
-```text
-pressure = 1.0*v_add + 0.5*max(v_rest_depth, 0) + 0.3*max(a_add, 0)
-```
-
-Vacuum (depth draining / liquidity removed or consumed):
-```text
-vacuum = 1.0*v_pull + 1.5*v_fill + 0.5*max(-v_rest_depth, 0) + 0.3*max(a_pull, 0)
-```
-
-State interpretation:
-1. vacuum above + pressure below => up bias
-2. pressure above + vacuum below => down bias
-3. weak/balanced => chop
-
-No separate resistance variant exists. Pressure above spot is resistance; pressure below spot is support.
-
-Derivative chain:
-- velocity tau = 2s
-- acceleration tau = 5s
-- jerk tau = 10s
-- continuous-time EMA alpha = `1 - exp(-dt/tau)`
-
-## Frontend Explainability Contract
-The right panel is explainability-only and derived from dense-grid pressure/vacuum aggregates.
-
-Hard constraints:
-- no legacy `signals` surface consumption
-- no `5s/15s/60s` UI fields
-- no projection/event-marker overlays
-
-Panel sections:
-- Net Edge: `bull_edge - bear_edge`
-- Force Balance: `vac_above`, `press_above`, `press_below`, `vac_below`
-- State: `UP BIAS`, `DOWN BIAS`, `UP LEAN`, `DOWN LEAN`, `CHOP`
-- Trade Guidance: posture + reason + risk flag
-- Depth Context: rest-depth tilt/total and force context (`NOT ENABLED` predictive model)
-
-## End-to-End Runbook (Exact Order)
-
-1. Set runtime variables (example)
-```bash
-export VP_PRODUCT_TYPE=future_mbo
-export VP_SYMBOL=MNQH6
-export VP_DT=2026-02-06
-export VP_START_TIME=09:25
-export VP_THROTTLE_MS=25
-export VP_BACKEND_PORT=8002
-export VP_FRONTEND_PORT=5174
-```
-
-2. Install/sync dependencies
-```bash
-cd backend
-uv sync
-cd ../frontend
-npm ci
-cd ..
-```
-
-3. Ensure raw `.dbn` data exists (download if missing)
-
-Futures download daemon:
+Futures (substitute symbol root and date):
 ```bash
 cd backend
 nohup uv run scripts/batch_download_futures.py daemon \
-  --start ${VP_DT} --end ${VP_DT} \
+  --start 2026-02-06 --end 2026-02-06 \
   --symbols MNQ \
   --include-futures \
   --options-schemas mbo,statistics \
@@ -142,118 +35,264 @@ nohup uv run scripts/batch_download_futures.py daemon \
   --log-file logs/futures.log > /tmp/futures_daemon.log 2>&1 &
 ```
 
-Equities download daemon:
-```bash
-cd backend
-nohup uv run scripts/batch_download_equities.py daemon \
-  --start ${VP_DT} --end ${VP_DT} \
-  --symbols QQQ \
-  --equity-schemas mbo \
-  --options-schemas cmbp-1,statistics \
-  --poll-interval 60 \
-  --log-file logs/equities.log > /tmp/equities_daemon.log 2>&1 &
-```
-
-Poll downloader logs every 15 seconds:
-```bash
-while true; do date; tail -n 40 /tmp/futures_daemon.log; sleep 15; done
-```
-
-4. Decompress any downloaded `.dbn.zst` files
+After download completes, decompress:
 ```bash
 find backend/lake -name "*.dbn.zst" -exec zstd -d --rm {} \;
 ```
 
-5. Stop stale VP/frontend processes
-```bash
-kill $(lsof -t -iTCP:${VP_BACKEND_PORT}) 2>/dev/null
-kill $(lsof -t -iTCP:${VP_FRONTEND_PORT}) 2>/dev/null
-```
+### 3. Warm Book Cache (Optional, Saves Minutes on First Server Start)
 
-6. Start VP backend server (single PRE-PROD runtime)
+Single symbol:
 ```bash
 cd backend
-nohup uv run scripts/run_vacuum_pressure.py \
-  --product-type ${VP_PRODUCT_TYPE} \
-  --symbol ${VP_SYMBOL} \
-  --dt ${VP_DT} \
-  --port ${VP_BACKEND_PORT} \
-  --start-time ${VP_START_TIME} \
-  --throttle-ms ${VP_THROTTLE_MS} > /tmp/vp_preprod.log 2>&1 &
+uv run scripts/warm_cache.py --product-type future_mbo --symbol MNQH6 --dt 2026-02-06 --start-time 09:00
 ```
 
-7. Start frontend
+### 4. Start VP Server
+
 ```bash
+kill $(lsof -t -iTCP:8002) 2>/dev/null
+cd backend
+nohup uv run scripts/run_vacuum_pressure.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --port 8002 \
+  --start-time 09:25 \
+  --throttle-ms 25 > /tmp/vp_preprod.log 2>&1 &
+```
+
+Parameters:
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--product-type` | yes | — | `future_mbo` or `equity_mbo` |
+| `--symbol` | no | `MNQH6` | Must match locked runtime config symbol |
+| `--dt` | no | `2026-02-06` | Date `YYYY-MM-DD` |
+| `--port` | no | `8002` | Server port |
+| `--host` | no | `0.0.0.0` | Bind host |
+| `--start-time` | no | None | Emit start `HH:MM` in ET. Enables 3-phase pipeline with book cache. If omitted: all events go through full engine from first event, no cache. |
+| `--throttle-ms` | no | `25` | Minimum event-time ms between emitted grid updates |
+| `--log-level` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+
+### 5. Start Frontend
+
+```bash
+kill $(lsof -t -iTCP:5174) 2>/dev/null
 cd frontend
 nohup npm run dev > /tmp/frontend_vp.log 2>&1 &
 ```
 
-8. Poll startup logs every 15 seconds until healthy
-```bash
-while true; do date; tail -n 40 /tmp/vp_preprod.log; sleep 15; done
-```
+### 6. Open UI
 
-9. Open UI
-```text
+```
 http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&throttle_ms=25
 ```
 
-10. Health checks
+### 7. Health Checks
+
 ```bash
-lsof -iTCP:${VP_BACKEND_PORT} -sTCP:LISTEN
-lsof -iTCP:${VP_FRONTEND_PORT} -sTCP:LISTEN
-curl -s http://localhost:${VP_BACKEND_PORT}/health
+curl -s http://localhost:8002/health
+lsof -iTCP:8002 -sTCP:LISTEN
+lsof -iTCP:5174 -sTCP:LISTEN
 ls -lah backend/lake/cache/vp_book/
 ```
 
-11. Websocket endpoint
-```text
+### 8. WebSocket Endpoint
+
+```
 ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&throttle_ms=25
 ```
 
-## Debug Playbook
-- Missing data file: run downloader and decompression, then restart VP.
-- Product/symbol resolution error: verify `backend/src/data_eng/config/products.yaml` (futures roots) and symbol spelling.
-- Cache/schema mismatch error: clear `backend/lake/cache/vp_book/` and restart.
-- No grid updates yet: backend is likely still in bootstrap/warmup before `start_time` boundary.
-- Backend unhealthy: check `/tmp/vp_preprod.log` first, then rerun with `--log-level DEBUG`.
+### 9. Regime Analysis (Offline, Derivative-Only)
 
-## Command Surface Verification
-Backend:
 ```bash
 cd backend
-uv run scripts/run_vacuum_pressure.py --help
-uv run scripts/batch_download_futures.py daemon --help
-uv run scripts/batch_download_equities.py daemon --help
+uv run scripts/analyze_vp_signals.py \
+  --mode regime \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --start-time 09:00 \
+  --eval-start 09:00 \
+  --eval-end 12:00 \
+  --directional-bands 4,8,16 \
+  --micro-windows 25,50,100,200 \
+  --tp-ticks 8 \
+  --sl-ticks 4 \
+  --max-hold-snapshots 1200 \
+  --projection-horizons-ms 250,500,1000,2500 \
+  --projection-rollup-windows 8,32,96 \
+  --projection-buckets -8,8
 ```
 
-Frontend:
-```bash
-cd frontend
-npx tsc --noEmit
-```
+Parameters:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--mode` | `regime` | Analysis mode (canonical path) |
+| `--product-type` | `future_mbo` | Product type |
+| `--symbol` | `MNQH6` | Must match locked runtime config symbol |
+| `--dt` | `2026-02-06` | Date |
+| `--start-time` | `09:00` | Capture start `HH:MM` ET |
+| `--eval-start` | `09:00` | Evaluation window start `HH:MM` ET |
+| `--eval-end` | `12:00` | Evaluation window end `HH:MM` ET |
+| `--eval-minutes` | `None` | Optional fallback duration when `--eval-end` is omitted |
+| `--throttle-ms` | `25` | Grid throttle ms |
+| `--normalization-window` | `300` | Trailing snapshots for robust z-score (median/MAD) |
+| `--normalization-min-periods` | `75` | Minimum trailing snapshots before z-score is valid |
+| `--directional-bands` | `4,8,16` | Symmetric side bands for directional layer rollups |
+| `--micro-windows` | `25,50,100,200` | Trailing windows for derivative slope rollups |
+| `--spectrum-threshold` | `0.15` | Threshold for `pressure/transition/vacuum` state mapping |
+| `--directional-edge-threshold` | `0.20` | Threshold for `up/down/flat` directional edge state |
+| `--signal-cooldown` | `8` | Minimum snapshots between directional switch events |
+| `--tp-ticks` / `--sl-ticks` | `8` / `4` | Trade-style continuation target and adverse stop |
+| `--max-hold-snapshots` | `1200` | Max hold horizon before timeout |
+| `--stability-max-drift` | `0.35` | Maximum relative drift across hourly buckets |
+| `--stability-min-signals-per-hour` | `5` | Minimum directional events required per hour |
+| `--projection-horizons-ms` | `250,500,1000,2500` | Projection horizons in milliseconds |
+| `--projection-rollup-windows` | `8,32,96` | Trailing derivative rollup windows (snapshots) |
+| `--projection-buckets` | `-8,8` | Relative buckets printed in projection summary |
+| `--json-output` | `None` | Optional JSON metrics output path |
 
-## VP Signal Analysis
-Offline analysis of VP derivative signal predictive power for directional mid-price prediction:
+Outputs directional spectrum states (`pressure -> transition -> vacuum`), directional switch events, trade-style TP/SL/timeout metrics, hourly stability gate diagnostics, and per-bucket forward projection composites.
+
+Uses `stream_events()` directly (no WebSocket, no real-time pacing). Runtime is warmup/cache dominated; see `ANALYSIS.md` for methodology and reproducibility.
+
+To persist machine-readable metrics for replay-golden workflows:
+
 ```bash
 cd backend
-uv run scripts/analyze_vp_signals.py
-uv run scripts/analyze_vp_signals.py --start-time 09:30 --eval-start 09:50 --eval-minutes 5
-uv run scripts/analyze_vp_signals.py --help
+uv run scripts/analyze_vp_signals.py \
+  --mode regime \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --start-time 09:00 \
+  --eval-start 09:00 \
+  --eval-end 12:00 \
+  --directional-bands 4,8,16 \
+  --micro-windows 25,50,100,200 \
+  --tp-ticks 8 \
+  --sl-ticks 4 \
+  --max-hold-snapshots 1200 \
+  --projection-horizons-ms 250,500,1000,2500 \
+  --projection-rollup-windows 8,32,96 \
+  --projection-buckets -8,8 \
+  --json-output tests/golden_mnq_20260206_0900_1200.json
 ```
 
-Features evaluated: PV net edge (full/near/mid/far/k-weighted), depth tilt (full/near/mid/far), velocity tilts (add/pull/fill/depth), acceleration tilts, jerk magnitude/tilts. Each feature is z-scored at 4 EWM lookback windows (5/15/50/150 snapshots) and tested against 3 forward return horizons (25/100/500 snapshots) via Spearman rank IC, hit rate, and t-stat. A composite signal is built from the top-5 features by IC on the training window and evaluated on the held-out window with regime conditioning (CHOP vs DIRECTIONAL split by median jerk magnitude).
+## Pipeline Phases
 
-## Key Files
-- VP signal analysis: `backend/scripts/analyze_vp_signals.py`
-- Cache warming: `backend/scripts/warm_cache.py`
-- VP entrypoint: `backend/scripts/run_vacuum_pressure.py`
-- VP websocket app: `backend/src/vacuum_pressure/server.py`
-- VP pipeline + cache: `backend/src/vacuum_pressure/stream_pipeline.py`
-- VP event engine math: `backend/src/vacuum_pressure/event_engine.py`
-- PRE-PROD source adapter (`.dbn`): `backend/src/vacuum_pressure/replay_source.py`
-- Runtime config resolver: `backend/src/vacuum_pressure/config.py`
-- Frontend logic: `frontend/src/vacuum-pressure.ts`
-- Frontend page: `frontend/vacuum-pressure.html`
-- Futures product config: `backend/src/data_eng/config/products.yaml`
-- Book cache directory: `backend/lake/cache/vp_book/`
+When `--start-time` is provided, the pipeline has 3 deterministic phases:
+
+1. **Book bootstrap** — `apply_book_event()` from session start to `start_time - 30min`. Builds order book state without VP math. **Cached to disk via `ensure_book_cache()`.**
+2. **VP warmup** — Full VP engine from `start_time - 30min` to `start_time`. Populates derivative chains. No grid emission.
+3. **Emit** — Full VP engine + dense-grid WebSocket emission at real-time pacing.
+
+When `--start-time` is omitted: all events go through full VP engine from first event. No book cache is created or used.
+
+## Book Cache Behavior
+
+Function: `ensure_book_cache()` in `stream_pipeline.py`. Called by both `stream_events()` and `warm_cache.py`.
+
+Cache path: `backend/lake/cache/vp_book/{symbol}_{dt}_{hash}.pkl`
+
+Cache key (determines `{hash}`):
+- `product_type`
+- `symbol`
+- `dt`
+- `warmup_start_ns` (derived from `start_time - 30min`)
+- `.dbn` file `st_mtime_ns`
+- `.dbn` file `st_size`
+
+**Decision tree:**
+
+```
+Is --start-time provided?
+├── NO  → No cache. All events through full engine. warmup_start_ns=0.
+└── YES → warmup_start_ns = start_time - 30min
+          Does cache .pkl file exist at computed path?
+          ├── YES → Load from disk (instant, <0.01s). Skip Phase 1 entirely.
+          └── NO  → Build from scratch (process all pre-warmup events via
+                     apply_book_event). Save .pkl to disk. ~6 min for MNQH6.
+```
+
+**Cache invalidation rules:**
+- Re-downloading raw `.dbn` data → new mtime/size → new hash → auto-invalidates. Old cache file becomes orphaned (harmless).
+- Changing `--start-time` → different `warmup_start_ns` → different hash → separate cache file per start-time.
+- VP math/formula changes → NO invalidation needed. Cache stores order book state only, not VP derivatives.
+- Explicit invalidation: `rm -rf backend/lake/cache/vp_book/`
+
+**Cache is always reused** when all 6 key components match. There is no TTL, no expiry, no conditional logic beyond file existence. Once built, it persists until deleted or the raw `.dbn` file changes.
+
+## VP Math
+
+Per bucket (k = -50..+50 around spot):
+
+```
+pressure = 1.0*v_add + 0.5*max(v_rest_depth, 0) + 0.3*max(a_add, 0)
+vacuum   = 1.0*v_pull + 1.5*v_fill + 0.5*max(-v_rest_depth, 0) + 0.3*max(a_pull, 0)
+```
+
+Both pressure and vacuum are >= 0. State interpretation:
+- vacuum_above + pressure_below → UP BIAS
+- pressure_above + vacuum_below → DOWN BIAS
+- weak/balanced → CHOP
+
+Derivative chain (continuous-time EMA, alpha = `1 - exp(-dt/tau)`):
+- velocity: tau=2s
+- acceleration: tau=5s
+- jerk: tau=10s
+
+## Frontend
+
+Explainability-only right panel derived from dense-grid pressure/vacuum aggregates:
+- Net Edge: `bull_edge - bear_edge`
+- Force Balance: `vac_above`, `press_above`, `press_below`, `vac_below`
+- State: `UP BIAS`, `DOWN BIAS`, `UP LEAN`, `DOWN LEAN`, `CHOP`
+- Trade Guidance: posture + reason + risk flag
+- Depth Context: rest-depth tilt/total
+
+No `signals` surface, no `5s/15s/60s` fields, no projection overlays.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `FileNotFoundError: Raw DBN directory not found` | Missing `.dbn` data | Run download daemon (step 2), decompress, retry |
+| `Cannot extract product root from futures symbol` | Symbol not in `products.yaml` | Check `backend/src/data_eng/config/products.yaml` for known roots |
+| `grid_max_ticks mismatch` | Config/frontend disagreement | Verify product config. Frontend expects K=50 |
+| No grid updates after startup | Backend in warmup phase | Wait. Check `/tmp/vp_preprod.log` for warmup progress |
+| Stale cache after data re-download | Should not happen | Cache auto-invalidates on mtime/size change. If persists: `rm -rf backend/lake/cache/vp_book/` |
+| Backend unhealthy | Process crashed | Check `/tmp/vp_preprod.log`, rerun with `--log-level DEBUG` |
+
+## Verification Commands
+
+```bash
+cd backend && uv run scripts/run_vacuum_pressure.py --help
+cd backend && uv run scripts/warm_cache.py --help
+cd backend && uv run scripts/analyze_vp_signals.py --help
+cd backend && uv run pytest -q
+cd backend && VP_ENABLE_REAL_REPLAY_TESTS=1 uv run pytest -q
+cd backend && uv run scripts/batch_download_futures.py daemon --help
+cd frontend && npx tsc --noEmit
+```
+
+## File Map
+
+| File | Purpose |
+|------|---------|
+| `backend/scripts/run_vacuum_pressure.py` | VP server entrypoint |
+| `backend/scripts/warm_cache.py` | Standalone book cache builder |
+| `backend/scripts/analyze_vp_signals.py` | Offline derivative-only directional micro-regime analysis |
+| `backend/tests/test_analyze_vp_signals_regime.py` | Real-data replay-golden and invariants for 09:00-12:00 MNQ analysis |
+| `backend/scripts/batch_download_futures.py` | Futures `.dbn` download daemon |
+| `backend/src/vacuum_pressure/server.py` | FastAPI WebSocket app |
+| `backend/src/vacuum_pressure/stream_pipeline.py` | 3-phase pipeline, `stream_events()`, `ensure_book_cache()` |
+| `backend/src/vacuum_pressure/event_engine.py` | VP engine with derivative chain math |
+| `backend/src/vacuum_pressure/replay_source.py` | `.dbn` file reader, MBO event iterator |
+| `backend/src/vacuum_pressure/config.py` | Runtime config resolver |
+| `backend/src/vacuum_pressure/instrument.yaml` | Locked single-instrument runtime config |
+| `frontend/src/vacuum-pressure.ts` | Frontend visualization + explainability |
+| `frontend/vacuum-pressure.html` | Frontend page |
+| `backend/lake/cache/vp_book/` | Book state cache directory |
+| `ANALYSIS.md` | Derivative-only regime detection methodology and evaluation protocol |

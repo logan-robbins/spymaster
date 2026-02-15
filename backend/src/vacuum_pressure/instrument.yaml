@@ -1,0 +1,11 @@
+product_type: future_mbo
+symbol: MNQH6
+symbol_root: MNQ
+price_scale: 1.0e-9
+tick_size: 0.25
+bucket_size_dollars: 0.25
+rel_tick_size: 0.25
+grid_max_ticks: 400
+contract_multiplier: 2.0
+qty_unit: contracts
+price_decimals: 2
