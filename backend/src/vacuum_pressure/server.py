@@ -1,24 +1,17 @@
-"""WebSocket server for canonical vacuum-pressure dense-grid streaming.
-
-Canonical runtime path:
-    ingest (PRE-PROD .dbn adapter for now) -> EventDrivenVPEngine (in-memory) -> dense grid
-
-No alternate math or window branches are supported in this server.
-"""
+"""WebSocket server for canonical fixed-bin vacuum-pressure streaming."""
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pyarrow as pa
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import VPRuntimeConfig, resolve_config
-from .stream_pipeline import DEFAULT_GRID_TICKS, async_stream_events
+from .stream_pipeline import async_stream_events  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +19,7 @@ _DEFAULT_PRODUCTS_YAML = (
     Path(__file__).resolve().parents[1] / "data_eng" / "config" / "products.yaml"
 )
 
-GRID_SCHEMA = pa.schema([
+_BASE_GRID_FIELDS: List[tuple[str, pa.DataType]] = [
     ("k", pa.int32()),
     ("pressure_variant", pa.float64()),
     ("vacuum_variant", pa.float64()),
@@ -46,43 +39,39 @@ GRID_SCHEMA = pa.schema([
     ("j_pull", pa.float64()),
     ("j_fill", pa.float64()),
     ("j_rest_depth", pa.float64()),
+    ("spectrum_score", pa.float64()),
+    ("spectrum_state_code", pa.int8()),
     ("last_event_id", pa.int64()),
-])
+]
 
 
-def _with_live_grid(config: VPRuntimeConfig) -> VPRuntimeConfig:
-    """Return runtime config with canonical production-equivalent grid radius."""
-    if DEFAULT_GRID_TICKS > config.grid_max_ticks:
-        raise ValueError(
-            f"default canonical grid K={DEFAULT_GRID_TICKS} exceeds configured max "
-            f"{config.grid_max_ticks} "
-            f"for {config.product_type}/{config.symbol}"
-        )
-    return replace(
-        config,
-        grid_max_ticks=DEFAULT_GRID_TICKS,
-        config_version=f"{config.config_version}:k{DEFAULT_GRID_TICKS}",
-    )
+def _grid_schema(config: VPRuntimeConfig) -> pa.Schema:
+    fields = [pa.field(name, dtype) for name, dtype in _BASE_GRID_FIELDS]
+    for horizon_ms in config.projection_horizons_ms:
+        fields.append(pa.field(f"proj_score_h{horizon_ms}", pa.float64()))
+    return pa.schema(fields)
 
 
-def _grid_to_arrow_ipc(grid_dict: Dict[str, Any]) -> bytes:
-    """Convert EventDrivenVPEngine grid output to Arrow IPC bytes."""
+def _grid_to_arrow_ipc(grid_dict: Dict[str, Any], schema: pa.Schema) -> bytes:
     buckets = grid_dict["buckets"]
 
     arrays = []
-    for field in GRID_SCHEMA:
-        if field.name == "k":
-            arr = pa.array([b["k"] for b in buckets], type=pa.int32())
-        elif field.name == "last_event_id":
-            arr = pa.array([b["last_event_id"] for b in buckets], type=pa.int64())
+    for field in schema:
+        name = field.name
+        if pa.types.is_int8(field.type):
+            arr = pa.array([int(b[name]) for b in buckets], type=pa.int8())
+        elif pa.types.is_int32(field.type):
+            arr = pa.array([int(b[name]) for b in buckets], type=pa.int32())
+        elif pa.types.is_int64(field.type):
+            arr = pa.array([int(b[name]) for b in buckets], type=pa.int64())
         else:
-            arr = pa.array([b[field.name] for b in buckets], type=pa.float64())
+            arr = pa.array([float(b[name]) for b in buckets], type=pa.float64())
         arrays.append(arr)
 
-    table = pa.Table.from_arrays(arrays, schema=GRID_SCHEMA)
+    table = pa.Table.from_arrays(arrays, schema=schema)
 
     sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, GRID_SCHEMA) as writer:
+    with pa.ipc.new_stream(sink, schema) as writer:
         writer.write_table(table)
     return sink.getvalue().to_pybytes()
 
@@ -91,7 +80,7 @@ def create_app(
     lake_root: Path | None = None,
     products_yaml_path: Path | None = None,
 ) -> FastAPI:
-    """Create the FastAPI app for canonical dense-grid streaming."""
+    """Create the FastAPI app for canonical fixed-bin streaming."""
     if lake_root is None:
         lake_root = Path(__file__).resolve().parents[2] / "lake"
     if products_yaml_path is None:
@@ -99,10 +88,9 @@ def create_app(
 
     app = FastAPI(
         title="Vacuum Pressure Stream Server",
-        version="3.0.0",
+        version="4.0.0",
         description=(
-            "Canonical in-memory dense-grid vacuum-pressure streaming from event feed "
-            "(PRE-PROD DBN adapter today, Databento socket adapter later)."
+            "Canonical fixed-bin in-memory dense-grid vacuum-pressure streaming from event feed"
         ),
     )
 
@@ -125,25 +113,13 @@ def create_app(
         symbol: str = "MNQH6",
         dt: str = "2026-02-06",
         start_time: str | None = None,
-        throttle_ms: float = 25.0,
     ) -> None:
-        """Stream dense-grid updates from the canonical event engine.
-
-        Query params:
-            product_type: ``equity_mbo`` or ``future_mbo``.
-            symbol: instrument symbol.
-            dt: date in YYYY-MM-DD.
-            start_time: optional emit start HH:MM ET (warmup processed in-memory).
-            throttle_ms: minimum event-time spacing between emitted updates.
-        """
+        """Stream fixed-bin dense-grid updates from the canonical event engine."""
         await websocket.accept()
 
         try:
-            if throttle_ms < 0:
-                raise ValueError(f"throttle_ms must be >= 0, got {throttle_ms}")
-
-            base_config = resolve_config(product_type, symbol, products_yaml_path)
-            config = _with_live_grid(base_config)
+            config = resolve_config(product_type, symbol, products_yaml_path)
+            schema = _grid_schema(config)
         except (ValueError, FileNotFoundError) as exc:
             logger.error("VP stream setup failed: %s", exc)
             await websocket.send_text(json.dumps({
@@ -154,13 +130,13 @@ def create_app(
             return
 
         logger.info(
-            "VP stream connected: product_type=%s symbol=%s dt=%s start_time=%s K=%d throttle_ms=%.1f cfg=%s",
+            "VP fixed-bin stream connected: product_type=%s symbol=%s dt=%s start_time=%s radius=%d cell_width_ms=%d cfg=%s",
             config.product_type,
             config.symbol,
             dt,
             start_time,
-            config.grid_max_ticks,
-            throttle_ms,
+            config.grid_radius_ticks,
+            config.cell_width_ms,
             config.config_version,
         )
 
@@ -168,9 +144,9 @@ def create_app(
             websocket=websocket,
             lake_root=lake_root,
             config=config,
+            schema=schema,
             dt=dt,
             start_time=start_time,
-            throttle_ms=throttle_ms,
         )
 
     return app
@@ -180,11 +156,11 @@ async def _stream_live_dense_grid(
     websocket: WebSocket,
     lake_root: Path,
     config: VPRuntimeConfig,
+    schema: pa.Schema,
     dt: str,
     start_time: str | None,
-    throttle_ms: float,
 ) -> None:
-    """Send dense-grid updates over websocket from canonical event pipeline."""
+    """Send fixed-bin dense-grid updates over websocket."""
     grid_count = 0
 
     try:
@@ -194,8 +170,8 @@ async def _stream_live_dense_grid(
             "mode": "pre_prod",
             "deployment_stage": "pre_prod",
             "stream_format": "dense_grid",
-            "grid_schema_fields": [f.name for f in GRID_SCHEMA],
-            "grid_rows": 2 * config.grid_max_ticks + 1,
+            "grid_schema_fields": [f.name for f in schema],
+            "grid_rows": 2 * config.grid_radius_ticks + 1,
         }))
 
         async for grid in async_stream_events(
@@ -203,13 +179,16 @@ async def _stream_live_dense_grid(
             config=config,
             dt=dt,
             start_time=start_time,
-            throttle_ms=throttle_ms,
         ):
             grid_count += 1
 
             await websocket.send_text(json.dumps({
                 "type": "grid_update",
                 "ts_ns": str(grid["ts_ns"]),
+                "bin_seq": grid["bin_seq"],
+                "bin_start_ns": str(grid["bin_start_ns"]),
+                "bin_end_ns": str(grid["bin_end_ns"]),
+                "bin_event_count": grid["bin_event_count"],
                 "event_id": grid["event_id"],
                 "mid_price": grid["mid_price"],
                 "spot_ref_price_int": str(grid["spot_ref_price_int"]),
@@ -217,11 +196,11 @@ async def _stream_live_dense_grid(
                 "best_ask_price_int": str(grid["best_ask_price_int"]),
                 "book_valid": grid["book_valid"],
             }))
-            await websocket.send_bytes(_grid_to_arrow_ipc(grid))
+            await websocket.send_bytes(_grid_to_arrow_ipc(grid, schema))
 
             if grid_count % 1000 == 0:
                 logger.info(
-                    "VP dense-grid: %d updates sent (event_id=%d)",
+                    "VP fixed-bin dense-grid: %d updates sent (event_id=%d)",
                     grid_count,
                     grid["event_id"],
                 )
@@ -231,4 +210,4 @@ async def _stream_live_dense_grid(
     except Exception as exc:
         logger.error("VP stream error: %s", exc, exc_info=True)
     finally:
-        logger.info("VP stream ended (%d dense-grid updates sent)", grid_count)
+        logger.info("VP stream ended (%d fixed-bin updates sent)", grid_count)

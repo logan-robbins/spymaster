@@ -13,9 +13,9 @@
  *   - Bottom bar:   composite direction + derivative readings
  *
  * Colour encoding for heatmap cells:
- *   Building (add > pull) -> cyan-green   (pressure zone)
- *   Draining (pull > add) -> red-magenta  (vacuum / active drain)
- *   No liquidity          -> near-black   (void)
+ *   spectrum_score > 0 -> cyan-green   (pressure side)
+ *   spectrum_score < 0 -> red-magenta  (vacuum side)
+ *   spectrum_score ~ 0 -> near-black   (neutral side)
  *
  * Zoom & Pan:
  *   Mouse wheel on heatmap zooms (Shift=horiz, plain=vert, Ctrl/Cmd=both).
@@ -24,7 +24,7 @@
  * Runtime config:
  *   All instrument-specific constants (bucket size, tick size, decimals,
  *   multiplier) are received from the server via a JSON control message
- *   with type "config" before the first data batch.  No hardcoded
+ *   with type "runtime_config" before the first data batch.  No hardcoded
  *   instrument assumptions remain in this module.
  */
 
@@ -40,7 +40,16 @@ interface RuntimeConfig {
   tick_size: number;
   bucket_size_dollars: number;
   rel_tick_size: number;
-  grid_max_ticks: number;
+  grid_radius_ticks: number;
+  cell_width_ms: number;
+  spectrum_windows: number[];
+  spectrum_rollup_weights: number[];
+  spectrum_derivative_weights: number[];
+  spectrum_tanh_scale: number;
+  spectrum_threshold_neutral: number;
+  zscore_window_bins: number;
+  zscore_min_periods: number;
+  projection_horizons_ms: number[];
   contract_multiplier: number;
   qty_unit: string;
   price_decimals: number;
@@ -70,7 +79,10 @@ interface GridBucketRow {
   j_pull: number;
   j_fill: number;
   j_rest_depth: number;
+  spectrum_score: number;
+  spectrum_state_code: number;
   last_event_id: number;
+  [key: `proj_score_h${number}`]: number;
 }
 
 /** Parsed and validated URL query parameters. */
@@ -79,14 +91,13 @@ interface StreamParams {
   symbol: string;
   dt: string;
   start_time?: string;
-  throttle_ms?: string;
 }
 
 // --------------------------------------------------------- Layout constants
 
 const WS_PORT = 8002;
-const MAX_REL_TICKS = 50;                   // +/-50 buckets from anchor
-const HMAP_LEVELS = MAX_REL_TICKS * 2 + 1;  // 101 rows
+let GRID_RADIUS_TICKS = 40;
+let HMAP_LEVELS = GRID_RADIUS_TICKS * 2 + 1;
 const HMAP_HISTORY = 360;                    // 6 min of 1-second columns
 const FLOW_NORM_SCALE = 500;                 // characteristic shares for tanh norm
 const DEPTH_NORM_PERCENTILE_DECAY = 0.995;
@@ -123,17 +134,10 @@ let anchorInitialized = false;
 let currentSpotDollars = 0;
 
 // Spot trail: fractional row position per heatmap column (null = no data)
-const spotTrail: (number | null)[] = new Array(HMAP_HISTORY).fill(null);
+let spotTrail: (number | null)[] = [];
 
 // Heatmap pixel buffer (RGBA, HMAP_HISTORY x HMAP_LEVELS)
-const hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
-// Initialise to dark background
-for (let i = 0; i < hmapData.length; i += 4) {
-  hmapData[i] = 10;
-  hmapData[i + 1] = 10;
-  hmapData[i + 2] = 15;
-  hmapData[i + 3] = 255;
-}
+let hmapData = new Uint8ClampedArray(0);
 
 let runningMaxDepth = 100; // adaptive normalisation
 
@@ -144,8 +148,27 @@ let isEventMode = false;
 let currentGrid: Map<number, GridBucketRow> = new Map();
 /** Per-bucket last_event_id tracker for persistence (keyed by heatmap row). */
 const lastRenderedEventIdByRow: Map<number, number> = new Map();
-/** Running max for |pressure_variant| adaptive normalization. */
-let runningMaxPressure = 10;
+/** Running max for |spectrum_score| adaptive normalization. */
+let runningMaxSpectrum = 10;
+
+function resetHeatmapBuffers(gridRadiusTicks: number): void {
+  GRID_RADIUS_TICKS = gridRadiusTicks;
+  HMAP_LEVELS = GRID_RADIUS_TICKS * 2 + 1;
+  MAX_ZOOM_Y = HMAP_LEVELS / 10;
+  anchorPriceDollars = 0;
+  anchorInitialized = false;
+  currentSpotDollars = 0;
+  windowCount = 0;
+  spotTrail = new Array(HMAP_HISTORY).fill(null);
+  hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
+  for (let i = 0; i < hmapData.length; i += 4) {
+    hmapData[i] = 10;
+    hmapData[i + 1] = 10;
+    hmapData[i + 2] = 15;
+    hmapData[i + 3] = 255;
+  }
+  lastRenderedEventIdByRow.clear();
+}
 
 // --------------------------------------------------------- Viewport / Zoom
 
@@ -158,8 +181,10 @@ let userPanned = false;
 const MIN_ZOOM_X = 1.0;       // no horizontal zoom-out (buffer only holds 360 cols)
 const MIN_ZOOM_Y = 0.15;      // vertical zoom-out: see ~540 price levels compressed
 const MAX_ZOOM_X = HMAP_HISTORY / 30;  // 12× zoom in
-const MAX_ZOOM_Y = HMAP_LEVELS / 10;   // ~8× zoom in
+let MAX_ZOOM_Y = HMAP_LEVELS / 10;   // ~8× zoom in
 const ZOOM_STEP = 1.08;
+
+resetHeatmapBuffers(GRID_RADIUS_TICKS);
 
 // Pan drag state
 let isPanning = false;
@@ -197,12 +222,12 @@ function $(id: string) { return document.getElementById(id)!; }
 
 /** Map dollar price to fractional grid row (row 0 = top = highest price). */
 function priceToRow(priceDollars: number): number {
-  return MAX_REL_TICKS - (priceDollars - anchorPriceDollars) / bucketDollars();
+  return GRID_RADIUS_TICKS - (priceDollars - anchorPriceDollars) / bucketDollars();
 }
 
 /** Map grid row to dollar price. */
 function rowToPrice(row: number): number {
-  return anchorPriceDollars + (MAX_REL_TICKS - row) * bucketDollars();
+  return anchorPriceDollars + (GRID_RADIUS_TICKS - row) * bucketDollars();
 }
 
 // --------------------------------------------------------- Viewport helpers
@@ -382,6 +407,26 @@ function requireBooleanField(
   return raw;
 }
 
+function requireNumberArrayField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): number[] {
+  const raw = requireField(surface, obj, field);
+  if (!Array.isArray(raw)) {
+    streamContractError(surface, `field "${field}" is not an array`);
+  }
+  const out: number[] = [];
+  for (const item of raw) {
+    const parsed = Number(item);
+    if (!Number.isFinite(parsed)) {
+      streamContractError(surface, `field "${field}" contains non-numeric value`);
+    }
+    out.push(parsed);
+  }
+  return out;
+}
+
 function requireBigIntField(
   surface: string,
   obj: Record<string, unknown>,
@@ -558,18 +603,16 @@ function pushHeatmapColumnFromGrid(
   spotTrail.push(priceToRow(spotDollars));
 
   // Map grid buckets to heatmap rows and track adaptive normalization.
-  // Two-force model: both pressure_variant and vacuum_variant are >= 0.
-  // Net flow = pressure - vacuum: positive = building, negative = draining.
-  let maxNetForce = 0;
+  let maxSpectrumAbs = 0;
   let maxRestD = 0;
   for (const bucket_row of grid.values()) {
-    const netForce = Math.abs(bucket_row.pressure_variant - bucket_row.vacuum_variant);
-    if (netForce > maxNetForce) maxNetForce = netForce;
+    const spectrumAbs = Math.abs(bucket_row.spectrum_score);
+    if (spectrumAbs > maxSpectrumAbs) maxSpectrumAbs = spectrumAbs;
     if (bucket_row.rest_depth > maxRestD) maxRestD = bucket_row.rest_depth;
   }
-  runningMaxPressure = Math.max(
-    runningMaxPressure * DEPTH_NORM_PERCENTILE_DECAY,
-    maxNetForce,
+  runningMaxSpectrum = Math.max(
+    runningMaxSpectrum * DEPTH_NORM_PERCENTILE_DECAY,
+    maxSpectrumAbs,
   );
   runningMaxDepth = Math.max(
     runningMaxDepth * DEPTH_NORM_PERCENTILE_DECAY,
@@ -589,11 +632,7 @@ function pushHeatmapColumnFromGrid(
     }
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
-    // Heatmap colour: net force = pressure (building) - vacuum (draining).
-    //   Positive (building) → cyan-green (pressure zone)
-    //   Negative (draining) → red-magenta (vacuum zone)
-    const netForce = bucketData.pressure_variant - bucketData.vacuum_variant;
-    const scaledForce = netForce * (FLOW_NORM_SCALE / Math.max(1, runningMaxPressure));
+    const scaledForce = bucketData.spectrum_score * FLOW_NORM_SCALE;
     const [r, g, b] = heatmapRGB(bucketData.rest_depth, scaledForce, runningMaxDepth);
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
@@ -1084,16 +1123,14 @@ function renderProfile(canvas: HTMLCanvasElement): void {
 
   // Depth bars from event-mode dense grid
   if (isEventMode && currentGrid.size > 0 && currentSpotDollars > 0) {
-    // Event mode: render rest_depth bars colored by net force (pressure - vacuum)
-    const maxP = runningMaxPressure || 1;
+    // Event mode: render rest_depth bars colored by per-cell spectrum score.
     for (const [k, b] of currentGrid) {
       const absPrice = currentSpotDollars + k * bucket;
       const row = Math.round(priceToRow(absPrice));
       if (row < vpY - 1 || row > vpY + srcH + 1) continue;
       const y = (row - vpY) * rowH;
       const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
-      const netForce = b.pressure_variant - b.vacuum_variant;
-      const forceT = Math.tanh(netForce / maxP);
+      const forceT = Math.max(-1, Math.min(1, b.spectrum_score));
 
       if (forceT >= 0) {
         // Building (pressure > vacuum) → cyan-green
@@ -1147,12 +1184,13 @@ function renderProfile(canvas: HTMLCanvasElement): void {
  * Updates the metadata display and hides the warning banner.
  */
 function applyRuntimeConfig(cfg: RuntimeConfig): void {
-  if (cfg.grid_max_ticks !== MAX_REL_TICKS) {
+  if (cfg.grid_radius_ticks < 1) {
     streamContractError(
       'runtime_config',
-      `grid_max_ticks mismatch: frontend supports ${MAX_REL_TICKS}, backend sent ${cfg.grid_max_ticks}`,
+      `grid_radius_ticks must be >= 1, got ${cfg.grid_radius_ticks}`,
     );
   }
+  resetHeatmapBuffers(cfg.grid_radius_ticks);
 
   runtimeConfig = cfg;
   configReceived = true;
@@ -1197,7 +1235,6 @@ function parseStreamParams(): StreamParams {
     symbol: params.get('symbol') || 'QQQ',
     dt: params.get('dt') || '2026-02-06',
     start_time: params.get('start_time') || undefined,
-    throttle_ms: params.get('throttle_ms') || undefined,
   };
 }
 
@@ -1243,7 +1280,7 @@ function resetStreamState(): void {
   isEventMode = false;
   currentGrid = new Map();
   lastRenderedEventIdByRow.clear();
-  runningMaxPressure = 10;
+  runningMaxSpectrum = 10;
 
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -1324,7 +1361,7 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, start_time, throttle_ms } = streamParams;
+  const { product_type, symbol, dt, start_time } = streamParams;
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
@@ -1333,7 +1370,6 @@ function connectWS(): void {
     `&dt=${encodeURIComponent(dt)}`;
   const wsParams = new URLSearchParams();
   if (start_time) wsParams.set('start_time', start_time);
-  if (throttle_ms) wsParams.set('throttle_ms', throttle_ms);
   const url = wsParams.toString() ? `${urlBase}&${wsParams.toString()}` : urlBase;
 
   console.log(`[VP] Connecting to: ${url}`);
@@ -1367,7 +1403,16 @@ function connectWS(): void {
               tick_size: requireNumberField('runtime_config', msg, 'tick_size'),
               bucket_size_dollars: requireNumberField('runtime_config', msg, 'bucket_size_dollars'),
               rel_tick_size: requireNumberField('runtime_config', msg, 'rel_tick_size'),
-              grid_max_ticks: requireNumberField('runtime_config', msg, 'grid_max_ticks'),
+              grid_radius_ticks: requireNumberField('runtime_config', msg, 'grid_radius_ticks'),
+              cell_width_ms: requireNumberField('runtime_config', msg, 'cell_width_ms'),
+              spectrum_windows: requireNumberArrayField('runtime_config', msg, 'spectrum_windows'),
+              spectrum_rollup_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_rollup_weights'),
+              spectrum_derivative_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_derivative_weights'),
+              spectrum_tanh_scale: requireNumberField('runtime_config', msg, 'spectrum_tanh_scale'),
+              spectrum_threshold_neutral: requireNumberField('runtime_config', msg, 'spectrum_threshold_neutral'),
+              zscore_window_bins: requireNumberField('runtime_config', msg, 'zscore_window_bins'),
+              zscore_min_periods: requireNumberField('runtime_config', msg, 'zscore_min_periods'),
+              projection_horizons_ms: requireNumberArrayField('runtime_config', msg, 'projection_horizons_ms'),
               contract_multiplier: requireNumberField('runtime_config', msg, 'contract_multiplier'),
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
@@ -1400,6 +1445,10 @@ function connectWS(): void {
             }
             isEventMode = true;
             const tsNs = requireBigIntField('grid_update', msg, 'ts_ns');
+            const binSeq = requireNumberField('grid_update', msg, 'bin_seq');
+            requireBigIntField('grid_update', msg, 'bin_start_ns');
+            requireBigIntField('grid_update', msg, 'bin_end_ns');
+            requireNumberField('grid_update', msg, 'bin_event_count');
             const eventId = requireNumberField('grid_update', msg, 'event_id');
             const midPrice = requireNumberField('grid_update', msg, 'mid_price');
             requireBigIntField('grid_update', msg, 'spot_ref_price_int');
@@ -1408,7 +1457,7 @@ function connectWS(): void {
             requireBooleanField('grid_update', msg, 'book_valid');
 
             currentSpotDollars = midPrice;
-            windowCount++;
+            windowCount = Number(binSeq) + 1;
 
             $spotVal.textContent = `$${midPrice.toFixed(priceDecimals())}`;
             $tsVal.textContent = formatTs(tsNs);
@@ -1434,7 +1483,7 @@ function connectWS(): void {
             if (!row) continue;
             const j = row.toJSON() as Record<string, unknown>;
             const k = requireNumberField('grid', j, 'k');
-            gridMap.set(k, {
+            const parsed: GridBucketRow = {
               k,
               pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
               vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
@@ -1454,8 +1503,17 @@ function connectWS(): void {
               j_pull: requireNumberField('grid', j, 'j_pull'),
               j_fill: requireNumberField('grid', j, 'j_fill'),
               j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
+              spectrum_score: requireNumberField('grid', j, 'spectrum_score'),
+              spectrum_state_code: requireNumberField('grid', j, 'spectrum_state_code'),
               last_event_id: requireNumberField('grid', j, 'last_event_id'),
-            });
+            };
+            if (runtimeConfig) {
+              for (const horizonMs of runtimeConfig.projection_horizons_ms) {
+                const key = `proj_score_h${horizonMs}`;
+                (parsed as unknown as Record<string, number>)[key] = requireNumberField('grid', j, key);
+              }
+            }
+            gridMap.set(k, parsed);
           }
           currentGrid = gridMap;
           pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);

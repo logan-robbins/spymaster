@@ -54,7 +54,7 @@ def main() -> None:
     from src.vacuum_pressure.config import resolve_config
     from src.vacuum_pressure.stream_pipeline import (
         _compute_time_boundaries,
-        _create_event_engine,
+        _create_engine,
         ensure_book_cache,
     )
 
@@ -74,7 +74,7 @@ def main() -> None:
             f"No warmup boundary for {args.symbol} (start_time={args.start_time})."
         )
 
-    engine = _create_event_engine(base_config)
+    engine = _create_engine(base_config)
 
     t_start = time.monotonic()
     cache_path = ensure_book_cache(

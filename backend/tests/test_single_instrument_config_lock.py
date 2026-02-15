@@ -22,7 +22,17 @@ def _write_locked_config(path: Path, symbol: str = "MNQH6") -> None:
                 "tick_size: 0.25",
                 "bucket_size_dollars: 0.25",
                 "rel_tick_size: 0.25",
-                "grid_max_ticks: 400",
+                "grid_radius_ticks: 40",
+                "cell_width_ms: 100",
+                "n_absolute_ticks: 500",
+                "spectrum_windows: [5, 10, 20, 40]",
+                "spectrum_rollup_weights: [1.0, 1.0, 1.0, 1.0]",
+                "spectrum_derivative_weights: [0.55, 0.30, 0.15]",
+                "spectrum_tanh_scale: 3.0",
+                "spectrum_threshold_neutral: 0.15",
+                "zscore_window_bins: 300",
+                "zscore_min_periods: 75",
+                "projection_horizons_ms: [250, 500, 1000, 2500]",
                 "contract_multiplier: 2.0",
                 "qty_unit: contracts",
                 "price_decimals: 2",
@@ -43,6 +53,8 @@ def test_locked_config_is_single_source_of_truth(tmp_path: Path, monkeypatch: py
     )
     assert cfg.symbol == "MNQH6"
     assert cfg.tick_size == 0.25
+    assert cfg.grid_radius_ticks == 40
+    assert cfg.cell_width_ms == 100
     assert cfg.contract_multiplier == 2.0
 
 

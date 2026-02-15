@@ -1,7 +1,7 @@
-"""Run the canonical vacuum-pressure dense-grid websocket server.
+"""Run the canonical vacuum-pressure fixed-bin websocket server.
 
 Canonical runtime:
-    PRE-PROD .dbn ingest adapter -> in-memory EventDrivenVPEngine -> dense grid stream
+    PRE-PROD .dbn ingest adapter -> in-memory AbsoluteTickEngine -> fixed-bin dense grid
 """
 from __future__ import annotations
 
@@ -9,17 +9,15 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import replace
 from pathlib import Path
 
-# Ensure backend is on import path
 backend_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(backend_root))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Vacuum Pressure Canonical Dense-Grid Stream (PRE-PROD DBN source)",
+        description="Vacuum Pressure Canonical Fixed-Bin Stream (PRE-PROD DBN source)",
     )
     parser.add_argument(
         "--product-type",
@@ -35,15 +33,7 @@ def main() -> None:
         "--start-time",
         type=str,
         default=None,
-        help=(
-            "Emit start time HH:MM in ET. Warmup is processed in-memory before emit."
-        ),
-    )
-    parser.add_argument(
-        "--throttle-ms",
-        type=float,
-        default=25.0,
-        help="Minimum event-time ms between emitted grid updates. Default 25.",
+        help="Emit start time HH:MM in ET. Warmup is processed in-memory before emit.",
     )
     parser.add_argument(
         "--log-level",
@@ -51,9 +41,6 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
     args = parser.parse_args()
-
-    if args.throttle_ms < 0:
-        raise ValueError(f"--throttle-ms must be >= 0, got {args.throttle_ms}")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -65,23 +52,12 @@ def main() -> None:
 
     from src.vacuum_pressure.config import resolve_config
     from src.vacuum_pressure.server import create_app
-    from src.vacuum_pressure.stream_pipeline import DEFAULT_GRID_TICKS
 
-    base_config = resolve_config(args.product_type, args.symbol, products_yaml_path)
-    if DEFAULT_GRID_TICKS > base_config.grid_max_ticks:
-        raise ValueError(
-            f"canonical default grid K={DEFAULT_GRID_TICKS} exceeds configured max "
-            f"{base_config.grid_max_ticks} for {base_config.product_type}/{base_config.symbol}"
-        )
-    config = replace(
-        base_config,
-        grid_max_ticks=DEFAULT_GRID_TICKS,
-        config_version=f"{base_config.config_version}:k{DEFAULT_GRID_TICKS}",
-    )
+    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
 
     print()
     print("=" * 64)
-    print("  VACUUM PRESSURE CANONICAL DENSE-GRID STREAM")
+    print("  VACUUM PRESSURE CANONICAL FIXED-BIN STREAM")
     print("  PRE-PROD SOURCE ADAPTER: DATABENTO .DBN FILES")
     print("=" * 64)
     print(json.dumps(config.to_dict(), indent=2))
@@ -91,8 +67,8 @@ def main() -> None:
             {
                 "dt": args.dt,
                 "start_time": args.start_time,
-                "grid_ticks": 50,
-                "throttle_ms": args.throttle_ms,
+                "grid_radius_ticks": config.grid_radius_ticks,
+                "cell_width_ms": config.cell_width_ms,
             },
             indent=2,
         )
@@ -109,7 +85,6 @@ def main() -> None:
         f"product_type={args.product_type}",
         f"symbol={args.symbol}",
         f"dt={args.dt}",
-        f"throttle_ms={args.throttle_ms}",
     ]
     if args.start_time:
         qs_parts.append(f"start_time={args.start_time}")

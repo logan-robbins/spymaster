@@ -1,203 +1,336 @@
 from __future__ import annotations
 
-import json
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Iterator, Tuple
 
 import numpy as np
-import pandas as pd
 import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from scripts.analyze_vp_signals import (
-    SPECTRUM_PRESSURE,
-    SPECTRUM_TRANSITION,
-    SPECTRUM_VACUUM,
-    capture_grids,
-    compute_directional_spectrum,
-    detect_direction_switch_events,
-    evaluate_hourly_stability,
-    evaluate_trade_targets,
-    summarize_hourly_trade_metrics,
-    summarize_trade_metrics,
-)
-from src.vacuum_pressure.config import resolve_config
+from src.vacuum_pressure.config import VPRuntimeConfig
+from src.vacuum_pressure.event_engine import AbsoluteTickEngine
+from src.vacuum_pressure.spectrum import IndependentCellSpectrum
+from src.vacuum_pressure.stream_pipeline import stream_events
+
+MBOEvent = Tuple[int, str, str, int, int, int, int]
 
 
-RAW_MNQ_DB_PATH = (
-    BACKEND_ROOT
-    / "lake"
-    / "raw"
-    / "source=databento"
-    / "product_type=future_mbo"
-    / "symbol=MNQ"
-    / "table=market_by_order_dbn"
-    / "glbx-mdp3-20260206.mbo.dbn"
-)
-GOLDEN_PATH = Path(__file__).resolve().with_name(
-    "golden_mnq_20260206_0900_1200.json"
-)
-
-
-def _run_real_replay() -> Dict[str, Any]:
-    products_yaml_path = BACKEND_ROOT / "src" / "data_eng" / "config" / "products.yaml"
-    config = resolve_config("future_mbo", "MNQH6", products_yaml_path)
-    ts_ns, mid_price, bucket_data = capture_grids(
-        lake_root=BACKEND_ROOT / "lake",
-        config=config,
-        dt="2026-02-06",
-        start_time="09:00",
-        throttle_ms=25.0,
-        end_time_et="12:00",
+def _test_config() -> VPRuntimeConfig:
+    return VPRuntimeConfig(
+        product_type="future_mbo",
+        symbol="TESTH6",
+        symbol_root="TEST",
+        price_scale=1e-9,
+        tick_size=1e-9,
+        bucket_size_dollars=1e-9,
+        rel_tick_size=1e-9,
+        grid_radius_ticks=2,
+        cell_width_ms=100,
+        n_absolute_ticks=20,
+        spectrum_windows=(2, 4),
+        spectrum_rollup_weights=(1.0, 1.0),
+        spectrum_derivative_weights=(0.55, 0.30, 0.15),
+        spectrum_tanh_scale=3.0,
+        spectrum_threshold_neutral=0.15,
+        zscore_window_bins=8,
+        zscore_min_periods=2,
+        projection_horizons_ms=(100, 200),
+        contract_multiplier=1.0,
+        qty_unit="contracts",
+        price_decimals=2,
+        config_version="test",
     )
 
-    eval_start_ns = int(
-        pd.Timestamp("2026-02-06 09:00:00", tz="America/New_York")
-        .tz_convert("UTC")
-        .value
-    )
-    eval_end_ns = int(
-        pd.Timestamp("2026-02-06 12:00:00", tz="America/New_York")
-        .tz_convert("UTC")
-        .value
-    )
-    eval_mask = (ts_ns >= eval_start_ns) & (ts_ns < eval_end_ns)
 
-    directional_df = compute_directional_spectrum(
-        ts_ns=ts_ns,
-        bucket_data=bucket_data,
-        directional_bands=[4, 8, 16],
-        micro_windows=[25, 50, 100, 200],
-        normalization_window=300,
-        normalization_min_periods=75,
-        spectrum_threshold=0.15,
-        directional_edge_threshold=0.20,
-    )
-    events = detect_direction_switch_events(
-        eval_mask=eval_mask,
-        direction_state=directional_df["direction_state"].values,
-        cooldown_snapshots=8,
-    )
-    outcomes = evaluate_trade_targets(
-        ts_ns=ts_ns,
-        mid_price=mid_price,
-        events=events,
-        tick_size=float(config.tick_size),
-        tp_ticks=8,
-        sl_ticks=4,
-        max_hold_snapshots=1200,
-    )
+def _synthetic_events() -> list[MBOEvent]:
+    return [
+        (1_000_000_000, "A", "B", 100, 10, 1, 0),
+        (1_050_000_000, "A", "A", 101, 12, 2, 0),
+        (1_120_000_000, "A", "B", 100, 5, 3, 0),
+        (1_250_000_000, "C", "B", 100, 0, 1, 0),
+    ]
 
-    eval_duration_hours = max(1e-9, (eval_end_ns - eval_start_ns) / 3.6e12)
-    trade_metrics = summarize_trade_metrics(outcomes, eval_duration_hours)
-    hourly_metrics = summarize_hourly_trade_metrics(
-        ts_ns=ts_ns,
-        outcomes=outcomes,
-        dt="2026-02-06",
-        eval_start="09:00",
-        eval_end="12:00",
+
+def _fake_iter_mbo_events(
+    _lake_root: Path,
+    _product_type: str,
+    _symbol: str,
+    _dt: str,
+    skip_to_ns: int = 0,
+) -> Iterator[MBOEvent]:
+    for ev in _synthetic_events():
+        if ev[0] >= skip_to_ns:
+            yield ev
+
+
+# ---- AbsoluteTickEngine unit tests ----
+
+
+def test_absolute_tick_engine_basic_lifecycle() -> None:
+    """Engine initializes, processes events, and produces valid state."""
+    engine = AbsoluteTickEngine(n_ticks=20, tick_int=1)
+
+    # Add bid and ask to establish BBO and anchor
+    engine.update(
+        ts_ns=1_000_000_000, action="A", side="B",
+        price_int=100, size=10, order_id=1, flags=0,
     )
-    stability = evaluate_hourly_stability(
-        hourly_metrics=hourly_metrics,
-        max_drift=0.35,
-        min_signals_per_hour=5,
+    engine.update(
+        ts_ns=1_000_000_000, action="A", side="A",
+        price_int=101, size=12, order_id=2, flags=0,
     )
 
-    return {
-        "ts_ns": ts_ns,
-        "eval_mask": eval_mask,
-        "directional_df": directional_df,
-        "outcomes": outcomes,
-        "trade_metrics": trade_metrics,
-        "hourly_metrics": hourly_metrics,
-        "stability": stability,
-    }
+    assert engine.event_count == 2
+    assert engine.best_bid_price_int == 100
+    assert engine.best_ask_price_int == 101
+    assert engine.book_valid is True
+    assert engine.anchor_tick_idx >= 0
+    assert engine.spot_ref_price_int > 0
 
 
-@pytest.fixture(scope="session")
-def real_replay_result() -> Dict[str, Any]:
-    if os.getenv("VP_ENABLE_REAL_REPLAY_TESTS", "0") != "1":
-        pytest.skip("Set VP_ENABLE_REAL_REPLAY_TESTS=1 to run real MNQ replay tests.")
-    if not RAW_MNQ_DB_PATH.exists():
-        pytest.skip(f"Missing real MNQ DBN file: {RAW_MNQ_DB_PATH}")
-    return _run_real_replay()
+def test_absolute_tick_engine_incremental_bbo() -> None:
+    """BBO is updated incrementally without full scan."""
+    engine = AbsoluteTickEngine(n_ticks=20, tick_int=1)
+
+    engine.update(ts_ns=100, action="A", side="B", price_int=10, size=5, order_id=1, flags=0)
+    engine.update(ts_ns=100, action="A", side="A", price_int=15, size=5, order_id=2, flags=0)
+    assert engine.best_bid_price_int == 10
+    assert engine.best_ask_price_int == 15
+
+    # Better bid
+    engine.update(ts_ns=200, action="A", side="B", price_int=11, size=3, order_id=3, flags=0)
+    assert engine.best_bid_price_int == 11
+
+    # Better ask
+    engine.update(ts_ns=200, action="A", side="A", price_int=14, size=3, order_id=4, flags=0)
+    assert engine.best_ask_price_int == 14
+
+    # Cancel best bid — should scan for next best
+    engine.update(ts_ns=300, action="C", side="B", price_int=11, size=0, order_id=3, flags=0)
+    assert engine.best_bid_price_int == 10
+
+    # Cancel best ask
+    engine.update(ts_ns=300, action="C", side="A", price_int=14, size=0, order_id=4, flags=0)
+    assert engine.best_ask_price_int == 15
 
 
-def test_real_replay_path_is_raw_databento_not_synthetic() -> None:
-    raw_path = str(RAW_MNQ_DB_PATH)
-    assert "lake/raw/source=databento" in raw_path
-    assert "synthetic" not in raw_path.lower()
+def test_absolute_tick_engine_no_grid_shift() -> None:
+    """Anchor never changes after establishment. No grid shift."""
+    engine = AbsoluteTickEngine(n_ticks=100, tick_int=1)
+
+    # Establish anchor
+    engine.update(ts_ns=100, action="A", side="B", price_int=50, size=10, order_id=1, flags=0)
+    engine.update(ts_ns=100, action="A", side="A", price_int=51, size=10, order_id=2, flags=0)
+    anchor = engine.anchor_tick_idx
+
+    # Move BBO significantly
+    engine.update(ts_ns=200, action="A", side="B", price_int=60, size=10, order_id=3, flags=0)
+    engine.update(ts_ns=200, action="A", side="A", price_int=61, size=10, order_id=4, flags=0)
+
+    # Anchor should not change
+    assert engine.anchor_tick_idx == anchor
 
 
-def test_real_replay_spectrum_and_trade_invariants(real_replay_result: Dict[str, Any]) -> None:
-    directional_df = real_replay_result["directional_df"]
-    eval_mask = real_replay_result["eval_mask"]
-    outcomes = real_replay_result["outcomes"]
-    trade_metrics = real_replay_result["trade_metrics"]
+def test_absolute_tick_engine_derivatives_update() -> None:
+    """Derivatives are updated at touched ticks after 2+ events with dt > 0."""
+    engine = AbsoluteTickEngine(n_ticks=100, tick_int=1)
 
-    score_cols = [c for c in directional_df.columns if c.endswith("_score")]
-    for col in score_cols:
-        vals = directional_df.loc[eval_mask, col].values
-        assert np.isfinite(vals).all(), f"Non-finite values in {col}"
+    # Establish anchor (both bid and ask needed)
+    engine.update(ts_ns=1_000_000_000, action="A", side="B", price_int=50, size=10, order_id=1, flags=0)
+    engine.update(ts_ns=1_000_000_000, action="A", side="A", price_int=51, size=10, order_id=2, flags=0)
 
-    for state_col in [c for c in directional_df.columns if c.endswith("_state")]:
-        allowed = {SPECTRUM_PRESSURE, SPECTRUM_TRANSITION, SPECTRUM_VACUUM}
-        if state_col in ("direction_state", "posture_state"):
-            continue
-        got = set(directional_df.loc[eval_mask, state_col].astype(str).unique().tolist())
-        assert got.issubset(allowed), f"Unexpected states in {state_col}: {got}"
+    # First post-anchor event at price 50 — sets last_ts_ns for this tick
+    engine.update(ts_ns=2_000_000_000, action="A", side="B", price_int=50, size=5, order_id=3, flags=0)
 
-    n_events = int(trade_metrics["n_events"])
-    tp = int((outcomes["outcome"] == "tp_before_sl").sum())
-    sl = int((outcomes["outcome"] == "sl_before_tp").sum())
-    timeout = int((outcomes["outcome"] == "timeout").sum())
-    assert tp + sl + timeout == n_events
-    assert n_events >= 0
+    # Second post-anchor event at price 50 with dt > 0 — computes derivatives
+    engine.update(ts_ns=3_000_000_000, action="A", side="B", price_int=50, size=5, order_id=4, flags=0)
+
+    idx = engine._price_to_idx(50)
+    assert idx is not None
+    arrays = engine.grid_snapshot_arrays()
+    assert arrays["v_add"][idx] > 0.0
+    assert arrays["pressure_variant"][idx] > 0.0
 
 
-def test_real_replay_matches_golden_metrics(real_replay_result: Dict[str, Any]) -> None:
-    if not GOLDEN_PATH.exists():
-        pytest.skip(f"Golden metrics file missing: {GOLDEN_PATH}")
+def test_absolute_tick_engine_rest_depth() -> None:
+    """rest_depth reflects current book depth at each price level."""
+    engine = AbsoluteTickEngine(n_ticks=20, tick_int=1)
 
-    golden = json.loads(GOLDEN_PATH.read_text())
+    engine.update(ts_ns=100, action="A", side="B", price_int=10, size=5, order_id=1, flags=0)
+    engine.update(ts_ns=100, action="A", side="A", price_int=11, size=8, order_id=2, flags=0)
 
-    trade_metrics = real_replay_result["trade_metrics"]
-    hourly_metrics: List[Dict[str, Any]] = real_replay_result["hourly_metrics"]
-    stability = real_replay_result["stability"]
+    idx_10 = engine._price_to_idx(10)
+    idx_11 = engine._price_to_idx(11)
+    assert idx_10 is not None and idx_11 is not None
 
-    assert int(trade_metrics["n_events"]) == int(golden["trade_metrics"]["n_events"])
-    assert float(trade_metrics["events_per_hour"]) == pytest.approx(
-        float(golden["trade_metrics"]["events_per_hour"]), rel=1e-9, abs=1e-9
+    assert engine._rest_depth[idx_10] == 5.0
+    assert engine._rest_depth[idx_11] == 8.0
+
+    # Cancel partial
+    engine._orders[1].qty = 5  # ensure known state
+    engine.update(ts_ns=200, action="C", side="B", price_int=10, size=0, order_id=1, flags=0)
+    assert engine._rest_depth[idx_10] == 0.0
+
+
+def test_absolute_tick_engine_book_serialization() -> None:
+    """Export/import preserves book state and anchor."""
+    engine = AbsoluteTickEngine(n_ticks=20, tick_int=1)
+
+    engine.update(ts_ns=100, action="A", side="B", price_int=10, size=5, order_id=1, flags=0)
+    engine.update(ts_ns=100, action="A", side="A", price_int=11, size=8, order_id=2, flags=0)
+
+    data = engine.export_book_state()
+
+    engine2 = AbsoluteTickEngine(n_ticks=20, tick_int=1)
+    engine2.import_book_state(data)
+
+    assert engine2.order_count == engine.order_count
+    assert engine2.best_bid_price_int == engine.best_bid_price_int
+    assert engine2.best_ask_price_int == engine.best_ask_price_int
+    assert engine2.anchor_tick_idx == engine.anchor_tick_idx
+
+
+def test_absolute_tick_engine_window_snapshot() -> None:
+    """spot_to_idx maps correctly for serve-time windowing."""
+    engine = AbsoluteTickEngine(n_ticks=100, tick_int=1)
+
+    engine.update(ts_ns=100, action="A", side="B", price_int=50, size=10, order_id=1, flags=0)
+    engine.update(ts_ns=100, action="A", side="A", price_int=51, size=10, order_id=2, flags=0)
+
+    spot_int = engine.spot_ref_price_int
+    center_idx = engine.spot_to_idx(spot_int)
+    assert center_idx is not None
+
+    # Window of ±5 around spot
+    radius = 5
+    start = center_idx - radius
+    end = center_idx + radius + 1
+    assert start >= 0
+    assert end <= engine.n_ticks
+
+    arrays = engine.grid_snapshot_arrays()
+    window = arrays["rest_depth"][start:end]
+    assert window.shape == (2 * radius + 1,)
+
+
+# ---- Spectrum tests (unchanged) ----
+
+
+def test_independent_cell_spectrum_kernel_independence() -> None:
+    kernel = IndependentCellSpectrum(
+        n_cells=3,
+        windows=[2, 4],
+        rollup_weights=[1.0, 1.0],
+        derivative_weights=[0.55, 0.30, 0.15],
+        tanh_scale=3.0,
+        neutral_threshold=0.15,
+        zscore_window_bins=8,
+        zscore_min_periods=2,
+        projection_horizons_ms=[100, 200],
+        default_dt_s=0.1,
     )
-    assert float(trade_metrics["tp_before_sl_rate"]) == pytest.approx(
-        float(golden["trade_metrics"]["tp_before_sl_rate"]), rel=1e-9, abs=1e-9
-    )
-    assert float(trade_metrics["sl_before_tp_rate"]) == pytest.approx(
-        float(golden["trade_metrics"]["sl_before_tp_rate"]), rel=1e-9, abs=1e-9
-    )
-    assert float(trade_metrics["timeout_rate"]) == pytest.approx(
-        float(golden["trade_metrics"]["timeout_rate"]), rel=1e-9, abs=1e-9
+
+    base_p = np.array([1.0, 1.0, 1.0], dtype=np.float64)
+    base_v = np.array([1.0, 1.0, 1.0], dtype=np.float64)
+
+    _ = kernel.update(100_000_000, base_p, base_v)
+    out_a = kernel.update(200_000_000, base_p, base_v)
+
+    changed_p = np.array([1.0, 2.0, 1.0], dtype=np.float64)
+    out_b = kernel.update(300_000_000, changed_p, base_v)
+
+    assert np.isfinite(out_b.score).all()
+    assert np.all(np.abs(out_b.score) <= 1.0 + 1e-9)
+
+    assert out_a.score[0] == pytest.approx(out_b.score[0], abs=1e-9)
+    assert out_a.score[2] == pytest.approx(out_b.score[2], abs=1e-9)
+
+
+def test_independent_cell_spectrum_state_mapping_consistent() -> None:
+    kernel = IndependentCellSpectrum(
+        n_cells=3,
+        windows=[2, 4],
+        rollup_weights=[1.0, 1.0],
+        derivative_weights=[0.55, 0.30, 0.15],
+        tanh_scale=3.0,
+        neutral_threshold=0.15,
+        zscore_window_bins=8,
+        zscore_min_periods=2,
+        projection_horizons_ms=[100],
+        default_dt_s=0.1,
     )
 
-    assert len(hourly_metrics) == len(golden["hourly_metrics"])
-    for got, exp in zip(hourly_metrics, golden["hourly_metrics"]):
-        assert str(got["window"]) == str(exp["window"])
-        assert int(got["n_events"]) == int(exp["n_events"])
-        assert float(got["events_per_hour"]) == pytest.approx(
-            float(exp["events_per_hour"]), rel=1e-9, abs=1e-9
+    for i in range(1, 8):
+        p = np.array([1.0 + i, 1.0, 1.0], dtype=np.float64)
+        v = np.array([1.0, 1.0 + i, 1.0], dtype=np.float64)
+        out = kernel.update(i * 100_000_000, p, v)
+
+    threshold = 0.15
+    score = out.score
+    state = out.state_code
+
+    assert np.all(state[score >= threshold] == 1)
+    assert np.all(state[score <= -threshold] == -1)
+    neutral_mask = np.abs(score) < threshold
+    assert np.all(state[neutral_mask] == 0)
+
+
+# ---- Pipeline integration tests ----
+
+
+def test_stream_events_emits_fixed_bins_with_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        _fake_iter_mbo_events,
+    )
+
+    config = _test_config()
+    grids = list(
+        stream_events(
+            lake_root=Path("/tmp"),
+            config=config,
+            dt="2026-02-06",
+            start_time=None,
         )
-        assert float(got["tp_before_sl_rate"]) == pytest.approx(
-            float(exp["tp_before_sl_rate"]), rel=1e-9, abs=1e-9
-        )
+    )
 
-    assert bool(stability["passed"]) == bool(golden["stability"]["passed"])
-    assert float(stability["tp_before_sl_rate_drift"]) == pytest.approx(
-        float(golden["stability"]["tp_before_sl_rate_drift"]), rel=1e-9, abs=1e-9
+    assert len(grids) == 3
+    assert [int(g["bin_seq"]) for g in grids] == [0, 1, 2]
+    assert [int(g["bin_event_count"]) for g in grids] == [2, 1, 1]
+
+    expected_width_ns = config.cell_width_ms * 1_000_000
+    for g in grids:
+        assert int(g["bin_end_ns"]) - int(g["bin_start_ns"]) == expected_width_ns
+
+
+def test_stream_events_bucket_schema_and_projection_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        _fake_iter_mbo_events,
     )
-    assert float(stability["events_per_hour_drift"]) == pytest.approx(
-        float(golden["stability"]["events_per_hour_drift"]), rel=1e-9, abs=1e-9
+
+    config = _test_config()
+    grids = list(
+        stream_events(
+            lake_root=Path("/tmp"),
+            config=config,
+            dt="2026-02-06",
+            start_time=None,
+        )
     )
+
+    expected_rows = 2 * config.grid_radius_ticks + 1
+    projection_keys = [f"proj_score_h{h}" for h in config.projection_horizons_ms]
+
+    for g in grids:
+        assert len(g["buckets"]) == expected_rows
+        for b in g["buckets"]:
+            assert np.isfinite(float(b["spectrum_score"]))
+            assert -1.0 <= float(b["spectrum_score"]) <= 1.0
+            assert int(b["spectrum_state_code"]) in (-1, 0, 1)
+            for key in projection_keys:
+                assert np.isfinite(float(b[key]))
+                assert -1.0 <= float(b[key]) <= 1.0
