@@ -831,6 +831,29 @@ class AbsoluteTickEngine:
         """Absolute tick index of the array center. -1 if not yet set."""
         return self._anchor_tick_idx
 
+    def book_metrics(self) -> Dict[str, Any]:
+        """Return diagnostic metrics for monitoring book health.
+
+        Intended for logging/monitoring — not for hot-path use.
+        """
+        bid_levels = len(self._depth_bid)
+        ask_levels = len(self._depth_ask)
+        total_bid_qty = sum(self._depth_bid.values()) if self._depth_bid else 0
+        total_ask_qty = sum(self._depth_ask.values()) if self._depth_ask else 0
+
+        return {
+            "order_count": len(self._orders),
+            "bid_levels": bid_levels,
+            "ask_levels": ask_levels,
+            "total_bid_qty": total_bid_qty,
+            "total_ask_qty": total_ask_qty,
+            "best_bid": self._best_bid,
+            "best_ask": self._best_ask,
+            "anchor_tick_idx": self._anchor_tick_idx,
+            "event_count": self._event_counter,
+            "book_valid": self._book_valid,
+        }
+
     # ------------------------------------------------------------------
     # Grid snapshot (full N_TICKS arrays)
     # ------------------------------------------------------------------

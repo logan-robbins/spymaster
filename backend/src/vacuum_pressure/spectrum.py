@@ -148,7 +148,7 @@ class IndependentCellSpectrum:
 
         pressure_f = pressure.astype(np.float64, copy=False)
         vacuum_f = vacuum.astype(np.float64, copy=False)
-        composite = (pressure_f - vacuum_f) / (pressure_f + vacuum_f + _EPS)
+        composite = (pressure_f - vacuum_f) / (np.abs(pressure_f) + np.abs(vacuum_f) + _EPS)
 
         self._composite_hist.append(composite)
         comp_hist = np.stack(self._composite_hist, axis=0)
@@ -193,6 +193,7 @@ class IndependentCellSpectrum:
             + self._deriv_weights[2] * np.tanh(z3 / self._tanh_scale)
         )
         score = np.clip(score, -1.0, 1.0)
+        score = np.nan_to_num(score, nan=0.0, posinf=1.0, neginf=-1.0)
 
         state_code = np.zeros(self._n_cells, dtype=np.int8)
         state_code[score >= self._neutral_threshold] = 1
@@ -211,10 +212,13 @@ class IndependentCellSpectrum:
         projected: Dict[int, np.ndarray] = {}
         for horizon_ms in self._projection_horizons_ms:
             h = float(horizon_ms) / 1000.0
-            projected[horizon_ms] = np.clip(
-                score + score_d1 * h + 0.5 * score_d2 * h * h,
-                -1.0,
-                1.0,
+            projected[horizon_ms] = np.nan_to_num(
+                np.clip(
+                    score + score_d1 * h + 0.5 * score_d2 * h * h,
+                    -1.0,
+                    1.0,
+                ),
+                nan=0.0, posinf=1.0, neginf=-1.0,
             )
 
         self._prev_ts_ns = ts_ns

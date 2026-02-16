@@ -178,4 +178,6 @@ cd frontend && npx tsc --noEmit
 - `backend/scripts/run_vacuum_pressure.py`: backend entrypoint
 - `backend/scripts/warm_cache.py`: book cache warmup
 - `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis
+- `backend/tests/test_vp_math_validation.py`: 22 math validation tests (derivative chain, composite, force model, decay, book stress, fills, modifies)
+- `backend/tests/test_analyze_vp_signals_regime.py`: 11 integration tests (engine lifecycle, spectrum, pipeline)
 - `frontend/src/vacuum-pressure.ts`: fixed-bin UI consumer and renderer
