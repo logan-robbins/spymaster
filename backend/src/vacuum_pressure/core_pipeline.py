@@ -24,6 +24,8 @@ FUTURES_WARMUP_HOURS = 0.5
 EQUITY_WARMUP_HOURS = 0.5
 
 _ANCHORABLE_ACTIONS = frozenset({"A", "M", "F", "C"})
+_SOFT_REANCHOR_AFTER_ET_HHMM = "09:30"
+_SOFT_REANCHOR_AFTER_EVENT_COUNT = 10_000
 
 
 def _compute_time_boundaries(
@@ -56,6 +58,17 @@ def _resolve_tick_int(config: VPRuntimeConfig) -> int:
             f"Resolved tick_int must be > 0, got {tick_int} for {config.product_type}/{config.symbol}"
         )
     return tick_int
+
+
+def _soft_reanchor_after_utc_ns(dt: str) -> int:
+    """Resolve the one-time soft re-anchor ET clock boundary into UTC ns."""
+    import pandas as pdt
+
+    ts_utc = pdt.Timestamp(
+        f"{dt} {_SOFT_REANCHOR_AFTER_ET_HHMM}:00",
+        tz="America/New_York",
+    ).tz_convert("UTC")
+    return int(ts_utc.value)
 
 
 def _create_core_engine(
@@ -139,11 +152,13 @@ def stream_core_events(
     dt: str,
     start_time: str | None = None,
     *,
-    fail_on_out_of_range: bool = True,
+    fail_on_out_of_range: bool = False,
 ) -> Generator[Dict[str, Any], None, None]:
     """Synchronous pressure-core stream: DBN events -> full-grid fixed bins."""
     warmup_start_ns, emit_after_ns = _compute_time_boundaries(config.product_type, dt, start_time)
     engine = _create_core_engine(config, fail_on_out_of_range=fail_on_out_of_range)
+    soft_reanchor_after_ns = _soft_reanchor_after_utc_ns(dt)
+    soft_reanchor_applied = False
 
     cell_width_ns = int(config.cell_width_ms * 1_000_000)
     if cell_width_ns <= 0:
@@ -171,6 +186,23 @@ def stream_core_events(
             continue
 
         _ensure_anchor_from_event(engine, action, price)
+        if not soft_reanchor_applied and engine.anchor_tick_idx >= 0:
+            trigger_by_time = ts_ns >= soft_reanchor_after_ns
+            trigger_by_events = event_count >= _SOFT_REANCHOR_AFTER_EVENT_COUNT
+            if trigger_by_time or trigger_by_events:
+                old_anchor_tick_idx = engine.anchor_tick_idx
+                if engine.soft_reanchor_to_order_book_bbo():
+                    soft_reanchor_applied = True
+                    logger.info(
+                        "Core soft re-anchor applied: old_anchor_tick_idx=%d new_anchor_tick_idx=%d "
+                        "trigger_by_time=%s trigger_by_events=%s event_count=%d ts_ns=%d",
+                        old_anchor_tick_idx,
+                        engine.anchor_tick_idx,
+                        trigger_by_time,
+                        trigger_by_events,
+                        event_count,
+                        ts_ns,
+                    )
 
         if emit_after_ns > 0 and ts_ns < emit_after_ns:
             engine.update(
@@ -247,7 +279,7 @@ async def async_stream_core_events(
     dt: str,
     start_time: str | None = None,
     *,
-    fail_on_out_of_range: bool = True,
+    fail_on_out_of_range: bool = False,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Async wrapper with fixed wall-clock pacing by cell width."""
     import concurrent.futures

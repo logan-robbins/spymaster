@@ -377,6 +377,14 @@ class AbsoluteTickEngine:
 
     def _recompute_provisional_bbo_from_orders(self) -> None:
         """Recompute BBO from order map when anchor is not available."""
+        best_bid, best_ask = self._raw_bbo_from_orders()
+        self._best_bid_idx = -1
+        self._best_ask_idx = -1
+        self._best_bid = best_bid
+        self._best_ask = best_ask
+
+    def _raw_bbo_from_orders(self) -> Tuple[int, int]:
+        """Compute best bid/ask from raw order prices (ignores grid mapping)."""
         best_bid = 0
         best_ask = 0
         for entry in self._orders.values():
@@ -388,10 +396,32 @@ class AbsoluteTickEngine:
             elif entry.side == SIDE_ASK:
                 if best_ask == 0 or entry.price_int < best_ask:
                     best_ask = entry.price_int
-        self._best_bid_idx = -1
-        self._best_ask_idx = -1
-        self._best_bid = best_bid
-        self._best_ask = best_ask
+        return best_bid, best_ask
+
+    def _warn_out_of_range_skip(
+        self,
+        *,
+        action: str,
+        price_int: int,
+        order_id: int | None = None,
+        side: str | None = None,
+    ) -> None:
+        """Emit warning when tolerant mode skips a depth mapping."""
+        extra = ""
+        if order_id is not None:
+            extra += f", order_id={order_id}"
+        if side is not None:
+            extra += f", side={side}"
+        logger.warning(
+            "%s price mapped outside configured absolute grid; skipping depth update "
+            "(price_int=%d, anchor_tick_idx=%d, n_ticks=%d, tick_int=%d%s)",
+            action,
+            price_int,
+            self._anchor_tick_idx,
+            self.n_ticks,
+            self.tick_int,
+            extra,
+        )
 
     def _rebuild_depth_from_orders(self) -> None:
         """Rebuild depth arrays and BBO from current order map."""
@@ -418,6 +448,10 @@ class AbsoluteTickEngine:
                         f"(price_int={entry.price_int}, anchor_tick_idx={self._anchor_tick_idx}, "
                         f"n_ticks={self.n_ticks}, tick_int={self.tick_int})."
                     )
+                self._warn_out_of_range_skip(
+                    action="Rebuild",
+                    price_int=entry.price_int,
+                )
                 continue
             entry.idx = idx
             if entry.side == SIDE_BID:
@@ -506,6 +540,58 @@ class AbsoluteTickEngine:
                 self._best_ask * PRICE_SCALE,
                 (self._best_bid + self._best_ask) * 0.5 * PRICE_SCALE,
             )
+        return True
+
+    def _reset_per_tick_state(self) -> None:
+        """Reset all per-tick mechanics/derivative/metadata arrays."""
+        self._add_mass[:] = 0.0
+        self._pull_mass[:] = 0.0
+        self._fill_mass[:] = 0.0
+        self._rest_depth[:] = 0.0
+        self._v_add[:] = 0.0
+        self._v_pull[:] = 0.0
+        self._v_fill[:] = 0.0
+        self._v_rest_depth[:] = 0.0
+        self._a_add[:] = 0.0
+        self._a_pull[:] = 0.0
+        self._a_fill[:] = 0.0
+        self._a_rest_depth[:] = 0.0
+        self._j_add[:] = 0.0
+        self._j_pull[:] = 0.0
+        self._j_fill[:] = 0.0
+        self._j_rest_depth[:] = 0.0
+        self._pressure_variant[:] = 0.0
+        self._vacuum_variant[:] = 0.0
+        self._last_ts_ns[:] = 0
+        self._last_event_id[:] = 0
+
+    def soft_reanchor_to_order_book_bbo(self) -> bool:
+        """Re-anchor to raw order-book BBO and reset per-tick state arrays."""
+        best_bid, best_ask = self._raw_bbo_from_orders()
+        if best_bid <= 0 or best_ask <= 0:
+            return False
+
+        old_tick = self._anchor_tick_idx
+        new_tick = int(math.floor(
+            (best_bid + best_ask) / (2.0 * self.tick_int) + 0.5
+        ))
+        self._best_bid_idx = -1
+        self._best_ask_idx = -1
+        self._best_bid = best_bid
+        self._best_ask = best_ask
+        self._anchor_tick_idx = new_tick
+        self._rebuild_depth_from_orders()
+        self._reset_per_tick_state()
+        self.sync_rest_depth_from_book()
+
+        logger.info(
+            "Soft anchor recentered: %d -> %d (bid=$%.2f, ask=$%.2f, mid=$%.2f)",
+            old_tick,
+            new_tick,
+            best_bid * PRICE_SCALE,
+            best_ask * PRICE_SCALE,
+            (best_bid + best_ask) * 0.5 * PRICE_SCALE,
+        )
         return True
 
     def set_anchor_tick_idx(self, anchor_tick_idx: int) -> None:
@@ -746,6 +832,13 @@ class AbsoluteTickEngine:
                     f"(price_int={price_int}, anchor_tick_idx={self._anchor_tick_idx}, "
                     f"n_ticks={self.n_ticks}, tick_int={self.tick_int})."
                 )
+            if self._anchor_tick_idx >= 0:
+                self._warn_out_of_range_skip(
+                    action="Add",
+                    price_int=price_int,
+                    order_id=order_id,
+                    side=side,
+                )
             idx = -1
 
         self._orders[order_id] = _OrderEntry(
@@ -788,6 +881,13 @@ class AbsoluteTickEngine:
                     "Modify price mapped outside configured absolute grid "
                     f"(price_int={price_int}, anchor_tick_idx={self._anchor_tick_idx}, "
                     f"n_ticks={self.n_ticks}, tick_int={self.tick_int})."
+                )
+            if self._anchor_tick_idx >= 0:
+                self._warn_out_of_range_skip(
+                    action="Modify",
+                    price_int=price_int,
+                    order_id=order_id,
+                    side=side,
                 )
             idx = -1
         self._orders[order_id] = _OrderEntry(
@@ -955,27 +1055,8 @@ class AbsoluteTickEngine:
         else:
             self._recompute_provisional_bbo_from_orders()
 
-        # Reset grid arrays — warmup will populate
-        self._add_mass[:] = 0.0
-        self._pull_mass[:] = 0.0
-        self._fill_mass[:] = 0.0
-        self._rest_depth[:] = 0.0
-        self._v_add[:] = 0.0
-        self._v_pull[:] = 0.0
-        self._v_fill[:] = 0.0
-        self._v_rest_depth[:] = 0.0
-        self._a_add[:] = 0.0
-        self._a_pull[:] = 0.0
-        self._a_fill[:] = 0.0
-        self._a_rest_depth[:] = 0.0
-        self._j_add[:] = 0.0
-        self._j_pull[:] = 0.0
-        self._j_fill[:] = 0.0
-        self._j_rest_depth[:] = 0.0
-        self._pressure_variant[:] = 0.0
-        self._vacuum_variant[:] = 0.0
-        self._last_ts_ns[:] = 0
-        self._last_event_id[:] = 0
+        # Reset grid arrays — warmup will populate.
+        self._reset_per_tick_state()
 
     # ------------------------------------------------------------------
     # Introspection

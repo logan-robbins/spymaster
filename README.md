@@ -35,7 +35,8 @@ Core-grid phase-1 notes:
 
 - `stream_core_events` in `backend/src/vacuum_pressure/core_pipeline.py` emits full-grid snapshots and skips serve-time radius extraction.
 - Core mode decouples anchor initialization from BBO by seeding from the first priced event.
-- Core mode defaults to fail-fast on out-of-range prices (`fail_on_out_of_range=True`).
+- Core mode defaults to tolerant out-of-range handling (`fail_on_out_of_range=False`): out-of-range prices are skipped from depth mapping and logged with `WARNING`.
+- Core mode performs a one-time soft re-anchor to raw order-book BBO at the first valid BBO after `09:30 ET` or after `10,000` processed events (whichever happens first), then keeps the grid fixed.
 
 ## Constraints
 
@@ -93,6 +94,23 @@ nohup uv run scripts/run_vacuum_pressure.py \
   --dt 2026-02-06 \
   --port 8002 \
   --start-time 09:00 > /tmp/vp_preprod.log 2>&1 &
+```
+
+Producer-latency capture (optional, disabled by default):
+
+```bash
+kill $(lsof -t -iTCP:8002) 2>/dev/null
+cd backend
+nohup uv run scripts/run_vacuum_pressure.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --port 8002 \
+  --start-time 09:00 \
+  --perf-latency-jsonl /tmp/vp_latency_20260206_0925_0940.jsonl \
+  --perf-window-start-et 09:25 \
+  --perf-window-end-et 09:40 \
+  --perf-summary-every-bins 200 > /tmp/vp_preprod_perf.log 2>&1 &
 ```
 
 ## Start Frontend
@@ -180,9 +198,43 @@ uv run scripts/benchmark_vp_core.py \
   --product-type future_mbo \
   --symbol MNQH6 \
   --dt 2026-02-06 \
-  --start-time 09:00 \
-  --max-bins 200
+  --start-time 09:00
 ```
+
+Optional strict mode (fail fast on out-of-range prices):
+
+```bash
+cd backend
+uv run scripts/benchmark_vp_core.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --start-time 09:00 \
+  --fail-on-out-of-range
+```
+
+## Producer Latency Analysis
+
+Replay-source producer latency is measured on the canonical websocket path:
+
+- Start: event ingress into the fixed-bin pipeline loop (simulated from `.dbn`)
+- End: handoff complete to async streaming queue (`q.put` done)
+
+Telemetry output:
+
+- Sidecar JSONL path from `--perf-latency-jsonl`
+- One record per emitted bin in optional ET window (`--perf-window-start-et`, `--perf-window-end-et`)
+- Rolling p50/p95/p99 logs every `--perf-summary-every-bins`
+
+Key JSONL fields:
+
+- `bin_seq`, `bin_start_ns`, `bin_end_ns`, `bin_event_count`, `event_id`
+- `first_ingest_to_grid_ready_us`
+- `last_ingest_to_grid_ready_us`
+- `grid_ready_to_queue_put_done_us`
+- `first_ingest_to_queue_put_done_us`
+- `last_ingest_to_queue_put_done_us`
+- `queue_block_us`
 
 ## Verification
 
@@ -199,16 +251,17 @@ cd frontend && npx tsc --noEmit
 
 - `backend/src/vacuum_pressure/config.py`: locked runtime schema and validation
 - `backend/src/vacuum_pressure/instrument.yaml`: canonical runtime parameters
-- `backend/src/vacuum_pressure/event_engine.py`: absolute-tick VP engine (order_id map + NumPy depth/BBO arrays, supports BBO auto-anchor or explicit core anchor, fail-fast out-of-range mode)
+- `backend/src/vacuum_pressure/event_engine.py`: absolute-tick VP engine (order_id map + NumPy depth/BBO arrays, supports BBO auto-anchor or explicit core anchor, tolerant skipped-price warnings, one-time soft re-anchor helper for core mode)
 - `backend/src/vacuum_pressure/core_pipeline.py`: phase-1 full-grid pressure-core fixed-bin stream (no radius filtering)
 - `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel
 - `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel with pre-allocated ring-history buffers (no deque/stack hot-path)
-- `backend/src/vacuum_pressure/stream_pipeline.py`: fixed-bin stream builder
+- `backend/src/vacuum_pressure/stream_pipeline.py`: fixed-bin stream builder + optional producer-latency JSONL telemetry (ingest -> queue handoff)
 - `backend/src/vacuum_pressure/server.py`: websocket server + Arrow contract
-- `backend/scripts/run_vacuum_pressure.py`: backend entrypoint
+- `backend/scripts/run_vacuum_pressure.py`: backend entrypoint (+ optional `--perf-*` latency telemetry flags)
 - `backend/scripts/benchmark_vp_core.py`: pressure-core throughput benchmark runner
 - `backend/scripts/warm_cache.py`: book cache warmup
 - `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis
 - `backend/tests/test_vp_math_validation.py`: 22 math validation tests (derivative chain, composite, force model, decay, book stress, fills, modifies)
 - `backend/tests/test_analyze_vp_signals_regime.py`: 11 integration tests (engine lifecycle, spectrum, pipeline)
+- `backend/tests/test_stream_pipeline_perf.py`: producer-latency telemetry tests (metadata capture, JSONL output, window filtering)
 - `frontend/src/vacuum-pressure.ts`: fixed-bin UI consumer and renderer

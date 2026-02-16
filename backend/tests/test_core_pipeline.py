@@ -59,6 +59,20 @@ def _events_out_of_range() -> list[MBOEvent]:
     ]
 
 
+def _events_soft_reanchor_event_gate() -> list[MBOEvent]:
+    step_ns = 110_000_000  # 110ms => one emitted bin per event
+    t0 = 1_000_000_000
+    return [
+        (t0 + 0 * step_ns, "A", "B", 100, 10, 1, 0),  # initial anchor near 100
+        (t0 + 1 * step_ns, "A", "A", 101, 10, 2, 0),  # establish initial BBO
+        (t0 + 2 * step_ns, "C", "B", 100, 0, 1, 0),   # clear old BBO
+        (t0 + 3 * step_ns, "C", "A", 101, 0, 2, 0),
+        (t0 + 4 * step_ns, "A", "B", 200, 7, 3, 0),   # out-of-range under old anchor
+        (t0 + 5 * step_ns, "A", "A", 201, 7, 4, 0),   # out-of-range under old anchor
+        (t0 + 6 * step_ns, "A", "B", 200, 5, 5, 0),   # processed after soft re-anchor
+    ]
+
+
 def _iter_for(events: list[MBOEvent]):
     def _fake_iter(
         _lake_root: Path,
@@ -132,3 +146,54 @@ def test_stream_core_events_fail_fast_on_out_of_range(
             )
         )
 
+
+def test_stream_core_events_default_tolerant_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(
+        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        _iter_for(_events_out_of_range()),
+    )
+
+    config = _test_config(n_absolute_ticks=20)
+    with caplog.at_level("WARNING", logger="src.vacuum_pressure.event_engine"):
+        grids = list(
+            stream_core_events(
+                lake_root=Path("/tmp"),
+                config=config,
+                dt="2026-02-06",
+                start_time=None,
+            )
+        )
+
+    assert len(grids) > 0
+    assert any("skipping depth update" in rec.getMessage() for rec in caplog.records)
+
+
+def test_stream_core_events_soft_reanchors_once_after_event_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        _iter_for(_events_soft_reanchor_event_gate()),
+    )
+    monkeypatch.setattr(
+        "src.vacuum_pressure.core_pipeline._SOFT_REANCHOR_AFTER_EVENT_COUNT",
+        5,
+    )
+
+    config = _test_config(n_absolute_ticks=20)
+    grids = list(
+        stream_core_events(
+            lake_root=Path("/tmp"),
+            config=config,
+            dt="2026-02-06",
+            start_time=None,
+        )
+    )
+
+    anchors = [int(grid["anchor_tick_idx"]) for grid in grids]
+    assert anchors[0] == 100
+    assert 201 in anchors
+    assert len(set(anchors)) == 2

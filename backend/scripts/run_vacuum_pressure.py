@@ -40,7 +40,38 @@ def main() -> None:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+    parser.add_argument(
+        "--perf-latency-jsonl",
+        type=Path,
+        default=None,
+        help="Optional JSONL output path for producer-latency telemetry (disabled when omitted).",
+    )
+    parser.add_argument(
+        "--perf-window-start-et",
+        type=str,
+        default=None,
+        help="Optional ET window start HH:MM for telemetry records.",
+    )
+    parser.add_argument(
+        "--perf-window-end-et",
+        type=str,
+        default=None,
+        help="Optional ET window end HH:MM for telemetry records.",
+    )
+    parser.add_argument(
+        "--perf-summary-every-bins",
+        type=int,
+        default=200,
+        help="Emit producer latency percentile summary logs every N recorded bins.",
+    )
     args = parser.parse_args()
+
+    if args.perf_latency_jsonl is None and (
+        args.perf_window_start_et is not None or args.perf_window_end_et is not None
+    ):
+        parser.error("--perf-window-start-et/--perf-window-end-et require --perf-latency-jsonl")
+    if args.perf_summary_every_bins <= 0:
+        parser.error("--perf-summary-every-bins must be > 0")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -69,6 +100,10 @@ def main() -> None:
                 "start_time": args.start_time,
                 "grid_radius_ticks": config.grid_radius_ticks,
                 "cell_width_ms": config.cell_width_ms,
+                "perf_latency_jsonl": str(args.perf_latency_jsonl) if args.perf_latency_jsonl else None,
+                "perf_window_start_et": args.perf_window_start_et,
+                "perf_window_end_et": args.perf_window_end_et,
+                "perf_summary_every_bins": args.perf_summary_every_bins,
             },
             indent=2,
         )
@@ -79,6 +114,10 @@ def main() -> None:
     app = create_app(
         lake_root=backend_root / "lake",
         products_yaml_path=products_yaml_path,
+        perf_latency_jsonl=args.perf_latency_jsonl,
+        perf_window_start_et=args.perf_window_start_et,
+        perf_window_end_et=args.perf_window_end_et,
+        perf_summary_every_bins=args.perf_summary_every_bins,
     )
 
     qs_parts = [

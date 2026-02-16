@@ -26,9 +26,9 @@ def main() -> None:
         help="Optional cap on emitted bins (0 means no cap).",
     )
     parser.add_argument(
-        "--allow-out-of-range",
+        "--fail-on-out-of-range",
         action="store_true",
-        help="Do not fail fast when price maps outside configured absolute grid.",
+        help="Fail fast when price maps outside configured absolute grid.",
     )
     parser.add_argument(
         "--log-level",
@@ -60,7 +60,7 @@ def main() -> None:
         config=config,
         dt=args.dt,
         start_time=args.start_time,
-        fail_on_out_of_range=not args.allow_out_of_range,
+        fail_on_out_of_range=args.fail_on_out_of_range,
     ):
         bins += 1
         last_event_id = int(grid["event_id"])
@@ -93,4 +93,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -11,7 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import VPRuntimeConfig, resolve_config
-from .stream_pipeline import async_stream_events  # noqa: F401
+from .stream_pipeline import ProducerLatencyConfig, async_stream_events  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +76,31 @@ def _grid_to_arrow_ipc(grid_dict: Dict[str, Any], schema: pa.Schema) -> bytes:
     return sink.getvalue().to_pybytes()
 
 
+def _et_hhmm_to_utc_ns(dt: str, hhmm: str) -> int:
+    """Convert HH:MM ET on dt into UTC nanoseconds."""
+    import pandas as pdt
+
+    ts_utc = pdt.Timestamp(f"{dt} {hhmm}:00", tz="America/New_York").tz_convert("UTC")
+    return int(ts_utc.value)
+
+
 def create_app(
     lake_root: Path | None = None,
     products_yaml_path: Path | None = None,
+    perf_latency_jsonl: Path | None = None,
+    perf_window_start_et: str | None = None,
+    perf_window_end_et: str | None = None,
+    perf_summary_every_bins: int = 200,
 ) -> FastAPI:
     """Create the FastAPI app for canonical fixed-bin streaming."""
     if lake_root is None:
         lake_root = Path(__file__).resolve().parents[2] / "lake"
     if products_yaml_path is None:
         products_yaml_path = _DEFAULT_PRODUCTS_YAML
+    if perf_summary_every_bins <= 0:
+        raise ValueError(f"perf_summary_every_bins must be > 0, got {perf_summary_every_bins}")
+    if perf_latency_jsonl is None and (perf_window_start_et is not None or perf_window_end_et is not None):
+        raise ValueError("perf_window_start_et/perf_window_end_et require perf_latency_jsonl")
 
     app = FastAPI(
         title="Vacuum Pressure Stream Server",
@@ -120,6 +136,24 @@ def create_app(
         try:
             config = resolve_config(product_type, symbol, products_yaml_path)
             schema = _grid_schema(config)
+            producer_latency_cfg = None
+            if perf_latency_jsonl is not None:
+                window_start_ns = (
+                    _et_hhmm_to_utc_ns(dt, perf_window_start_et)
+                    if perf_window_start_et is not None
+                    else None
+                )
+                window_end_ns = (
+                    _et_hhmm_to_utc_ns(dt, perf_window_end_et)
+                    if perf_window_end_et is not None
+                    else None
+                )
+                producer_latency_cfg = ProducerLatencyConfig(
+                    output_path=perf_latency_jsonl,
+                    window_start_ns=window_start_ns,
+                    window_end_ns=window_end_ns,
+                    summary_every_bins=perf_summary_every_bins,
+                )
         except (ValueError, FileNotFoundError) as exc:
             logger.error("VP stream setup failed: %s", exc)
             await websocket.send_text(json.dumps({
@@ -139,6 +173,14 @@ def create_app(
             config.cell_width_ms,
             config.config_version,
         )
+        if producer_latency_cfg is not None:
+            logger.info(
+                "VP producer latency telemetry active: output=%s window_start_ns=%s window_end_ns=%s summary_every_bins=%d",
+                producer_latency_cfg.output_path,
+                producer_latency_cfg.window_start_ns,
+                producer_latency_cfg.window_end_ns,
+                producer_latency_cfg.summary_every_bins,
+            )
 
         await _stream_live_dense_grid(
             websocket=websocket,
@@ -147,6 +189,7 @@ def create_app(
             schema=schema,
             dt=dt,
             start_time=start_time,
+            producer_latency_config=producer_latency_cfg,
         )
 
     return app
@@ -159,6 +202,7 @@ async def _stream_live_dense_grid(
     schema: pa.Schema,
     dt: str,
     start_time: str | None,
+    producer_latency_config: ProducerLatencyConfig | None = None,
 ) -> None:
     """Send fixed-bin dense-grid updates over websocket."""
     grid_count = 0
@@ -179,6 +223,7 @@ async def _stream_live_dense_grid(
             config=config,
             dt=dt,
             start_time=start_time,
+            producer_latency_config=producer_latency_config,
         ):
             grid_count += 1
 
