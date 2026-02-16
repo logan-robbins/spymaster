@@ -7,6 +7,7 @@ One canonical runtime:
 - Source adapter: Databento `.dbn` replay (PRE-PROD)
 - Engine: `AbsoluteTickEngine` — pre-allocated NumPy arrays indexed by absolute price tick
 - Output lattice: fixed-width time bins x absolute price ticks
+- Phase-1 pressure core path: full-grid columnar snapshots (`n_absolute_ticks` rows, no radius filtering)
 - Serve-time window: `±grid_radius_ticks` around spot (default ±50 = 101 visible ticks)
 - Canonical state per cell: `pressure / neutral / vacuum`
 - Spot is a read-only overlay computed from BBO, not coupled to engine state
@@ -19,7 +20,7 @@ The locked instrument config (`backend/src/vacuum_pressure/instrument.yaml`) is 
 
 Key fields:
 
-- `n_absolute_ticks`: total pre-allocated absolute tick slots (default `500`, covers ±125 points of MNQ)
+- `n_absolute_ticks`: total pre-allocated absolute tick slots (default `8192`, covers ±1024 points of MNQ, 2048 total points)
 - `grid_radius_ticks`: serve-time window radius in ticks around spot (default `50`, yields 101 visible ticks)
 - `cell_width_ms`: fixed bin width in wall-clock milliseconds (default `100`)
 - `spectrum_windows`: per-cell trailing windows (bin counts)
@@ -29,6 +30,12 @@ Key fields:
 - `spectrum_threshold_neutral`: deadband threshold for state mapping
 - `zscore_window_bins`, `zscore_min_periods`: robust z-score controls
 - `projection_horizons_ms`: per-cell forward projection horizons
+
+Core-grid phase-1 notes:
+
+- `stream_core_events` in `backend/src/vacuum_pressure/core_pipeline.py` emits full-grid snapshots and skips serve-time radius extraction.
+- Core mode decouples anchor initialization from BBO by seeding from the first priced event.
+- Core mode defaults to fail-fast on out-of-range prices (`fail_on_out_of_range=True`).
 
 ## Constraints
 
@@ -143,18 +150,38 @@ uv run scripts/analyze_vp_signals.py \
   --eval-end 12:00
 ```
 
-Optional JSON output:
+Regime mode (directional signal + TP/SL trade evaluation):
 
 ```bash
 cd backend
 uv run scripts/analyze_vp_signals.py \
+  --mode regime \
   --product-type future_mbo \
   --symbol MNQH6 \
   --dt 2026-02-06 \
   --start-time 09:00 \
   --eval-start 09:00 \
-  --eval-end 12:00 \
-  --json-output tests/canonical_summary.json
+  --eval-end 10:00 \
+  --directional-bands 4,8,16 \
+  --micro-windows 25,50,100,200 \
+  --tp-ticks 8 \
+  --sl-ticks 4 \
+  --max-hold-snapshots 1200 \
+  --json-output /tmp/regime_results.json
+```
+
+## Pressure Core Benchmark
+
+Math-first replay benchmark (full grid, no radius filtering):
+
+```bash
+cd backend
+uv run scripts/benchmark_vp_core.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --start-time 09:00 \
+  --max-bins 200
 ```
 
 ## Verification
@@ -163,6 +190,7 @@ uv run scripts/analyze_vp_signals.py \
 cd backend && uv run scripts/run_vacuum_pressure.py --help
 cd backend && uv run scripts/warm_cache.py --help
 cd backend && uv run scripts/analyze_vp_signals.py --help
+cd backend && uv run scripts/benchmark_vp_core.py --help
 cd backend && uv run pytest -q
 cd frontend && npx tsc --noEmit
 ```
@@ -171,11 +199,14 @@ cd frontend && npx tsc --noEmit
 
 - `backend/src/vacuum_pressure/config.py`: locked runtime schema and validation
 - `backend/src/vacuum_pressure/instrument.yaml`: canonical runtime parameters
-- `backend/src/vacuum_pressure/event_engine.py`: absolute-tick VP engine (NumPy arrays, no grid shift, incremental BBO)
+- `backend/src/vacuum_pressure/event_engine.py`: absolute-tick VP engine (order_id map + NumPy depth/BBO arrays, supports BBO auto-anchor or explicit core anchor, fail-fast out-of-range mode)
+- `backend/src/vacuum_pressure/core_pipeline.py`: phase-1 full-grid pressure-core fixed-bin stream (no radius filtering)
 - `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel
+- `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel with pre-allocated ring-history buffers (no deque/stack hot-path)
 - `backend/src/vacuum_pressure/stream_pipeline.py`: fixed-bin stream builder
 - `backend/src/vacuum_pressure/server.py`: websocket server + Arrow contract
 - `backend/scripts/run_vacuum_pressure.py`: backend entrypoint
+- `backend/scripts/benchmark_vp_core.py`: pressure-core throughput benchmark runner
 - `backend/scripts/warm_cache.py`: book cache warmup
 - `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis
 - `backend/tests/test_vp_math_validation.py`: 22 math validation tests (derivative chain, composite, force model, decay, book stress, fills, modifies)

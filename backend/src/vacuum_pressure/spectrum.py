@@ -5,7 +5,6 @@ own time history; no cross-cell coupling is used in this phase.
 """
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Sequence
 
@@ -94,10 +93,24 @@ class IndependentCellSpectrum:
         self._default_dt_s = float(default_dt_s)
 
         max_hist = int(max(self._windows.max(), self._zscore_window_bins, 3))
-        self._composite_hist: deque[np.ndarray] = deque(maxlen=max_hist)
-        self._d1_hist: deque[np.ndarray] = deque(maxlen=max_hist)
-        self._d2_hist: deque[np.ndarray] = deque(maxlen=max_hist)
-        self._d3_hist: deque[np.ndarray] = deque(maxlen=max_hist)
+        self._hist_capacity = max_hist
+        self._composite_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
+        self._d1_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
+        self._d2_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
+        self._d3_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
+        self._composite_write_idx = 0
+        self._d1_write_idx = 0
+        self._d2_write_idx = 0
+        self._d3_write_idx = 0
+        self._composite_count = 0
+        self._d1_count = 0
+        self._d2_count = 0
+        self._d3_count = 0
+        self._rolling_sum_by_window = np.zeros((self._windows.size, n_cells), dtype=np.float64)
+        self._zscore_scratch = np.empty(
+            (self._zscore_window_bins, n_cells), dtype=np.float64
+        )
+        self._zeros = np.zeros(n_cells, dtype=np.float64)
 
         self._prev_ts_ns: int | None = None
         self._prev_rolled: np.ndarray | None = None
@@ -110,17 +123,81 @@ class IndependentCellSpectrum:
     def projection_horizons_ms(self) -> tuple[int, ...]:
         return self._projection_horizons_ms
 
-    def _stack_tail_mean(self, hist: np.ndarray, window: int) -> np.ndarray:
-        tail = hist[-window:] if hist.shape[0] >= window else hist
-        return tail.mean(axis=0)
+    @property
+    def latest_composite(self) -> np.ndarray:
+        """Return the latest composite vector (or zeros before first update)."""
+        if self._composite_count == 0:
+            return self._zeros
+        last_idx = (self._composite_write_idx - 1) % self._hist_capacity
+        return self._composite_ring[last_idx]
 
-    def _robust_z_last(self, hist_deque: deque[np.ndarray], x: np.ndarray) -> np.ndarray:
-        n = len(hist_deque)
-        if n < self._zscore_min_periods:
-            return np.zeros_like(x)
+    def _append_composite(self, composite: np.ndarray) -> None:
+        """Append composite to ring and update rolling sums for configured windows."""
+        write_idx = self._composite_write_idx
+        prev_count = self._composite_count
 
-        window_hist = list(hist_deque)[-self._zscore_window_bins:]
-        hist = np.stack(window_hist, axis=0)
+        for idx, window in enumerate(self._windows.tolist()):
+            if prev_count >= window:
+                old_idx = (write_idx - int(window)) % self._hist_capacity
+                self._rolling_sum_by_window[idx] -= self._composite_ring[old_idx]
+            self._rolling_sum_by_window[idx] += composite
+
+        self._composite_ring[write_idx] = composite
+        self._composite_write_idx = (write_idx + 1) % self._hist_capacity
+        if self._composite_count < self._hist_capacity:
+            self._composite_count += 1
+
+    def _append_ring(
+        self,
+        ring: np.ndarray,
+        write_idx: int,
+        count: int,
+        x: np.ndarray,
+    ) -> tuple[int, int]:
+        """Append one vector to an arbitrary history ring."""
+        ring[write_idx] = x
+        write_idx = (write_idx + 1) % self._hist_capacity
+        if count < self._hist_capacity:
+            count += 1
+        return write_idx, count
+
+    def _copy_tail(
+        self,
+        ring: np.ndarray,
+        write_idx: int,
+        count: int,
+        window: int,
+    ) -> np.ndarray:
+        """Copy newest `window` rows from ring into scratch as contiguous history."""
+        n = min(window, count)
+        if n <= 0:
+            return self._zscore_scratch[:0]
+
+        start = (write_idx - n) % self._hist_capacity
+        if start + n <= self._hist_capacity:
+            self._zscore_scratch[:n] = ring[start:start + n]
+        else:
+            first = self._hist_capacity - start
+            self._zscore_scratch[:first] = ring[start:]
+            self._zscore_scratch[first:n] = ring[: n - first]
+        return self._zscore_scratch[:n]
+
+    def _robust_z_last(
+        self,
+        ring: np.ndarray,
+        write_idx: int,
+        count: int,
+        x: np.ndarray,
+    ) -> np.ndarray:
+        if count < self._zscore_min_periods:
+            return self._zeros
+
+        hist = self._copy_tail(
+            ring=ring,
+            write_idx=write_idx,
+            count=count,
+            window=self._zscore_window_bins,
+        )
 
         med = np.median(hist, axis=0)
         mad = np.median(np.abs(hist - med), axis=0)
@@ -149,13 +226,15 @@ class IndependentCellSpectrum:
         pressure_f = pressure.astype(np.float64, copy=False)
         vacuum_f = vacuum.astype(np.float64, copy=False)
         composite = (pressure_f - vacuum_f) / (np.abs(pressure_f) + np.abs(vacuum_f) + _EPS)
-
-        self._composite_hist.append(composite)
-        comp_hist = np.stack(self._composite_hist, axis=0)
+        self._append_composite(composite)
 
         rolled = np.zeros(self._n_cells, dtype=np.float64)
         for idx, window in enumerate(self._windows.tolist()):
-            rolled += self._rollup_weights[idx] * self._stack_tail_mean(comp_hist, int(window))
+            count = min(self._composite_count, int(window))
+            if count > 0:
+                rolled += self._rollup_weights[idx] * (
+                    self._rolling_sum_by_window[idx] / float(count)
+                )
 
         if self._prev_ts_ns is not None and ts_ns > self._prev_ts_ns:
             dt_s = (ts_ns - self._prev_ts_ns) / 1e9
@@ -179,13 +258,28 @@ class IndependentCellSpectrum:
         else:
             d3 = (d2 - self._prev_d2) / dt_s
 
-        self._d1_hist.append(d1)
-        self._d2_hist.append(d2)
-        self._d3_hist.append(d3)
+        self._d1_write_idx, self._d1_count = self._append_ring(
+            ring=self._d1_ring,
+            write_idx=self._d1_write_idx,
+            count=self._d1_count,
+            x=d1,
+        )
+        self._d2_write_idx, self._d2_count = self._append_ring(
+            ring=self._d2_ring,
+            write_idx=self._d2_write_idx,
+            count=self._d2_count,
+            x=d2,
+        )
+        self._d3_write_idx, self._d3_count = self._append_ring(
+            ring=self._d3_ring,
+            write_idx=self._d3_write_idx,
+            count=self._d3_count,
+            x=d3,
+        )
 
-        z1 = self._robust_z_last(self._d1_hist, d1)
-        z2 = self._robust_z_last(self._d2_hist, d2)
-        z3 = self._robust_z_last(self._d3_hist, d3)
+        z1 = self._robust_z_last(self._d1_ring, self._d1_write_idx, self._d1_count, d1)
+        z2 = self._robust_z_last(self._d2_ring, self._d2_write_idx, self._d2_count, d2)
+        z3 = self._robust_z_last(self._d3_ring, self._d3_write_idx, self._d3_count, d3)
 
         score = (
             self._deriv_weights[0] * np.tanh(z1 / self._tanh_scale)

@@ -203,7 +203,7 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         "rel_tick_size": float(raw["rel_tick_size"]),
         "grid_radius_ticks": int(raw["grid_radius_ticks"]),
         "cell_width_ms": int(raw["cell_width_ms"]),
-        "n_absolute_ticks": int(raw.get("n_absolute_ticks", 500)),
+        "n_absolute_ticks": int(raw.get("n_absolute_ticks", 8192)),
         "spectrum_windows": _parse_int_sequence(raw["spectrum_windows"], "spectrum_windows"),
         "spectrum_rollup_weights": _parse_float_sequence(
             raw["spectrum_rollup_weights"], "spectrum_rollup_weights"

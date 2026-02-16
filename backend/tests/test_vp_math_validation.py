@@ -161,7 +161,7 @@ def test_composite_bounded_opposite_sign() -> None:
     v = np.array([-5.0, 5.0, 0.0], dtype=np.float64)
     out = kernel.update(100_000_000, p, v)
 
-    composite = kernel._composite_hist[-1]
+    composite = kernel.latest_composite
     # (5-(-5)) / (|5|+|-5|+eps) = 10/10 ≈ 1.0
     assert composite[0] == pytest.approx(1.0, abs=1e-9)
     # (-5-5) / (|-5|+|5|+eps) = -10/10 ≈ -1.0
@@ -181,7 +181,7 @@ def test_composite_near_cancellation() -> None:
     v = np.array([-5.0001], dtype=np.float64)
     out = kernel.update(100_000_000, p, v)
 
-    composite = kernel._composite_hist[-1]
+    composite = kernel.latest_composite
     # (5 - (-5.0001)) / (5 + 5.0001 + eps) = 10.0001 / 10.0001 ≈ 1.0
     assert np.abs(composite[0]) <= 1.0 + 1e-9
     assert np.isfinite(composite[0])
@@ -196,7 +196,7 @@ def test_composite_all_zero() -> None:
     v = np.zeros(3, dtype=np.float64)
     out = kernel.update(100_000_000, p, v)
 
-    composite = kernel._composite_hist[-1]
+    composite = kernel.latest_composite
     np.testing.assert_allclose(composite, 0.0, atol=1e-9)
     assert np.isfinite(out.score).all()
 

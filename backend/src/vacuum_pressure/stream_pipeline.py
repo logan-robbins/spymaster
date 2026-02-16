@@ -117,6 +117,7 @@ def ensure_book_cache(
     if cache_path.exists():
         logger.info("Loading cached book state: %s", cache_path.name)
         engine.import_book_state(cache_path.read_bytes())
+        engine.reanchor_to_bbo()
         engine.sync_rest_depth_from_book()
         logger.info(
             "Book cache loaded in %.2fs: %d orders, anchor=%d, book_valid=%s",
@@ -156,6 +157,7 @@ def ensure_book_cache(
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_bytes(engine.export_book_state())
+    engine.reanchor_to_bbo()
     engine.sync_rest_depth_from_book()
 
     elapsed_ff = time.monotonic() - t_wall_start
