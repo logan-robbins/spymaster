@@ -238,6 +238,26 @@ Arrow rows include per cell:
 - `spectrum_state_code` in `{-1,0,+1}` (`vacuum`, `neutral`, `pressure`)
 - `proj_score_h{ms}` for each configured projection horizon
 
+## Projection Bands
+
+The frontend computes three experiment signals in-browser from the Arrow grid data:
+
+- **PFP** (Pressure Front Propagation): Inner/outer velocity lead-lag detection
+- **ADS** (Asymmetric Derivative Slope): Multi-scale OLS slope of bid/ask velocity asymmetry
+- **ERD** (Entropy Regime Detector): Shannon entropy spike detection with directional gating
+
+Signals are blended (PFP=0.40, ADS=0.35, ERD=0.25) into a composite directional signal rendered as purple Gaussian bands at 4 horizons (250ms, 500ms, 1s, 2.5s) in the right 15% of the heatmap.
+
+Band interpretation:
+
+- Band skews above spot = bullish prediction
+- Band skews below spot = bearish prediction
+- Brightness = signal strength x horizon confidence (fades with longer horizon)
+
+Warmup: PFP at 500ms, ERD at 10s, ADS at 20s. Bands appear progressively as each signal comes online.
+
+Source: `frontend/src/experiment-engine.ts`, `experiment-pfp.ts`, `experiment-ads.ts`, `experiment-erd.ts`, `experiment-math.ts`
+
 ## Analysis Script
 
 Canonical analysis script:
@@ -384,3 +404,8 @@ cd frontend && npx tsc --noEmit
 - `backend/tests/test_cache_vp_output.py`: compute-capture serialization + window filtering tests
 - `backend/tests/test_publish_vp_research_dataset.py`: immutable publication + agent workspace tests
 - `frontend/src/vacuum-pressure.ts`: fixed-bin UI consumer and renderer
+- `frontend/src/experiment-engine.ts`: composite experiment signal blender (PFP/ADS/ERD)
+- `frontend/src/experiment-pfp.ts`: Pressure Front Propagation signal (inner/outer lead-lag)
+- `frontend/src/experiment-ads.ts`: Asymmetric Derivative Slope signal (multi-scale OLS)
+- `frontend/src/experiment-erd.ts`: Entropy Regime Detector signal (Shannon entropy spikes)
+- `frontend/src/experiment-math.ts`: incremental OLS slope + rolling robust z-score utilities
