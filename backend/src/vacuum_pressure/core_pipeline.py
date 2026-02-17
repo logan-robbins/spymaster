@@ -226,6 +226,7 @@ def stream_core_events(
             bin_initialized = True
 
         while ts_ns >= bin_end_ns:
+            engine.advance_time(bin_end_ns)
             yield _snapshot_core_grid(
                 engine,
                 bin_seq=bin_seq,
@@ -252,6 +253,7 @@ def stream_core_events(
         event_count += 1
 
     if bin_initialized and bin_event_count > 0:
+        engine.advance_time(bin_end_ns)
         yield _snapshot_core_grid(
             engine,
             bin_seq=bin_seq,

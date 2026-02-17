@@ -46,6 +46,7 @@ class VPRuntimeConfig:
     spectrum_threshold_neutral: float
     zscore_window_bins: int
     zscore_min_periods: int
+    projection_horizons_bins: Tuple[int, ...]
     projection_horizons_ms: Tuple[int, ...]
     contract_multiplier: float
     qty_unit: str
@@ -72,6 +73,7 @@ class VPRuntimeConfig:
             "spectrum_threshold_neutral": self.spectrum_threshold_neutral,
             "zscore_window_bins": self.zscore_window_bins,
             "zscore_min_periods": self.zscore_min_periods,
+            "projection_horizons_bins": list(self.projection_horizons_bins),
             "projection_horizons_ms": list(self.projection_horizons_ms),
             "contract_multiplier": self.contract_multiplier,
             "qty_unit": self.qty_unit,
@@ -182,7 +184,7 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         "spectrum_threshold_neutral",
         "zscore_window_bins",
         "zscore_min_periods",
-        "projection_horizons_ms",
+        "projection_horizons_bins",
         "contract_multiplier",
         "qty_unit",
         "price_decimals",
@@ -215,8 +217,8 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         "spectrum_threshold_neutral": float(raw["spectrum_threshold_neutral"]),
         "zscore_window_bins": int(raw["zscore_window_bins"]),
         "zscore_min_periods": int(raw["zscore_min_periods"]),
-        "projection_horizons_ms": _parse_int_sequence(
-            raw["projection_horizons_ms"], "projection_horizons_ms"
+        "projection_horizons_bins": _parse_int_sequence(
+            raw["projection_horizons_bins"], "projection_horizons_bins"
         ),
         "contract_multiplier": float(raw["contract_multiplier"]),
         "qty_unit": str(raw["qty_unit"]).strip(),
@@ -257,6 +259,19 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         raise ValueError("'zscore_min_periods' must be >= 2.")
     if fields["zscore_min_periods"] > fields["zscore_window_bins"]:
         raise ValueError("'zscore_min_periods' cannot exceed 'zscore_window_bins'.")
+    projection_horizons_bins = fields["projection_horizons_bins"]
+    if len(set(projection_horizons_bins)) != len(projection_horizons_bins):
+        raise ValueError("'projection_horizons_bins' values must be unique.")
+
+    projection_horizons_ms = tuple(
+        int(bin_count) * int(fields["cell_width_ms"])
+        for bin_count in projection_horizons_bins
+    )
+    if any(h_ms <= 0 for h_ms in projection_horizons_ms):
+        raise ValueError(
+            "'projection_horizons_bins' x 'cell_width_ms' must resolve to positive ms horizons."
+        )
+    fields["projection_horizons_ms"] = projection_horizons_ms
 
     config_version = _compute_config_version(fields)
     return VPRuntimeConfig(**fields, config_version=config_version)

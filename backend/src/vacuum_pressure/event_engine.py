@@ -805,6 +805,92 @@ class AbsoluteTickEngine:
             self._last_event_id[idx] = event_id
             self._last_ts_ns[idx] = ts_ns
 
+    def advance_time(self, ts_ns: int) -> None:
+        """Vectorized passive time advance for all active ticks.
+
+        Applies zero-delta decay to mass/derivative state and recomputes
+        pressure/vacuum for ticks that have prior state (`last_ts_ns > 0`)
+        when `ts_ns` is ahead of their last update.
+        """
+        if ts_ns <= 0:
+            return
+
+        active_idx = np.flatnonzero(
+            (self._last_ts_ns > 0) & (self._last_ts_ns < ts_ns)
+        )
+        if active_idx.size == 0:
+            return
+
+        dt_s = (ts_ns - self._last_ts_ns[active_idx]).astype(np.float64) / 1e9
+        if dt_s.size == 0:
+            return
+
+        # Decay mechanics mass with no new event delta.
+        rest_decay = np.exp(-dt_s / TAU_REST_DECAY)
+        self._add_mass[active_idx] *= rest_decay
+        self._pull_mass[active_idx] *= rest_decay
+        self._fill_mass[active_idx] *= rest_decay
+
+        # Per-tick EMA factors for variable dt.
+        alpha_v = 1.0 - np.exp(-dt_s / TAU_VELOCITY)
+        alpha_a = 1.0 - np.exp(-dt_s / TAU_ACCELERATION)
+        alpha_j = 1.0 - np.exp(-dt_s / TAU_JERK)
+        keep_v = 1.0 - alpha_v
+        keep_a = 1.0 - alpha_a
+        keep_j = 1.0 - alpha_j
+
+        # Decay derivative chain with zero event-rate input.
+        def _decay_chain(v_arr: np.ndarray, a_arr: np.ndarray, j_arr: np.ndarray) -> None:
+            v_prev = v_arr[active_idx]
+            a_prev = a_arr[active_idx]
+            j_prev = j_arr[active_idx]
+
+            v_new = keep_v * v_prev
+            dv_rate = (v_new - v_prev) / dt_s
+            a_new = alpha_a * dv_rate + keep_a * a_prev
+            da_rate = (a_new - a_prev) / dt_s
+            j_new = alpha_j * da_rate + keep_j * j_prev
+
+            np.nan_to_num(v_new, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            np.nan_to_num(a_new, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            np.nan_to_num(j_new, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+            v_arr[active_idx] = v_new
+            a_arr[active_idx] = a_new
+            j_arr[active_idx] = j_new
+
+        _decay_chain(self._v_add, self._a_add, self._j_add)
+        _decay_chain(self._v_pull, self._a_pull, self._j_pull)
+        _decay_chain(self._v_fill, self._a_fill, self._j_fill)
+        _decay_chain(self._v_rest_depth, self._a_rest_depth, self._j_rest_depth)
+
+        # Recompute force fields from updated derivatives.
+        v_add = self._v_add[active_idx]
+        v_pull = self._v_pull[active_idx]
+        v_fill = self._v_fill[active_idx]
+        v_rest = self._v_rest_depth[active_idx]
+        a_add = self._a_add[active_idx]
+        a_pull = self._a_pull[active_idx]
+
+        pressure = (
+            C1_V_ADD * v_add
+            + C2_V_REST_POS * np.maximum(v_rest, 0.0)
+            + C3_A_ADD * np.maximum(a_add, 0.0)
+        )
+        vacuum = (
+            C4_V_PULL * v_pull
+            + C5_V_FILL * v_fill
+            + C6_V_REST_NEG * np.maximum(-v_rest, 0.0)
+            + C7_A_PULL * np.maximum(a_pull, 0.0)
+        )
+        np.nan_to_num(pressure, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(vacuum, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        self._pressure_variant[active_idx] = pressure
+        self._vacuum_variant[active_idx] = vacuum
+
+        # last_event_id intentionally unchanged (no event touched these ticks).
+        self._last_ts_ns[active_idx] = ts_ns
+
     # ------------------------------------------------------------------
     # Order book operations (with incremental BBO)
     # ------------------------------------------------------------------

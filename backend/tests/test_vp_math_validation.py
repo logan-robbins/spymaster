@@ -434,6 +434,57 @@ def test_mass_decay_multiple_intervals() -> None:
         prev_ts = ts
 
 
+def test_passive_time_advance_decays_untouched_tick_state() -> None:
+    """advance_time() decays active tick state even without new events."""
+    engine = _engine_with_anchor(n_ticks=200)
+
+    # Build positive state at price 50.
+    engine.update(
+        ts_ns=2_000_000_000,
+        action="A",
+        side="B",
+        price_int=50,
+        size=5,
+        order_id=10,
+        flags=0,
+    )
+    engine.update(
+        ts_ns=3_000_000_000,
+        action="A",
+        side="B",
+        price_int=50,
+        size=5,
+        order_id=11,
+        flags=0,
+    )
+
+    idx = engine._price_to_idx(50)
+    assert idx is not None
+
+    before = engine.grid_snapshot_arrays()
+    v_add_before = float(before["v_add"][idx])
+    add_mass_before = float(before["add_mass"][idx])
+    pressure_before = float(before["pressure_variant"][idx])
+    last_event_before = int(before["last_event_id"][idx])
+
+    assert v_add_before > 0.0
+    assert add_mass_before > 0.0
+    assert pressure_before > 0.0
+
+    engine.advance_time(63_000_000_000)
+
+    after = engine.grid_snapshot_arrays()
+    v_add_after = float(after["v_add"][idx])
+    add_mass_after = float(after["add_mass"][idx])
+    pressure_after = float(after["pressure_variant"][idx])
+
+    assert 0.0 <= v_add_after < v_add_before
+    assert 0.0 <= add_mass_after < add_mass_before
+    assert 0.0 <= pressure_after < pressure_before
+    assert int(after["last_event_id"][idx]) == last_event_before
+    assert int(engine._last_ts_ns[idx]) == 63_000_000_000
+
+
 # ===================================================================
 # Group 7: Fill operations
 # ===================================================================

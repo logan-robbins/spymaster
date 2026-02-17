@@ -40,6 +40,7 @@ def _test_config() -> VPRuntimeConfig:
         spectrum_threshold_neutral=0.15,
         zscore_window_bins=8,
         zscore_min_periods=2,
+        projection_horizons_bins=(1,),
         projection_horizons_ms=(100,),
         contract_multiplier=1.0,
         qty_unit="contracts",
@@ -54,6 +55,23 @@ def _events_with_gap() -> list[MBOEvent]:
         (1_050_000_000, "A", "A", 101, 12, 2, 0),
         (1_250_000_000, "C", "B", 100, 0, 1, 0),
     ]
+
+
+def _events_with_gap_after_activity() -> list[MBOEvent]:
+    return [
+        (1_000_000_000, "A", "B", 100, 10, 1, 0),
+        (1_050_000_000, "A", "A", 101, 12, 2, 0),
+        (1_150_000_000, "A", "B", 100, 5, 3, 0),
+        (1_180_000_000, "A", "B", 100, 2, 4, 0),
+        (1_350_000_000, "C", "B", 100, 0, 3, 0),
+    ]
+
+
+def _bucket_by_k(grid: dict, k: int) -> dict:
+    for row in grid["buckets"]:
+        if int(row["k"]) == k:
+            return row
+    raise AssertionError(f"missing bucket row for k={k}")
 
 
 def _iter_for(events: list[MBOEvent]):
@@ -136,6 +154,46 @@ def test_stream_events_capture_producer_timing_includes_metadata(
             assert perf["bin_last_ingest_wall_ns"] <= perf["grid_ready_wall_ns"]
 
     assert saw_empty_bin
+
+
+def test_stream_events_empty_bin_applies_passive_decay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        _iter_for(_events_with_gap_after_activity()),
+    )
+
+    grids = list(
+        stream_events(
+            lake_root=Path("/tmp"),
+            config=_test_config(),
+            dt="2026-02-06",
+            start_time=None,
+        )
+    )
+
+    # Expect bins: [2 events], [2 events], [0 events], [1 event].
+    assert len(grids) == 4
+    assert int(grids[0]["bin_event_count"]) == 2
+    assert int(grids[1]["bin_event_count"]) == 2
+    assert int(grids[2]["bin_event_count"]) == 0
+
+    active_row = max(
+        grids[1]["buckets"],
+        key=lambda row: float(row["add_mass"]),
+    )
+    assert float(active_row["add_mass"]) > 0.0
+    k = int(active_row["k"])
+
+    b1 = _bucket_by_k(grids[1], k)
+    b2 = _bucket_by_k(grids[2], k)
+
+    # No event touched this bucket in bin 2, but passive decay should apply.
+    assert int(b1["last_event_id"]) == int(b2["last_event_id"])
+    assert float(b2["add_mass"]) < float(b1["add_mass"])
+    assert float(b2["v_add"]) < float(b1["v_add"])
+    assert float(b2["pressure_variant"]) < float(b1["pressure_variant"])
 
 
 def test_async_stream_events_writes_latency_jsonl_and_hides_internal_metadata(

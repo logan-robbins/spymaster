@@ -35,6 +35,7 @@ def _test_config(n_absolute_ticks: int = 20) -> VPRuntimeConfig:
         spectrum_threshold_neutral=0.15,
         zscore_window_bins=8,
         zscore_min_periods=2,
+        projection_horizons_bins=(1, 2),
         projection_horizons_ms=(100, 200),
         contract_multiplier=1.0,
         qty_unit="contracts",

@@ -34,7 +34,8 @@ def _test_config() -> VPRuntimeConfig:
         spectrum_threshold_neutral=0.15,
         zscore_window_bins=8,
         zscore_min_periods=2,
-        projection_horizons_ms=(100, 250),
+        projection_horizons_bins=(1, 2),
+        projection_horizons_ms=(100, 200),
         contract_multiplier=1.0,
         qty_unit="contracts",
         price_decimals=2,
@@ -51,7 +52,7 @@ def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
     for idx, field_name in enumerate(cache_vp_output._BUCKET_FLOAT_FIELDS):
         row[field_name] = base + float(idx + 1) / 100.0
     row["proj_score_h100"] = base + 0.5
-    row["proj_score_h250"] = base + 0.75
+    row["proj_score_h200"] = base + 0.75
     return row
 
 
@@ -137,13 +138,14 @@ def test_capture_stream_output_writes_windowed_tables(
     assert buckets["bin_seq"] == [1, 1, 2, 2]
     assert buckets["k"] == [-1, 0, -1, 0]
     assert "proj_score_h100" in buckets
-    assert "proj_score_h250" in buckets
+    assert "proj_score_h200" in buckets
     assert len(buckets["proj_score_h100"]) == 4
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["rows"]["bins"] == 2
     assert manifest["rows"]["buckets"] == 4
-    assert manifest["projection_horizons_ms"] == [100, 250]
+    assert manifest["projection_horizons_bins"] == [1, 2]
+    assert manifest["projection_horizons_ms"] == [100, 200]
 
 
 def test_capture_stream_output_fails_when_window_has_no_bins(

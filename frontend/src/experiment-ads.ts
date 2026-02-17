@@ -4,7 +4,8 @@
  * Multi-scale OLS slope of bid/ask velocity asymmetry across three spatial
  * bands (inner/mid/outer), robust z-scored, tanh-compressed, and blended.
  *
- * signal = 0.40 * tanh(z10/3) + 0.35 * tanh(z25/3) + 0.25 * tanh(z50/3)
+ * Window/warmup durations are defined in milliseconds and converted to bins
+ * using runtime cell_width_ms.
  *
  * Reference: agents/ads/run.py
  */
@@ -41,26 +42,38 @@ const RAW_WEIGHTS = BANDS.map(b => 1 / Math.sqrt(b.width));
 const WEIGHT_SUM = RAW_WEIGHTS.reduce((a, b) => a + b, 0);
 const BAND_WEIGHTS = RAW_WEIGHTS.map(w => w / WEIGHT_SUM);
 
-const SLOPE_WINDOWS = [10, 25, 50];
-const ZSCORE_WINDOW = 200;
+const SLOPE_WINDOWS_MS = [1000, 2500, 5000];
+const ZSCORE_WINDOW_MS = 20_000;
 const BLEND_WEIGHTS = [0.40, 0.35, 0.25];
 const BLEND_SCALE = 3.0;
-const WARMUP_BINS = 200;
+const WARMUP_MS = 20_000;
 
 export class ADSSignal {
   private binCount = 0;
+  private readonly warmupBins: number;
 
   // One OLS slope tracker + z-score tracker per slope window
   private readonly olsSlopes: IncrementalOLSSlope[];
   private readonly zscores: RollingRobustZScore[];
 
-  constructor() {
-    this.olsSlopes = SLOPE_WINDOWS.map(w => new IncrementalOLSSlope(w));
-    this.zscores = SLOPE_WINDOWS.map(() => new RollingRobustZScore(ZSCORE_WINDOW));
+  constructor(cellWidthMs: number) {
+    if (!Number.isFinite(cellWidthMs) || cellWidthMs <= 0) {
+      throw new Error(`ADSSignal requires positive cellWidthMs, got ${cellWidthMs}`);
+    }
+
+    const slopeWindows = SLOPE_WINDOWS_MS.map(ms => msToBins(ms, cellWidthMs, 2));
+    const zscoreWindow = msToBins(ZSCORE_WINDOW_MS, cellWidthMs, 2);
+    const zscoreMinPeriods = Math.max(2, Math.min(zscoreWindow, Math.floor(zscoreWindow * 0.15)));
+    this.warmupBins = msToBins(WARMUP_MS, cellWidthMs, 1);
+
+    this.olsSlopes = slopeWindows.map(w => new IncrementalOLSSlope(w));
+    this.zscores = slopeWindows.map(
+      () => new RollingRobustZScore(zscoreWindow, zscoreMinPeriods),
+    );
   }
 
   get warm(): boolean {
-    return this.binCount >= WARMUP_BINS;
+    return this.binCount >= this.warmupBins;
   }
 
   /**
@@ -86,7 +99,7 @@ export class ADSSignal {
 
     // Step 2: OLS slopes → z-scores → tanh blend
     let signal = 0;
-    for (let i = 0; i < SLOPE_WINDOWS.length; i++) {
+    for (let i = 0; i < this.olsSlopes.length; i++) {
       const slope = this.olsSlopes[i].push(combined);
       const z = isNaN(slope) ? 0 : this.zscores[i].push(slope);
       signal += BLEND_WEIGHTS[i] * Math.tanh(z / BLEND_SCALE);
@@ -101,6 +114,10 @@ export class ADSSignal {
     for (const ols of this.olsSlopes) ols.reset();
     for (const z of this.zscores) z.reset();
   }
+}
+
+function msToBins(durationMs: number, cellWidthMs: number, minBins: number): number {
+  return Math.max(minBins, Math.ceil(durationMs / cellWidthMs));
 }
 
 function kMean(

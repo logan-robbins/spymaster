@@ -5,7 +5,11 @@
  * Dynamic warmup: only warm signals contribute. Weights renormalize
  * among warm signals so composite stays in a consistent range.
  *
- * SVac online at 100ms (1 bin), PFP at 500ms, ADS at 20s.
+ * Warmup timings are time-based and converted from ms to bins using
+ * runtime cell_width_ms:
+ *   SVac: first sample
+ *   PFP: 500ms
+ *   ADS: 20s
  *
  * Weight rationale (MSD Round 3 experiment):
  *   ADS  0.40 — highest TP% (43.4%), strongest PnL/trade
@@ -45,10 +49,20 @@ export interface ExperimentBucketRow {
   vacuum_variant: number;
 }
 
+export interface ExperimentEngineConfig {
+  cellWidthMs: number;
+}
+
 export class ExperimentEngine {
-  private readonly ads = new ADSSignal();
-  private readonly pfp = new PFPSignal();
-  private readonly svac = new SVacSignal();
+  private readonly ads: ADSSignal;
+  private readonly pfp: PFPSignal;
+  private readonly svac: SVacSignal;
+
+  constructor(config: ExperimentEngineConfig) {
+    this.ads = new ADSSignal(config.cellWidthMs);
+    this.pfp = new PFPSignal(config.cellWidthMs);
+    this.svac = new SVacSignal();
+  }
 
   /**
    * Process one bin's grid data. Returns composite directional signal.

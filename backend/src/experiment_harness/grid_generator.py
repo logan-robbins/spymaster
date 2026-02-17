@@ -375,6 +375,20 @@ class GridGenerator:
         else:
             rollup_weights = base_cfg.spectrum_rollup_weights
 
+        projection_horizons_bins = (
+            tuple(int(x) for x in spec.projection_horizons_bins)
+            if spec.projection_horizons_bins is not None
+            else tuple(int(x) for x in base_cfg.projection_horizons_bins)
+        )
+        if not projection_horizons_bins:
+            raise ValueError("projection_horizons_bins must contain at least one bin count.")
+        if any(int(x) <= 0 for x in projection_horizons_bins):
+            raise ValueError("projection_horizons_bins values must be positive integers.")
+        projection_horizons_ms = tuple(
+            int(bin_count) * int(cell_width_ms)
+            for bin_count in projection_horizons_bins
+        )
+
         fields: dict[str, Any] = {
             "product_type": spec.product_type,
             "symbol": spec.symbol,
@@ -393,7 +407,8 @@ class GridGenerator:
             "spectrum_threshold_neutral": base_cfg.spectrum_threshold_neutral,
             "zscore_window_bins": base_cfg.zscore_window_bins,
             "zscore_min_periods": base_cfg.zscore_min_periods,
-            "projection_horizons_ms": base_cfg.projection_horizons_ms,
+            "projection_horizons_bins": projection_horizons_bins,
+            "projection_horizons_ms": projection_horizons_ms,
             "contract_multiplier": base_cfg.contract_multiplier,
             "qty_unit": base_cfg.qty_unit,
             "price_decimals": base_cfg.price_decimals,
@@ -533,6 +548,7 @@ class GridGenerator:
                 "spectrum_windows": spec.spectrum_windows,
                 "spectrum_derivative_weights": spec.spectrum_derivative_weights,
                 "spectrum_tanh_scale": spec.spectrum_tanh_scale,
+                "projection_horizons_bins": spec.projection_horizons_bins,
             },
             "files": [
                 "bins.parquet",

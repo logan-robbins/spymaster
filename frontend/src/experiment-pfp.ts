@@ -15,7 +15,7 @@ const INNER_ASK_K = [1, 2, 3];
 const OUTER_BID_K = [-12, -11, -10, -9, -8, -7, -6, -5];
 const OUTER_ASK_K = [5, 6, 7, 8, 9, 10, 11, 12];
 
-const LAG_BINS = 5;
+const LAG_MS = 500;
 const EMA_ALPHA = 0.1;
 const EPS = 1e-12;
 const ADD_WEIGHT = 0.6;
@@ -30,8 +30,9 @@ export interface PFPBucketLike {
 
 export class PFPSignal {
   private binCount = 0;
+  private readonly lagBins: number;
 
-  // Lag ring: LAG_BINS × 4 channels
+  // Lag ring: lagBins × 4 channels
   // Channels: [add_outer_bid, add_outer_ask, pull_outer_bid, pull_outer_ask]
   private readonly lagRing: Float64Array;
   private lagCursor = 0;
@@ -41,12 +42,16 @@ export class PFPSignal {
   private readonly emaLagged = new Float64Array(4);
   private readonly emaUnlagged = new Float64Array(4);
 
-  constructor() {
-    this.lagRing = new Float64Array(LAG_BINS * 4);
+  constructor(cellWidthMs: number) {
+    if (!Number.isFinite(cellWidthMs) || cellWidthMs <= 0) {
+      throw new Error(`PFPSignal requires positive cellWidthMs, got ${cellWidthMs}`);
+    }
+    this.lagBins = Math.max(1, Math.ceil(LAG_MS / cellWidthMs));
+    this.lagRing = new Float64Array(this.lagBins * 4);
   }
 
   get warm(): boolean {
-    return this.binCount >= LAG_BINS;
+    return this.binCount >= this.lagBins;
   }
 
   /**
@@ -66,19 +71,19 @@ export class PFPSignal {
     const pOuterBid = zoneMean(grid, OUTER_BID_K, pullGetter);
     const pOuterAsk = zoneMean(grid, OUTER_ASK_K, pullGetter);
 
-    // Get lagged outer values (from LAG_BINS ago)
+    // Get lagged outer values (from lagBins ago)
     const lagIdx = this.lagCursor * 4;
-    const lagOuterBidAdd = this.binCount >= LAG_BINS ? this.lagRing[lagIdx + 0] : 0;
-    const lagOuterAskAdd = this.binCount >= LAG_BINS ? this.lagRing[lagIdx + 1] : 0;
-    const lagOuterBidPull = this.binCount >= LAG_BINS ? this.lagRing[lagIdx + 2] : 0;
-    const lagOuterAskPull = this.binCount >= LAG_BINS ? this.lagRing[lagIdx + 3] : 0;
+    const lagOuterBidAdd = this.binCount >= this.lagBins ? this.lagRing[lagIdx + 0] : 0;
+    const lagOuterAskAdd = this.binCount >= this.lagBins ? this.lagRing[lagIdx + 1] : 0;
+    const lagOuterBidPull = this.binCount >= this.lagBins ? this.lagRing[lagIdx + 2] : 0;
+    const lagOuterAskPull = this.binCount >= this.lagBins ? this.lagRing[lagIdx + 3] : 0;
 
     // Store current outer intensities in lag ring (overwrites oldest)
     this.lagRing[lagIdx + 0] = iOuterBid;
     this.lagRing[lagIdx + 1] = iOuterAsk;
     this.lagRing[lagIdx + 2] = pOuterBid;
     this.lagRing[lagIdx + 3] = pOuterAsk;
-    this.lagCursor = (this.lagCursor + 1) % LAG_BINS;
+    this.lagCursor = (this.lagCursor + 1) % this.lagBins;
 
     // Cross-products: lagged and unlagged
     const prodLagged = [

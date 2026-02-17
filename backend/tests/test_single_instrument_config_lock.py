@@ -32,7 +32,7 @@ def _write_locked_config(path: Path, symbol: str = "MNQH6") -> None:
                 "spectrum_threshold_neutral: 0.15",
                 "zscore_window_bins: 300",
                 "zscore_min_periods: 75",
-                "projection_horizons_ms: [250, 500, 1000, 2500]",
+                "projection_horizons_bins: [1, 2, 3, 4]",
                 "contract_multiplier: 2.0",
                 "qty_unit: contracts",
                 "price_decimals: 2",
@@ -55,6 +55,8 @@ def test_locked_config_is_single_source_of_truth(tmp_path: Path, monkeypatch: py
     assert cfg.tick_size == 0.25
     assert cfg.grid_radius_ticks == 40
     assert cfg.cell_width_ms == 100
+    assert cfg.projection_horizons_bins == (1, 2, 3, 4)
+    assert cfg.projection_horizons_ms == (100, 200, 300, 400)
     assert cfg.contract_multiplier == 2.0
 
 

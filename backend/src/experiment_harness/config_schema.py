@@ -32,6 +32,7 @@ class GridVariantConfig(BaseModel):
     spectrum_windows: list[int] | None = None
     spectrum_derivative_weights: list[float] | None = None
     spectrum_tanh_scale: float | None = None
+    projection_horizons_bins: list[int] | None = None
     tau_velocity: float | None = None
     tau_acceleration: float | None = None
     tau_jerk: float | None = None

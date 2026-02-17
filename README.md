@@ -11,6 +11,7 @@ One canonical runtime:
 - Serve-time window: `±grid_radius_ticks` around spot (default ±50 = 101 visible ticks)
 - Canonical state per cell: `pressure / neutral / vacuum`
 - Spot is a read-only overlay computed from BBO, not coupled to engine state
+- Frontend grid anchoring uses `spot_ref_price_int` (tick-rounded BBO mid); `mid_price` is display-only
 
 There are no legacy/fallback contracts in this runtime.
 
@@ -29,7 +30,7 @@ Key fields:
 - `spectrum_tanh_scale`: tanh normalization scale
 - `spectrum_threshold_neutral`: deadband threshold for state mapping
 - `zscore_window_bins`, `zscore_min_periods`: robust z-score controls
-- `projection_horizons_ms`: per-cell forward projection horizons
+- `projection_horizons_bins`: per-cell forward projection horizons in bin counts (derived ms = `projection_horizons_bins * cell_width_ms`)
 
 Core-grid phase-1 notes:
 
@@ -37,6 +38,7 @@ Core-grid phase-1 notes:
 - Core mode decouples anchor initialization from BBO by seeding from the first priced event.
 - Core mode defaults to tolerant out-of-range handling (`fail_on_out_of_range=False`): out-of-range prices are skipped from depth mapping and logged with `WARNING`.
 - Core mode performs a one-time soft re-anchor to raw order-book BBO at the first valid BBO after `09:30 ET` or after `10,000` processed events (whichever happens first), then keeps the grid fixed.
+- Before each emitted bin snapshot (serve-time and core), the engine applies a vectorized passive time-advance to `bin_end_ns` across all active ticks (zero-delta decay + force recompute). This prevents stale per-cell state through empty bins without applying future event deltas.
 
 ## Constraints
 
@@ -229,7 +231,7 @@ Each `grid_update` frame includes:
 - `bin_end_ns`
 - `bin_event_count`
 - `event_id`
-- `mid_price`, BBO, and book validity
+- `spot_ref_price_int` (canonical grid anchor), `mid_price` (display), BBO, and book validity
 
 Arrow rows include per cell:
 
@@ -246,7 +248,8 @@ The frontend computes three experiment signals in-browser from the Arrow grid da
 - **PFP** (Pressure Front Propagation): Inner/outer velocity lead-lag detection
 - **SVac** (Spatial Vacuum Asymmetry): 1/|k| distance-weighted vacuum imbalance above vs below spot
 
-Signals are blended (ADS=0.40, PFP=0.30, SVac=0.30) into a composite directional signal rendered as purple Gaussian bands at 4 horizons (250ms, 500ms, 1s, 2.5s) in the right 15% of the heatmap.
+Signals are blended (ADS=0.40, PFP=0.30, SVac=0.30) into a composite directional signal rendered as purple Gaussian bands in the right 15% of the heatmap. Horizon list comes from runtime `projection_horizons_bins` (default `[1, 2, 3, 4]`) and is converted to milliseconds via `cell_width_ms`.
+Example: `cell_width_ms=300` with `projection_horizons_bins=[1,2,3,4]` yields projection columns `proj_score_h300`, `proj_score_h600`, `proj_score_h900`, `proj_score_h1200`.
 
 Band interpretation:
 
@@ -254,7 +257,7 @@ Band interpretation:
 - Band skews below spot = bearish prediction
 - Brightness = signal strength x horizon confidence (fades with longer horizon)
 
-Warmup: SVac at 100ms (1 bin), PFP at 500ms, ADS at 20s. Bands appear progressively as each signal comes online.
+Warmup is time-based (not fixed-bin): SVac after first sample, PFP at 500ms, ADS at 20s, converted to bin counts using runtime `cell_width_ms`. Historical band alignment uses fractional-bin interpolation (`horizon_ms / cell_width_ms`) and no integer rounding policy.
 
 Source: `frontend/src/experiment-engine.ts`, `experiment-pfp.ts`, `experiment-ads.ts`, `experiment-svac.ts`, `experiment-math.ts`
 
@@ -308,7 +311,7 @@ uv run scripts/analyze_vp_signals.py \
   --experiment-use-cubic-values false,true \
   --experiment-cubic-scale-values 0.10,0.1666666667,0.22 \
   --experiment-damping-lambda-values 0.0,0.0005,0.001,0.002 \
-  --experiment-regime-horizon-ms 2500 \
+  --experiment-regime-horizon-bins 4 \
   --experiment-slope-window-bins 30 \
   --experiment-shift-z-threshold 2.0 \
   --json-output /tmp/projection_experiment_0925_0935.json

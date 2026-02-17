@@ -264,5 +264,4 @@ From `backend/src/vacuum_pressure/instrument.yaml`:
 - `spectrum_threshold_neutral = 0.15`
 - `zscore_window_bins = 300`
 - `zscore_min_periods = 75`
-- `projection_horizons_ms = [250, 500, 1000, 2500]`
-
+- `projection_horizons_bins = [1, 2, 3, 4]` (derived ms via `cell_width_ms`)

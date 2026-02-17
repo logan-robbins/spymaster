@@ -15,7 +15,7 @@ spectrum_tanh_scale: 3.0
 spectrum_threshold_neutral: 0.15
 zscore_window_bins: 300
 zscore_min_periods: 75
-projection_horizons_ms: [250, 500, 1000, 2500]
+projection_horizons_bins: [1, 2, 3, 4]
 contract_multiplier: 2.0
 qty_unit: contracts
 price_decimals: 2

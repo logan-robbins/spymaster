@@ -51,6 +51,7 @@ interface RuntimeConfig {
   spectrum_threshold_neutral: number;
   zscore_window_bins: number;
   zscore_min_periods: number;
+  projection_horizons_bins: number[];
   projection_horizons_ms: number[];
   contract_multiplier: number;
   qty_unit: string;
@@ -457,6 +458,26 @@ function requireNumberArrayField(
     out.push(parsed);
   }
   return out;
+}
+
+function requirePositiveIntArrayField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): number[] {
+  const out = requireNumberArrayField(surface, obj, field);
+  if (out.length === 0) {
+    streamContractError(surface, `field "${field}" must contain at least one value`);
+  }
+  const ints: number[] = [];
+  for (const value of out) {
+    const rounded = Math.round(value);
+    if (!Number.isFinite(value) || rounded !== value || rounded <= 0) {
+      streamContractError(surface, `field "${field}" must contain positive integers`);
+    }
+    ints.push(rounded);
+  }
+  return ints;
 }
 
 function requireBigIntField(
@@ -931,13 +952,32 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
 
 // ---------------------------------------------------------------- Rendering
 
-/** Projection band horizons and their visual properties. */
-const PROJECTION_HORIZONS = [
-  { ms: 250,  label: '250ms', spreadTicks: 6,  alpha: 0.50 },
-  { ms: 500,  label: '500ms', spreadTicks: 10, alpha: 0.40 },
-  { ms: 1000, label: '1s',    spreadTicks: 16, alpha: 0.30 },
-  { ms: 2500, label: '2.5s',  spreadTicks: 24, alpha: 0.20 },
+interface ProjectionHorizon {
+  bins: number;
+  ms: number;
+  label: string;
+  spreadTicks: number;
+  alpha: number;
+}
+
+const DEFAULT_PROJECTION_HORIZON_BINS = [1, 2, 3, 4];
+const SPREAD_ANCHORS = [
+  { bins: 1, value: 6 },
+  { bins: 2, value: 10 },
+  { bins: 4, value: 16 },
+  { bins: 8, value: 24 },
 ];
+const ALPHA_ANCHORS = [
+  { bins: 1, value: 0.50 },
+  { bins: 2, value: 0.40 },
+  { bins: 4, value: 0.30 },
+  { bins: 8, value: 0.20 },
+];
+
+let projectionHorizons: ProjectionHorizon[] = buildProjectionHorizons(
+  DEFAULT_PROJECTION_HORIZON_BINS,
+  100,
+);
 
 /** Signal amplification: composite signal is typically [-0.3, +0.3],
  *  scale up to make directional shifts visually obvious. */
@@ -945,6 +985,98 @@ const COMPOSITE_SCALE = 8.0;
 
 /** Band half-width in rows for the projected envelope. */
 const BAND_HALF_WIDTH_ROWS = 4;
+
+function horizonLabel(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms % 1000 === 0) return `${ms / 1000}s`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function interpolateAnchor(
+  x: number,
+  anchors: { bins: number; value: number }[],
+): number {
+  if (anchors.length === 0) return 0;
+  if (x <= anchors[0].bins) return anchors[0].value;
+  if (x >= anchors[anchors.length - 1].bins) return anchors[anchors.length - 1].value;
+
+  for (let i = 1; i < anchors.length; i++) {
+    const left = anchors[i - 1];
+    const right = anchors[i];
+    if (x <= right.bins) {
+      const t = (x - left.bins) / (right.bins - left.bins);
+      return left.value + (right.value - left.value) * t;
+    }
+  }
+  return anchors[anchors.length - 1].value;
+}
+
+function buildProjectionHorizons(
+  horizonBins: number[],
+  cellWidthMs: number,
+): ProjectionHorizon[] {
+  const sorted = Array.from(new Set(horizonBins))
+    .map(v => Math.round(v))
+    .filter(v => v > 0)
+    .sort((a, b) => a - b);
+
+  return sorted.map(bins => ({
+    bins,
+    ms: bins * cellWidthMs,
+    label: horizonLabel(bins * cellWidthMs),
+    spreadTicks: Math.max(2, Math.round(interpolateAnchor(bins, SPREAD_ANCHORS))),
+    alpha: clamp(interpolateAnchor(bins, ALPHA_ANCHORS), 0.10, 0.60),
+  }));
+}
+
+function deriveProjectionHorizonMs(
+  horizonBins: number[],
+  cellWidthMs: number,
+): number[] {
+  return horizonBins.map(binCount => binCount * cellWidthMs);
+}
+
+function validateProjectionHorizonContract(cfg: RuntimeConfig): void {
+  const expected = deriveProjectionHorizonMs(cfg.projection_horizons_bins, cfg.cell_width_ms);
+  if (cfg.projection_horizons_ms.length !== expected.length) {
+    streamContractError(
+      'runtime_config',
+      'projection_horizons_ms length must match projection_horizons_bins length',
+    );
+  }
+  for (let i = 0; i < expected.length; i++) {
+    if (Math.round(cfg.projection_horizons_ms[i]) !== expected[i]) {
+      streamContractError(
+        'runtime_config',
+        `projection_horizons_ms[${i}] must equal projection_horizons_bins[${i}] * cell_width_ms`,
+      );
+    }
+  }
+}
+
+function normalizeRuntimeProjectionHorizonMs(cfg: RuntimeConfig): number[] {
+  validateProjectionHorizonContract(cfg);
+  return deriveProjectionHorizonMs(cfg.projection_horizons_bins, cfg.cell_width_ms);
+}
+
+function sampleTrailInterpolated(
+  trail: (number | null)[],
+  colPosition: number,
+): number | null {
+  if (colPosition < 0 || colPosition > trail.length - 1) return null;
+  const left = Math.floor(colPosition);
+  const right = Math.ceil(colPosition);
+
+  const lv = trail[left];
+  if (lv === null) return null;
+  if (left === right) return lv;
+
+  const rv = trail[right];
+  if (rv === null) return null;
+
+  const t = colPosition - left;
+  return lv + (rv - lv) * t;
+}
 
 /**
  * Render projection bands as persistent scrolling overlays.
@@ -984,11 +1116,12 @@ function renderProjectionBands(
 
     if (lastSpot !== null && lastComposite !== null && lastWarmup !== null && lastWarmup > 0) {
       const scaledSignal = lastComposite * COMPOSITE_SCALE;
-      const nHorizons = PROJECTION_HORIZONS.length;
+      const nHorizons = projectionHorizons.length;
+      if (nHorizons === 0) return;
       const colWidth = zoneWidth / nHorizons;
 
       for (let hi = 0; hi < nHorizons; hi++) {
-        const horizon = PROJECTION_HORIZONS[hi];
+        const horizon = projectionHorizons[hi];
         // Band center: spot shifted by amplified composite × spreadTicks
         // Bullish (positive) → lower row number (higher price)
         const bandCenterRow = lastSpot - scaledSignal * horizon.spreadTicks;
@@ -1026,7 +1159,7 @@ function renderProjectionBands(
       }
 
       // Connect spot to first horizon band center
-      const firstBandCenter = lastSpot - scaledSignal * PROJECTION_HORIZONS[0].spreadTicks;
+      const firstBandCenter = lastSpot - scaledSignal * projectionHorizons[0].spreadTicks;
       const spotY = rowToY(lastSpot);
       const firstY = rowToY(firstBandCenter);
       ctx.strokeStyle = 'rgba(180, 100, 255, 0.4)';
@@ -1034,7 +1167,7 @@ function renderProjectionBands(
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
       ctx.moveTo(dataWidth, spotY);
-      ctx.lineTo(dataWidth + zoneWidth / PROJECTION_HORIZONS.length * 0.5, firstY);
+      ctx.lineTo(dataWidth + zoneWidth / projectionHorizons.length * 0.5, firstY);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -1045,21 +1178,19 @@ function renderProjectionBands(
   // These persist and scroll with the heatmap, letting the trader compare
   // predicted direction envelope vs actual spot path (cyan line).
 
-  for (let hi = PROJECTION_HORIZONS.length - 1; hi >= 0; hi--) {
-    const horizon = PROJECTION_HORIZONS[hi];
-    // How many bins into the future does this horizon represent?
-    const horizonBins = Math.round(horizon.ms / 100); // e.g., 250ms = 2.5 bins, 2500ms = 25 bins
+  const cellWidthMs = runtimeConfig ? runtimeConfig.cell_width_ms : 100;
+  for (let hi = projectionHorizons.length - 1; hi >= 0; hi--) {
+    const horizon = projectionHorizons[hi];
+    const horizonCols = horizon.ms / cellWidthMs;
 
     // Build arrays of valid (x, topY, botY) points for this horizon's band
     const points: { x: number; topY: number; botY: number }[] = [];
 
     for (let col = 0; col < HMAP_HISTORY; col++) {
-      const srcCol = col - horizonBins;
-      if (srcCol < 0 || srcCol >= HMAP_HISTORY) continue;
-
-      const pastSpot = spotTrail[srcCol];
-      const pastComposite = compositeTrail[srcCol];
-      const pastWarmup = warmupTrail[srcCol];
+      const srcColPos = col - horizonCols;
+      const pastSpot = sampleTrailInterpolated(spotTrail, srcColPos);
+      const pastComposite = sampleTrailInterpolated(compositeTrail, srcColPos);
+      const pastWarmup = sampleTrailInterpolated(warmupTrail, srcColPos);
 
       if (pastSpot === null || pastComposite === null || pastWarmup === null || pastWarmup === 0) {
         continue;
@@ -1637,7 +1768,8 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
 
     // Horizon labels at column centers
     const zoneWidth = cw - dataWidth;
-    const nHorizons = PROJECTION_HORIZONS.length;
+    const nHorizons = projectionHorizons.length;
+    if (nHorizons === 0) return;
     const colWidth = zoneWidth / nHorizons;
     ctx.fillStyle = 'rgba(140, 100, 180, 0.6)';
     ctx.font = '7px monospace';
@@ -1645,7 +1777,7 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
     ctx.textBaseline = 'top';
     for (let i = 0; i < nHorizons; i++) {
       const x = dataWidth + colWidth * (i + 0.5);
-      ctx.fillText(PROJECTION_HORIZONS[i].label, x, 14);
+      ctx.fillText(projectionHorizons[i].label, x, 14);
     }
   }
 }
@@ -1663,27 +1795,38 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
       `grid_radius_ticks must be >= 1, got ${cfg.grid_radius_ticks}`,
     );
   }
+  const normalizedHorizonMs = normalizeRuntimeProjectionHorizonMs(cfg);
+  const normalizedCfg: RuntimeConfig = {
+    ...cfg,
+    projection_horizons_ms: normalizedHorizonMs,
+  };
   resetHeatmapBuffers(cfg.grid_radius_ticks);
-  experimentEngine = new ExperimentEngine();
+  projectionHorizons = buildProjectionHorizons(
+    normalizedCfg.projection_horizons_bins,
+    normalizedCfg.cell_width_ms,
+  );
+  experimentEngine = new ExperimentEngine({
+    cellWidthMs: normalizedCfg.cell_width_ms,
+  });
 
-  runtimeConfig = cfg;
+  runtimeConfig = normalizedCfg;
   configReceived = true;
 
   // Update metadata display
-  $metaProduct.textContent = cfg.product_type;
-  $metaSymbol.textContent = cfg.symbol;
-  $metaTick.textContent = `$${cfg.tick_size}`;
-  $metaBucket.textContent = `$${cfg.rel_tick_size}`;
-  $metaMult.textContent = String(cfg.contract_multiplier);
+  $metaProduct.textContent = normalizedCfg.product_type;
+  $metaSymbol.textContent = normalizedCfg.symbol;
+  $metaTick.textContent = `$${normalizedCfg.tick_size}`;
+  $metaBucket.textContent = `$${normalizedCfg.rel_tick_size}`;
+  $metaMult.textContent = String(normalizedCfg.contract_multiplier);
 
   // Hide warning banner
   $warningBanner.style.display = 'none';
 
   console.log(
-    `[VP] Runtime config applied: product_type=${cfg.product_type} ` +
-    `symbol=${cfg.symbol} bucket=$${cfg.bucket_size_dollars} ` +
-    `tick=$${cfg.tick_size} decimals=${cfg.price_decimals} ` +
-    `multiplier=${cfg.contract_multiplier} version=${cfg.config_version}`
+    `[VP] Runtime config applied: product_type=${normalizedCfg.product_type} ` +
+    `symbol=${normalizedCfg.symbol} bucket=$${normalizedCfg.bucket_size_dollars} ` +
+    `tick=$${normalizedCfg.tick_size} decimals=${normalizedCfg.price_decimals} ` +
+    `multiplier=${normalizedCfg.contract_multiplier} version=${normalizedCfg.config_version}`
   );
 }
 
@@ -1884,6 +2027,17 @@ function connectWS(): void {
           const msg = JSON.parse(event.data) as Record<string, unknown>;
 
           if (msg.type === 'runtime_config') {
+            const cellWidthMs = requireNumberField('runtime_config', msg, 'cell_width_ms');
+            const projectionHorizonBins = requirePositiveIntArrayField(
+              'runtime_config',
+              msg,
+              'projection_horizons_bins',
+            );
+            const projectionHorizonMs = requirePositiveIntArrayField(
+              'runtime_config',
+              msg,
+              'projection_horizons_ms',
+            );
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -1893,7 +2047,7 @@ function connectWS(): void {
               bucket_size_dollars: requireNumberField('runtime_config', msg, 'bucket_size_dollars'),
               rel_tick_size: requireNumberField('runtime_config', msg, 'rel_tick_size'),
               grid_radius_ticks: requireNumberField('runtime_config', msg, 'grid_radius_ticks'),
-              cell_width_ms: requireNumberField('runtime_config', msg, 'cell_width_ms'),
+              cell_width_ms: cellWidthMs,
               spectrum_windows: requireNumberArrayField('runtime_config', msg, 'spectrum_windows'),
               spectrum_rollup_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_rollup_weights'),
               spectrum_derivative_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_derivative_weights'),
@@ -1901,7 +2055,8 @@ function connectWS(): void {
               spectrum_threshold_neutral: requireNumberField('runtime_config', msg, 'spectrum_threshold_neutral'),
               zscore_window_bins: requireNumberField('runtime_config', msg, 'zscore_window_bins'),
               zscore_min_periods: requireNumberField('runtime_config', msg, 'zscore_min_periods'),
-              projection_horizons_ms: requireNumberArrayField('runtime_config', msg, 'projection_horizons_ms'),
+              projection_horizons_bins: projectionHorizonBins,
+              projection_horizons_ms: projectionHorizonMs,
               contract_multiplier: requireNumberField('runtime_config', msg, 'contract_multiplier'),
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
@@ -1940,18 +2095,18 @@ function connectWS(): void {
             requireNumberField('grid_update', msg, 'bin_event_count');
             const eventId = requireNumberField('grid_update', msg, 'event_id');
             const midPrice = requireNumberField('grid_update', msg, 'mid_price');
-            requireBigIntField('grid_update', msg, 'spot_ref_price_int');
+            const spotRefPriceInt = requireBigIntField('grid_update', msg, 'spot_ref_price_int');
             const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
             const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
 
-            // Convert BBO integer prices to dollars
+            // Convert integer prices to dollars using runtime price scale.
+            // spot_ref_price_int is the canonical anchor for k-to-price mapping.
             const priceScale = runtimeConfig!.price_scale;
+            currentSpotDollars = Number(spotRefPriceInt) * priceScale;
             bestBidDollars = Number(bestBidPriceInt) * priceScale;
             bestAskDollars = Number(bestAskPriceInt) * priceScale;
             currentBinEndNs = binEndNs;
-
-            currentSpotDollars = midPrice;
             windowCount = Number(binSeq) + 1;
 
             $spotVal.textContent = `$${midPrice.toFixed(priceDecimals())}`;

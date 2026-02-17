@@ -612,6 +612,7 @@ def stream_events(
             bin_initialized = True
 
         while ts_ns >= bin_end_ns:
+            engine.advance_time(bin_end_ns)
             grid = _build_bin_grid(
                 engine,
                 spectrum,
@@ -655,6 +656,7 @@ def stream_events(
         event_count += 1
 
     if bin_initialized and bin_event_count > 0:
+        engine.advance_time(bin_end_ns)
         grid = _build_bin_grid(
             engine,
             spectrum,

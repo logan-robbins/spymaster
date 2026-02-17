@@ -303,6 +303,7 @@ def capture_stream_output(
         "cell_width_ms": config.cell_width_ms,
         "grid_radius_ticks": config.grid_radius_ticks,
         "n_absolute_ticks": config.n_absolute_ticks,
+        "projection_horizons_bins": [int(x) for x in config.projection_horizons_bins],
         "projection_horizons_ms": list(projection_horizons),
         "rows": {
             "bins": n_bins,

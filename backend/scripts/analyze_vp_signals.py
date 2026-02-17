@@ -410,14 +410,16 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
     if any(v < 0.0 for v in damping_values):
         raise ValueError("--experiment-damping-lambda-values must be >= 0")
 
-    regime_horizon_ms = args.experiment_regime_horizon_ms
-    if regime_horizon_ms <= 0:
-        regime_horizon_ms = int(max(config.projection_horizons_ms))
-    if regime_horizon_ms not in config.projection_horizons_ms:
+    regime_horizon_bins = int(args.experiment_regime_horizon_bins)
+    if regime_horizon_bins <= 0:
+        regime_horizon_bins = int(max(config.projection_horizons_bins))
+    if regime_horizon_bins not in config.projection_horizons_bins:
         raise ValueError(
-            f"experiment_regime_horizon_ms={regime_horizon_ms} is not present in "
-            f"projection_horizons_ms={list(config.projection_horizons_ms)}"
+            f"experiment_regime_horizon_bins={regime_horizon_bins} is not present in "
+            f"projection_horizons_bins={list(config.projection_horizons_bins)}"
         )
+    regime_idx = config.projection_horizons_bins.index(regime_horizon_bins)
+    regime_horizon_ms = int(config.projection_horizons_ms[regime_idx])
 
     projection_runs: List[Dict[str, float | bool]] = []
     seen: set[tuple[bool, float, float]] = set()
@@ -449,6 +451,7 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
     print(f"Date:                   {args.dt}")
     print(f"Window (ET):            {args.eval_start} - {args.eval_end}")
     print(f"Runs:                   {len(projection_runs)}")
+    print(f"Regime horizon (bins):  {regime_horizon_bins}")
     print(f"Regime horizon (ms):    {regime_horizon_ms}")
     print(f"Slope window (bins):    {args.experiment_slope_window_bins}")
     print(f"Shift z-threshold:      {args.experiment_shift_z_threshold}")
@@ -501,6 +504,7 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
                 "projection_model": run_cfg,
                 "mean_projection_hit_rate": mean_hit_rate,
                 "regime_horizon_ms": float(regime_horizon_ms),
+                "regime_horizon_bins": regime_horizon_bins,
                 "regime_horizon_hit_rate": primary_hit_rate,
                 "regime_metrics": regime_metrics,
                 "summary": summary,
@@ -550,6 +554,7 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
             "start_time": args.start_time,
             "eval_start": args.eval_start,
             "eval_end": args.eval_end,
+            "regime_horizon_bins": regime_horizon_bins,
             "regime_horizon_ms": regime_horizon_ms,
             "experiment_params": {
                 "use_cubic_values": use_cubic_values,
@@ -1037,7 +1042,12 @@ def main() -> None:
     parser.add_argument("--experiment-use-cubic-values", default="false,true")
     parser.add_argument("--experiment-cubic-scale-values", default="0.1666666667")
     parser.add_argument("--experiment-damping-lambda-values", default="0.0,0.001,0.002")
-    parser.add_argument("--experiment-regime-horizon-ms", type=int, default=0)
+    parser.add_argument(
+        "--experiment-regime-horizon-bins",
+        type=int,
+        default=0,
+        help="Regime projection horizon in bins (0 uses the max configured horizon).",
+    )
     parser.add_argument("--experiment-slope-window-bins", type=int, default=30)
     parser.add_argument("--experiment-shift-z-threshold", type=float, default=2.0)
     parser.add_argument("--experiment-max-runs", type=int, default=0)
