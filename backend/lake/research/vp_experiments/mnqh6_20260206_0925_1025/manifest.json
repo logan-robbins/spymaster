@@ -1,0 +1,29 @@
+{
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "created_at_utc": "2026-02-17T01:39:54.672001+00:00",
+  "immutable_base_dir": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_1025",
+  "rows": {
+    "projection_seed": 3635899
+  },
+  "projection_columns": [
+    "proj_score_h250",
+    "proj_score_h500",
+    "proj_score_h1000",
+    "proj_score_h2500"
+  ],
+  "files": {
+    "projection_seed_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/projection_seed.parquet"
+  },
+  "agent_workspaces": [
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/eda",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/projection",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/regime",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/ads",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/spg",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/erd",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/pfp",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/jad",
+    "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/agents/iirc"
+  ],
+  "updated_at_utc": "2026-02-17T02:38:23.796318+00:00"
+}

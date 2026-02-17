@@ -1,0 +1,99 @@
+{
+  "experiment_name": "intensity_imbalance_rate_of_change",
+  "agent_name": "iirc",
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "params": {
+    "columns": [
+      "v_add",
+      "v_pull",
+      "v_fill"
+    ],
+    "bid_slice": [
+      34,
+      50
+    ],
+    "ask_slice": [
+      51,
+      67
+    ],
+    "band_width_ticks": 16,
+    "eps": 1.0,
+    "fast_window": 10,
+    "slow_window": 30,
+    "fast_weight": 0.6,
+    "slow_weight": 0.4,
+    "noise_floor": 0.1,
+    "cooldown_bins": 20,
+    "warmup_bins": 300
+  },
+  "results_by_threshold": [
+    {
+      "n_signals": 534,
+      "n_up": 280,
+      "n_down": 254,
+      "tp_rate": 0.35767790262172283,
+      "sl_rate": 0.6423220973782772,
+      "timeout_rate": 0.0,
+      "events_per_hour": 534.0296683149064,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.13389513108614232,
+      "threshold": 0.001,
+      "cooldown_bins": 20
+    },
+    {
+      "n_signals": 438,
+      "n_up": 229,
+      "n_down": 209,
+      "tp_rate": 0.3515981735159817,
+      "sl_rate": 0.6484018264840182,
+      "timeout_rate": 0.0,
+      "events_per_hour": 438.0243346852603,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.3299086757990868,
+      "threshold": 0.005,
+      "cooldown_bins": 20
+    },
+    {
+      "n_signals": 198,
+      "n_up": 113,
+      "n_down": 85,
+      "tp_rate": 0.3838383838383838,
+      "sl_rate": 0.6161616161616161,
+      "timeout_rate": 0.0,
+      "events_per_hour": 198.01100061114508,
+      "median_time_to_outcome_ms": 400.0,
+      "mean_pnl_ticks": 0.6565656565656566,
+      "threshold": 0.01,
+      "cooldown_bins": 20
+    },
+    {
+      "n_signals": 26,
+      "n_up": 16,
+      "n_down": 10,
+      "tp_rate": 0.38461538461538464,
+      "sl_rate": 0.6153846153846154,
+      "timeout_rate": 0.0,
+      "events_per_hour": 26.001444524695817,
+      "median_time_to_outcome_ms": 950.0,
+      "mean_pnl_ticks": 2.769230769230769,
+      "threshold": 0.02,
+      "cooldown_bins": 20
+    },
+    {
+      "n_signals": 0,
+      "tp_rate": NaN,
+      "sl_rate": NaN,
+      "timeout_rate": NaN,
+      "events_per_hour": 0.0,
+      "mean_pnl_ticks": NaN,
+      "median_time_to_outcome_ms": NaN,
+      "threshold": 0.05,
+      "cooldown_bins": 20
+    }
+  ],
+  "best_threshold": 0.02,
+  "best_tp_rate": 0.38461538461538464,
+  "best_n_signals": 26,
+  "best_mean_pnl_ticks": 2.769230769230769,
+  "best_events_per_hour": 26.001444524695817
+}

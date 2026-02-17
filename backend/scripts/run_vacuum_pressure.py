@@ -64,6 +64,23 @@ def main() -> None:
         default=200,
         help="Emit producer latency percentile summary logs every N recorded bins.",
     )
+    parser.add_argument(
+        "--projection-use-cubic",
+        action="store_true",
+        help="Enable cubic score projection term (score_d3 * h^3).",
+    )
+    parser.add_argument(
+        "--projection-cubic-scale",
+        type=float,
+        default=1.0 / 6.0,
+        help="Scale applied to cubic projection term when --projection-use-cubic is enabled.",
+    )
+    parser.add_argument(
+        "--projection-damping-lambda",
+        type=float,
+        default=0.0,
+        help="Exponential damping coefficient lambda for projection: proj *= exp(-lambda*h).",
+    )
     args = parser.parse_args()
 
     if args.perf_latency_jsonl is None and (
@@ -72,6 +89,10 @@ def main() -> None:
         parser.error("--perf-window-start-et/--perf-window-end-et require --perf-latency-jsonl")
     if args.perf_summary_every_bins <= 0:
         parser.error("--perf-summary-every-bins must be > 0")
+    if args.projection_cubic_scale < 0.0:
+        parser.error("--projection-cubic-scale must be >= 0")
+    if args.projection_damping_lambda < 0.0:
+        parser.error("--projection-damping-lambda must be >= 0")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -104,6 +125,9 @@ def main() -> None:
                 "perf_window_start_et": args.perf_window_start_et,
                 "perf_window_end_et": args.perf_window_end_et,
                 "perf_summary_every_bins": args.perf_summary_every_bins,
+                "projection_use_cubic": args.projection_use_cubic,
+                "projection_cubic_scale": args.projection_cubic_scale,
+                "projection_damping_lambda": args.projection_damping_lambda,
             },
             indent=2,
         )
@@ -118,6 +142,9 @@ def main() -> None:
         perf_window_start_et=args.perf_window_start_et,
         perf_window_end_et=args.perf_window_end_et,
         perf_summary_every_bins=args.perf_summary_every_bins,
+        projection_use_cubic=args.projection_use_cubic,
+        projection_cubic_scale=args.projection_cubic_scale,
+        projection_damping_lambda=args.projection_damping_lambda,
     )
 
     qs_parts = [

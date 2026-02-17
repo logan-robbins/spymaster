@@ -22,6 +22,15 @@ class SpectrumOutput:
     projected_score_by_horizon: Dict[int, np.ndarray]
 
 
+@dataclass(frozen=True)
+class ProjectionModelConfig:
+    """Controls forward score projection behavior."""
+
+    use_cubic: bool = False
+    cubic_scale: float = 1.0 / 6.0
+    damping_lambda: float = 0.0
+
+
 class IndependentCellSpectrum:
     """Vectorized per-cell derivative-only hybrid spectrum model."""
 
@@ -37,6 +46,7 @@ class IndependentCellSpectrum:
         zscore_min_periods: int,
         projection_horizons_ms: Sequence[int],
         default_dt_s: float,
+        projection_model: ProjectionModelConfig | None = None,
     ) -> None:
         if n_cells < 1:
             raise ValueError(f"n_cells must be >= 1, got {n_cells}")
@@ -54,6 +64,16 @@ class IndependentCellSpectrum:
             raise ValueError("zscore_min_periods cannot exceed zscore_window_bins")
         if default_dt_s <= 0.0:
             raise ValueError(f"default_dt_s must be > 0, got {default_dt_s}")
+        if projection_model is None:
+            projection_model = ProjectionModelConfig()
+        if projection_model.cubic_scale < 0.0:
+            raise ValueError(
+                f"projection cubic_scale must be >= 0, got {projection_model.cubic_scale}"
+            )
+        if projection_model.damping_lambda < 0.0:
+            raise ValueError(
+                f"projection damping_lambda must be >= 0, got {projection_model.damping_lambda}"
+            )
 
         win = np.asarray(list(windows), dtype=np.int32)
         if win.ndim != 1 or win.size == 0:
@@ -83,14 +103,17 @@ class IndependentCellSpectrum:
 
         self._n_cells = n_cells
         self._windows = win
+        self._windows_py = tuple(int(x) for x in win.tolist())
         self._rollup_weights = roll_w
         self._deriv_weights = deriv_w
         self._tanh_scale = float(tanh_scale)
+        self._inv_tanh_scale = 1.0 / self._tanh_scale
         self._neutral_threshold = float(neutral_threshold)
         self._zscore_window_bins = int(zscore_window_bins)
         self._zscore_min_periods = int(zscore_min_periods)
         self._projection_horizons_ms = tuple(int(x) for x in horizons.tolist())
         self._default_dt_s = float(default_dt_s)
+        self._projection_model = projection_model
 
         max_hist = int(max(self._windows.max(), self._zscore_window_bins, 3))
         self._hist_capacity = max_hist
@@ -110,6 +133,12 @@ class IndependentCellSpectrum:
         self._zscore_scratch = np.empty(
             (self._zscore_window_bins, n_cells), dtype=np.float64
         )
+        self._zscore_abs_scratch = np.empty(
+            (self._zscore_window_bins, n_cells), dtype=np.float64
+        )
+        self._zscore_d1 = np.zeros(n_cells, dtype=np.float64)
+        self._zscore_d2 = np.zeros(n_cells, dtype=np.float64)
+        self._zscore_d3 = np.zeros(n_cells, dtype=np.float64)
         self._zeros = np.zeros(n_cells, dtype=np.float64)
 
         self._prev_ts_ns: int | None = None
@@ -118,6 +147,7 @@ class IndependentCellSpectrum:
         self._prev_d2: np.ndarray | None = None
         self._prev_score: np.ndarray | None = None
         self._prev_score_d1: np.ndarray | None = None
+        self._prev_score_d2: np.ndarray | None = None
 
     @property
     def projection_horizons_ms(self) -> tuple[int, ...]:
@@ -136,9 +166,9 @@ class IndependentCellSpectrum:
         write_idx = self._composite_write_idx
         prev_count = self._composite_count
 
-        for idx, window in enumerate(self._windows.tolist()):
+        for idx, window in enumerate(self._windows_py):
             if prev_count >= window:
-                old_idx = (write_idx - int(window)) % self._hist_capacity
+                old_idx = (write_idx - window) % self._hist_capacity
                 self._rolling_sum_by_window[idx] -= self._composite_ring[old_idx]
             self._rolling_sum_by_window[idx] += composite
 
@@ -188,9 +218,11 @@ class IndependentCellSpectrum:
         write_idx: int,
         count: int,
         x: np.ndarray,
+        out: np.ndarray,
     ) -> np.ndarray:
         if count < self._zscore_min_periods:
-            return self._zeros
+            out.fill(0.0)
+            return out
 
         hist = self._copy_tail(
             ring=ring,
@@ -200,13 +232,35 @@ class IndependentCellSpectrum:
         )
 
         med = np.median(hist, axis=0)
-        mad = np.median(np.abs(hist - med), axis=0)
+        work = self._zscore_abs_scratch[: hist.shape[0]]
+        np.subtract(hist, med, out=work)
+        np.abs(work, out=work)
+        mad = np.median(work, axis=0)
         scale = 1.4826 * mad
         valid = scale > 1e-9
 
-        z = np.zeros_like(x)
-        z[valid] = (x[valid] - med[valid]) / scale[valid]
-        return z
+        out.fill(0.0)
+        out[valid] = (x[valid] - med[valid]) / scale[valid]
+        return out
+
+    def _project_score_horizon(
+        self,
+        score: np.ndarray,
+        score_d1: np.ndarray,
+        score_d2: np.ndarray,
+        score_d3: np.ndarray,
+        horizon_s: float,
+    ) -> np.ndarray:
+        proj = score + score_d1 * horizon_s + 0.5 * score_d2 * horizon_s * horizon_s
+        if self._projection_model.use_cubic:
+            proj = proj + (
+                self._projection_model.cubic_scale * score_d3 * horizon_s * horizon_s * horizon_s
+            )
+        if self._projection_model.damping_lambda > 0.0:
+            proj = proj * np.exp(-self._projection_model.damping_lambda * horizon_s)
+        np.clip(proj, -1.0, 1.0, out=proj)
+        np.nan_to_num(proj, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+        return proj
 
     def update(
         self,
@@ -229,8 +283,8 @@ class IndependentCellSpectrum:
         self._append_composite(composite)
 
         rolled = np.zeros(self._n_cells, dtype=np.float64)
-        for idx, window in enumerate(self._windows.tolist()):
-            count = min(self._composite_count, int(window))
+        for idx, window in enumerate(self._windows_py):
+            count = min(self._composite_count, window)
             if count > 0:
                 rolled += self._rollup_weights[idx] * (
                     self._rolling_sum_by_window[idx] / float(count)
@@ -277,17 +331,35 @@ class IndependentCellSpectrum:
             x=d3,
         )
 
-        z1 = self._robust_z_last(self._d1_ring, self._d1_write_idx, self._d1_count, d1)
-        z2 = self._robust_z_last(self._d2_ring, self._d2_write_idx, self._d2_count, d2)
-        z3 = self._robust_z_last(self._d3_ring, self._d3_write_idx, self._d3_count, d3)
+        z1 = self._robust_z_last(
+            self._d1_ring,
+            self._d1_write_idx,
+            self._d1_count,
+            d1,
+            self._zscore_d1,
+        )
+        z2 = self._robust_z_last(
+            self._d2_ring,
+            self._d2_write_idx,
+            self._d2_count,
+            d2,
+            self._zscore_d2,
+        )
+        z3 = self._robust_z_last(
+            self._d3_ring,
+            self._d3_write_idx,
+            self._d3_count,
+            d3,
+            self._zscore_d3,
+        )
 
         score = (
-            self._deriv_weights[0] * np.tanh(z1 / self._tanh_scale)
-            + self._deriv_weights[1] * np.tanh(z2 / self._tanh_scale)
-            + self._deriv_weights[2] * np.tanh(z3 / self._tanh_scale)
+            self._deriv_weights[0] * np.tanh(z1 * self._inv_tanh_scale)
+            + self._deriv_weights[1] * np.tanh(z2 * self._inv_tanh_scale)
+            + self._deriv_weights[2] * np.tanh(z3 * self._inv_tanh_scale)
         )
-        score = np.clip(score, -1.0, 1.0)
-        score = np.nan_to_num(score, nan=0.0, posinf=1.0, neginf=-1.0)
+        np.clip(score, -1.0, 1.0, out=score)
+        np.nan_to_num(score, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
 
         state_code = np.zeros(self._n_cells, dtype=np.int8)
         state_code[score >= self._neutral_threshold] = 1
@@ -302,17 +374,20 @@ class IndependentCellSpectrum:
             score_d2 = np.zeros(self._n_cells, dtype=np.float64)
         else:
             score_d2 = (score_d1 - self._prev_score_d1) / dt_s
+        if self._prev_score_d2 is None:
+            score_d3 = np.zeros(self._n_cells, dtype=np.float64)
+        else:
+            score_d3 = (score_d2 - self._prev_score_d2) / dt_s
 
         projected: Dict[int, np.ndarray] = {}
         for horizon_ms in self._projection_horizons_ms:
             h = float(horizon_ms) / 1000.0
-            projected[horizon_ms] = np.nan_to_num(
-                np.clip(
-                    score + score_d1 * h + 0.5 * score_d2 * h * h,
-                    -1.0,
-                    1.0,
-                ),
-                nan=0.0, posinf=1.0, neginf=-1.0,
+            projected[horizon_ms] = self._project_score_horizon(
+                score=score,
+                score_d1=score_d1,
+                score_d2=score_d2,
+                score_d3=score_d3,
+                horizon_s=h,
             )
 
         self._prev_ts_ns = ts_ns
@@ -321,6 +396,7 @@ class IndependentCellSpectrum:
         self._prev_d2 = d2
         self._prev_score = score
         self._prev_score_d1 = score_d1
+        self._prev_score_d2 = score_d2
 
         return SpectrumOutput(
             score=score,

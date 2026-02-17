@@ -99,7 +99,6 @@ const WS_PORT = 8002;
 let GRID_RADIUS_TICKS = 40;
 let HMAP_LEVELS = GRID_RADIUS_TICKS * 2 + 1;
 const HMAP_HISTORY = 360;                    // 6 min of 1-second columns
-const FLOW_NORM_SCALE = 500;                 // characteristic shares for tanh norm
 const DEPTH_NORM_PERCENTILE_DECAY = 0.995;
 const SCROLL_MARGIN = 10;                    // rows from edge before auto-scroll
 
@@ -107,6 +106,18 @@ const SCROLL_MARGIN = 10;                    // rows from edge before auto-scrol
 
 let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
+
+// BBO state for overlay rendering
+let bestBidDollars = 0;
+let bestAskDollars = 0;
+let currentBinEndNs: bigint = 0n;
+
+// BBO trail: bid/ask row positions per heatmap column
+let bidTrail: (number | null)[] = [];
+let askTrail: (number | null)[] = [];
+
+// Time axis: timestamp (ns) for each heatmap column
+let columnTimestamps: (bigint | null)[] = [];
 
 /** Active bucket size in dollars from runtime config. */
 function bucketDollars(): number {
@@ -160,6 +171,9 @@ function resetHeatmapBuffers(gridRadiusTicks: number): void {
   currentSpotDollars = 0;
   windowCount = 0;
   spotTrail = new Array(HMAP_HISTORY).fill(null);
+  bidTrail = new Array(HMAP_HISTORY).fill(null);
+  askTrail = new Array(HMAP_HISTORY).fill(null);
+  columnTimestamps = new Array(HMAP_HISTORY).fill(null);
   hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -444,36 +458,36 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/** Heatmap cell colour from depth + net flow.
- *  Uses log-scale normalization so large outlier levels don't crush
- *  the brightness of smaller (but still meaningful) depth.
+/** Heatmap cell colour: single-channel green pressure gradient.
+ *
+ *  Encodes ONE signal: how much pressure (liquidity building) exists
+ *  at this bucket right now.
+ *
+ *  Pressure (spectrum_score > 0): dark emerald → bright green
+ *  Vacuum/neutral (score ≤ 0):   black (absence of pressure IS the signal)
+ *  rest_depth gates a faint grey floor so resting-but-neutral depth is
+ *  distinguishable from truly empty levels.
  */
 function heatmapRGB(
-  depth: number, netFlow: number, maxDepth: number,
+  depth: number, spectrumScore: number, maxDepth: number,
 ): [number, number, number] {
   const depthN = Math.min(1.0, Math.log1p(depth) / Math.log1p(maxDepth));
-  const flowN = Math.tanh(netFlow / FLOW_NORM_SCALE);
-  const lum = 0.04 + depthN * 0.56;
+  const scoreN = Math.max(0, spectrumScore);
+  const pressureT = Math.pow(scoreN, 0.7);
 
-  if (flowN > 0.03) {
-    const t = flowN;
+  if (pressureT > 0.01) {
+    const lum = 0.15 + depthN * 0.45 + pressureT * 0.40;
     return [
-      Math.round((0.04 + t * 0.06) * 255 * lum),
-      Math.round((0.45 + t * 0.55) * 255 * lum),
-      Math.round((0.35 + t * 0.35) * 255 * lum),
-    ];
-  } else if (flowN < -0.03) {
-    const t = -flowN;
-    return [
-      Math.round((0.55 + t * 0.45) * 255 * lum),
-      Math.round(0.04 * 255 * lum),
-      Math.round((0.20 + t * 0.35) * 255 * lum),
+      Math.round((0.02 + pressureT * 0.08) * 255 * lum),
+      Math.round((0.15 + pressureT * 0.85) * 255 * lum),
+      Math.round((0.05 + pressureT * 0.15) * 255 * lum),
     ];
   } else {
+    const baseLum = depthN * 0.08;
     return [
-      Math.round(0.12 * 255 * lum),
-      Math.round(0.12 * 255 * lum),
-      Math.round(0.22 * 255 * lum),
+      Math.round(0.12 * baseLum * 255),
+      Math.round(0.12 * baseLum * 255),
+      Math.round(0.18 * baseLum * 255),
     ];
   }
 }
@@ -496,6 +510,9 @@ function shiftGrid(shiftRows: number): void {
       d[i] = 10; d[i + 1] = 10; d[i + 2] = 15; d[i + 3] = 255;
     }
     for (let i = 0; i < spotTrail.length; i++) spotTrail[i] = null;
+    for (let i = 0; i < bidTrail.length; i++) bidTrail[i] = null;
+    for (let i = 0; i < askTrail.length; i++) askTrail[i] = null;
+    for (let i = 0; i < columnTimestamps.length; i++) columnTimestamps[i] = null;
     vpY += shiftRows;
     clampViewport();
     return;
@@ -527,6 +544,12 @@ function shiftGrid(shiftRows: number): void {
   for (let i = 0; i < spotTrail.length; i++) {
     if (spotTrail[i] !== null) {
       spotTrail[i] = spotTrail[i]! + shiftRows;
+    }
+    if (bidTrail[i] !== null) {
+      bidTrail[i] = bidTrail[i]! + shiftRows;
+    }
+    if (askTrail[i] !== null) {
+      askTrail[i] = askTrail[i]! + shiftRows;
     }
   }
 
@@ -602,6 +625,24 @@ function pushHeatmapColumnFromGrid(
   spotTrail.shift();
   spotTrail.push(priceToRow(spotDollars));
 
+  // Advance BBO trails
+  bidTrail.shift();
+  askTrail.shift();
+  if (bestBidDollars > 0 && anchorInitialized) {
+    bidTrail.push(priceToRow(bestBidDollars));
+  } else {
+    bidTrail.push(null);
+  }
+  if (bestAskDollars > 0 && anchorInitialized) {
+    askTrail.push(priceToRow(bestAskDollars));
+  } else {
+    askTrail.push(null);
+  }
+
+  // Advance time axis timestamps
+  columnTimestamps.shift();
+  columnTimestamps.push(currentBinEndNs > 0n ? currentBinEndNs : null);
+
   // Map grid buckets to heatmap rows and track adaptive normalization.
   let maxSpectrumAbs = 0;
   let maxRestD = 0;
@@ -632,8 +673,7 @@ function pushHeatmapColumnFromGrid(
     }
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
-    const scaledForce = bucketData.spectrum_score * FLOW_NORM_SCALE;
-    const [r, g, b] = heatmapRGB(bucketData.rest_depth, scaledForce, runningMaxDepth);
+    const [r, g, b] = heatmapRGB(bucketData.rest_depth, bucketData.spectrum_score, runningMaxDepth);
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
@@ -995,6 +1035,63 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     }
   }
 
+  // BBO bid trail (green dashed line)
+  ctx.strokeStyle = 'rgba(34, 204, 102, 0.45)';
+  ctx.lineWidth = 1.0;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  started = false;
+  for (let i = 0; i < HMAP_HISTORY; i++) {
+    const row = bidTrail[i];
+    if (row === null) { started = false; continue; }
+    const x = colToX(i + 0.5);
+    const y = rowToY(row);
+    if (x < -50 || x > dataWidth + 50 || y < -50 || y > ch + 50) { started = false; continue; }
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else { ctx.lineTo(x, y); }
+  }
+  ctx.stroke();
+
+  // BBO ask trail (red dashed line)
+  ctx.strokeStyle = 'rgba(204, 34, 85, 0.45)';
+  ctx.beginPath();
+  started = false;
+  for (let i = 0; i < HMAP_HISTORY; i++) {
+    const row = askTrail[i];
+    if (row === null) { started = false; continue; }
+    const x = colToX(i + 0.5);
+    const y = rowToY(row);
+    if (x < -50 || x > dataWidth + 50 || y < -50 || y > ch + 50) { started = false; continue; }
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else { ctx.lineTo(x, y); }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Spread fill: semi-transparent region between bid and ask
+  const spreadXs: number[] = [];
+  const spreadBidYs: number[] = [];
+  const spreadAskYs: number[] = [];
+  for (let i = 0; i < HMAP_HISTORY; i++) {
+    const bRow = bidTrail[i];
+    const aRow = askTrail[i];
+    if (bRow === null || aRow === null) continue;
+    const x = colToX(i + 0.5);
+    if (x < -50 || x > dataWidth + 50) continue;
+    spreadXs.push(x);
+    spreadBidYs.push(rowToY(bRow));
+    spreadAskYs.push(rowToY(aRow));
+  }
+  if (spreadXs.length > 1) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.beginPath();
+    ctx.moveTo(spreadXs[0], spreadAskYs[0]);
+    for (let i = 1; i < spreadXs.length; i++) ctx.lineTo(spreadXs[i], spreadAskYs[i]);
+    for (let i = spreadXs.length - 1; i >= 0; i--) ctx.lineTo(spreadXs[i], spreadBidYs[i]);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   // Zoom indicator (only when zoomed)
   if (Math.abs(zoomX - 1.0) > 0.01 || Math.abs(zoomY - 1.0) > 0.01) {
     ctx.save();
@@ -1074,6 +1171,30 @@ function renderPriceAxis(canvas: HTMLCanvasElement): void {
       ctx.stroke();
     }
   }
+
+  // Bid price label
+  if (bestBidDollars > 0) {
+    const bidRow = priceToRow(bestBidDollars);
+    const bidY = ((bidRow - vpY) / srcH) * ch;
+    if (bidY >= -10 && bidY <= ch + 10) {
+      ctx.fillStyle = '#22cc66';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`B ${bestBidDollars.toFixed(priceDecimals())}`, 7, bidY);
+    }
+  }
+
+  // Ask price label
+  if (bestAskDollars > 0) {
+    const askRow = priceToRow(bestAskDollars);
+    const askY = ((askRow - vpY) / srcH) * ch;
+    if (askY >= -10 && askY <= ch + 10) {
+      ctx.fillStyle = '#cc2255';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`A ${bestAskDollars.toFixed(priceDecimals())}`, 7, askY);
+    }
+  }
 }
 
 function renderProfile(canvas: HTMLCanvasElement): void {
@@ -1130,14 +1251,15 @@ function renderProfile(canvas: HTMLCanvasElement): void {
       if (row < vpY - 1 || row > vpY + srcH + 1) continue;
       const y = (row - vpY) * rowH;
       const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
-      const forceT = Math.max(-1, Math.min(1, b.spectrum_score));
+      const pressureT = Math.max(0, Math.min(1, b.spectrum_score));
 
-      if (forceT >= 0) {
-        // Building (pressure > vacuum) → cyan-green
-        ctx.fillStyle = `rgba(30, ${140 + Math.round(80 * forceT)}, ${120 + Math.round(50 * forceT)}, 0.7)`;
+      if (pressureT > 0.01) {
+        // Pressure: green intensity proportional to score
+        const gVal = 100 + Math.round(155 * pressureT);
+        ctx.fillStyle = `rgba(20, ${gVal}, ${60 + Math.round(40 * pressureT)}, 0.7)`;
       } else {
-        // Draining (vacuum > pressure) → red-magenta
-        ctx.fillStyle = `rgba(${140 + Math.round(80 * (-forceT))}, 30, ${60 + Math.round(40 * (-forceT))}, 0.7)`;
+        // Neutral/vacuum: dim grey
+        ctx.fillStyle = 'rgba(40, 40, 55, 0.35)';
       }
 
       // k > 0 = above spot (ask side), k < 0 = below spot (bid side)
@@ -1175,6 +1297,79 @@ function renderProfile(canvas: HTMLCanvasElement): void {
   ctx.fillText('BID', barLeft + 2, 12);
   ctx.fillStyle = 'rgba(200, 140, 100, 0.6)';
   ctx.fillText('ASK', cw - 24, 12);
+}
+
+// ---------------------------------------------------------- Time axis
+
+function renderTimeAxis(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
+    canvas.width = cw * dpr;
+    canvas.height = ch * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, cw, ch);
+
+  if (!anchorInitialized || windowCount === 0) return;
+
+  const srcW = visibleCols();
+  const dataWidth = projectionDataWidth(cw);
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  // Determine label interval based on zoom-dependent pixel spacing
+  const cellWidthMs = runtimeConfig ? runtimeConfig.cell_width_ms : 100;
+  const pixelsPerCol = dataWidth / srcW;
+  const minLabelSpacingPx = 70;
+  const colsPerLabel = Math.max(1, Math.ceil(minLabelSpacingPx / pixelsPerCol));
+  const colsPerSecond = 1000 / cellWidthMs;
+  const rawIntervalSec = colsPerLabel / colsPerSecond;
+
+  const niceSeconds = [1, 2, 5, 10, 15, 30, 60];
+  let intervalSec = niceSeconds[niceSeconds.length - 1];
+  for (const ns of niceSeconds) {
+    if (ns >= rawIntervalSec) { intervalSec = ns; break; }
+  }
+  const intervalCols = Math.round(intervalSec * colsPerSecond);
+
+  for (let col = 0; col < HMAP_HISTORY; col++) {
+    if (intervalCols > 0 && col % intervalCols !== 0) continue;
+
+    const ts = columnTimestamps[col];
+    if (ts === null || ts === 0n) continue;
+
+    const x = colToX(col + 0.5);
+    if (x < -20 || x > cw + 20) continue;
+
+    // Format as HH:MM:SS ET (fixed UTC-5)
+    const ms = Number(ts / 1_000_000n);
+    const d = new Date(ms);
+    const et = new Date(d.getTime() - 5 * 3600_000);
+    const hh = String(et.getUTCHours()).padStart(2, '0');
+    const mm = String(et.getUTCMinutes()).padStart(2, '0');
+    const ss = String(et.getUTCSeconds()).padStart(2, '0');
+
+    // Tick mark
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 4);
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = '#666';
+    ctx.fillText(`${hh}:${mm}:${ss}`, x, 5);
+  }
 }
 
 // -------------------------------------------- Runtime config application
@@ -1281,6 +1476,13 @@ function resetStreamState(): void {
   currentGrid = new Map();
   lastRenderedEventIdByRow.clear();
   runningMaxSpectrum = 10;
+  bestBidDollars = 0;
+  bestAskDollars = 0;
+  currentBinEndNs = 0n;
+
+  for (let i = 0; i < bidTrail.length; i++) bidTrail[i] = null;
+  for (let i = 0; i < askTrail.length; i++) askTrail[i] = null;
+  for (let i = 0; i < columnTimestamps.length; i++) columnTimestamps[i] = null;
 
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -1447,14 +1649,20 @@ function connectWS(): void {
             const tsNs = requireBigIntField('grid_update', msg, 'ts_ns');
             const binSeq = requireNumberField('grid_update', msg, 'bin_seq');
             requireBigIntField('grid_update', msg, 'bin_start_ns');
-            requireBigIntField('grid_update', msg, 'bin_end_ns');
+            const binEndNs = requireBigIntField('grid_update', msg, 'bin_end_ns');
             requireNumberField('grid_update', msg, 'bin_event_count');
             const eventId = requireNumberField('grid_update', msg, 'event_id');
             const midPrice = requireNumberField('grid_update', msg, 'mid_price');
             requireBigIntField('grid_update', msg, 'spot_ref_price_int');
-            requireBigIntField('grid_update', msg, 'best_bid_price_int');
-            requireBigIntField('grid_update', msg, 'best_ask_price_int');
+            const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
+            const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
+
+            // Convert BBO integer prices to dollars
+            const priceScale = runtimeConfig!.price_scale;
+            bestBidDollars = Number(bestBidPriceInt) * priceScale;
+            bestAskDollars = Number(bestAskPriceInt) * priceScale;
+            currentBinEndNs = binEndNs;
 
             currentSpotDollars = midPrice;
             windowCount = Number(binSeq) + 1;
@@ -1553,6 +1761,7 @@ function startRenderLoop(): void {
   const hmapCanvas = document.getElementById('heatmap-canvas') as HTMLCanvasElement;
   const profCanvas = document.getElementById('profile-canvas') as HTMLCanvasElement;
   const axisCanvas = document.getElementById('price-axis-canvas') as HTMLCanvasElement;
+  const timeCanvas = document.getElementById('time-axis-canvas') as HTMLCanvasElement;
 
   // Zoom (mouse wheel on heatmap)
   hmapCanvas.addEventListener('wheel', (e: WheelEvent) => {
@@ -1645,6 +1854,7 @@ function startRenderLoop(): void {
     renderHeatmap(hmapCanvas);
     renderProfile(profCanvas);
     renderPriceAxis(axisCanvas);
+    renderTimeAxis(timeCanvas);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

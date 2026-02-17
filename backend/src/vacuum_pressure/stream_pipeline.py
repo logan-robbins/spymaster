@@ -23,7 +23,7 @@ from ..data_eng.config import PRICE_SCALE
 from .config import VPRuntimeConfig
 from .event_engine import AbsoluteTickEngine
 from .replay_source import _resolve_dbn_path, iter_mbo_events
-from .spectrum import IndependentCellSpectrum
+from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +369,10 @@ def _build_bin_grid(
 
     projection_horizons = spectrum.projection_horizons_ms
     projected = spectrum_out.projected_score_by_horizon
+    projection_specs = tuple(
+        (horizon_ms, f"proj_score_h{horizon_ms}", projected[horizon_ms])
+        for horizon_ms in projection_horizons
+    )
 
     # Compute spot and window center
     spot_int = engine.spot_ref_price_int
@@ -376,7 +380,6 @@ def _build_bin_grid(
 
     if center_idx is None:
         # No valid spot — emit empty grid
-        n_out = 2 * window_radius + 1
         return {
             "ts_ns": bin_end_ns,
             "bin_seq": bin_seq,
@@ -410,45 +413,64 @@ def _build_bin_grid(
 
     # Build output buckets
     buckets: list[Dict[str, Any]] = []
-    out_idx = 0
+
+    add_mass = full["add_mass"]
+    pull_mass = full["pull_mass"]
+    fill_mass = full["fill_mass"]
+    rest_depth = full["rest_depth"]
+    v_add = full["v_add"]
+    v_pull = full["v_pull"]
+    v_fill = full["v_fill"]
+    v_rest_depth = full["v_rest_depth"]
+    a_add = full["a_add"]
+    a_pull = full["a_pull"]
+    a_fill = full["a_fill"]
+    a_rest_depth = full["a_rest_depth"]
+    j_add = full["j_add"]
+    j_pull = full["j_pull"]
+    j_fill = full["j_fill"]
+    j_rest_depth = full["j_rest_depth"]
+    pressure_variant = full["pressure_variant"]
+    vacuum_variant = full["vacuum_variant"]
+    last_event_id = full["last_event_id"]
+    spectrum_score = spectrum_out.score
+    spectrum_state_code = spectrum_out.state_code
 
     # Left padding (out-of-range ticks)
     for i in range(pad_left):
         k = -window_radius + i
         buckets.append(_empty_bucket_row(k, projection_horizons))
-        out_idx += 1
 
     # Actual data slice
     for abs_idx in range(arr_start, arr_end):
         k = abs_idx - center_idx
         row: Dict[str, Any] = {
             "k": int(k),
-            "add_mass": float(full["add_mass"][abs_idx]),
-            "pull_mass": float(full["pull_mass"][abs_idx]),
-            "fill_mass": float(full["fill_mass"][abs_idx]),
-            "rest_depth": float(full["rest_depth"][abs_idx]),
-            "v_add": float(full["v_add"][abs_idx]),
-            "v_pull": float(full["v_pull"][abs_idx]),
-            "v_fill": float(full["v_fill"][abs_idx]),
-            "v_rest_depth": float(full["v_rest_depth"][abs_idx]),
-            "a_add": float(full["a_add"][abs_idx]),
-            "a_pull": float(full["a_pull"][abs_idx]),
-            "a_fill": float(full["a_fill"][abs_idx]),
-            "a_rest_depth": float(full["a_rest_depth"][abs_idx]),
-            "j_add": float(full["j_add"][abs_idx]),
-            "j_pull": float(full["j_pull"][abs_idx]),
-            "j_fill": float(full["j_fill"][abs_idx]),
-            "j_rest_depth": float(full["j_rest_depth"][abs_idx]),
-            "pressure_variant": float(full["pressure_variant"][abs_idx]),
-            "vacuum_variant": float(full["vacuum_variant"][abs_idx]),
-            "last_event_id": int(full["last_event_id"][abs_idx]),
-            "spectrum_score": float(spectrum_out.score[abs_idx]),
-            "spectrum_state_code": int(spectrum_out.state_code[abs_idx]),
+            "add_mass": float(add_mass[abs_idx]),
+            "pull_mass": float(pull_mass[abs_idx]),
+            "fill_mass": float(fill_mass[abs_idx]),
+            "rest_depth": float(rest_depth[abs_idx]),
+            "v_add": float(v_add[abs_idx]),
+            "v_pull": float(v_pull[abs_idx]),
+            "v_fill": float(v_fill[abs_idx]),
+            "v_rest_depth": float(v_rest_depth[abs_idx]),
+            "a_add": float(a_add[abs_idx]),
+            "a_pull": float(a_pull[abs_idx]),
+            "a_fill": float(a_fill[abs_idx]),
+            "a_rest_depth": float(a_rest_depth[abs_idx]),
+            "j_add": float(j_add[abs_idx]),
+            "j_pull": float(j_pull[abs_idx]),
+            "j_fill": float(j_fill[abs_idx]),
+            "j_rest_depth": float(j_rest_depth[abs_idx]),
+            "pressure_variant": float(pressure_variant[abs_idx]),
+            "vacuum_variant": float(vacuum_variant[abs_idx]),
+            "last_event_id": int(last_event_id[abs_idx]),
+            "spectrum_score": float(spectrum_score[abs_idx]),
+            "spectrum_state_code": int(spectrum_state_code[abs_idx]),
         }
-        for horizon_ms in projection_horizons:
-            row[f"proj_score_h{horizon_ms}"] = float(projected[horizon_ms][abs_idx])
+        for _, key, projection_values in projection_specs:
+            row[key] = float(projection_values[abs_idx])
         buckets.append(row)
-        out_idx += 1
 
     # Right padding
     for i in range(pad_right):
@@ -500,6 +522,9 @@ def stream_events(
     start_time: str | None = None,
     *,
     capture_producer_timing: bool = False,
+    projection_use_cubic: bool = False,
+    projection_cubic_scale: float = 1.0 / 6.0,
+    projection_damping_lambda: float = 0.0,
 ) -> Generator[Dict[str, Any], None, None]:
     """Synchronous pipeline: DBN events -> fixed-width cell bins."""
     warmup_start_ns, emit_after_ns = _compute_time_boundaries(
@@ -525,6 +550,11 @@ def stream_events(
         zscore_min_periods=config.zscore_min_periods,
         projection_horizons_ms=config.projection_horizons_ms,
         default_dt_s=float(config.cell_width_ms) / 1000.0,
+        projection_model=ProjectionModelConfig(
+            use_cubic=projection_use_cubic,
+            cubic_scale=projection_cubic_scale,
+            damping_lambda=projection_damping_lambda,
+        ),
     )
 
     event_count = 0
@@ -662,6 +692,9 @@ async def async_stream_events(
     start_time: str | None = None,
     *,
     producer_latency_config: ProducerLatencyConfig | None = None,
+    projection_use_cubic: bool = False,
+    projection_cubic_scale: float = 1.0 / 6.0,
+    projection_damping_lambda: float = 0.0,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Async wrapper with fixed wall-clock pacing by cell width."""
     import concurrent.futures
@@ -687,6 +720,9 @@ async def async_stream_events(
                 dt=dt,
                 start_time=start_time,
                 capture_producer_timing=latency_writer is not None,
+                projection_use_cubic=projection_use_cubic,
+                projection_cubic_scale=projection_cubic_scale,
+                projection_damping_lambda=projection_damping_lambda,
             ):
                 perf_meta = grid.pop(_PRODUCER_PERF_KEY, None) if latency_writer is not None else None
                 queue_put_start_wall_ns = time.monotonic_ns()

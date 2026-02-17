@@ -83,6 +83,75 @@ uv run scripts/warm_cache.py \
   --start-time 09:00
 ```
 
+## Offline Compute Cache (Replay Dataset)
+
+Canonical way to persist full computed stream output for data science/replay:
+
+```bash
+cd backend
+nohup uv run scripts/cache_vp_output.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --capture-start-et 09:25:00 \
+  --capture-end-et 10:25:00 \
+  --output-dir /tmp/vp_cache_mnqh6_20260206_0925_1025 > /tmp/vp_cache_mnqh6_20260206_0925_1025.log 2>&1 &
+```
+
+Capture output files:
+
+- `bins.parquet`: one row per emitted fixed-width bin
+- `buckets.parquet`: flattened per-bin x per-k rows (includes all VP/spectrum/projection columns)
+- `manifest.json`: run parameters, row counts, config version, and output paths
+
+Notes:
+
+- Capture window is ET and end-exclusive (`[capture_start_et, capture_end_et)`).
+- `capture_start_et` must be aligned to minute boundary (`HH:MM:00`) because warmup/start in stream pipeline is minute-based.
+- Capture includes the complete emitted serve-time grid (`2*grid_radius_ticks + 1` rows per bin, default 101 around spot).
+- Script suppresses high-volume out-of-range warning spam from `event_engine` so logs remain usable during long captures.
+
+## Publish Immutable Base + Agent Workspaces
+
+Split cached output into immutable clean grid vs projection-only experiment data:
+
+```bash
+cd backend
+uv run scripts/publish_vp_research_dataset.py publish \
+  --source-dir /tmp/vp_cache_mnqh6_20260206_0925_1025 \
+  --dataset-id mnqh6_20260206_0925_1025 \
+  --agents eda,projection,regime
+```
+
+Published layout:
+
+- Immutable base (read-only): `backend/lake/research/vp_immutable/<dataset_id>/`
+- Experiment store (writable): `backend/lake/research/vp_experiments/<dataset_id>/`
+
+Immutable base files:
+
+- `bins.parquet`
+- `grid_clean.parquet` (all non-projection bucket columns)
+- `manifest.json`
+- `checksums.json` (SHA256 for immutable parquet files)
+
+Experiment files:
+
+- `projection_seed.parquet` (keys + projection columns only)
+- Per-agent workspaces under `agents/<agent>/`:
+- `data/base_immutable` symlink to immutable base
+- `data/projection_experiment.parquet` writable projection copy
+- `outputs/` writable output directory
+
+Add more agents later:
+
+```bash
+cd backend
+uv run scripts/publish_vp_research_dataset.py add-agents \
+  --dataset-id mnqh6_20260206_0925_1025 \
+  --agents alpha,beta
+```
+
 ## Start Backend
 
 ```bash
@@ -94,6 +163,22 @@ nohup uv run scripts/run_vacuum_pressure.py \
   --dt 2026-02-06 \
   --port 8002 \
   --start-time 09:00 > /tmp/vp_preprod.log 2>&1 &
+```
+
+Projection experiment runtime overrides (cubic + damping):
+
+```bash
+kill $(lsof -t -iTCP:8002) 2>/dev/null
+cd backend
+nohup uv run scripts/run_vacuum_pressure.py \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --port 8002 \
+  --start-time 09:25 \
+  --projection-use-cubic \
+  --projection-cubic-scale 0.1666666667 \
+  --projection-damping-lambda 0.001 > /tmp/vp_preprod_cubic.log 2>&1 &
 ```
 
 Producer-latency capture (optional, disabled by default):
@@ -135,7 +220,7 @@ ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQ
 
 ## Stream Payload
 
-Control frame (`runtime_config`) includes canonical config fields and schema metadata.
+Control frame (`runtime_config`) includes canonical config fields, `projection_model` runtime overrides, and schema metadata.
 
 Each `grid_update` frame includes:
 
@@ -188,6 +273,27 @@ uv run scripts/analyze_vp_signals.py \
   --json-output /tmp/regime_results.json
 ```
 
+Projection experiment sweep mode (09:25 ET to 09:35 ET):
+
+```bash
+cd backend
+uv run scripts/analyze_vp_signals.py \
+  --mode projection_experiment \
+  --product-type future_mbo \
+  --symbol MNQH6 \
+  --dt 2026-02-06 \
+  --start-time 09:25 \
+  --eval-start 09:25 \
+  --eval-end 09:35 \
+  --experiment-use-cubic-values false,true \
+  --experiment-cubic-scale-values 0.10,0.1666666667,0.22 \
+  --experiment-damping-lambda-values 0.0,0.0005,0.001,0.002 \
+  --experiment-regime-horizon-ms 2500 \
+  --experiment-slope-window-bins 30 \
+  --experiment-shift-z-threshold 2.0 \
+  --json-output /tmp/projection_experiment_0925_0935.json
+```
+
 ## Pressure Core Benchmark
 
 Math-first replay benchmark (full grid, no radius filtering):
@@ -236,11 +342,18 @@ Key JSONL fields:
 - `last_ingest_to_queue_put_done_us`
 - `queue_block_us`
 
+## Performance Notes
+
+- Spectrum stage keeps robust-zscore work in pre-allocated NumPy buffers to avoid repeated large temporary allocations in the hot path.
+- Serving stage Arrow encoding uses `pyarrow.RecordBatch.from_pylist(...)` + IPC stream writer, replacing per-field Python list construction loops.
+
 ## Verification
 
 ```bash
 cd backend && uv run scripts/run_vacuum_pressure.py --help
 cd backend && uv run scripts/warm_cache.py --help
+cd backend && uv run scripts/cache_vp_output.py --help
+cd backend && uv run scripts/publish_vp_research_dataset.py --help
 cd backend && uv run scripts/analyze_vp_signals.py --help
 cd backend && uv run scripts/benchmark_vp_core.py --help
 cd backend && uv run pytest -q
@@ -249,19 +362,25 @@ cd frontend && npx tsc --noEmit
 
 ## File Map
 
+- `FEATURES.md`: canonical feature definitions and formulas (engine, spectrum, serve-time grid, UI signal panel, telemetry)
 - `backend/src/vacuum_pressure/config.py`: locked runtime schema and validation
 - `backend/src/vacuum_pressure/instrument.yaml`: canonical runtime parameters
 - `backend/src/vacuum_pressure/event_engine.py`: absolute-tick VP engine (order_id map + NumPy depth/BBO arrays, supports BBO auto-anchor or explicit core anchor, tolerant skipped-price warnings, one-time soft re-anchor helper for core mode)
 - `backend/src/vacuum_pressure/core_pipeline.py`: phase-1 full-grid pressure-core fixed-bin stream (no radius filtering)
-- `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel
-- `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel with pre-allocated ring-history buffers (no deque/stack hot-path)
+- `backend/src/vacuum_pressure/spectrum.py`: vectorized independent per-cell spectrum kernel with pre-allocated ring-history and zscore work buffers (no deque/stack hot-path)
 - `backend/src/vacuum_pressure/stream_pipeline.py`: fixed-bin stream builder + optional producer-latency JSONL telemetry (ingest -> queue handoff)
-- `backend/src/vacuum_pressure/server.py`: websocket server + Arrow contract
-- `backend/scripts/run_vacuum_pressure.py`: backend entrypoint (+ optional `--perf-*` latency telemetry flags)
+- `backend/src/vacuum_pressure/server.py`: websocket server + Arrow contract (RecordBatch-based IPC serialization path)
+- `backend/scripts/run_vacuum_pressure.py`: backend entrypoint (+ optional `--perf-*` latency telemetry flags and projection overrides)
 - `backend/scripts/benchmark_vp_core.py`: pressure-core throughput benchmark runner
 - `backend/scripts/warm_cache.py`: book cache warmup
-- `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis
+- `backend/scripts/cache_vp_output.py`: bounded-window compute capture to parquet (`bins`, flattened `buckets`, `manifest`)
+- `backend/scripts/publish_vp_research_dataset.py`: split cache into immutable clean grid store + projection experiment workspaces
+- `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis (+ `projection_experiment` sweep mode)
 - `backend/tests/test_vp_math_validation.py`: 22 math validation tests (derivative chain, composite, force model, decay, book stress, fills, modifies)
 - `backend/tests/test_analyze_vp_signals_regime.py`: 11 integration tests (engine lifecycle, spectrum, pipeline)
 - `backend/tests/test_stream_pipeline_perf.py`: producer-latency telemetry tests (metadata capture, JSONL output, window filtering)
+- `backend/tests/test_server_arrow_serialization.py`: Arrow IPC serialization round-trip test for websocket bucket payloads
+- `backend/tests/test_projection_experiments.py`: projection math + derivative-slope regime diagnostics tests
+- `backend/tests/test_cache_vp_output.py`: compute-capture serialization + window filtering tests
+- `backend/tests/test_publish_vp_research_dataset.py`: immutable publication + agent workspace tests
 - `frontend/src/vacuum-pressure.ts`: fixed-bin UI consumer and renderer

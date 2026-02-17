@@ -1,12 +1,14 @@
 """Canonical fixed-bin spectrum analysis for vacuum-pressure.
 
-Two modes:
-  default  — per-cell spectrum health metrics (state shares, projections)
-  regime   — directional micro-regime detection + TP/SL trade evaluation
+Modes:
+  default               — per-cell spectrum health metrics (state shares, projections)
+  regime                — directional micro-regime detection + TP/SL trade evaluation
+  projection_experiment — parameter sweep for projection model + regime-shift diagnostics
 """
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import logging
 import sys
@@ -27,11 +29,49 @@ STATE_PRESSURE = 1
 
 
 def _parse_et_timestamp_ns(dt: str, hhmm: str) -> int:
-    return int(
-        pd.Timestamp(f"{dt} {hhmm}:00", tz="America/New_York")
-        .tz_convert("UTC")
-        .value
-    )
+    raw = f"{dt} {hhmm}"
+    parsed = pd.to_datetime(raw, errors="raise")
+    ts = pd.Timestamp(parsed)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("America/New_York")
+    else:
+        ts = ts.tz_convert("America/New_York")
+    return int(ts.tz_convert("UTC").value)
+
+
+def _parse_csv_tokens(raw: str, field_name: str) -> List[str]:
+    tokens = [token.strip() for token in raw.split(",") if token.strip()]
+    if not tokens:
+        raise ValueError(f"{field_name} must include at least one value")
+    return tokens
+
+
+def _parse_float_values(raw: str, field_name: str) -> List[float]:
+    values: List[float] = []
+    for token in _parse_csv_tokens(raw, field_name):
+        try:
+            values.append(float(token))
+        except ValueError as exc:
+            raise ValueError(f"{field_name} contains non-float value: {token}") from exc
+    return values
+
+
+def _parse_bool_values(raw: str, field_name: str) -> List[bool]:
+    truthy = {"1", "true", "t", "yes", "y", "on"}
+    falsy = {"0", "false", "f", "no", "n", "off"}
+    values: List[bool] = []
+    for token in _parse_csv_tokens(raw, field_name):
+        low = token.lower()
+        if low in truthy:
+            values.append(True)
+        elif low in falsy:
+            values.append(False)
+        else:
+            raise ValueError(
+                f"{field_name} contains invalid bool token '{token}'. "
+                "Use true/false or 1/0."
+            )
+    return values
 
 
 def _collect_bins(
@@ -42,6 +82,9 @@ def _collect_bins(
     start_time: str | None,
     eval_end_ns: int,
     collect_pressure_vacuum: bool = False,
+    projection_use_cubic: bool = False,
+    projection_cubic_scale: float = 1.0 / 6.0,
+    projection_damping_lambda: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, Dict[int, np.ndarray], np.ndarray,
            np.ndarray | None, np.ndarray | None]:
     from src.vacuum_pressure.stream_pipeline import stream_events
@@ -61,6 +104,9 @@ def _collect_bins(
         config=config,
         dt=dt,
         start_time=start_time,
+        projection_use_cubic=projection_use_cubic,
+        projection_cubic_scale=projection_cubic_scale,
+        projection_damping_lambda=projection_damping_lambda,
     ):
         ts_ns = int(grid["ts_ns"])
         if ts_ns >= eval_end_ns:
@@ -196,6 +242,328 @@ def _summarize(
         "center_sign_hit_rate": center_sign_hit_rate,
         "projection": projection_metrics,
     }
+
+
+def _mean_projection_hit_rate(summary: Dict[str, Any]) -> float:
+    hits: List[float] = []
+    for metrics in summary["projection"].values():
+        hit = float(metrics["hit_rate"])
+        if np.isfinite(hit):
+            hits.append(hit)
+    if not hits:
+        return float("nan")
+    return float(np.mean(hits))
+
+
+def _rolling_slope(series: np.ndarray, window: int) -> np.ndarray:
+    if window < 2:
+        raise ValueError(f"window must be >= 2, got {window}")
+    out = np.full(series.shape[0], np.nan, dtype=np.float64)
+    if series.shape[0] < window:
+        return out
+
+    x = np.arange(window, dtype=np.float64)
+    x_centered = x - x.mean()
+    denom = float(np.dot(x_centered, x_centered))
+    if denom <= 0.0:
+        return out
+
+    windows = np.lib.stride_tricks.sliding_window_view(series, window_shape=window)
+    y_mean = windows.mean(axis=1)
+    numer = np.sum((windows - y_mean[:, None]) * x_centered[None, :], axis=1)
+    out[window - 1 :] = numer / denom
+    return out
+
+
+def _projection_regime_shift_metrics(
+    *,
+    ts_ns: np.ndarray,
+    projected_score: np.ndarray,
+    slope_window_bins: int,
+    shift_z_threshold: float,
+) -> Dict[str, float]:
+    if projected_score.ndim != 2:
+        raise ValueError(
+            f"projected_score must have shape (n_bins, n_cells), got {projected_score.shape}"
+        )
+    if slope_window_bins < 2:
+        raise ValueError(f"slope_window_bins must be >= 2, got {slope_window_bins}")
+    if shift_z_threshold < 0.0:
+        raise ValueError(f"shift_z_threshold must be >= 0, got {shift_z_threshold}")
+
+    n_bins = projected_score.shape[0]
+    if n_bins < 4:
+        return {
+            "n_valid_slope_bins": 0.0,
+            "slope_window_bins": float(slope_window_bins),
+            "mean_abs_d1": float("nan"),
+            "mean_abs_d2": float("nan"),
+            "mean_abs_d3": float("nan"),
+            "d1_slope_flip_rate": float("nan"),
+            "regime_shift_rate": float("nan"),
+            "regime_shift_events": 0.0,
+            "regime_shift_z_mean": float("nan"),
+            "regime_shift_z_p95": float("nan"),
+        }
+
+    dt = np.diff(ts_ns).astype(np.float64) / 1e9
+    dt = dt[dt > 0.0]
+    dt_s = float(np.median(dt)) if dt.size > 0 else 0.1
+
+    agg = projected_score.mean(axis=1)
+
+    d1 = np.zeros(n_bins, dtype=np.float64)
+    d2 = np.zeros(n_bins, dtype=np.float64)
+    d3 = np.zeros(n_bins, dtype=np.float64)
+    d1[1:] = np.diff(agg) / dt_s
+    d2[1:] = np.diff(d1) / dt_s
+    d3[1:] = np.diff(d2) / dt_s
+
+    d1_slope = _rolling_slope(d1, slope_window_bins)
+    d2_slope = _rolling_slope(d2, slope_window_bins)
+    d3_slope = _rolling_slope(d3, slope_window_bins)
+
+    valid = np.isfinite(d1_slope) & np.isfinite(d2_slope) & np.isfinite(d3_slope)
+    if not valid.any():
+        return {
+            "n_valid_slope_bins": 0.0,
+            "slope_window_bins": float(slope_window_bins),
+            "mean_abs_d1": float(np.mean(np.abs(d1))),
+            "mean_abs_d2": float(np.mean(np.abs(d2))),
+            "mean_abs_d3": float(np.mean(np.abs(d3))),
+            "d1_slope_flip_rate": float("nan"),
+            "regime_shift_rate": float("nan"),
+            "regime_shift_events": 0.0,
+            "regime_shift_z_mean": float("nan"),
+            "regime_shift_z_p95": float("nan"),
+        }
+
+    d1v = d1_slope[valid]
+    d2v = d2_slope[valid]
+    d3v = d3_slope[valid]
+
+    shift_intensity = np.abs(d1v) + np.abs(d2v) + np.abs(d3v)
+    med = float(np.median(shift_intensity))
+    mad = float(np.median(np.abs(shift_intensity - med)))
+    scale = 1.4826 * mad
+    if scale > 1e-12:
+        shift_z = (shift_intensity - med) / scale
+    else:
+        shift_z = np.zeros_like(shift_intensity)
+    shift_mask = shift_z >= shift_z_threshold
+
+    slope_sign = np.sign(d1v)
+    sign_active = slope_sign != 0.0
+    if sign_active.sum() > 1:
+        active_sign = slope_sign[sign_active]
+        d1_flip_rate = float(np.mean(active_sign[1:] != active_sign[:-1]))
+    else:
+        d1_flip_rate = float("nan")
+
+    return {
+        "n_valid_slope_bins": float(valid.sum()),
+        "slope_window_bins": float(slope_window_bins),
+        "mean_abs_d1": float(np.mean(np.abs(d1))),
+        "mean_abs_d2": float(np.mean(np.abs(d2))),
+        "mean_abs_d3": float(np.mean(np.abs(d3))),
+        "d1_slope_flip_rate": d1_flip_rate,
+        "regime_shift_rate": float(np.mean(shift_mask)),
+        "regime_shift_events": float(shift_mask.sum()),
+        "regime_shift_z_mean": float(np.mean(shift_z)),
+        "regime_shift_z_p95": float(np.percentile(shift_z, 95)),
+    }
+
+
+def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
+    """Sweep projection params and score each run on hit-rate + derivative shift metrics."""
+    from src.vacuum_pressure.config import resolve_config
+
+    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
+    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+
+    eval_start_ns = _parse_et_timestamp_ns(args.dt, args.eval_start)
+    eval_end_ns = _parse_et_timestamp_ns(args.dt, args.eval_end)
+    if eval_end_ns <= eval_start_ns:
+        raise ValueError("eval_end must be strictly after eval_start")
+    if args.experiment_slope_window_bins < 2:
+        raise ValueError("--experiment-slope-window-bins must be >= 2")
+    if args.experiment_shift_z_threshold < 0.0:
+        raise ValueError("--experiment-shift-z-threshold must be >= 0")
+    if args.experiment_max_runs < 0:
+        raise ValueError("--experiment-max-runs must be >= 0")
+
+    use_cubic_values = _parse_bool_values(
+        args.experiment_use_cubic_values,
+        "--experiment-use-cubic-values",
+    )
+    cubic_scale_values = _parse_float_values(
+        args.experiment_cubic_scale_values,
+        "--experiment-cubic-scale-values",
+    )
+    damping_values = _parse_float_values(
+        args.experiment_damping_lambda_values,
+        "--experiment-damping-lambda-values",
+    )
+
+    if any(v < 0.0 for v in cubic_scale_values):
+        raise ValueError("--experiment-cubic-scale-values must be >= 0")
+    if any(v < 0.0 for v in damping_values):
+        raise ValueError("--experiment-damping-lambda-values must be >= 0")
+
+    regime_horizon_ms = args.experiment_regime_horizon_ms
+    if regime_horizon_ms <= 0:
+        regime_horizon_ms = int(max(config.projection_horizons_ms))
+    if regime_horizon_ms not in config.projection_horizons_ms:
+        raise ValueError(
+            f"experiment_regime_horizon_ms={regime_horizon_ms} is not present in "
+            f"projection_horizons_ms={list(config.projection_horizons_ms)}"
+        )
+
+    projection_runs: List[Dict[str, float | bool]] = []
+    seen: set[tuple[bool, float, float]] = set()
+    for use_cubic, cubic_scale, damping_lambda in itertools.product(
+        use_cubic_values,
+        cubic_scale_values,
+        damping_values,
+    ):
+        key = (bool(use_cubic), float(cubic_scale), float(damping_lambda))
+        if key in seen:
+            continue
+        seen.add(key)
+        projection_runs.append(
+            {
+                "use_cubic": bool(use_cubic),
+                "cubic_scale": float(cubic_scale),
+                "damping_lambda": float(damping_lambda),
+            }
+        )
+
+    if args.experiment_max_runs > 0:
+        projection_runs = projection_runs[: args.experiment_max_runs]
+    if not projection_runs:
+        raise RuntimeError("No projection experiment runs were generated")
+
+    print("\nProjection Experiment Sweep")
+    print("=" * 96)
+    print(f"Instrument:             {args.product_type}:{args.symbol}")
+    print(f"Date:                   {args.dt}")
+    print(f"Window (ET):            {args.eval_start} - {args.eval_end}")
+    print(f"Runs:                   {len(projection_runs)}")
+    print(f"Regime horizon (ms):    {regime_horizon_ms}")
+    print(f"Slope window (bins):    {args.experiment_slope_window_bins}")
+    print(f"Shift z-threshold:      {args.experiment_shift_z_threshold}")
+
+    results: List[Dict[str, Any]] = []
+    for run_idx, run_cfg in enumerate(projection_runs, start=1):
+        logger.info(
+            "projection experiment run %d/%d use_cubic=%s cubic_scale=%.6f damping_lambda=%.6f",
+            run_idx,
+            len(projection_runs),
+            run_cfg["use_cubic"],
+            run_cfg["cubic_scale"],
+            run_cfg["damping_lambda"],
+        )
+        ts_ns, mid_price, score, proj_by_h, state_code, _, _ = _collect_bins(
+            lake_root=backend_root / "lake",
+            config=config,
+            dt=args.dt,
+            start_time=args.start_time,
+            eval_end_ns=eval_end_ns,
+            projection_use_cubic=bool(run_cfg["use_cubic"]),
+            projection_cubic_scale=float(run_cfg["cubic_scale"]),
+            projection_damping_lambda=float(run_cfg["damping_lambda"]),
+        )
+
+        eval_mask = (ts_ns >= eval_start_ns) & (ts_ns < eval_end_ns)
+        if not eval_mask.any():
+            raise RuntimeError("No evaluation bins found in the requested interval.")
+
+        summary = _summarize(
+            ts_ns=ts_ns,
+            mid_price=mid_price,
+            score=score,
+            proj_by_h=proj_by_h,
+            state_code=state_code,
+            eval_mask=eval_mask,
+        )
+        mean_hit_rate = _mean_projection_hit_rate(summary)
+        primary_hit_rate = float(summary["projection"][str(regime_horizon_ms)]["hit_rate"])
+        regime_metrics = _projection_regime_shift_metrics(
+            ts_ns=ts_ns[eval_mask],
+            projected_score=proj_by_h[regime_horizon_ms][eval_mask],
+            slope_window_bins=args.experiment_slope_window_bins,
+            shift_z_threshold=args.experiment_shift_z_threshold,
+        )
+
+        results.append(
+            {
+                "run_id": run_idx,
+                "projection_model": run_cfg,
+                "mean_projection_hit_rate": mean_hit_rate,
+                "regime_horizon_ms": float(regime_horizon_ms),
+                "regime_horizon_hit_rate": primary_hit_rate,
+                "regime_metrics": regime_metrics,
+                "summary": summary,
+            }
+        )
+
+    def _rank_value(v: float) -> float:
+        return v if np.isfinite(v) else -1.0
+
+    ranked = sorted(
+        results,
+        key=lambda row: (
+            _rank_value(float(row["regime_horizon_hit_rate"])),
+            _rank_value(float(row["mean_projection_hit_rate"])),
+        ),
+        reverse=True,
+    )
+
+    print("\nTop Projection Runs")
+    print("-" * 96)
+    print(
+        " rank run  cubic  cubic_scale  damping_lambda  hit@horizon  hit@all  shift_rate  d1_flip"
+    )
+    for rank, row in enumerate(ranked[: min(12, len(ranked))], start=1):
+        pm = row["projection_model"]
+        rm = row["regime_metrics"]
+        hit_h = float(row["regime_horizon_hit_rate"])
+        hit_m = float(row["mean_projection_hit_rate"])
+        shift_rate = float(rm["regime_shift_rate"])
+        d1_flip = float(rm["d1_slope_flip_rate"])
+        hit_h_str = f"{hit_h:.4f}" if np.isfinite(hit_h) else "nan"
+        hit_m_str = f"{hit_m:.4f}" if np.isfinite(hit_m) else "nan"
+        shift_str = f"{shift_rate:.4f}" if np.isfinite(shift_rate) else "nan"
+        flip_str = f"{d1_flip:.4f}" if np.isfinite(d1_flip) else "nan"
+        print(
+            f" {rank:>4d} {int(row['run_id']):>3d} "
+            f"{str(pm['use_cubic']):>6s} {float(pm['cubic_scale']):>11.6f} "
+            f"{float(pm['damping_lambda']):>14.6f} {hit_h_str:>11s} {hit_m_str:>8s} "
+            f"{shift_str:>10s} {flip_str:>8s}"
+        )
+
+    if args.json_output:
+        out_payload = {
+            "config": config.to_dict(),
+            "mode": "projection_experiment",
+            "dt": args.dt,
+            "start_time": args.start_time,
+            "eval_start": args.eval_start,
+            "eval_end": args.eval_end,
+            "regime_horizon_ms": regime_horizon_ms,
+            "experiment_params": {
+                "use_cubic_values": use_cubic_values,
+                "cubic_scale_values": cubic_scale_values,
+                "damping_lambda_values": damping_values,
+                "slope_window_bins": args.experiment_slope_window_bins,
+                "shift_z_threshold": args.experiment_shift_z_threshold,
+            },
+            "results": ranked,
+        }
+        out_path = Path(args.json_output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(out_payload, indent=2, default=float))
+        print(f"\nWrote JSON summary: {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +822,9 @@ def _run_regime_mode(args: argparse.Namespace) -> None:
         start_time=args.start_time,
         eval_end_ns=eval_end_ns,
         collect_pressure_vacuum=True,
+        projection_use_cubic=args.projection_use_cubic,
+        projection_cubic_scale=args.projection_cubic_scale,
+        projection_damping_lambda=args.projection_damping_lambda,
     )
 
     eval_mask = (ts_ns >= eval_start_ns) & (ts_ns < eval_end_ns)
@@ -517,6 +888,12 @@ def _run_regime_mode(args: argparse.Namespace) -> None:
     print(f"Cooldown bins:    {args.cooldown_bins}")
     print(f"TP ticks / SL ticks: {args.tp_ticks} / {args.sl_ticks}")
     print(f"Max hold bins:    {args.max_hold_snapshots}")
+    print(
+        "Projection model: "
+        f"use_cubic={args.projection_use_cubic} "
+        f"cubic_scale={args.projection_cubic_scale:.6f} "
+        f"damping_lambda={args.projection_damping_lambda:.6f}"
+    )
 
     print(f"\nSpectrum State Distribution")
     print("-" * 48)
@@ -595,6 +972,9 @@ def _run_regime_mode(args: argparse.Namespace) -> None:
                 "tp_ticks": args.tp_ticks,
                 "sl_ticks": args.sl_ticks,
                 "max_hold_snapshots": args.max_hold_snapshots,
+                "projection_use_cubic": args.projection_use_cubic,
+                "projection_cubic_scale": args.projection_cubic_scale,
+                "projection_damping_lambda": args.projection_damping_lambda,
             },
             "spectrum": {
                 "pressure_share": pressure_share,
@@ -623,7 +1003,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Canonical fixed-bin per-cell spectrum analysis.",
     )
-    parser.add_argument("--mode", default="default", choices=["default", "regime"])
+    parser.add_argument(
+        "--mode",
+        default="default",
+        choices=["default", "regime", "projection_experiment"],
+    )
     parser.add_argument("--product-type", default="future_mbo")
     parser.add_argument("--symbol", default="MNQH6")
     parser.add_argument("--dt", default="2026-02-06")
@@ -645,8 +1029,25 @@ def main() -> None:
     parser.add_argument("--tp-ticks", type=int, default=8)
     parser.add_argument("--sl-ticks", type=int, default=4)
     parser.add_argument("--max-hold-snapshots", type=int, default=1200)
+    parser.add_argument("--projection-use-cubic", action="store_true")
+    parser.add_argument("--projection-cubic-scale", type=float, default=1.0 / 6.0)
+    parser.add_argument("--projection-damping-lambda", type=float, default=0.0)
+
+    # Projection experiment sweep parameters
+    parser.add_argument("--experiment-use-cubic-values", default="false,true")
+    parser.add_argument("--experiment-cubic-scale-values", default="0.1666666667")
+    parser.add_argument("--experiment-damping-lambda-values", default="0.0,0.001,0.002")
+    parser.add_argument("--experiment-regime-horizon-ms", type=int, default=0)
+    parser.add_argument("--experiment-slope-window-bins", type=int, default=30)
+    parser.add_argument("--experiment-shift-z-threshold", type=float, default=2.0)
+    parser.add_argument("--experiment-max-runs", type=int, default=0)
 
     args = parser.parse_args()
+
+    if args.projection_cubic_scale < 0.0:
+        raise ValueError("--projection-cubic-scale must be >= 0")
+    if args.projection_damping_lambda < 0.0:
+        raise ValueError("--projection-damping-lambda must be >= 0")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -656,6 +1057,9 @@ def main() -> None:
 
     if args.mode == "regime":
         _run_regime_mode(args)
+        return
+    if args.mode == "projection_experiment":
+        _run_projection_experiment_mode(args)
         return
 
     from src.vacuum_pressure.config import resolve_config
@@ -674,6 +1078,9 @@ def main() -> None:
         dt=args.dt,
         start_time=args.start_time,
         eval_end_ns=eval_end_ns,
+        projection_use_cubic=args.projection_use_cubic,
+        projection_cubic_scale=args.projection_cubic_scale,
+        projection_damping_lambda=args.projection_damping_lambda,
     )
 
     eval_mask = (ts_ns >= eval_start_ns) & (ts_ns < eval_end_ns)
@@ -703,6 +1110,12 @@ def main() -> None:
     print(f"Vacuum share:    {summary['state_share_vacuum']:.4f}")
     print(f"Directional edge:{summary['directional_edge']:+.6f}")
     print(f"Center hit-rate: {summary['center_sign_hit_rate']:.4f}")
+    print(
+        "Projection model:"
+        f" use_cubic={args.projection_use_cubic}"
+        f" cubic_scale={args.projection_cubic_scale:.6f}"
+        f" damping_lambda={args.projection_damping_lambda:.6f}"
+    )
 
     print("\nProjection sign hit-rates")
     for horizon_ms in sorted(config.projection_horizons_ms):
@@ -718,6 +1131,11 @@ def main() -> None:
             "start_time": args.start_time,
             "eval_start": args.eval_start,
             "eval_end": args.eval_end,
+            "projection_model": {
+                "use_cubic": args.projection_use_cubic,
+                "cubic_scale": args.projection_cubic_scale,
+                "damping_lambda": args.projection_damping_lambda,
+            },
             "summary": summary,
         }
         out_path = Path(args.json_output)

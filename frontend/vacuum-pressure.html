@@ -112,6 +112,7 @@
       flex-shrink: 0;
       position: relative;
       border-right: 1px solid rgba(100, 100, 150, 0.2);
+      padding-bottom: 25px;
     }
     #profile-canvas {
       width: 100%;
@@ -124,15 +125,25 @@
       flex: 1;
       position: relative;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
     }
     #heatmap-canvas {
+      flex: 1;
       width: 100%;
-      height: 100%;
+      min-height: 0;
       display: block;
       cursor: grab;
       touch-action: none;       /* prevent browser pinch-zoom / scroll */
       user-select: none;        /* prevent text selection during drag */
       -webkit-user-select: none;
+    }
+    #time-axis-canvas {
+      width: 100%;
+      height: 24px;
+      flex-shrink: 0;
+      display: block;
+      border-top: 1px solid rgba(100, 100, 150, 0.2);
     }
     /* Spot line label overlaid on heatmap */
     #spot-line-label {
@@ -150,6 +161,7 @@
       flex-shrink: 0;
       position: relative;
       border-left: 1px solid rgba(100, 100, 150, 0.2);
+      padding-bottom: 25px;
     }
     #price-axis-canvas {
       width: 100%;
@@ -325,6 +337,7 @@
       <!-- Heatmap -->
       <div id="heatmap-panel">
         <canvas id="heatmap-canvas"></canvas>
+        <canvas id="time-axis-canvas"></canvas>
         <span id="spot-line-label">SPOT</span>
       </div>
 
@@ -448,12 +461,12 @@
           <span class="legend-text">Pressure (building)</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: #cc2255;"></div>
-          <span class="legend-text">Vacuum (draining)</span>
+          <div class="legend-dot" style="background: #333340;"></div>
+          <span class="legend-text">Neutral</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: #1a1a2a;"></div>
-          <span class="legend-text">Void (empty)</span>
+          <div class="legend-dot" style="background: #0a0a0f; border: 1px solid #333;"></div>
+          <span class="legend-text">Vacuum (path clearing)</span>
         </div>
       </div>
     </div>

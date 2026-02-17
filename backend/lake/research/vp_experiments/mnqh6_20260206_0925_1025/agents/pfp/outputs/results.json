@@ -1,0 +1,142 @@
+{
+  "experiment_name": "pressure_front_propagation",
+  "agent_name": "pfp",
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "params": {
+    "columns": [
+      "v_add",
+      "v_pull",
+      "v_fill"
+    ],
+    "inner_bid_cols": [
+      47,
+      48,
+      49
+    ],
+    "inner_ask_cols": [
+      51,
+      52,
+      53
+    ],
+    "outer_bid_cols": [
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45
+    ],
+    "outer_ask_cols": [
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62
+    ],
+    "lag_bins": 5,
+    "ema_alpha": 0.1,
+    "eps": 1e-12,
+    "add_weight": 0.6,
+    "pull_weight": 0.4,
+    "cooldown_bins": 30,
+    "warmup_bins": 300,
+    "thresholds": [
+      0.052885,
+      0.079859,
+      0.098209,
+      0.125286,
+      0.148035,
+      0.189491
+    ]
+  },
+  "results_by_threshold": [
+    {
+      "n_signals": 908,
+      "n_up": 467,
+      "n_down": 441,
+      "tp_rate": 0.40198237885462557,
+      "sl_rate": 0.5980176211453745,
+      "timeout_rate": 0.0,
+      "events_per_hour": 908.0504472470693,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.3634361233480176,
+      "threshold": 0.052885,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 823,
+      "n_up": 413,
+      "n_down": 410,
+      "tp_rate": 0.3985419198055893,
+      "sl_rate": 0.6014580801944107,
+      "timeout_rate": 0.0,
+      "events_per_hour": 823.0457247624869,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.2891859052247874,
+      "threshold": 0.079859,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 731,
+      "n_up": 378,
+      "n_down": 353,
+      "tp_rate": 0.4062927496580027,
+      "sl_rate": 0.5937072503419972,
+      "timeout_rate": 0.0,
+      "events_per_hour": 731.0406133674094,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.5075239398084815,
+      "threshold": 0.098209,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 548,
+      "n_up": 291,
+      "n_down": 257,
+      "tp_rate": 0.36496350364963503,
+      "sl_rate": 0.635036496350365,
+      "timeout_rate": 0.0,
+      "events_per_hour": 548.0304461358965,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.18248175182481752,
+      "threshold": 0.125286,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 366,
+      "n_up": 198,
+      "n_down": 168,
+      "tp_rate": 0.3907103825136612,
+      "sl_rate": 0.6092896174863388,
+      "timeout_rate": 0.0,
+      "events_per_hour": 366.02033446302573,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.09699453551912568,
+      "threshold": 0.148035,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 113,
+      "n_up": 65,
+      "n_down": 48,
+      "tp_rate": 0.3274336283185841,
+      "sl_rate": 0.672566371681416,
+      "timeout_rate": 0.0,
+      "events_per_hour": 113.00627812656259,
+      "median_time_to_outcome_ms": 500.0,
+      "mean_pnl_ticks": -1.3097345132743363,
+      "threshold": 0.189491,
+      "cooldown_bins": 30
+    }
+  ],
+  "best_threshold": 0.098209,
+  "best_tp_rate": 0.4062927496580027,
+  "best_n_signals": 731,
+  "best_mean_pnl_ticks": 0.5075239398084815,
+  "best_events_per_hour": 731.0406133674094
+}

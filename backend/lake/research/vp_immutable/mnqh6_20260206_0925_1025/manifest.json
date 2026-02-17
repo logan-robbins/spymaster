@@ -1,0 +1,191 @@
+{
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "created_at_utc": "2026-02-17T01:39:54.651248+00:00",
+  "source_dir": "/tmp/vp_cache_mnqh6_20260206_0925_1025",
+  "source_manifest": {
+    "product_type": "future_mbo",
+    "symbol": "MNQH6",
+    "dt": "2026-02-06",
+    "capture_start_et": "09:25:00",
+    "capture_end_et": "10:25:00",
+    "merged_from_parts": [
+      "/tmp/vp_cache_mnqh6_20260206_0925_1025_part1",
+      "/tmp/vp_cache_mnqh6_20260206_0925_1025_part2",
+      "/tmp/vp_cache_mnqh6_20260206_0925_1025_part3",
+      "/tmp/vp_cache_mnqh6_20260206_0925_1025_part4"
+    ],
+    "rows": {
+      "bins": 35999,
+      "buckets": 3635899
+    },
+    "first_bin_ts_ns": 1770387900100000000,
+    "last_bin_ts_ns": 1770391499900000000,
+    "output": {
+      "bins_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025/bins.parquet",
+      "buckets_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025/buckets.parquet",
+      "manifest_json": "/tmp/vp_cache_mnqh6_20260206_0925_1025/manifest.json"
+    },
+    "part_manifests": [
+      {
+        "product_type": "future_mbo",
+        "symbol": "MNQH6",
+        "dt": "2026-02-06",
+        "stream_start_time_hhmm": "09:25",
+        "capture_start_ns": 1770387900000000000,
+        "capture_end_ns": 1770388801000000000,
+        "projection_model": {
+          "use_cubic": false,
+          "cubic_scale": 0.16666666666666666,
+          "damping_lambda": 0.0
+        },
+        "config_version": "85b8b0adf928",
+        "cell_width_ms": 100,
+        "grid_radius_ticks": 50,
+        "n_absolute_ticks": 8192,
+        "projection_horizons_ms": [
+          250,
+          500,
+          1000,
+          2500
+        ],
+        "rows": {
+          "bins": 9009,
+          "buckets": 909909
+        },
+        "first_bin_ts_ns": 1770387900100000000,
+        "last_bin_ts_ns": 1770388800900000000,
+        "elapsed_seconds": 1147.624869457999,
+        "output": {
+          "bins_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part1/bins.parquet",
+          "buckets_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part1/buckets.parquet",
+          "manifest_json": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part1/manifest.json"
+        },
+        "created_at_utc": "2026-02-17T01:29:27.787654+00:00"
+      },
+      {
+        "product_type": "future_mbo",
+        "symbol": "MNQH6",
+        "dt": "2026-02-06",
+        "stream_start_time_hhmm": "09:40",
+        "capture_start_ns": 1770388800000000000,
+        "capture_end_ns": 1770389701000000000,
+        "projection_model": {
+          "use_cubic": false,
+          "cubic_scale": 0.16666666666666666,
+          "damping_lambda": 0.0
+        },
+        "config_version": "85b8b0adf928",
+        "cell_width_ms": 100,
+        "grid_radius_ticks": 50,
+        "n_absolute_ticks": 8192,
+        "projection_horizons_ms": [
+          250,
+          500,
+          1000,
+          2500
+        ],
+        "rows": {
+          "bins": 9009,
+          "buckets": 909909
+        },
+        "first_bin_ts_ns": 1770388800100000000,
+        "last_bin_ts_ns": 1770389700900000000,
+        "elapsed_seconds": 1177.7808385000026,
+        "output": {
+          "bins_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part2/bins.parquet",
+          "buckets_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part2/buckets.parquet",
+          "manifest_json": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part2/manifest.json"
+        },
+        "created_at_utc": "2026-02-17T01:29:57.944551+00:00"
+      },
+      {
+        "product_type": "future_mbo",
+        "symbol": "MNQH6",
+        "dt": "2026-02-06",
+        "stream_start_time_hhmm": "09:55",
+        "capture_start_ns": 1770389700000000000,
+        "capture_end_ns": 1770390601000000000,
+        "projection_model": {
+          "use_cubic": false,
+          "cubic_scale": 0.16666666666666666,
+          "damping_lambda": 0.0
+        },
+        "config_version": "85b8b0adf928",
+        "cell_width_ms": 100,
+        "grid_radius_ticks": 50,
+        "n_absolute_ticks": 8192,
+        "projection_horizons_ms": [
+          250,
+          500,
+          1000,
+          2500
+        ],
+        "rows": {
+          "bins": 9009,
+          "buckets": 909909
+        },
+        "first_bin_ts_ns": 1770389700100000000,
+        "last_bin_ts_ns": 1770390600900000000,
+        "elapsed_seconds": 1202.6011959169991,
+        "output": {
+          "bins_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part3/bins.parquet",
+          "buckets_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part3/buckets.parquet",
+          "manifest_json": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part3/manifest.json"
+        },
+        "created_at_utc": "2026-02-17T01:30:22.765626+00:00"
+      },
+      {
+        "product_type": "future_mbo",
+        "symbol": "MNQH6",
+        "dt": "2026-02-06",
+        "stream_start_time_hhmm": "10:10",
+        "capture_start_ns": 1770390600000000000,
+        "capture_end_ns": 1770391500000000000,
+        "projection_model": {
+          "use_cubic": false,
+          "cubic_scale": 0.16666666666666666,
+          "damping_lambda": 0.0
+        },
+        "config_version": "85b8b0adf928",
+        "cell_width_ms": 100,
+        "grid_radius_ticks": 50,
+        "n_absolute_ticks": 8192,
+        "projection_horizons_ms": [
+          250,
+          500,
+          1000,
+          2500
+        ],
+        "rows": {
+          "bins": 8999,
+          "buckets": 908899
+        },
+        "first_bin_ts_ns": 1770390600100000000,
+        "last_bin_ts_ns": 1770391499900000000,
+        "elapsed_seconds": 1225.7570074579999,
+        "output": {
+          "bins_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part4/bins.parquet",
+          "buckets_parquet": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part4/buckets.parquet",
+          "manifest_json": "/tmp/vp_cache_mnqh6_20260206_0925_1025_part4/manifest.json"
+        },
+        "created_at_utc": "2026-02-17T01:30:45.922199+00:00"
+      }
+    ],
+    "created_at_utc": "2026-02-17T01:31:00.995502+00:00"
+  },
+  "rows": {
+    "bins": 35999,
+    "grid_clean": 3635899
+  },
+  "projection_columns_removed": [
+    "proj_score_h250",
+    "proj_score_h500",
+    "proj_score_h1000",
+    "proj_score_h2500"
+  ],
+  "immutable_files": {
+    "bins_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_1025/bins.parquet",
+    "grid_clean_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_1025/grid_clean.parquet",
+    "checksums_json": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_1025/checksums.json"
+  }
+}

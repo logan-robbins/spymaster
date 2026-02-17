@@ -53,26 +53,10 @@ def _grid_schema(config: VPRuntimeConfig) -> pa.Schema:
 
 
 def _grid_to_arrow_ipc(grid_dict: Dict[str, Any], schema: pa.Schema) -> bytes:
-    buckets = grid_dict["buckets"]
-
-    arrays = []
-    for field in schema:
-        name = field.name
-        if pa.types.is_int8(field.type):
-            arr = pa.array([int(b[name]) for b in buckets], type=pa.int8())
-        elif pa.types.is_int32(field.type):
-            arr = pa.array([int(b[name]) for b in buckets], type=pa.int32())
-        elif pa.types.is_int64(field.type):
-            arr = pa.array([int(b[name]) for b in buckets], type=pa.int64())
-        else:
-            arr = pa.array([float(b[name]) for b in buckets], type=pa.float64())
-        arrays.append(arr)
-
-    table = pa.Table.from_arrays(arrays, schema=schema)
-
+    record_batch = pa.RecordBatch.from_pylist(grid_dict["buckets"], schema=schema)
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
-        writer.write_table(table)
+        writer.write_batch(record_batch)
     return sink.getvalue().to_pybytes()
 
 
@@ -91,6 +75,9 @@ def create_app(
     perf_window_start_et: str | None = None,
     perf_window_end_et: str | None = None,
     perf_summary_every_bins: int = 200,
+    projection_use_cubic: bool = False,
+    projection_cubic_scale: float = 1.0 / 6.0,
+    projection_damping_lambda: float = 0.0,
 ) -> FastAPI:
     """Create the FastAPI app for canonical fixed-bin streaming."""
     if lake_root is None:
@@ -101,6 +88,12 @@ def create_app(
         raise ValueError(f"perf_summary_every_bins must be > 0, got {perf_summary_every_bins}")
     if perf_latency_jsonl is None and (perf_window_start_et is not None or perf_window_end_et is not None):
         raise ValueError("perf_window_start_et/perf_window_end_et require perf_latency_jsonl")
+    if projection_cubic_scale < 0.0:
+        raise ValueError(f"projection_cubic_scale must be >= 0, got {projection_cubic_scale}")
+    if projection_damping_lambda < 0.0:
+        raise ValueError(
+            f"projection_damping_lambda must be >= 0, got {projection_damping_lambda}"
+        )
 
     app = FastAPI(
         title="Vacuum Pressure Stream Server",
@@ -190,6 +183,9 @@ def create_app(
             dt=dt,
             start_time=start_time,
             producer_latency_config=producer_latency_cfg,
+            projection_use_cubic=projection_use_cubic,
+            projection_cubic_scale=projection_cubic_scale,
+            projection_damping_lambda=projection_damping_lambda,
         )
 
     return app
@@ -203,6 +199,9 @@ async def _stream_live_dense_grid(
     dt: str,
     start_time: str | None,
     producer_latency_config: ProducerLatencyConfig | None = None,
+    projection_use_cubic: bool = False,
+    projection_cubic_scale: float = 1.0 / 6.0,
+    projection_damping_lambda: float = 0.0,
 ) -> None:
     """Send fixed-bin dense-grid updates over websocket."""
     grid_count = 0
@@ -211,6 +210,11 @@ async def _stream_live_dense_grid(
         await websocket.send_text(json.dumps({
             "type": "runtime_config",
             **config.to_dict(),
+            "projection_model": {
+                "use_cubic": projection_use_cubic,
+                "cubic_scale": projection_cubic_scale,
+                "damping_lambda": projection_damping_lambda,
+            },
             "mode": "pre_prod",
             "deployment_stage": "pre_prod",
             "stream_format": "dense_grid",
@@ -224,6 +228,9 @@ async def _stream_live_dense_grid(
             dt=dt,
             start_time=start_time,
             producer_latency_config=producer_latency_config,
+            projection_use_cubic=projection_use_cubic,
+            projection_cubic_scale=projection_cubic_scale,
+            projection_damping_lambda=projection_damping_lambda,
         ):
             grid_count += 1
 
