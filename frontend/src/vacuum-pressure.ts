@@ -29,6 +29,8 @@
  */
 
 import { tableFromIPC } from 'apache-arrow';
+import { ExperimentEngine } from './experiment-engine';
+import type { CompositeSignal } from './experiment-engine';
 
 // ------------------------------------------------------------------ Types
 
@@ -118,6 +120,12 @@ let askTrail: (number | null)[] = [];
 
 // Time axis: timestamp (ns) for each heatmap column
 let columnTimestamps: (bigint | null)[] = [];
+
+// Experiment engine for projection bands
+let experimentEngine: ExperimentEngine | null = null;
+let currentCompositeSignal: CompositeSignal = {
+  composite: 0, pfp: 0, ads: 0, erd: 0, warmupFraction: 0,
+};
 
 /** Active bucket size in dollars from runtime config. */
 function bucketDollars(): number {
@@ -354,8 +362,12 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/** Fraction of heatmap canvas width used for historical data (0..1).
+ *  The remaining right portion is reserved for future projection overlays. */
+const PROJECTION_ZONE_FRACTION = 0.15;
+
 function projectionDataWidth(totalWidth: number): number {
-  return Math.max(32, totalWidth);
+  return Math.max(32, Math.round(totalWidth * (1 - PROJECTION_ZONE_FRACTION)));
 }
 
 function streamContractError(surface: string, detail: string): never {
@@ -677,6 +689,11 @@ function pushHeatmapColumnFromGrid(
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
+
+  // Update experiment engine for projection bands
+  if (experimentEngine) {
+    currentCompositeSignal = experimentEngine.update(grid);
+  }
 }
 
 /**
@@ -894,6 +911,115 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
 
 // ---------------------------------------------------------------- Rendering
 
+/** Projection band horizons and their visual properties. */
+const PROJECTION_HORIZONS = [
+  { ms: 250,  label: '250ms', spreadTicks: 2, alpha: 1.0 },
+  { ms: 500,  label: '500ms', spreadTicks: 4, alpha: 0.8 },
+  { ms: 1000, label: '1s',    spreadTicks: 6, alpha: 0.6 },
+  { ms: 2500, label: '2.5s',  spreadTicks: 8, alpha: 0.4 },
+];
+const BAND_HALF_WIDTH = 6;
+const BAND_SIGMA = 2.5;
+const BAND_SIGMA2_INV = 1 / (2 * BAND_SIGMA * BAND_SIGMA);
+
+/** Projection band pixel buffer: 4 columns × HMAP_LEVELS rows × RGBA. */
+let projBandData: Uint8ClampedArray | null = null;
+let projBandOffscreen: HTMLCanvasElement | null = null;
+
+/**
+ * Render purple directional pressure bands in the projection zone.
+ *
+ * Each of 4 horizon columns shows a Gaussian band centered at
+ * spot + composite * spreadTicks, with confidence-dependent alpha fade.
+ */
+function renderProjectionBands(
+  ctx: CanvasRenderingContext2D,
+  signal: CompositeSignal,
+  spotRow: number,
+  ch: number,
+  dataWidth: number,
+  cw: number,
+): void {
+  const h = HMAP_LEVELS;
+  const nHorizons = PROJECTION_HORIZONS.length;
+
+  // Lazy-init projection pixel buffer
+  if (!projBandData || projBandData.length !== nHorizons * h * 4) {
+    projBandData = new Uint8ClampedArray(nHorizons * h * 4);
+    projBandOffscreen = document.createElement('canvas');
+    projBandOffscreen.width = nHorizons;
+    projBandOffscreen.height = h;
+  }
+
+  // Clear to dark background
+  for (let i = 0; i < projBandData.length; i += 4) {
+    projBandData[i] = 8;
+    projBandData[i + 1] = 8;
+    projBandData[i + 2] = 12;
+    projBandData[i + 3] = 255;
+  }
+
+  // Render bands if signal is active
+  if (signal.warmupFraction > 0 && spotRow >= 0 && spotRow < h) {
+    const composite = signal.composite;
+
+    for (let hi = 0; hi < nHorizons; hi++) {
+      const horizon = PROJECTION_HORIZONS[hi];
+      // Band center: spot row shifted by composite * spreadTicks
+      // Negative composite (bearish) shifts center to higher row numbers (lower price)
+      // Positive composite (bullish) shifts center to lower row numbers (higher price)
+      const bandCenter = spotRow - composite * horizon.spreadTicks;
+      const confAlpha = horizon.alpha * signal.warmupFraction;
+
+      const rowMin = Math.max(0, Math.floor(bandCenter - BAND_HALF_WIDTH));
+      const rowMax = Math.min(h - 1, Math.ceil(bandCenter + BAND_HALF_WIDTH));
+
+      for (let row = rowMin; row <= rowMax; row++) {
+        const d = row - bandCenter;
+        const gaussianI = Math.exp(-d * d * BAND_SIGMA2_INV);
+        const intensity = gaussianI * confAlpha;
+
+        if (intensity < 0.01) continue;
+
+        const idx = (row * nHorizons + hi) * 4;
+        // Purple: R≈0.35, G≈0.08, B≈0.55 scaled by intensity
+        projBandData[idx]     = Math.round(0.35 * intensity * 255);
+        projBandData[idx + 1] = Math.round(0.08 * intensity * 255);
+        projBandData[idx + 2] = Math.round(0.55 * intensity * 255);
+        projBandData[idx + 3] = 255;
+      }
+    }
+  }
+
+  // Blit to canvas
+  if (!projBandOffscreen) return;
+  const offCtx = projBandOffscreen.getContext('2d')!;
+  const projImgData = offCtx.createImageData(nHorizons, h);
+  projImgData.data.set(projBandData);
+  offCtx.putImageData(projImgData, 0, 0);
+
+  const zoneWidth = cw - dataWidth;
+  if (zoneWidth <= 0) return;
+
+  ctx.imageSmoothingEnabled = false;
+
+  // Map projection buffer to visible viewport
+  const srcH = visibleRows();
+  const sy = Math.max(0, vpY);
+  const sy2 = Math.min(h, vpY + srcH);
+  const sh = Math.max(0, sy2 - sy);
+  if (sh <= 0) return;
+
+  const dy = ((sy - vpY) / srcH) * ch;
+  const dh = (sh / srcH) * ch;
+
+  ctx.drawImage(
+    projBandOffscreen,
+    0, sy, nHorizons, sh,
+    dataWidth, dy, zoneWidth, dh,
+  );
+}
+
 let hmapOffscreen: HTMLCanvasElement | null = null;
 
 function renderHeatmap(canvas: HTMLCanvasElement): void {
@@ -961,6 +1087,16 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   const visDollars = (topPrice - botPrice);
   const gridInterval = nicePriceInterval(visDollars, 40);
 
+  // Projection zone: render experiment-driven directional bands
+  if (dataWidth < cw) {
+    const lastSpotRow = spotTrail[HMAP_HISTORY - 1];
+    renderProjectionBands(
+      ctx, currentCompositeSignal,
+      lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS,
+      ch, dataWidth, cw,
+    );
+  }
+
   ctx.strokeStyle = 'rgba(60, 60, 90, 0.2)';
   ctx.lineWidth = 0.5;
   const firstGrid = Math.ceil(botPrice / gridInterval) * gridInterval;
@@ -969,8 +1105,20 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     if (y < -1 || y > ch + 1) continue;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.lineTo(dataWidth, y);
+    ctx.lineTo(cw, y);    // gridlines span full width including projection zone
     ctx.stroke();
+  }
+
+  // "Now" separator line at the data/projection boundary
+  if (dataWidth < cw) {
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(dataWidth, 0);
+    ctx.lineTo(dataWidth, ch);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // Spot trail polyline
@@ -1370,6 +1518,43 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
     ctx.fillStyle = '#666';
     ctx.fillText(`${hh}:${mm}:${ss}`, x, 5);
   }
+
+  // Projection zone: "NOW" separator + horizon labels
+  if (dataWidth < cw) {
+    // Background tint
+    ctx.fillStyle = 'rgba(15, 15, 25, 0.5)';
+    ctx.fillRect(dataWidth, 0, cw - dataWidth, ch);
+
+    // "NOW" separator
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(dataWidth, 0);
+    ctx.lineTo(dataWidth, ch);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // "NOW" label
+    ctx.fillStyle = 'rgba(100, 100, 150, 0.4)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('NOW', dataWidth + 3, 2);
+
+    // Horizon labels at column centers
+    const zoneWidth = cw - dataWidth;
+    const nHorizons = PROJECTION_HORIZONS.length;
+    const colWidth = zoneWidth / nHorizons;
+    ctx.fillStyle = 'rgba(140, 100, 180, 0.6)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i < nHorizons; i++) {
+      const x = dataWidth + colWidth * (i + 0.5);
+      ctx.fillText(PROJECTION_HORIZONS[i].label, x, 14);
+    }
+  }
 }
 
 // -------------------------------------------- Runtime config application
@@ -1386,6 +1571,7 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
     );
   }
   resetHeatmapBuffers(cfg.grid_radius_ticks);
+  experimentEngine = new ExperimentEngine();
 
   runtimeConfig = cfg;
   configReceived = true;
@@ -1479,6 +1665,11 @@ function resetStreamState(): void {
   bestBidDollars = 0;
   bestAskDollars = 0;
   currentBinEndNs = 0n;
+
+  if (experimentEngine) experimentEngine.reset();
+  currentCompositeSignal = {
+    composite: 0, pfp: 0, ads: 0, erd: 0, warmupFraction: 0,
+  };
 
   for (let i = 0; i < bidTrail.length; i++) bidTrail[i] = null;
   for (let i = 0; i < askTrail.length; i++) askTrail[i] = null;
