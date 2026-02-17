@@ -1,0 +1,110 @@
+{
+  "experiment_name": "move_size_signal_decomposition",
+  "agent_name": "msd",
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "params": {
+    "columns": [
+      "v_add",
+      "v_pull",
+      "v_fill",
+      "spectrum_state_code",
+      "spectrum_score",
+      "vacuum_variant",
+      "pressure_variant"
+    ],
+    "composite_weights": {
+      "pfp": 0.4,
+      "ads": 0.35,
+      "erd": 0.25
+    },
+    "cooldown_bins": 30,
+    "warmup_bins": 300,
+    "forward_window_bins": 600,
+    "spatial_vacuum_primary": "variant_c"
+  },
+  "results_by_threshold": [
+    {
+      "n_signals": 938,
+      "n_up": 425,
+      "n_down": 513,
+      "tp_rate": 0.39339019189765456,
+      "sl_rate": 0.6066098081023454,
+      "timeout_rate": 0.0,
+      "events_per_hour": 938.0521140063337,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.012260127931769723,
+      "threshold": 89.17654,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 860,
+      "n_up": 413,
+      "n_down": 447,
+      "tp_rate": 0.40581395348837207,
+      "sl_rate": 0.5941860465116279,
+      "timeout_rate": 0.0,
+      "events_per_hour": 860.0477804322462,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.08546511627906976,
+      "threshold": 131.929579,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 736,
+      "n_up": 363,
+      "n_down": 373,
+      "tp_rate": 0.38722826086956524,
+      "sl_rate": 0.6127717391304348,
+      "timeout_rate": 0.0,
+      "events_per_hour": 736.04089116062,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.15557065217391305,
+      "threshold": 158.447123,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 496,
+      "n_up": 244,
+      "n_down": 252,
+      "tp_rate": 0.4092741935483871,
+      "sl_rate": 0.5907258064516129,
+      "timeout_rate": 0.0,
+      "events_per_hour": 496.0275570865048,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.3780241935483871,
+      "threshold": 198.457088,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 331,
+      "n_up": 153,
+      "n_down": 178,
+      "tp_rate": 0.41389728096676737,
+      "sl_rate": 0.5861027190332326,
+      "timeout_rate": 0.0,
+      "events_per_hour": 331.0183899105506,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.40181268882175225,
+      "threshold": 237.582014,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 72,
+      "n_up": 30,
+      "n_down": 42,
+      "tp_rate": 0.4027777777777778,
+      "sl_rate": 0.5972222222222222,
+      "timeout_rate": 0.0,
+      "events_per_hour": 72.00400022223457,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.1597222222222222,
+      "threshold": 328.753433,
+      "cooldown_bins": 30
+    }
+  ],
+  "best_threshold": 237.582014,
+  "best_tp_rate": 0.41389728096676737,
+  "best_n_signals": 331,
+  "best_mean_pnl_ticks": 0.40181268882175225,
+  "best_events_per_hour": 331.0183899105506
+}

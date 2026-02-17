@@ -1,0 +1,90 @@
+{
+  "experiment_name": "linear_svm_derivative",
+  "agent_name": "lsvm_der",
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "params": {
+    "model": "SGDClassifier (hinge loss = linear SVM)",
+    "alpha": 0.0001,
+    "n_features": 60,
+    "slope_windows": [
+      100,
+      300
+    ],
+    "min_train": 1500,
+    "retrain_interval": 600,
+    "full_refit_interval": 1200,
+    "cooldown_bins": 30
+  },
+  "results_by_threshold": [
+    {
+      "n_signals": 1150,
+      "n_up": 569,
+      "n_down": 581,
+      "tp_rate": 0.4,
+      "sl_rate": 0.6,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1150.0638924384689,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.20695652173913043,
+      "threshold": 0.0,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1147,
+      "n_up": 554,
+      "n_down": 593,
+      "tp_rate": 0.4027898866608544,
+      "sl_rate": 0.5972101133391456,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1147.0637257625424,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.33478639930252835,
+      "threshold": 0.3,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1146,
+      "n_up": 524,
+      "n_down": 622,
+      "tp_rate": 0.3900523560209424,
+      "sl_rate": 0.6099476439790575,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1146.0636702039003,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.010471204188481676,
+      "threshold": 0.5,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1143,
+      "n_up": 533,
+      "n_down": 610,
+      "tp_rate": 0.399825021872266,
+      "sl_rate": 0.600174978127734,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1143.0635035279738,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.2773403324584427,
+      "threshold": 0.7,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1137,
+      "n_up": 558,
+      "n_down": 579,
+      "tp_rate": 0.40369393139841686,
+      "sl_rate": 0.5963060686015831,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1137.0631701761208,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.2774846086191733,
+      "threshold": 1.0,
+      "cooldown_bins": 30
+    }
+  ],
+  "best_threshold": 1.0,
+  "best_tp_rate": 0.40369393139841686,
+  "best_n_signals": 1137,
+  "best_mean_pnl_ticks": 0.2774846086191733,
+  "best_events_per_hour": 1137.0631701761208
+}

@@ -242,11 +242,11 @@ Arrow rows include per cell:
 
 The frontend computes three experiment signals in-browser from the Arrow grid data:
 
-- **PFP** (Pressure Front Propagation): Inner/outer velocity lead-lag detection
 - **ADS** (Asymmetric Derivative Slope): Multi-scale OLS slope of bid/ask velocity asymmetry
-- **ERD** (Entropy Regime Detector): Shannon entropy spike detection with directional gating
+- **PFP** (Pressure Front Propagation): Inner/outer velocity lead-lag detection
+- **SVac** (Spatial Vacuum Asymmetry): 1/|k| distance-weighted vacuum imbalance above vs below spot
 
-Signals are blended (PFP=0.40, ADS=0.35, ERD=0.25) into a composite directional signal rendered as purple Gaussian bands at 4 horizons (250ms, 500ms, 1s, 2.5s) in the right 15% of the heatmap.
+Signals are blended (ADS=0.40, PFP=0.30, SVac=0.30) into a composite directional signal rendered as purple Gaussian bands at 4 horizons (250ms, 500ms, 1s, 2.5s) in the right 15% of the heatmap.
 
 Band interpretation:
 
@@ -254,9 +254,9 @@ Band interpretation:
 - Band skews below spot = bearish prediction
 - Brightness = signal strength x horizon confidence (fades with longer horizon)
 
-Warmup: PFP at 500ms, ERD at 10s, ADS at 20s. Bands appear progressively as each signal comes online.
+Warmup: SVac at 100ms (1 bin), PFP at 500ms, ADS at 20s. Bands appear progressively as each signal comes online.
 
-Source: `frontend/src/experiment-engine.ts`, `experiment-pfp.ts`, `experiment-ads.ts`, `experiment-erd.ts`, `experiment-math.ts`
+Source: `frontend/src/experiment-engine.ts`, `experiment-pfp.ts`, `experiment-ads.ts`, `experiment-svac.ts`, `experiment-math.ts`
 
 ## Analysis Script
 
@@ -404,8 +404,8 @@ cd frontend && npx tsc --noEmit
 - `backend/tests/test_cache_vp_output.py`: compute-capture serialization + window filtering tests
 - `backend/tests/test_publish_vp_research_dataset.py`: immutable publication + agent workspace tests
 - `frontend/src/vacuum-pressure.ts`: fixed-bin UI consumer and renderer
-- `frontend/src/experiment-engine.ts`: composite experiment signal blender (PFP/ADS/ERD)
-- `frontend/src/experiment-pfp.ts`: Pressure Front Propagation signal (inner/outer lead-lag)
+- `frontend/src/experiment-engine.ts`: composite experiment signal blender (ADS/PFP/SVac)
 - `frontend/src/experiment-ads.ts`: Asymmetric Derivative Slope signal (multi-scale OLS)
-- `frontend/src/experiment-erd.ts`: Entropy Regime Detector signal (Shannon entropy spikes)
+- `frontend/src/experiment-pfp.ts`: Pressure Front Propagation signal (inner/outer lead-lag)
+- `frontend/src/experiment-svac.ts`: Spatial Vacuum Asymmetry signal (1/|k| distance-weighted)
 - `frontend/src/experiment-math.ts`: incremental OLS slope + rolling robust z-score utilities

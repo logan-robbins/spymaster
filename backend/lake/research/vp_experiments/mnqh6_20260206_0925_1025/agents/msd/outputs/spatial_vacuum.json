@@ -1,0 +1,162 @@
+{
+  "variant_a": [
+    {
+      "n_signals": 822,
+      "n_up": 392,
+      "n_down": 430,
+      "tp_rate": 0.3686131386861314,
+      "sl_rate": 0.6313868613138686,
+      "timeout_rate": 0.0,
+      "events_per_hour": 822.0456692038447,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.524330900243309,
+      "threshold": 974.061189,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 728,
+      "n_up": 360,
+      "n_down": 368,
+      "tp_rate": 0.3942307692307692,
+      "sl_rate": 0.6057692307692307,
+      "timeout_rate": 0.0,
+      "events_per_hour": 728.0404466914829,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.1778846153846154,
+      "threshold": 1411.295952,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 585,
+      "n_up": 297,
+      "n_down": 288,
+      "tp_rate": 0.38632478632478634,
+      "sl_rate": 0.6136752136752137,
+      "timeout_rate": 0.0,
+      "events_per_hour": 585.0325018056559,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.18888888888888888,
+      "threshold": 1663.838141,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 364,
+      "n_up": 176,
+      "n_down": 188,
+      "tp_rate": 0.36813186813186816,
+      "sl_rate": 0.6318681318681318,
+      "timeout_rate": 0.0,
+      "events_per_hour": 364.02022334574144,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.29120879120879123,
+      "threshold": 2025.325271,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 227,
+      "n_up": 95,
+      "n_down": 132,
+      "tp_rate": 0.36123348017621143,
+      "sl_rate": 0.6343612334801763,
+      "timeout_rate": 0.004405286343612335,
+      "events_per_hour": 227.01261181176733,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.5550660792951542,
+      "threshold": 2294.72513,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 24,
+      "n_up": 7,
+      "n_down": 17,
+      "tp_rate": 0.2916666666666667,
+      "sl_rate": 0.7083333333333334,
+      "timeout_rate": 0.0,
+      "events_per_hour": 24.001333407411522,
+      "median_time_to_outcome_ms": 350.0,
+      "mean_pnl_ticks": -2.0208333333333335,
+      "threshold": 3163.918356,
+      "cooldown_bins": 30
+    }
+  ],
+  "variant_c": [
+    {
+      "n_signals": 938,
+      "n_up": 425,
+      "n_down": 513,
+      "tp_rate": 0.39339019189765456,
+      "sl_rate": 0.6066098081023454,
+      "timeout_rate": 0.0,
+      "events_per_hour": 938.0521140063337,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.012260127931769723,
+      "threshold": 89.17654,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 860,
+      "n_up": 413,
+      "n_down": 447,
+      "tp_rate": 0.40581395348837207,
+      "sl_rate": 0.5941860465116279,
+      "timeout_rate": 0.0,
+      "events_per_hour": 860.0477804322462,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.08546511627906976,
+      "threshold": 131.929579,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 736,
+      "n_up": 363,
+      "n_down": 373,
+      "tp_rate": 0.38722826086956524,
+      "sl_rate": 0.6127717391304348,
+      "timeout_rate": 0.0,
+      "events_per_hour": 736.04089116062,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.15557065217391305,
+      "threshold": 158.447123,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 496,
+      "n_up": 244,
+      "n_down": 252,
+      "tp_rate": 0.4092741935483871,
+      "sl_rate": 0.5907258064516129,
+      "timeout_rate": 0.0,
+      "events_per_hour": 496.0275570865048,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.3780241935483871,
+      "threshold": 198.457088,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 331,
+      "n_up": 153,
+      "n_down": 178,
+      "tp_rate": 0.41389728096676737,
+      "sl_rate": 0.5861027190332326,
+      "timeout_rate": 0.0,
+      "events_per_hour": 331.0183899105506,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.40181268882175225,
+      "threshold": 237.582014,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 72,
+      "n_up": 30,
+      "n_down": 42,
+      "tp_rate": 0.4027777777777778,
+      "sl_rate": 0.5972222222222222,
+      "timeout_rate": 0.0,
+      "events_per_hour": 72.00400022223457,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.1597222222222222,
+      "threshold": 328.753433,
+      "cooldown_bins": 30
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "experiment_name": "svm_spatial_profile",
+  "agent_name": "svm_sp",
+  "dataset_id": "mnqh6_20260206_0925_1025",
+  "params": {
+    "model": "LinearSVC",
+    "C": 0.1,
+    "features": "spatial_profile_21 + band_asym_rolling + return_rolling",
+    "n_features": 45,
+    "rolling_windows": [
+      50,
+      200,
+      600
+    ],
+    "min_train_bins": 1200,
+    "retrain_interval": 300,
+    "cooldown_bins": 30,
+    "confidence_thresholds": [
+      0.0,
+      0.2,
+      0.4,
+      0.6,
+      0.8
+    ]
+  },
+  "results_by_threshold": [
+    {
+      "n_signals": 1160,
+      "n_up": 579,
+      "n_down": 581,
+      "tp_rate": 0.3767241379310345,
+      "sl_rate": 0.6232758620689656,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1160.0644480248902,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.3612068965517241,
+      "threshold": 0.0,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1140,
+      "n_up": 590,
+      "n_down": 550,
+      "tp_rate": 0.3824561403508772,
+      "sl_rate": 0.6175438596491228,
+      "timeout_rate": 0.0,
+      "events_per_hour": 1140.0633368520473,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.07149122807017544,
+      "threshold": 0.2,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 1071,
+      "n_up": 525,
+      "n_down": 546,
+      "tp_rate": 0.40522875816993464,
+      "sl_rate": 0.5938375350140056,
+      "timeout_rate": 0.0009337068160597573,
+      "events_per_hour": 1071.0595033057393,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": 0.22595704948646125,
+      "threshold": 0.4,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 944,
+      "n_up": 486,
+      "n_down": 458,
+      "tp_rate": 0.3633474576271186,
+      "sl_rate": 0.6366525423728814,
+      "timeout_rate": 0.0,
+      "events_per_hour": 944.0524473581866,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.4375,
+      "threshold": 0.6,
+      "cooldown_bins": 30
+    },
+    {
+      "n_signals": 776,
+      "n_up": 406,
+      "n_down": 370,
+      "tp_rate": 0.3853092783505155,
+      "sl_rate": 0.6146907216494846,
+      "timeout_rate": 0.0,
+      "events_per_hour": 776.043113506306,
+      "median_time_to_outcome_ms": 300.0,
+      "mean_pnl_ticks": -0.053479381443298966,
+      "threshold": 0.8,
+      "cooldown_bins": 30
+    }
+  ],
+  "best_threshold": 0.4,
+  "best_tp_rate": 0.40522875816993464,
+  "best_n_signals": 1071,
+  "best_mean_pnl_ticks": 0.22595704948646125,
+  "best_events_per_hour": 1071.0595033057393
+}

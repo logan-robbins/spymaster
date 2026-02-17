@@ -124,8 +124,12 @@ let columnTimestamps: (bigint | null)[] = [];
 // Experiment engine for projection bands
 let experimentEngine: ExperimentEngine | null = null;
 let currentCompositeSignal: CompositeSignal = {
-  composite: 0, pfp: 0, ads: 0, erd: 0, warmupFraction: 0,
+  composite: 0, pfp: 0, ads: 0, svac: 0, warmupFraction: 0,
 };
+// Composite signal trail: stores composite value per heatmap column for persistent bands
+let compositeTrail: (number | null)[] = [];
+// Warmup fraction trail: stores warmup state per column
+let warmupTrail: (number | null)[] = [];
 
 /** Active bucket size in dollars from runtime config. */
 function bucketDollars(): number {
@@ -182,6 +186,8 @@ function resetHeatmapBuffers(gridRadiusTicks: number): void {
   bidTrail = new Array(HMAP_HISTORY).fill(null);
   askTrail = new Array(HMAP_HISTORY).fill(null);
   columnTimestamps = new Array(HMAP_HISTORY).fill(null);
+  compositeTrail = new Array(HMAP_HISTORY).fill(null);
+  warmupTrail = new Array(HMAP_HISTORY).fill(null);
   hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -487,14 +493,18 @@ function heatmapRGB(
   const scoreN = Math.max(0, spectrumScore);
   const pressureT = Math.pow(scoreN, 0.7);
 
-  if (pressureT > 0.01) {
-    const lum = 0.15 + depthN * 0.45 + pressureT * 0.40;
+  if (pressureT > 0.05) {
+    // Pressure path: green intensity driven primarily by spectrum_score.
+    // Rest depth adds only a subtle base glow so cells with strong
+    // spectrum_score but low depth aren't invisible.
+    const lum = 0.10 + depthN * 0.15 + pressureT * 0.75;
     return [
-      Math.round((0.02 + pressureT * 0.08) * 255 * lum),
-      Math.round((0.15 + pressureT * 0.85) * 255 * lum),
-      Math.round((0.05 + pressureT * 0.15) * 255 * lum),
+      Math.round((0.02 + pressureT * 0.06) * 255 * lum),
+      Math.round((0.08 + pressureT * 0.92) * 255 * lum),
+      Math.round((0.03 + pressureT * 0.12) * 255 * lum),
     ];
   } else {
+    // Neutral / vacuum path: faint blue-grey proportional to depth.
     const baseLum = depthN * 0.08;
     return [
       Math.round(0.12 * baseLum * 255),
@@ -525,6 +535,8 @@ function shiftGrid(shiftRows: number): void {
     for (let i = 0; i < bidTrail.length; i++) bidTrail[i] = null;
     for (let i = 0; i < askTrail.length; i++) askTrail[i] = null;
     for (let i = 0; i < columnTimestamps.length; i++) columnTimestamps[i] = null;
+    for (let i = 0; i < compositeTrail.length; i++) compositeTrail[i] = null;
+    for (let i = 0; i < warmupTrail.length; i++) warmupTrail[i] = null;
     vpY += shiftRows;
     clampViewport();
     return;
@@ -655,6 +667,12 @@ function pushHeatmapColumnFromGrid(
   columnTimestamps.shift();
   columnTimestamps.push(currentBinEndNs > 0n ? currentBinEndNs : null);
 
+  // Advance composite signal trail (populated after engine.update below)
+  compositeTrail.shift();
+  compositeTrail.push(null); // placeholder; filled after engine update
+  warmupTrail.shift();
+  warmupTrail.push(null);
+
   // Map grid buckets to heatmap rows and track adaptive normalization.
   let maxSpectrumAbs = 0;
   let maxRestD = 0;
@@ -693,6 +711,8 @@ function pushHeatmapColumnFromGrid(
   // Update experiment engine for projection bands
   if (experimentEngine) {
     currentCompositeSignal = experimentEngine.update(grid);
+    compositeTrail[HMAP_HISTORY - 1] = currentCompositeSignal.composite;
+    warmupTrail[HMAP_HISTORY - 1] = currentCompositeSignal.warmupFraction;
   }
 }
 
@@ -913,111 +933,184 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
 
 /** Projection band horizons and their visual properties. */
 const PROJECTION_HORIZONS = [
-  { ms: 250,  label: '250ms', spreadTicks: 2, alpha: 1.0 },
-  { ms: 500,  label: '500ms', spreadTicks: 4, alpha: 0.8 },
-  { ms: 1000, label: '1s',    spreadTicks: 6, alpha: 0.6 },
-  { ms: 2500, label: '2.5s',  spreadTicks: 8, alpha: 0.4 },
+  { ms: 250,  label: '250ms', spreadTicks: 6,  alpha: 0.50 },
+  { ms: 500,  label: '500ms', spreadTicks: 10, alpha: 0.40 },
+  { ms: 1000, label: '1s',    spreadTicks: 16, alpha: 0.30 },
+  { ms: 2500, label: '2.5s',  spreadTicks: 24, alpha: 0.20 },
 ];
-const BAND_HALF_WIDTH = 6;
-const BAND_SIGMA = 2.5;
-const BAND_SIGMA2_INV = 1 / (2 * BAND_SIGMA * BAND_SIGMA);
 
-/** Projection band pixel buffer: 4 columns × HMAP_LEVELS rows × RGBA. */
-let projBandData: Uint8ClampedArray | null = null;
-let projBandOffscreen: HTMLCanvasElement | null = null;
+/** Signal amplification: composite signal is typically [-0.3, +0.3],
+ *  scale up to make directional shifts visually obvious. */
+const COMPOSITE_SCALE = 8.0;
+
+/** Band half-width in rows for the projected envelope. */
+const BAND_HALF_WIDTH_ROWS = 4;
 
 /**
- * Render purple directional pressure bands in the projection zone.
+ * Render projection bands as persistent scrolling overlays.
  *
- * Each of 4 horizon columns shows a Gaussian band centered at
- * spot + composite * spreadTicks, with confidence-dependent alpha fade.
+ * Two rendering modes:
+ * 1. HISTORICAL: In the main heatmap area, draw faded polylines showing where
+ *    past predictions pointed (band center trails at each horizon timescale).
+ *    This lets the trader see if predictions were accurate.
+ * 2. FORWARD: In the projection zone (right 15%), draw the current prediction
+ *    as expanding bands at 4 horizon positions.
  */
 function renderProjectionBands(
   ctx: CanvasRenderingContext2D,
-  signal: CompositeSignal,
-  spotRow: number,
+  _signal: CompositeSignal,
+  _spotRow: number,
   ch: number,
   dataWidth: number,
   cw: number,
 ): void {
-  const h = HMAP_LEVELS;
-  const nHorizons = PROJECTION_HORIZONS.length;
+  if (!anchorInitialized) return;
 
-  // Lazy-init projection pixel buffer
-  if (!projBandData || projBandData.length !== nHorizons * h * 4) {
-    projBandData = new Uint8ClampedArray(nHorizons * h * 4);
-    projBandOffscreen = document.createElement('canvas');
-    projBandOffscreen.width = nHorizons;
-    projBandOffscreen.height = h;
-  }
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
 
-  // Clear to dark background
-  for (let i = 0; i < projBandData.length; i += 4) {
-    projBandData[i] = 8;
-    projBandData[i + 1] = 8;
-    projBandData[i + 2] = 12;
-    projBandData[i + 3] = 255;
-  }
+  // === PART 1: PROJECTION ZONE — forward-looking bands ===
+  const zoneWidth = cw - dataWidth;
+  if (zoneWidth > 0) {
+    // Dark tint background for projection zone
+    ctx.fillStyle = 'rgba(8, 8, 12, 0.7)';
+    ctx.fillRect(dataWidth, 0, zoneWidth, ch);
 
-  // Render bands if signal is active
-  if (signal.warmupFraction > 0 && spotRow >= 0 && spotRow < h) {
-    const composite = signal.composite;
+    const lastSpot = spotTrail[HMAP_HISTORY - 1];
+    const lastComposite = compositeTrail[HMAP_HISTORY - 1];
+    const lastWarmup = warmupTrail[HMAP_HISTORY - 1];
 
-    for (let hi = 0; hi < nHorizons; hi++) {
-      const horizon = PROJECTION_HORIZONS[hi];
-      // Band center: spot row shifted by composite * spreadTicks
-      // Negative composite (bearish) shifts center to higher row numbers (lower price)
-      // Positive composite (bullish) shifts center to lower row numbers (higher price)
-      const bandCenter = spotRow - composite * horizon.spreadTicks;
-      const confAlpha = horizon.alpha * signal.warmupFraction;
+    if (lastSpot !== null && lastComposite !== null && lastWarmup !== null && lastWarmup > 0) {
+      const scaledSignal = lastComposite * COMPOSITE_SCALE;
+      const nHorizons = PROJECTION_HORIZONS.length;
+      const colWidth = zoneWidth / nHorizons;
 
-      const rowMin = Math.max(0, Math.floor(bandCenter - BAND_HALF_WIDTH));
-      const rowMax = Math.min(h - 1, Math.ceil(bandCenter + BAND_HALF_WIDTH));
+      for (let hi = 0; hi < nHorizons; hi++) {
+        const horizon = PROJECTION_HORIZONS[hi];
+        // Band center: spot shifted by amplified composite × spreadTicks
+        // Bullish (positive) → lower row number (higher price)
+        const bandCenterRow = lastSpot - scaledSignal * horizon.spreadTicks;
+        const bandTopRow = bandCenterRow - BAND_HALF_WIDTH_ROWS;
+        const bandBotRow = bandCenterRow + BAND_HALF_WIDTH_ROWS;
 
-      for (let row = rowMin; row <= rowMax; row++) {
-        const d = row - bandCenter;
-        const gaussianI = Math.exp(-d * d * BAND_SIGMA2_INV);
-        const intensity = gaussianI * confAlpha;
+        const xLeft = dataWidth + colWidth * hi;
+        const xRight = dataWidth + colWidth * (hi + 1);
+        const yCenter = rowToY(bandCenterRow);
+        const yTop = rowToY(bandTopRow);
+        const yBot = rowToY(bandBotRow);
 
-        if (intensity < 0.01) continue;
+        // Filled band
+        const alpha = horizon.alpha * lastWarmup;
+        ctx.fillStyle = `rgba(120, 40, 180, ${alpha * 0.4})`;
+        ctx.fillRect(xLeft + 1, yTop, xRight - xLeft - 2, yBot - yTop);
 
-        const idx = (row * nHorizons + hi) * 4;
-        // Purple: R≈0.35, G≈0.08, B≈0.55 scaled by intensity
-        projBandData[idx]     = Math.round(0.35 * intensity * 255);
-        projBandData[idx + 1] = Math.round(0.08 * intensity * 255);
-        projBandData[idx + 2] = Math.round(0.55 * intensity * 255);
-        projBandData[idx + 3] = 255;
+        // Band edges
+        ctx.strokeStyle = `rgba(140, 60, 200, ${alpha * 0.7})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(xLeft + 1, yTop);
+        ctx.lineTo(xRight - 1, yTop);
+        ctx.moveTo(xLeft + 1, yBot);
+        ctx.lineTo(xRight - 1, yBot);
+        ctx.stroke();
+
+        // Center line
+        ctx.strokeStyle = `rgba(180, 100, 255, ${alpha * 0.9})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(xLeft + 1, yCenter);
+        ctx.lineTo(xRight - 1, yCenter);
+        ctx.stroke();
       }
+
+      // Connect spot to first horizon band center
+      const firstBandCenter = lastSpot - scaledSignal * PROJECTION_HORIZONS[0].spreadTicks;
+      const spotY = rowToY(lastSpot);
+      const firstY = rowToY(firstBandCenter);
+      ctx.strokeStyle = 'rgba(180, 100, 255, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(dataWidth, spotY);
+      ctx.lineTo(dataWidth + zoneWidth / PROJECTION_HORIZONS.length * 0.5, firstY);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
-  // Blit to canvas
-  if (!projBandOffscreen) return;
-  const offCtx = projBandOffscreen.getContext('2d')!;
-  const projImgData = offCtx.createImageData(nHorizons, h);
-  projImgData.data.set(projBandData);
-  offCtx.putImageData(projImgData, 0, 0);
+  // === PART 2: HISTORICAL — filled band envelopes overlaid on heatmap ===
+  // Draw filled bands showing where past predictions pointed at each horizon.
+  // These persist and scroll with the heatmap, letting the trader compare
+  // predicted direction envelope vs actual spot path (cyan line).
 
-  const zoneWidth = cw - dataWidth;
-  if (zoneWidth <= 0) return;
+  for (let hi = PROJECTION_HORIZONS.length - 1; hi >= 0; hi--) {
+    const horizon = PROJECTION_HORIZONS[hi];
+    // How many bins into the future does this horizon represent?
+    const horizonBins = Math.round(horizon.ms / 100); // e.g., 250ms = 2.5 bins, 2500ms = 25 bins
 
-  ctx.imageSmoothingEnabled = false;
+    // Build arrays of valid (x, topY, botY) points for this horizon's band
+    const points: { x: number; topY: number; botY: number }[] = [];
 
-  // Map projection buffer to visible viewport
-  const srcH = visibleRows();
-  const sy = Math.max(0, vpY);
-  const sy2 = Math.min(h, vpY + srcH);
-  const sh = Math.max(0, sy2 - sy);
-  if (sh <= 0) return;
+    for (let col = 0; col < HMAP_HISTORY; col++) {
+      const srcCol = col - horizonBins;
+      if (srcCol < 0 || srcCol >= HMAP_HISTORY) continue;
 
-  const dy = ((sy - vpY) / srcH) * ch;
-  const dh = (sh / srcH) * ch;
+      const pastSpot = spotTrail[srcCol];
+      const pastComposite = compositeTrail[srcCol];
+      const pastWarmup = warmupTrail[srcCol];
 
-  ctx.drawImage(
-    projBandOffscreen,
-    0, sy, nHorizons, sh,
-    dataWidth, dy, zoneWidth, dh,
-  );
+      if (pastSpot === null || pastComposite === null || pastWarmup === null || pastWarmup === 0) {
+        continue;
+      }
+
+      const scaledSignal = pastComposite * COMPOSITE_SCALE;
+      const centerRow = pastSpot - scaledSignal * horizon.spreadTicks;
+      const topRow = centerRow - BAND_HALF_WIDTH_ROWS;
+      const botRow = centerRow + BAND_HALF_WIDTH_ROWS;
+      const x = colToX(col + 0.5);
+
+      if (x < -50 || x > dataWidth + 50) continue;
+
+      points.push({ x, topY: rowToY(topRow), botY: rowToY(botRow) });
+    }
+
+    if (points.length < 2) continue;
+
+    // Filled band envelope (forward top edge, backward bottom edge)
+    const fillAlpha = horizon.alpha * 0.18;
+    ctx.fillStyle = `rgba(130, 50, 200, ${fillAlpha})`;
+    ctx.beginPath();
+    // Top edge forward
+    ctx.moveTo(points[0].x, points[0].topY);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].topY);
+    }
+    // Bottom edge backward
+    for (let i = points.length - 1; i >= 0; i--) {
+      ctx.lineTo(points[i].x, points[i].botY);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Edge lines for definition
+    const edgeAlpha = horizon.alpha * 0.45;
+    ctx.strokeStyle = `rgba(160, 80, 220, ${edgeAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].topY);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].topY);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].botY);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].botY);
+    }
+    ctx.stroke();
+  }
 }
 
 let hmapOffscreen: HTMLCanvasElement | null = null;
@@ -1668,8 +1761,11 @@ function resetStreamState(): void {
 
   if (experimentEngine) experimentEngine.reset();
   currentCompositeSignal = {
-    composite: 0, pfp: 0, ads: 0, erd: 0, warmupFraction: 0,
+    composite: 0, pfp: 0, ads: 0, svac: 0, warmupFraction: 0,
   };
+
+  for (let i = 0; i < compositeTrail.length; i++) compositeTrail[i] = null;
+  for (let i = 0; i < warmupTrail.length; i++) warmupTrail[i] = null;
 
   for (let i = 0; i < bidTrail.length; i++) bidTrail[i] = null;
   for (let i = 0; i < askTrail.length; i++) askTrail[i] = null;

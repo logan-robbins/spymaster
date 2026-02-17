@@ -1,0 +1,1800 @@
+{
+  "pfp": {
+    "thresholds": [
+      {
+        "threshold": 0.052885,
+        "n_signals": 908,
+        "tp_rate": 0.40198237885462557,
+        "sl_rate": 0.5980176211453745,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.3634361233480176,
+        "events_per_hour": 908.0504472470693,
+        "stratified": {
+          "n_total_outcomes": 908,
+          "tiers": {
+            "micro": {
+              "n": 46,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.010869565217392
+            },
+            "small": {
+              "n": 36,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.25
+            },
+            "medium": {
+              "n": 59,
+              "tp_rate": 0.3559322033898305,
+              "sl_rate": 0.6440677966101694,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.5847457627118644
+            },
+            "large": {
+              "n": 109,
+              "tp_rate": 0.42201834862385323,
+              "sl_rate": 0.5779816513761468,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.22018348623853212
+            },
+            "extreme": {
+              "n": 658,
+              "tp_rate": 0.45288753799392095,
+              "sl_rate": 0.547112462006079,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.458966565349544
+            }
+          },
+          "large_move_selectivity": 0.8447136563876652
+        }
+      },
+      {
+        "threshold": 0.079859,
+        "n_signals": 823,
+        "tp_rate": 0.3985419198055893,
+        "sl_rate": 0.6014580801944107,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.2891859052247874,
+        "events_per_hour": 823.0457247624869,
+        "stratified": {
+          "n_total_outcomes": 823,
+          "tiers": {
+            "micro": {
+              "n": 49,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.153061224489796
+            },
+            "small": {
+              "n": 34,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.088235294117647
+            },
+            "medium": {
+              "n": 68,
+              "tp_rate": 0.36764705882352944,
+              "sl_rate": 0.6323529411764706,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.5661764705882353
+            },
+            "large": {
+              "n": 95,
+              "tp_rate": 0.4842105263157895,
+              "sl_rate": 0.5157894736842106,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.2105263157894737
+            },
+            "extreme": {
+              "n": 577,
+              "tp_rate": 0.44540727902946275,
+              "sl_rate": 0.5545927209705372,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.3639514731369151
+            }
+          },
+          "large_move_selectivity": 0.8165249088699879
+        }
+      },
+      {
+        "threshold": 0.098209,
+        "n_signals": 731,
+        "tp_rate": 0.4062927496580027,
+        "sl_rate": 0.5937072503419972,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.5075239398084815,
+        "events_per_hour": 731.0406133674094,
+        "stratified": {
+          "n_total_outcomes": 731,
+          "tiers": {
+            "micro": {
+              "n": 39,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.987179487179487
+            },
+            "small": {
+              "n": 27,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.018518518518518
+            },
+            "medium": {
+              "n": 67,
+              "tp_rate": 0.417910447761194,
+              "sl_rate": 0.582089552238806,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.35074626865671643
+            },
+            "large": {
+              "n": 87,
+              "tp_rate": 0.42528735632183906,
+              "sl_rate": 0.5747126436781609,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.9655172413793104
+            },
+            "extreme": {
+              "n": 511,
+              "tp_rate": 0.45401174168297453,
+              "sl_rate": 0.5459882583170255,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.4197651663405089
+            }
+          },
+          "large_move_selectivity": 0.8180574555403557
+        }
+      },
+      {
+        "threshold": 0.125286,
+        "n_signals": 548,
+        "tp_rate": 0.36496350364963503,
+        "sl_rate": 0.635036496350365,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.18248175182481752,
+        "events_per_hour": 548.0304461358965,
+        "stratified": {
+          "n_total_outcomes": 548,
+          "tiers": {
+            "micro": {
+              "n": 26,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.230769230769231
+            },
+            "small": {
+              "n": 22,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.5227272727272725
+            },
+            "medium": {
+              "n": 49,
+              "tp_rate": 0.4897959183673469,
+              "sl_rate": 0.5102040816326531,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.2551020408163265
+            },
+            "large": {
+              "n": 72,
+              "tp_rate": 0.3611111111111111,
+              "sl_rate": 0.6388888888888888,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.2152777777777778
+            },
+            "extreme": {
+              "n": 379,
+              "tp_rate": 0.39577836411609496,
+              "sl_rate": 0.604221635883905,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.420844327176781
+            }
+          },
+          "large_move_selectivity": 0.822992700729927
+        }
+      },
+      {
+        "threshold": 0.148035,
+        "n_signals": 366,
+        "tp_rate": 0.3907103825136612,
+        "sl_rate": 0.6092896174863388,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.09699453551912568,
+        "events_per_hour": 366.02033446302573,
+        "stratified": {
+          "n_total_outcomes": 366,
+          "tiers": {
+            "micro": {
+              "n": 22,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.409090909090909
+            },
+            "small": {
+              "n": 17,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.5588235294117645
+            },
+            "medium": {
+              "n": 33,
+              "tp_rate": 0.5757575757575758,
+              "sl_rate": 0.42424242424242425,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 2.015151515151515
+            },
+            "large": {
+              "n": 48,
+              "tp_rate": 0.4166666666666667,
+              "sl_rate": 0.5833333333333334,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.0833333333333333
+            },
+            "extreme": {
+              "n": 246,
+              "tp_rate": 0.42276422764227645,
+              "sl_rate": 0.5772357723577236,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7784552845528455
+            }
+          },
+          "large_move_selectivity": 0.8032786885245902
+        }
+      },
+      {
+        "threshold": 0.189491,
+        "n_signals": 113,
+        "tp_rate": 0.3274336283185841,
+        "sl_rate": 0.672566371681416,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -1.3097345132743363,
+        "events_per_hour": 113.00627812656259,
+        "stratified": {
+          "n_total_outcomes": 113,
+          "tiers": {
+            "micro": {
+              "n": 5,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.7
+            },
+            "small": {
+              "n": 10,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -13.2
+            },
+            "medium": {
+              "n": 7,
+              "tp_rate": 0.42857142857142855,
+              "sl_rate": 0.5714285714285714,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7142857142857143
+            },
+            "large": {
+              "n": 13,
+              "tp_rate": 0.38461538461538464,
+              "sl_rate": 0.6153846153846154,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.38461538461538464
+            },
+            "extreme": {
+              "n": 78,
+              "tp_rate": 0.3717948717948718,
+              "sl_rate": 0.6282051282051282,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.28846153846153844
+            }
+          },
+          "large_move_selectivity": 0.8053097345132744
+        }
+      }
+    ],
+    "best_threshold": 0.098209,
+    "best_tp_rate": 0.4062927496580027,
+    "best_n_signals": 731,
+    "best_large_move_selectivity": 0.8180574555403557
+  },
+  "ads": {
+    "thresholds": [
+      {
+        "threshold": 0.156212,
+        "n_signals": 947,
+        "tp_rate": 0.3843717001055966,
+        "sl_rate": 0.6156282998944034,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.307286166842661,
+        "events_per_hour": 947.052614034113,
+        "stratified": {
+          "n_total_outcomes": 947,
+          "tiers": {
+            "micro": {
+              "n": 51,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.5
+            },
+            "small": {
+              "n": 27,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.888888888888889
+            },
+            "medium": {
+              "n": 77,
+              "tp_rate": 0.36363636363636365,
+              "sl_rate": 0.6363636363636364,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.45454545454545453
+            },
+            "large": {
+              "n": 123,
+              "tp_rate": 0.43902439024390244,
+              "sl_rate": 0.5609756097560976,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.5121951219512195
+            },
+            "extreme": {
+              "n": 669,
+              "tp_rate": 0.42152466367713004,
+              "sl_rate": 0.57847533632287,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.0186846038863977
+            }
+          },
+          "large_move_selectivity": 0.8363252375923971
+        }
+      },
+      {
+        "threshold": 0.234074,
+        "n_signals": 860,
+        "tp_rate": 0.3744186046511628,
+        "sl_rate": 0.6255813953488372,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.01627906976744186,
+        "events_per_hour": 860.0477804322462,
+        "stratified": {
+          "n_total_outcomes": 860,
+          "tiers": {
+            "micro": {
+              "n": 42,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.440476190476191
+            },
+            "small": {
+              "n": 26,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.596153846153846
+            },
+            "medium": {
+              "n": 71,
+              "tp_rate": 0.38028169014084506,
+              "sl_rate": 0.6197183098591549,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.02112676056338028
+            },
+            "large": {
+              "n": 125,
+              "tp_rate": 0.408,
+              "sl_rate": 0.592,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.752
+            },
+            "extreme": {
+              "n": 596,
+              "tp_rate": 0.40939597315436244,
+              "sl_rate": 0.5906040268456376,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.6048657718120806
+            }
+          },
+          "large_move_selectivity": 0.8383720930232558
+        }
+      },
+      {
+        "threshold": 0.283284,
+        "n_signals": 752,
+        "tp_rate": 0.3497340425531915,
+        "sl_rate": 0.6502659574468085,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.19215425531914893,
+        "events_per_hour": 752.0417800988944,
+        "stratified": {
+          "n_total_outcomes": 752,
+          "tiers": {
+            "micro": {
+              "n": 52,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.288461538461538
+            },
+            "small": {
+              "n": 19,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.552631578947368
+            },
+            "medium": {
+              "n": 63,
+              "tp_rate": 0.36507936507936506,
+              "sl_rate": 0.6349206349206349,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.24603174603174602
+            },
+            "large": {
+              "n": 94,
+              "tp_rate": 0.3723404255319149,
+              "sl_rate": 0.6276595744680851,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.17553191489361702
+            },
+            "extreme": {
+              "n": 524,
+              "tp_rate": 0.39122137404580154,
+              "sl_rate": 0.6087786259541985,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.683206106870229
+            }
+          },
+          "large_move_selectivity": 0.8218085106382979
+        }
+      },
+      {
+        "threshold": 0.35626,
+        "n_signals": 536,
+        "tp_rate": 0.35074626865671643,
+        "sl_rate": 0.6492537313432836,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.33302238805970147,
+        "events_per_hour": 536.0297794321907,
+        "stratified": {
+          "n_total_outcomes": 536,
+          "tiers": {
+            "micro": {
+              "n": 34,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.220588235294118
+            },
+            "small": {
+              "n": 21,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.928571428571429
+            },
+            "medium": {
+              "n": 32,
+              "tp_rate": 0.4375,
+              "sl_rate": 0.5625,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.25
+            },
+            "large": {
+              "n": 80,
+              "tp_rate": 0.3,
+              "sl_rate": 0.7,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.55
+            },
+            "extreme": {
+              "n": 369,
+              "tp_rate": 0.4065040650406504,
+              "sl_rate": 0.5934959349593496,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7466124661246613
+            }
+          },
+          "large_move_selectivity": 0.8376865671641791
+        }
+      },
+      {
+        "threshold": 0.419173,
+        "n_signals": 348,
+        "tp_rate": 0.35344827586206895,
+        "sl_rate": 0.646551724137931,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.34770114942528735,
+        "events_per_hour": 348.0193344074671,
+        "stratified": {
+          "n_total_outcomes": 348,
+          "tiers": {
+            "micro": {
+              "n": 24,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.333333333333333
+            },
+            "small": {
+              "n": 9,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.666666666666666
+            },
+            "medium": {
+              "n": 19,
+              "tp_rate": 0.3684210526315789,
+              "sl_rate": 0.631578947368421,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.2631578947368421
+            },
+            "large": {
+              "n": 48,
+              "tp_rate": 0.25,
+              "sl_rate": 0.75,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -2.46875
+            },
+            "extreme": {
+              "n": 248,
+              "tp_rate": 0.41935483870967744,
+              "sl_rate": 0.5806451612903226,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.9375
+            }
+          },
+          "large_move_selectivity": 0.8505747126436781
+        }
+      },
+      {
+        "threshold": 0.549971,
+        "n_signals": 106,
+        "tp_rate": 0.4339622641509434,
+        "sl_rate": 0.5660377358490566,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.9716981132075472,
+        "events_per_hour": 106.00588921606756,
+        "stratified": {
+          "n_total_outcomes": 106,
+          "tiers": {
+            "micro": {
+              "n": 8,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.0625
+            },
+            "small": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.0
+            },
+            "medium": {
+              "n": 7,
+              "tp_rate": 0.42857142857142855,
+              "sl_rate": 0.5714285714285714,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.9285714285714286
+            },
+            "large": {
+              "n": 21,
+              "tp_rate": 0.38095238095238093,
+              "sl_rate": 0.6190476190476191,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.42857142857142855
+            },
+            "extreme": {
+              "n": 68,
+              "tp_rate": 0.5147058823529411,
+              "sl_rate": 0.4852941176470588,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 2.7058823529411766
+            }
+          },
+          "large_move_selectivity": 0.839622641509434
+        }
+      }
+    ],
+    "best_threshold": 0.549971,
+    "best_tp_rate": 0.4339622641509434,
+    "best_n_signals": 106,
+    "best_large_move_selectivity": 0.839622641509434
+  },
+  "erd": {
+    "thresholds": [
+      {
+        "threshold": 0.001743,
+        "n_signals": 852,
+        "tp_rate": 0.36032863849765256,
+        "sl_rate": 0.6396713615023474,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.46068075117370894,
+        "events_per_hour": 852.047335963109,
+        "stratified": {
+          "n_total_outcomes": 852,
+          "tiers": {
+            "micro": {
+              "n": 49,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.418367346938775
+            },
+            "small": {
+              "n": 36,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.694444444444445
+            },
+            "medium": {
+              "n": 53,
+              "tp_rate": 0.41509433962264153,
+              "sl_rate": 0.5849056603773585,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.27358490566037735
+            },
+            "large": {
+              "n": 131,
+              "tp_rate": 0.35877862595419846,
+              "sl_rate": 0.6412213740458015,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.4732824427480916
+            },
+            "extreme": {
+              "n": 583,
+              "tp_rate": 0.40823327615780447,
+              "sl_rate": 0.5917667238421955,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.49485420240137223
+            }
+          },
+          "large_move_selectivity": 0.8380281690140845
+        }
+      },
+      {
+        "threshold": 0.014438,
+        "n_signals": 752,
+        "tp_rate": 0.35904255319148937,
+        "sl_rate": 0.6409574468085106,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.2599734042553192,
+        "events_per_hour": 752.0417800988944,
+        "stratified": {
+          "n_total_outcomes": 752,
+          "tiers": {
+            "micro": {
+              "n": 47,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.212765957446808
+            },
+            "small": {
+              "n": 32,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.203125
+            },
+            "medium": {
+              "n": 48,
+              "tp_rate": 0.4791666666666667,
+              "sl_rate": 0.5208333333333334,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.25
+            },
+            "large": {
+              "n": 98,
+              "tp_rate": 0.32653061224489793,
+              "sl_rate": 0.673469387755102,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.4897959183673469
+            },
+            "extreme": {
+              "n": 527,
+              "tp_rate": 0.4079696394686907,
+              "sl_rate": 0.5920303605313093,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.6261859582542695
+            }
+          },
+          "large_move_selectivity": 0.8311170212765957
+        }
+      },
+      {
+        "threshold": 0.049138,
+        "n_signals": 436,
+        "tp_rate": 0.3669724770642202,
+        "sl_rate": 0.6330275229357798,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.30160550458715596,
+        "events_per_hour": 436.02422356797604,
+        "stratified": {
+          "n_total_outcomes": 436,
+          "tiers": {
+            "micro": {
+              "n": 24,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.979166666666667
+            },
+            "small": {
+              "n": 22,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.2272727272727275
+            },
+            "medium": {
+              "n": 19,
+              "tp_rate": 0.5789473684210527,
+              "sl_rate": 0.42105263157894735,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 3.1052631578947367
+            },
+            "large": {
+              "n": 67,
+              "tp_rate": 0.43283582089552236,
+              "sl_rate": 0.5671641791044776,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.9626865671641791
+            },
+            "extreme": {
+              "n": 304,
+              "tp_rate": 0.39473684210526316,
+              "sl_rate": 0.6052631578947368,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.23519736842105263
+            }
+          },
+          "large_move_selectivity": 0.8509174311926605
+        }
+      },
+      {
+        "threshold": 0.123607,
+        "n_signals": 192,
+        "tp_rate": 0.3489583333333333,
+        "sl_rate": 0.6510416666666666,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.453125,
+        "events_per_hour": 192.01066725929218,
+        "stratified": {
+          "n_total_outcomes": 192,
+          "tiers": {
+            "micro": {
+              "n": 9,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.888888888888889
+            },
+            "small": {
+              "n": 9,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.777777777777778
+            },
+            "medium": {
+              "n": 11,
+              "tp_rate": 0.18181818181818182,
+              "sl_rate": 0.8181818181818182,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -4.045454545454546
+            },
+            "large": {
+              "n": 27,
+              "tp_rate": 0.4074074074074074,
+              "sl_rate": 0.5925925925925926,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.5
+            },
+            "extreme": {
+              "n": 136,
+              "tp_rate": 0.39705882352941174,
+              "sl_rate": 0.6029411764705882,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.49264705882352944
+            }
+          },
+          "large_move_selectivity": 0.8489583333333334
+        }
+      },
+      {
+        "threshold": 0.622041,
+        "n_signals": 42,
+        "tp_rate": 0.2619047619047619,
+        "sl_rate": 0.7380952380952381,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -2.892857142857143,
+        "events_per_hour": 42.002333462970164,
+        "stratified": {
+          "n_total_outcomes": 42,
+          "tiers": {
+            "micro": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -19.5
+            },
+            "small": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.25
+            },
+            "medium": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -11.25
+            },
+            "large": {
+              "n": 5,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.3
+            },
+            "extreme": {
+              "n": 31,
+              "tp_rate": 0.3548387096774194,
+              "sl_rate": 0.6451612903225806,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.5161290322580645
+            }
+          },
+          "large_move_selectivity": 0.8571428571428571
+        }
+      }
+    ],
+    "best_threshold": 0.049138,
+    "best_tp_rate": 0.3669724770642202,
+    "best_n_signals": 436,
+    "best_large_move_selectivity": 0.8509174311926605
+  },
+  "composite": {
+    "thresholds": [
+      {
+        "threshold": 0.042889,
+        "n_signals": 951,
+        "tp_rate": 0.3732912723449001,
+        "sl_rate": 0.6267087276550999,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.0010515247108307045,
+        "events_per_hour": 951.0528362686816,
+        "stratified": {
+          "n_total_outcomes": 951,
+          "tiers": {
+            "micro": {
+              "n": 57,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.982456140350878
+            },
+            "small": {
+              "n": 29,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.706896551724138
+            },
+            "medium": {
+              "n": 73,
+              "tp_rate": 0.4246575342465753,
+              "sl_rate": 0.5753424657534246,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.17123287671232876
+            },
+            "large": {
+              "n": 137,
+              "tp_rate": 0.49635036496350365,
+              "sl_rate": 0.5036496350364964,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 2.127737226277372
+            },
+            "extreme": {
+              "n": 655,
+              "tp_rate": 0.39083969465648855,
+              "sl_rate": 0.6091603053435114,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.44198473282442746
+            }
+          },
+          "large_move_selectivity": 0.832807570977918
+        }
+      },
+      {
+        "threshold": 0.066209,
+        "n_signals": 855,
+        "tp_rate": 0.37660818713450295,
+        "sl_rate": 0.623391812865497,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.10935672514619883,
+        "events_per_hour": 855.0475026390355,
+        "stratified": {
+          "n_total_outcomes": 855,
+          "tiers": {
+            "micro": {
+              "n": 59,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.245762711864407
+            },
+            "small": {
+              "n": 24,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.375
+            },
+            "medium": {
+              "n": 64,
+              "tp_rate": 0.4375,
+              "sl_rate": 0.5625,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.765625
+            },
+            "large": {
+              "n": 104,
+              "tp_rate": 0.3942307692307692,
+              "sl_rate": 0.6057692307692307,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.6153846153846154
+            },
+            "extreme": {
+              "n": 604,
+              "tp_rate": 0.41887417218543044,
+              "sl_rate": 0.5811258278145696,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.8708609271523179
+            }
+          },
+          "large_move_selectivity": 0.8280701754385965
+        }
+      },
+      {
+        "threshold": 0.081835,
+        "n_signals": 727,
+        "tp_rate": 0.35900962861072905,
+        "sl_rate": 0.640990371389271,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.21458046767537828,
+        "events_per_hour": 727.0403911328407,
+        "stratified": {
+          "n_total_outcomes": 727,
+          "tiers": {
+            "micro": {
+              "n": 45,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.855555555555555
+            },
+            "small": {
+              "n": 16,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.0625
+            },
+            "medium": {
+              "n": 61,
+              "tp_rate": 0.3442622950819672,
+              "sl_rate": 0.6557377049180327,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.5655737704918032
+            },
+            "large": {
+              "n": 97,
+              "tp_rate": 0.31958762886597936,
+              "sl_rate": 0.6804123711340206,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.1494845360824741
+            },
+            "extreme": {
+              "n": 508,
+              "tp_rate": 0.41141732283464566,
+              "sl_rate": 0.5885826771653543,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.8415354330708661
+            }
+          },
+          "large_move_selectivity": 0.8321870701513068
+        }
+      },
+      {
+        "threshold": 0.107555,
+        "n_signals": 510,
+        "tp_rate": 0.34705882352941175,
+        "sl_rate": 0.6529411764705882,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.396078431372549,
+        "events_per_hour": 510.02833490749487,
+        "stratified": {
+          "n_total_outcomes": 510,
+          "tiers": {
+            "micro": {
+              "n": 29,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.672413793103448
+            },
+            "small": {
+              "n": 17,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.5
+            },
+            "medium": {
+              "n": 33,
+              "tp_rate": 0.45454545454545453,
+              "sl_rate": 0.5454545454545454,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.3484848484848484
+            },
+            "large": {
+              "n": 78,
+              "tp_rate": 0.28205128205128205,
+              "sl_rate": 0.717948717948718,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.9487179487179487
+            },
+            "extreme": {
+              "n": 353,
+              "tp_rate": 0.39660056657223797,
+              "sl_rate": 0.603399433427762,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.6416430594900849
+            }
+          },
+          "large_move_selectivity": 0.8450980392156863
+        }
+      },
+      {
+        "threshold": 0.132434,
+        "n_signals": 312,
+        "tp_rate": 0.3814102564102564,
+        "sl_rate": 0.6185897435897436,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.08493589743589744,
+        "events_per_hour": 312.0173342963498,
+        "stratified": {
+          "n_total_outcomes": 312,
+          "tiers": {
+            "micro": {
+              "n": 12,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -9.75
+            },
+            "small": {
+              "n": 11,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.818181818181818
+            },
+            "medium": {
+              "n": 14,
+              "tp_rate": 0.7142857142857143,
+              "sl_rate": 0.2857142857142857,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 5.357142857142857
+            },
+            "large": {
+              "n": 47,
+              "tp_rate": 0.3617021276595745,
+              "sl_rate": 0.6382978723404256,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.44680851063829785
+            },
+            "extreme": {
+              "n": 228,
+              "tp_rate": 0.40350877192982454,
+              "sl_rate": 0.5964912280701754,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7214912280701754
+            }
+          },
+          "large_move_selectivity": 0.8814102564102564
+        }
+      },
+      {
+        "threshold": 0.209349,
+        "n_signals": 58,
+        "tp_rate": 0.3620689655172414,
+        "sl_rate": 0.6379310344827587,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.9310344827586207,
+        "events_per_hour": 58.003222401244514,
+        "stratified": {
+          "n_total_outcomes": 58,
+          "tiers": {
+            "micro": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.25
+            },
+            "small": {
+              "n": 3,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.666666666666667
+            },
+            "medium": {
+              "n": 3,
+              "tp_rate": 0.3333333333333333,
+              "sl_rate": 0.6666666666666666,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -2.5
+            },
+            "large": {
+              "n": 7,
+              "tp_rate": 0.14285714285714285,
+              "sl_rate": 0.8571428571428571,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.642857142857143
+            },
+            "extreme": {
+              "n": 43,
+              "tp_rate": 0.4418604651162791,
+              "sl_rate": 0.5581395348837209,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.5930232558139535
+            }
+          },
+          "large_move_selectivity": 0.8620689655172413
+        }
+      }
+    ],
+    "best_threshold": 0.132434,
+    "best_tp_rate": 0.3814102564102564,
+    "best_n_signals": 312,
+    "best_large_move_selectivity": 0.8814102564102564
+  },
+  "spatial_vacuum_a": {
+    "thresholds": [
+      {
+        "threshold": 974.061189,
+        "n_signals": 822,
+        "tp_rate": 0.3686131386861314,
+        "sl_rate": 0.6313868613138686,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.524330900243309,
+        "events_per_hour": 822.0456692038447,
+        "stratified": {
+          "n_total_outcomes": 822,
+          "tiers": {
+            "micro": {
+              "n": 41,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.060975609756097
+            },
+            "small": {
+              "n": 28,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.142857142857143
+            },
+            "medium": {
+              "n": 41,
+              "tp_rate": 0.36585365853658536,
+              "sl_rate": 0.6341463414634146,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.7073170731707317
+            },
+            "large": {
+              "n": 109,
+              "tp_rate": 0.41284403669724773,
+              "sl_rate": 0.5871559633027523,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.3623853211009174
+            },
+            "extreme": {
+              "n": 603,
+              "tp_rate": 0.40298507462686567,
+              "sl_rate": 0.5970149253731343,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.27860696517412936
+            }
+          },
+          "large_move_selectivity": 0.8661800486618005
+        }
+      },
+      {
+        "threshold": 1411.295952,
+        "n_signals": 728,
+        "tp_rate": 0.3942307692307692,
+        "sl_rate": 0.6057692307692307,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.1778846153846154,
+        "events_per_hour": 728.0404466914829,
+        "stratified": {
+          "n_total_outcomes": 728,
+          "tiers": {
+            "micro": {
+              "n": 31,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.67741935483871
+            },
+            "small": {
+              "n": 20,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.35
+            },
+            "medium": {
+              "n": 46,
+              "tp_rate": 0.43478260869565216,
+              "sl_rate": 0.5652173913043478,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.8478260869565217
+            },
+            "large": {
+              "n": 80,
+              "tp_rate": 0.325,
+              "sl_rate": 0.675,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.1375
+            },
+            "extreme": {
+              "n": 551,
+              "tp_rate": 0.43738656987295826,
+              "sl_rate": 0.5626134301270418,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.9519056261343013
+            }
+          },
+          "large_move_selectivity": 0.8667582417582418
+        }
+      },
+      {
+        "threshold": 1663.838141,
+        "n_signals": 585,
+        "tp_rate": 0.38632478632478634,
+        "sl_rate": 0.6136752136752137,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.18888888888888888,
+        "events_per_hour": 585.0325018056559,
+        "stratified": {
+          "n_total_outcomes": 585,
+          "tiers": {
+            "micro": {
+              "n": 27,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.555555555555555
+            },
+            "small": {
+              "n": 10,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.55
+            },
+            "medium": {
+              "n": 31,
+              "tp_rate": 0.41935483870967744,
+              "sl_rate": 0.5806451612903226,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.4838709677419355
+            },
+            "large": {
+              "n": 68,
+              "tp_rate": 0.4264705882352941,
+              "sl_rate": 0.5735294117647058,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.5294117647058824
+            },
+            "extreme": {
+              "n": 449,
+              "tp_rate": 0.40979955456570155,
+              "sl_rate": 0.5902004454342984,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.28507795100222716
+            }
+          },
+          "large_move_selectivity": 0.8837606837606837
+        }
+      },
+      {
+        "threshold": 2025.325271,
+        "n_signals": 364,
+        "tp_rate": 0.36813186813186816,
+        "sl_rate": 0.6318681318681318,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.29120879120879123,
+        "events_per_hour": 364.02022334574144,
+        "stratified": {
+          "n_total_outcomes": 364,
+          "tiers": {
+            "micro": {
+              "n": 24,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.895833333333333
+            },
+            "small": {
+              "n": 7,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.357142857142857
+            },
+            "medium": {
+              "n": 13,
+              "tp_rate": 0.6153846153846154,
+              "sl_rate": 0.38461538461538464,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 3.0
+            },
+            "large": {
+              "n": 42,
+              "tp_rate": 0.40476190476190477,
+              "sl_rate": 0.5952380952380952,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.03571428571428571
+            },
+            "extreme": {
+              "n": 278,
+              "tp_rate": 0.3920863309352518,
+              "sl_rate": 0.6079136690647482,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.20323741007194246
+            }
+          },
+          "large_move_selectivity": 0.8791208791208791
+        }
+      },
+      {
+        "threshold": 2294.72513,
+        "n_signals": 227,
+        "tp_rate": 0.36123348017621143,
+        "sl_rate": 0.6343612334801763,
+        "timeout_rate": 0.004405286343612335,
+        "mean_pnl_ticks": -0.5550660792951542,
+        "events_per_hour": 227.01261181176733,
+        "stratified": {
+          "n_total_outcomes": 227,
+          "tiers": {
+            "micro": {
+              "n": 15,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.266666666666667
+            },
+            "small": {
+              "n": 6,
+              "tp_rate": 0.0,
+              "sl_rate": 0.8333333333333334,
+              "timeout_rate": 0.16666666666666666,
+              "mean_pnl_ticks": -5.0
+            },
+            "medium": {
+              "n": 8,
+              "tp_rate": 0.625,
+              "sl_rate": 0.375,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 4.625
+            },
+            "large": {
+              "n": 20,
+              "tp_rate": 0.45,
+              "sl_rate": 0.55,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.625
+            },
+            "extreme": {
+              "n": 178,
+              "tp_rate": 0.38202247191011235,
+              "sl_rate": 0.6179775280898876,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.06460674157303371
+            }
+          },
+          "large_move_selectivity": 0.8722466960352423
+        }
+      },
+      {
+        "threshold": 3163.918356,
+        "n_signals": 24,
+        "tp_rate": 0.2916666666666667,
+        "sl_rate": 0.7083333333333334,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -2.0208333333333335,
+        "events_per_hour": 24.001333407411522,
+        "stratified": {
+          "n_total_outcomes": 24,
+          "tiers": {
+            "micro": {
+              "n": 1,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -20.0
+            },
+            "small": {
+              "n": 0,
+              "tp_rate": null,
+              "sl_rate": null,
+              "timeout_rate": null,
+              "mean_pnl_ticks": null
+            },
+            "medium": {
+              "n": 2,
+              "tp_rate": 0.5,
+              "sl_rate": 0.5,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 2.5
+            },
+            "large": {
+              "n": 2,
+              "tp_rate": 0.5,
+              "sl_rate": 0.5,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 4.0
+            },
+            "extreme": {
+              "n": 19,
+              "tp_rate": 0.2631578947368421,
+              "sl_rate": 0.7368421052631579,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -2.1842105263157894
+            }
+          },
+          "large_move_selectivity": 0.875
+        }
+      }
+    ],
+    "best_threshold": 1411.295952,
+    "best_tp_rate": 0.3942307692307692,
+    "best_n_signals": 728,
+    "best_large_move_selectivity": 0.8667582417582418
+  },
+  "spatial_vacuum_weighted": {
+    "thresholds": [
+      {
+        "threshold": 89.17654,
+        "n_signals": 938,
+        "tp_rate": 0.39339019189765456,
+        "sl_rate": 0.6066098081023454,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.012260127931769723,
+        "events_per_hour": 938.0521140063337,
+        "stratified": {
+          "n_total_outcomes": 938,
+          "tiers": {
+            "micro": {
+              "n": 46,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.021739130434783
+            },
+            "small": {
+              "n": 30,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.6
+            },
+            "medium": {
+              "n": 46,
+              "tp_rate": 0.30434782608695654,
+              "sl_rate": 0.6956521739130435,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.7391304347826086
+            },
+            "large": {
+              "n": 120,
+              "tp_rate": 0.4583333333333333,
+              "sl_rate": 0.5416666666666666,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.1291666666666667
+            },
+            "extreme": {
+              "n": 696,
+              "tp_rate": 0.43103448275862066,
+              "sl_rate": 0.5689655172413793,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7614942528735632
+            }
+          },
+          "large_move_selectivity": 0.8699360341151386
+        }
+      },
+      {
+        "threshold": 131.929579,
+        "n_signals": 860,
+        "tp_rate": 0.40581395348837207,
+        "sl_rate": 0.5941860465116279,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.08546511627906976,
+        "events_per_hour": 860.0477804322462,
+        "stratified": {
+          "n_total_outcomes": 860,
+          "tiers": {
+            "micro": {
+              "n": 43,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.988372093023256
+            },
+            "small": {
+              "n": 28,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.482142857142857
+            },
+            "medium": {
+              "n": 51,
+              "tp_rate": 0.39215686274509803,
+              "sl_rate": 0.6078431372549019,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.4117647058823529
+            },
+            "large": {
+              "n": 109,
+              "tp_rate": 0.4036697247706422,
+              "sl_rate": 0.5963302752293578,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.3256880733944954
+            },
+            "extreme": {
+              "n": 629,
+              "tp_rate": 0.45310015898251194,
+              "sl_rate": 0.5468998410174881,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.0858505564387917
+            }
+          },
+          "large_move_selectivity": 0.858139534883721
+        }
+      },
+      {
+        "threshold": 158.447123,
+        "n_signals": 736,
+        "tp_rate": 0.38722826086956524,
+        "sl_rate": 0.6127717391304348,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": -0.15557065217391305,
+        "events_per_hour": 736.04089116062,
+        "stratified": {
+          "n_total_outcomes": 736,
+          "tiers": {
+            "micro": {
+              "n": 38,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -8.013157894736842
+            },
+            "small": {
+              "n": 20,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.525
+            },
+            "medium": {
+              "n": 49,
+              "tp_rate": 0.3469387755102041,
+              "sl_rate": 0.6530612244897959,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.1938775510204083
+            },
+            "large": {
+              "n": 90,
+              "tp_rate": 0.37777777777777777,
+              "sl_rate": 0.6222222222222222,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.24444444444444444
+            },
+            "extreme": {
+              "n": 539,
+              "tp_rate": 0.43413729128014844,
+              "sl_rate": 0.5658627087198516,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7439703153988868
+            }
+          },
+          "large_move_selectivity": 0.8546195652173914
+        }
+      },
+      {
+        "threshold": 198.457088,
+        "n_signals": 496,
+        "tp_rate": 0.4092741935483871,
+        "sl_rate": 0.5907258064516129,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.3780241935483871,
+        "events_per_hour": 496.0275570865048,
+        "stratified": {
+          "n_total_outcomes": 496,
+          "tiers": {
+            "micro": {
+              "n": 27,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.407407407407407
+            },
+            "small": {
+              "n": 7,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.357142857142857
+            },
+            "medium": {
+              "n": 37,
+              "tp_rate": 0.4594594594594595,
+              "sl_rate": 0.5405405405405406,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.472972972972973
+            },
+            "large": {
+              "n": 54,
+              "tp_rate": 0.25925925925925924,
+              "sl_rate": 0.7407407407407407,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -2.990740740740741
+            },
+            "extreme": {
+              "n": 371,
+              "tp_rate": 0.4636118598382749,
+              "sl_rate": 0.5363881401617251,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.4528301886792452
+            }
+          },
+          "large_move_selectivity": 0.8568548387096774
+        }
+      },
+      {
+        "threshold": 237.582014,
+        "n_signals": 331,
+        "tp_rate": 0.41389728096676737,
+        "sl_rate": 0.5861027190332326,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.40181268882175225,
+        "events_per_hour": 331.0183899105506,
+        "stratified": {
+          "n_total_outcomes": 331,
+          "tiers": {
+            "micro": {
+              "n": 19,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -7.131578947368421
+            },
+            "small": {
+              "n": 7,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -6.357142857142857
+            },
+            "medium": {
+              "n": 21,
+              "tp_rate": 0.5238095238095238,
+              "sl_rate": 0.47619047619047616,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 2.2142857142857144
+            },
+            "large": {
+              "n": 41,
+              "tp_rate": 0.4146341463414634,
+              "sl_rate": 0.5853658536585366,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -0.10975609756097561
+            },
+            "extreme": {
+              "n": 243,
+              "tp_rate": 0.448559670781893,
+              "sl_rate": 0.551440329218107,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 1.1152263374485596
+            }
+          },
+          "large_move_selectivity": 0.8580060422960725
+        }
+      },
+      {
+        "threshold": 328.753433,
+        "n_signals": 72,
+        "tp_rate": 0.4027777777777778,
+        "sl_rate": 0.5972222222222222,
+        "timeout_rate": 0.0,
+        "mean_pnl_ticks": 0.1597222222222222,
+        "events_per_hour": 72.00400022223457,
+        "stratified": {
+          "n_total_outcomes": 72,
+          "tiers": {
+            "micro": {
+              "n": 3,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -5.0
+            },
+            "small": {
+              "n": 2,
+              "tp_rate": 0.0,
+              "sl_rate": 1.0,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -11.5
+            },
+            "medium": {
+              "n": 3,
+              "tp_rate": 0.3333333333333333,
+              "sl_rate": 0.6666666666666666,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": -1.5
+            },
+            "large": {
+              "n": 4,
+              "tp_rate": 0.5,
+              "sl_rate": 0.5,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 3.0
+            },
+            "extreme": {
+              "n": 60,
+              "tp_rate": 0.43333333333333335,
+              "sl_rate": 0.5666666666666667,
+              "timeout_rate": 0.0,
+              "mean_pnl_ticks": 0.7
+            }
+          },
+          "large_move_selectivity": 0.8888888888888888
+        }
+      }
+    ],
+    "best_threshold": 237.582014,
+    "best_tp_rate": 0.41389728096676737,
+    "best_n_signals": 331,
+    "best_large_move_selectivity": 0.8580060422960725
+  }
+}
