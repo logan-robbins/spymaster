@@ -22,9 +22,9 @@ from typing import Any
 
 import numpy as np
 
-from experiment_harness.signals.base import SignalResult, StatisticalSignal
-from experiment_harness.signals.features import ema_1d
-from experiment_harness.signals import register_signal
+from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.experiment_harness.signals.features import ema_1d
+from src.experiment_harness.signals import register_signal
 
 
 class SPGSignal(StatisticalSignal):

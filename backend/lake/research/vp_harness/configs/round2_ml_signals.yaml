@@ -1,0 +1,71 @@
+name: round2_ml_signals
+description: EXPERIMENT.md Round 2 style ML walk-forward campaign with retrain sweeps.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - svm_sp
+  - gbm_mf
+  - knn_cl
+  - lsvm_der
+  - xgb_snap
+  - pca_ad
+
+eval:
+  tp_ticks: [8, 10]
+  sl_ticks: [4, 5]
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20, 30]
+  per_signal:
+    svm_sp:
+      min_train_bins: [900, 1200, 1500]
+      retrain_interval: [150, 300, 600]
+      svm_c: [0.05, 0.1, 0.2]
+      rolling_windows:
+        - [50, 200, 600]
+        - [30, 120, 360]
+    gbm_mf:
+      min_train_bins: [1800, 2400]
+      retrain_interval: [300, 600]
+      slope_window: [30, 50, 80]
+      num_boost_round: [120, 200]
+      early_stopping: [15, 20]
+    knn_cl:
+      k_neighbors: [5, 11, 21, 31]
+      min_train: [1200, 1800]
+      restandardize_interval: [150, 300, 600]
+    lsvm_der:
+      min_train: [1200, 1500]
+      retrain_interval: [300, 600]
+      full_refit_interval: [900, 1200]
+      slope_windows:
+        - [80, 240]
+        - [100, 300]
+    xgb_snap:
+      min_train: [2400, 3000]
+      retrain_interval: [300, 600]
+      num_boost: [100, 150]
+      early_stop: [10, 15]
+    pca_ad:
+      n_components: [8, 10, 12]
+      pca_window: [400, 600, 900]
+      refit_interval: [50, 100, 200]
+
+parallel:
+  max_workers: 3
+  timeout_seconds: 14400
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/round2_ml_signals
+  run_name_prefix: round2
+  tags:
+    stage: research
+    round: "2"

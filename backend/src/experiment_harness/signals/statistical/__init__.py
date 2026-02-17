@@ -6,11 +6,12 @@ module level in each signal module.
 """
 from __future__ import annotations
 
-from experiment_harness.signals.statistical import (  # noqa: F401
+from src.experiment_harness.signals.statistical import (  # noqa: F401
     ads,
     erd,
     iirc,
     jad,
+    msd,
     pfp,
     spg,
 )

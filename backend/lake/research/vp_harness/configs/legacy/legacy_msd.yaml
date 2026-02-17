@@ -1,0 +1,36 @@
+name: legacy_msd
+description: Legacy MSD rerun mapped from vp_experiments agents/msd/run.py (results.json parity uses weighted spatial vacuum variant).
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - msd
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [30]
+  per_signal:
+    msd:
+      variant: [weighted]
+      warmup_bins: [300]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/msd
+  run_name_prefix: legacy_msd
+  tags:
+    stage: legacy
+    source: vp_experiments

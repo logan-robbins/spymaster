@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .base import MLSignal, StatisticalSignal
 
 SIGNAL_REGISTRY: dict[str, type[StatisticalSignal] | type[MLSignal]] = {}
+_SIGNALS_LOADED: bool = False
 
 
 def register_signal(
@@ -58,7 +59,19 @@ def get_signal_class(
         KeyError: If the name is not in the registry, with a list of
             available signal names for debugging.
     """
+    ensure_signals_loaded()
     if name not in SIGNAL_REGISTRY:
         available = sorted(SIGNAL_REGISTRY.keys())
         raise KeyError(f"Unknown signal '{name}'. Available: {available}")
     return SIGNAL_REGISTRY[name]
+
+
+def ensure_signals_loaded() -> None:
+    """Import signal subpackages exactly once to populate SIGNAL_REGISTRY."""
+    global _SIGNALS_LOADED
+    if _SIGNALS_LOADED:
+        return
+    from . import ml  # noqa: F401
+    from . import statistical  # noqa: F401
+
+    _SIGNALS_LOADED = True

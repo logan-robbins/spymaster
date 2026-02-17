@@ -1,0 +1,39 @@
+name: legacy_knn_cl
+description: Legacy KNN_CL rerun mapped from vp_experiments agents/knn_cl/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - knn_cl
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [30]
+  per_signal:
+    knn_cl:
+      k_neighbors: [5, 11, 21, 31]
+      spatial_sample_cols:
+        - [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+      min_train: [1800]
+      restandardize_interval: [300]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 21600
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/knn_cl
+  run_name_prefix: legacy_knn_cl
+  tags:
+    stage: legacy
+    source: vp_experiments

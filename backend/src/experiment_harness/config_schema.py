@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class GridVariantConfig(BaseModel):
     c5_v_fill: float | list[float] = 1.5
     c6_v_rest_neg: float | list[float] = 0.5
     c7_a_pull: float | list[float] = 0.3
+    bucket_size_dollars: float | list[float] | None = None
     spectrum_windows: list[int] | None = None
     spectrum_derivative_weights: list[float] | None = None
     spectrum_tanh_scale: float | None = None
@@ -73,8 +74,8 @@ class SweepConfig(BaseModel):
             Outer key is signal name, inner dict has same structure as universal.
     """
 
-    universal: dict[str, list[Any]] = {}
-    per_signal: dict[str, dict[str, list[Any]]] = {}
+    universal: dict[str, list[Any]] = Field(default_factory=dict)
+    per_signal: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
 
 
 class ParallelConfig(BaseModel):
@@ -106,10 +107,26 @@ class OnlineSimConfig(BaseModel):
         warmup_bins: Number of bins to skip before measuring.
     """
 
-    signals: list[str] = []
+    signals: list[str] = Field(default_factory=list)
     measure_latency: bool = True
     measure_memory: bool = True
     warmup_bins: int = 300
+
+
+class TrackingConfig(BaseModel):
+    """Experiment tracking configuration.
+
+    MLflow is canonical; optional W&B mirroring can be enabled per campaign.
+    """
+
+    backend: Literal["mlflow", "none"] = "mlflow"
+    tracking_uri: str | None = None
+    experiment_name: str | None = None
+    run_name_prefix: str | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+    wandb_mirror: bool = False
+    wandb_project: str | None = None
+    wandb_entity: str | None = None
 
 
 class ExperimentConfig(BaseModel):
@@ -129,6 +146,7 @@ class ExperimentConfig(BaseModel):
         sweep: Parameter sweep configuration.
         parallel: Parallelism settings.
         online_sim: Optional online simulation configuration.
+        tracking: Experiment tracking backend/settings.
     """
 
     name: str
@@ -136,10 +154,11 @@ class ExperimentConfig(BaseModel):
     datasets: list[str]
     signals: list[str]
     grid_variant: GridVariantConfig | None = None
-    eval: EvalConfig = EvalConfig()
-    sweep: SweepConfig = SweepConfig()
-    parallel: ParallelConfig = ParallelConfig()
+    eval: EvalConfig = Field(default_factory=EvalConfig)
+    sweep: SweepConfig = Field(default_factory=SweepConfig)
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     online_sim: OnlineSimConfig | None = None
+    tracking: TrackingConfig = Field(default_factory=TrackingConfig)
 
     @field_validator("datasets")
     @classmethod

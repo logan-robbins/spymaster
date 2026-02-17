@@ -7,20 +7,24 @@ to the append-only ResultsDB.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import itertools
 import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .config_schema import ExperimentConfig
+from .config_schema import ExperimentConfig, GridVariantConfig
 from .dataset_registry import DatasetRegistry
 from .eval_engine import EvalEngine
+from .grid_generator import GridGenerator
 from .results_db import ResultsDB
-from .signals import SIGNAL_REGISTRY, get_signal_class
+from .signals import SIGNAL_REGISTRY, ensure_signals_loaded, get_signal_class
 from .signals.base import MLSignal, MLSignalResult, SignalResult, StatisticalSignal
+from .tracking import ExperimentTracker
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +64,15 @@ class ExperimentRunner:
         Returns:
             List of run_id strings, one per (dataset, signal, params) combo.
         """
+        ensure_signals_loaded()
         config_hash: str = self._compute_config_hash(config)
-        specs: list[dict[str, Any]] = self._expand_param_grid(config)
+        tracker = ExperimentTracker(config.tracking, config.name)
+        dataset_ids, dataset_variant_map = self._resolve_datasets(config)
+        specs: list[dict[str, Any]] = self._expand_param_grid(
+            config=config,
+            dataset_ids=dataset_ids,
+            dataset_variant_map=dataset_variant_map,
+        )
         logger.info(
             "Experiment '%s': %d run specs expanded from config",
             config.name,
@@ -82,10 +93,19 @@ class ExperimentRunner:
 
         if max_workers > 1:
             run_ids = self._run_parallel(
-                config, config_hash, by_dataset, max_workers
+                config=config,
+                config_hash=config_hash,
+                by_dataset=by_dataset,
+                max_workers=max_workers,
+                tracker=tracker,
             )
         else:
-            run_ids = self._run_sequential(config, config_hash, by_dataset)
+            run_ids = self._run_sequential(
+                config=config,
+                config_hash=config_hash,
+                by_dataset=by_dataset,
+                tracker=tracker,
+            )
 
         self._print_summary(config)
         return run_ids
@@ -95,6 +115,7 @@ class ExperimentRunner:
         config: ExperimentConfig,
         config_hash: str,
         by_dataset: dict[str, list[dict[str, Any]]],
+        tracker: ExperimentTracker,
     ) -> list[str]:
         """Execute all specs sequentially, one dataset at a time.
 
@@ -124,13 +145,16 @@ class ExperimentRunner:
                     )
                     meta["experiment_name"] = config.name
                     meta["config_hash"] = config_hash
-                    meta["grid_variant_id"] = (
-                        "immutable"
-                        if config.grid_variant is None
-                        else "variant"
-                    )
+                    meta["grid_variant_id"] = spec.get("grid_variant_id", "immutable")
 
                     run_id: str = self.results_db.append_run(meta, results)
+                    tracker.log_run(
+                        run_id_local=run_id,
+                        config_name=config.name,
+                        config_hash=config_hash,
+                        meta=meta,
+                        results=results,
+                    )
                     run_ids.append(run_id)
                     logger.info(
                         "Completed run %s: signal=%s dataset=%s tp_ticks=%d sl_ticks=%d",
@@ -156,6 +180,7 @@ class ExperimentRunner:
         config_hash: str,
         by_dataset: dict[str, list[dict[str, Any]]],
         max_workers: int,
+        tracker: ExperimentTracker,
     ) -> list[str]:
         """Execute specs using a ThreadPoolExecutor.
 
@@ -199,13 +224,16 @@ class ExperimentRunner:
                         )
                         meta["experiment_name"] = config.name
                         meta["config_hash"] = config_hash
-                        meta["grid_variant_id"] = (
-                            "immutable"
-                            if config.grid_variant is None
-                            else "variant"
-                        )
+                        meta["grid_variant_id"] = spec.get("grid_variant_id", "immutable")
 
                         run_id: str = self.results_db.append_run(meta, results)
+                        tracker.log_run(
+                            run_id_local=run_id,
+                            config_name=config.name,
+                            config_hash=config_hash,
+                            meta=meta,
+                            results=results,
+                        )
                         run_ids.append(run_id)
                         logger.info(
                             "Completed run %s: signal=%s dataset=%s",
@@ -313,7 +341,10 @@ class ExperimentRunner:
             )
         elif isinstance(signal_instance, StatisticalSignal):
             result_stat: SignalResult = signal_instance.compute(dataset_cache)
-            thresholds = signal_instance.default_thresholds()
+            thresholds = self._resolve_thresholds(
+                signal_instance.default_thresholds(),
+                result_stat.metadata,
+            )
             results = engine.sweep_thresholds(
                 signal=result_stat.signal,
                 thresholds=thresholds,
@@ -350,7 +381,11 @@ class ExperimentRunner:
         return meta, results
 
     def _expand_param_grid(
-        self, config: ExperimentConfig
+        self,
+        *,
+        config: ExperimentConfig,
+        dataset_ids: list[str],
+        dataset_variant_map: dict[str, str],
     ) -> list[dict[str, Any]]:
         """Expand config into a list of individual run specifications.
 
@@ -364,6 +399,8 @@ class ExperimentRunner:
             List of run spec dicts, each with keys: dataset_id, signal_name,
             signal_params, eval_config.
         """
+        ensure_signals_loaded()
+
         # Resolve signal names
         if config.signals == ["all"]:
             signal_names: list[str] = sorted(SIGNAL_REGISTRY.keys())
@@ -390,9 +427,7 @@ class ExperimentRunner:
 
         specs: list[dict[str, Any]] = []
 
-        for dataset_id, signal_name in itertools.product(
-            config.datasets, signal_names
-        ):
+        for dataset_id, signal_name in itertools.product(dataset_ids, signal_names):
             # Build parameter combos for this signal
             param_combos: list[dict[str, Any]] = self._expand_signal_params(
                 signal_name, config
@@ -404,6 +439,9 @@ class ExperimentRunner:
                 specs.append(
                     {
                         "dataset_id": dataset_id,
+                        "grid_variant_id": dataset_variant_map.get(
+                            dataset_id, "immutable"
+                        ),
                         "signal_name": signal_name,
                         "signal_params": dict(params),
                         "eval_config": {
@@ -451,6 +489,8 @@ class ExperimentRunner:
         for key, values in per_signal.items():
             merged[key] = values if isinstance(values, list) else [values]
 
+        self._validate_signal_params(signal_name=signal_name, param_grid=merged)
+
         if not merged:
             return [{}]
 
@@ -462,6 +502,127 @@ class ExperimentRunner:
             combos.append(dict(zip(keys, combo_values)))
 
         return combos
+
+    @staticmethod
+    def _expand_grid_variant_specs(
+        spec: GridVariantConfig,
+    ) -> list[GridVariantConfig]:
+        """Expand scalar/list grid-variant fields into concrete scalar specs."""
+        sweep_fields = (
+            "cell_width_ms",
+            "c1_v_add",
+            "c2_v_rest_pos",
+            "c3_a_add",
+            "c4_v_pull",
+            "c5_v_fill",
+            "c6_v_rest_neg",
+            "c7_a_pull",
+            "bucket_size_dollars",
+        )
+
+        raw = deepcopy(spec.model_dump())
+        axes: dict[str, list[Any]] = {}
+        for field in sweep_fields:
+            value = raw.get(field)
+            if isinstance(value, list):
+                if not value:
+                    raise ValueError(f"grid_variant.{field} sweep list cannot be empty")
+                axes[field] = list(value)
+                raw[field] = None
+
+        if not axes:
+            return [spec]
+
+        keys = sorted(axes.keys())
+        expanded: list[GridVariantConfig] = []
+        for combo in itertools.product(*(axes[k] for k in keys)):
+            payload = dict(raw)
+            for k, v in zip(keys, combo):
+                payload[k] = v
+            expanded.append(GridVariantConfig.model_validate(payload))
+        return expanded
+
+    def _resolve_datasets(
+        self,
+        config: ExperimentConfig,
+    ) -> tuple[list[str], dict[str, str]]:
+        """Resolve final dataset IDs, generating grid variants when configured."""
+        dataset_ids: list[str] = list(config.datasets)
+        dataset_variant_map: dict[str, str] = {ds: "immutable" for ds in dataset_ids}
+
+        if config.grid_variant is None:
+            return dataset_ids, dataset_variant_map
+
+        generator = GridGenerator(self.lake_root)
+        variant_specs = self._expand_grid_variant_specs(config.grid_variant)
+        logger.info("Generating %d grid variants from config.grid_variant", len(variant_specs))
+        for variant_spec in variant_specs:
+            variant_id = generator.generate(variant_spec)
+            if variant_id not in dataset_variant_map:
+                dataset_ids.append(variant_id)
+            dataset_variant_map[variant_id] = variant_id
+
+        return dataset_ids, dataset_variant_map
+
+    @staticmethod
+    def _validate_signal_params(
+        *,
+        signal_name: str,
+        param_grid: dict[str, list[Any]],
+    ) -> None:
+        """Fail fast if sweep keys are not accepted by a signal constructor."""
+        if not param_grid:
+            return
+
+        signal_cls = get_signal_class(signal_name)
+        sig = inspect.signature(signal_cls.__init__)
+        accepts_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        )
+        allowed = {
+            name
+            for name, p in sig.parameters.items()
+            if name != "self"
+            and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        }
+        unknown = sorted(k for k in param_grid.keys() if k not in allowed)
+        if unknown and not accepts_kwargs:
+            raise ValueError(
+                f"Unknown sweep params for signal '{signal_name}': {unknown}. "
+                f"Allowed params: {sorted(allowed)}"
+            )
+
+    @staticmethod
+    def _resolve_thresholds(
+        default_thresholds: list[float],
+        metadata: dict[str, Any] | None,
+    ) -> list[float]:
+        """Resolve threshold grid from metadata or fall back to defaults.
+
+        Statistical signals can return ``metadata["adaptive_thresholds"]`` to
+        override default thresholds based on observed signal distribution.
+        """
+        if not metadata:
+            return default_thresholds
+
+        adaptive = metadata.get("adaptive_thresholds")
+        if not isinstance(adaptive, list):
+            return default_thresholds
+
+        parsed: list[float] = []
+        for value in adaptive:
+            try:
+                thr = float(value)
+            except (TypeError, ValueError):
+                continue
+            if thr > 0.0:
+                parsed.append(thr)
+
+        if not parsed:
+            return default_thresholds
+
+        return sorted(set(parsed))
 
     def _print_summary(self, config: ExperimentConfig) -> None:
         """Print a ranked summary of the best result per signal.

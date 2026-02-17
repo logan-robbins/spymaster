@@ -1,0 +1,40 @@
+name: legacy_xgb_snap
+description: Legacy XGB_SNAP rerun mapped from vp_experiments agents/xgb_snap/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - xgb_snap
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [30]
+  per_signal:
+    xgb_snap:
+      rolling_windows:
+        - [50, 200, 600]
+      min_train: [3000]
+      retrain_interval: [600]
+      num_boost: [150]
+      early_stop: [15]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 21600
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/xgb_snap
+  run_name_prefix: legacy_xgb_snap
+  tags:
+    stage: legacy
+    source: vp_experiments

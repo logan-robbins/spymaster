@@ -317,6 +317,94 @@ uv run scripts/analyze_vp_signals.py \
   --json-output /tmp/projection_experiment_0925_0935.json
 ```
 
+## Experiment Harness (MLflow)
+
+The offline experiment harness is the canonical way to run EXPERIMENT.md-style
+campaigns with parameter sweeps, ablations, and MLflow tracking.
+
+Run a smoke campaign on the immutable gold dataset:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/smoke_ads.yaml
+```
+
+Run statistical (Round 1 style) sweep campaign:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/round1_stat_signals.yaml
+```
+
+Run ML (Round 2 style) walk-forward campaign:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/round2_ml_signals.yaml
+```
+
+Run grid-variant ablation campaign (regenerates grid variants + runs sweeps):
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/grid_variant_ablation.yaml
+```
+
+Run full legacy-mapped suite (all `vp_experiments` agents as config runs):
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/legacy/legacy_full_suite.yaml
+```
+
+Run legacy MSD parity config:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/vp_harness/configs/legacy/legacy_msd.yaml
+```
+
+Compare best results:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli compare \
+  --dataset-id mnqh6_20260206_0925_1025 \
+  --min-signals 5
+```
+
+List available signals/datasets:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli list-signals
+uv run python -m src.experiment_harness.cli list-datasets
+```
+
+Optional online simulation for one signal:
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli online-sim \
+  --signal lsvm_der \
+  --dataset-id mnqh6_20260206_0925_1025 \
+  --bin-budget-ms 100
+```
+
+MLflow notes:
+
+- Default tracking backend is MLflow (`tracking.backend: mlflow` in config).
+- Default local storage is `backend/mlruns` unless `tracking_uri` is set.
+- Use `tracking.experiment_name` in YAML to route campaigns to a named MLflow experiment.
+- Optional W&B mirroring is config-driven (`tracking.wandb_mirror: true` + `wandb_project`).
+- LLM operator playbook: `backend/src/experiment_harness/README.md`.
+
 ## Pressure Core Benchmark
 
 Math-first replay benchmark (full grid, no radius filtering):
@@ -379,6 +467,13 @@ cd backend && uv run scripts/cache_vp_output.py --help
 cd backend && uv run scripts/publish_vp_research_dataset.py --help
 cd backend && uv run scripts/analyze_vp_signals.py --help
 cd backend && uv run scripts/benchmark_vp_core.py --help
+cd backend && uv run python -m src.experiment_harness.cli --help
+cd backend && uv run python -m src.experiment_harness.cli list-signals
+cd backend && uv run python -m src.experiment_harness.cli list-datasets
+cd backend && uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/smoke_ads.yaml
+cd backend && uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/legacy/legacy_ads.yaml
+cd backend && uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/legacy/legacy_msd.yaml
+cd backend && uv run pytest -q tests/test_experiment_harness
 cd backend && uv run pytest -q
 cd frontend && npx tsc --noEmit
 ```
@@ -399,7 +494,17 @@ cd frontend && npx tsc --noEmit
 - `backend/scripts/cache_vp_output.py`: bounded-window compute capture to parquet (`bins`, flattened `buckets`, `manifest`)
 - `backend/scripts/publish_vp_research_dataset.py`: split cache into immutable clean grid store + projection experiment workspaces
 - `backend/scripts/analyze_vp_signals.py`: canonical fixed-bin analysis (+ `projection_experiment` sweep mode)
+- `backend/src/experiment_harness/cli.py`: offline experiment CLI (`run`, `compare`, `generate-grid`, `online-sim`)
+- `backend/src/experiment_harness/runner.py`: config-driven campaign runner (dataset x signal x params x TP/SL x cooldown)
+- `backend/src/experiment_harness/grid_generator.py`: raw replay grid variant generator (`cell_width_ms`, C1-C7, bucket size, spectrum params)
+- `backend/src/experiment_harness/tracking.py`: MLflow canonical tracking adapter (+ optional W&B mirroring)
+- `backend/src/experiment_harness/config_schema.py`: YAML schema including tracking and grid-variant sweep config
+- `backend/src/experiment_harness/README.md`: LLM-facing harness launch/update/report instructions
+- `backend/src/experiment_harness/signals/statistical/msd.py`: legacy MSD parity signal (spatial vacuum weighted/sum variants)
+- `backend/lake/research/vp_harness/configs/*.yaml`: ready-to-run campaign templates (smoke/stat/ml/grid-ablation)
+- `backend/lake/research/vp_harness/configs/legacy/*.yaml`: one config per legacy `vp_experiments` agent + full-suite runner
 - `backend/tests/test_vp_math_validation.py`: 22 math validation tests (derivative chain, composite, force model, decay, book stress, fills, modifies)
+- `backend/tests/test_experiment_harness/test_runner_core.py`: harness unit tests (signal registry, grid-variant expansion, param validation)
 - `backend/tests/test_analyze_vp_signals_regime.py`: 11 integration tests (engine lifecycle, spectrum, pipeline)
 - `backend/tests/test_stream_pipeline_perf.py`: producer-latency telemetry tests (metadata capture, JSONL output, window filtering)
 - `backend/tests/test_server_arrow_serialization.py`: Arrow IPC serialization round-trip test for websocket bucket payloads

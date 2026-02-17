@@ -18,9 +18,9 @@ from typing import Any
 
 import numpy as np
 
-from experiment_harness.signals.base import SignalResult, StatisticalSignal
-from experiment_harness.eval_engine import robust_zscore
-from experiment_harness.signals import register_signal
+from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.experiment_harness.eval_engine import robust_zscore
+from src.experiment_harness.signals import register_signal
 
 # Maximum Shannon entropy for 3 states = log2(3) = 1.585 bits
 _LOG2_3: float = float(np.log2(3.0))
@@ -96,6 +96,9 @@ class ERDSignal(StatisticalSignal):
         cooldown_bins: Minimum bins between signal firings.
         spike_floor: Minimum z_H value to activate the spike gate.
             Signal is zero when z_H <= spike_floor.
+        variant: Signal variant to emit.
+            "a" -> score_direction * spike_gate
+            "b" -> entropy_asym * spike_gate
     """
 
     def __init__(
@@ -103,10 +106,14 @@ class ERDSignal(StatisticalSignal):
         zscore_window: int = 100,
         cooldown_bins: int = 40,
         spike_floor: float = 0.5,
+        variant: str = "a",
     ) -> None:
+        if variant not in {"a", "b"}:
+            raise ValueError(f"variant must be 'a' or 'b', got {variant!r}")
         self.zscore_window: int = zscore_window
         self.cooldown_bins: int = cooldown_bins
         self.spike_floor: float = spike_floor
+        self.variant: str = variant
 
     @property
     def name(self) -> str:
@@ -168,10 +175,13 @@ class ERDSignal(StatisticalSignal):
         # Variant B: entropy asymmetry modulated by entropy spike
         signal_b: np.ndarray = entropy_asym * spike_gate
 
+        selected_signal = signal_a if self.variant == "a" else signal_b
+
         return SignalResult(
-            signal=signal_a,
+            signal=selected_signal,
             metadata={
                 "signal_b": signal_b.tolist(),
+                "variant": self.variant,
                 "h_full_mean": float(h_full.mean()),
                 "h_full_std": float(h_full.std()),
                 "h_full_max": float(h_full.max()),

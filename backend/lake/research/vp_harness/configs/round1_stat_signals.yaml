@@ -1,0 +1,62 @@
+name: round1_stat_signals
+description: EXPERIMENT.md Round 1 style statistical campaign with param sweeps.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - ads
+  - spg
+  - erd
+  - pfp
+  - jad
+  - iirc
+
+eval:
+  tp_ticks: [6, 8, 10]
+  sl_ticks: [3, 4, 5]
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20, 30, 50]
+  per_signal:
+    ads:
+      slope_windows:
+        - [10, 25, 50]
+        - [8, 20, 40]
+      zscore_window: [150, 200, 300]
+    pfp:
+      lag_bins: [3, 5, 8]
+      ema_alpha: [0.05, 0.1, 0.2]
+      add_weight: [0.5, 0.6, 0.7]
+      pull_weight: [0.5, 0.4, 0.3]
+    iirc:
+      fast_window: [8, 10, 15]
+      slow_window: [20, 30, 45]
+      noise_floor: [0.05, 0.1, 0.15]
+    erd:
+      zscore_window: [80, 100, 150]
+      spike_floor: [0.3, 0.5, 0.8]
+    spg:
+      fast_span: [3, 5, 8]
+      slow_span: [12, 20, 30]
+      curv_span: [8, 10, 15]
+    jad:
+      zscore_window: [200, 300, 400]
+      tanh_scale: [2.0, 3.0, 4.0]
+
+parallel:
+  max_workers: 4
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/round1_stat_signals
+  run_name_prefix: round1
+  tags:
+    stage: research
+    round: "1"

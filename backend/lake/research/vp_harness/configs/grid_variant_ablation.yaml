@@ -1,0 +1,56 @@
+name: grid_variant_ablation
+description: Grid-parameter ablation campaign over regenerated variants plus baseline dataset.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - ads
+  - pfp
+  - lsvm_der
+
+grid_variant:
+  cell_width_ms: [50, 100, 200]
+  bucket_size_dollars: [2.5, 5.0]
+  c1_v_add: [0.8, 1.0, 1.2]
+  c4_v_pull: [0.8, 1.0, 1.2]
+  c5_v_fill: [1.2, 1.5, 1.8]
+  product_type: future_mbo
+  symbol: MNQH6
+  dt: "2026-02-06"
+  start_time: "09:25"
+
+eval:
+  tp_ticks: [8, 10]
+  sl_ticks: [4, 5]
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20, 30]
+  per_signal:
+    ads:
+      slope_windows:
+        - [10, 25, 50]
+        - [8, 20, 40]
+    pfp:
+      lag_bins: [3, 5, 8]
+      ema_alpha: [0.05, 0.1]
+    lsvm_der:
+      retrain_interval: [300, 600]
+      full_refit_interval: [900, 1200]
+
+parallel:
+  max_workers: 2
+  timeout_seconds: 21600
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/grid_variant_ablation
+  run_name_prefix: grid_ablation
+  tags:
+    stage: research
+    ablation: grid_variant

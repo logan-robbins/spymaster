@@ -244,6 +244,7 @@ class GridGenerator:
             "c5_v_fill",
             "c6_v_rest_neg",
             "c7_a_pull",
+            "bucket_size_dollars",
             "spectrum_windows",
             "spectrum_derivative_weights",
             "spectrum_tanh_scale",
@@ -257,7 +258,7 @@ class GridGenerator:
         ]:
             val = getattr(spec, field_name)
             if isinstance(val, list):
-                param_dict[field_name] = sorted(val)
+                param_dict[field_name] = list(val)
             else:
                 param_dict[field_name] = val
 
@@ -347,6 +348,12 @@ class GridGenerator:
                 f"not a sweep list: {cell_width_ms}. "
                 "The experiment runner must explode sweep axes before calling generate()."
             )
+        if isinstance(spec.bucket_size_dollars, list):
+            raise ValueError(
+                "GridGenerator.generate() requires a scalar bucket_size_dollars, "
+                f"not a sweep list: {spec.bucket_size_dollars}. "
+                "The experiment runner must explode sweep axes before calling generate()."
+            )
 
         # Override spectrum params if provided
         spectrum_windows = (
@@ -395,7 +402,11 @@ class GridGenerator:
             "symbol_root": base_cfg.symbol_root,
             "price_scale": base_cfg.price_scale,
             "tick_size": base_cfg.tick_size,
-            "bucket_size_dollars": base_cfg.bucket_size_dollars,
+            "bucket_size_dollars": (
+                float(spec.bucket_size_dollars)
+                if spec.bucket_size_dollars is not None
+                else base_cfg.bucket_size_dollars
+            ),
             "rel_tick_size": base_cfg.rel_tick_size,
             "grid_radius_ticks": base_cfg.grid_radius_ticks,
             "cell_width_ms": cell_width_ms,
@@ -542,6 +553,7 @@ class GridGenerator:
                 "c5_v_fill": spec.c5_v_fill,
                 "c6_v_rest_neg": spec.c6_v_rest_neg,
                 "c7_a_pull": spec.c7_a_pull,
+                "bucket_size_dollars": spec.bucket_size_dollars,
                 "tau_velocity": spec.tau_velocity,
                 "tau_acceleration": spec.tau_acceleration,
                 "tau_jerk": spec.tau_jerk,

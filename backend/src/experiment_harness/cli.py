@@ -5,11 +5,11 @@ legacy data, and listing available signals and datasets.
 
 Entry point::
 
-    uv run python -m experiment_harness.cli run path/to/config.yaml
-    uv run python -m experiment_harness.cli compare --signal ads
-    uv run python -m experiment_harness.cli list-signals
-    uv run python -m experiment_harness.cli list-datasets
-    uv run python -m experiment_harness.cli import-legacy
+    uv run python -m src.experiment_harness.cli run path/to/config.yaml
+    uv run python -m src.experiment_harness.cli compare --signal ads
+    uv run python -m src.experiment_harness.cli list-signals
+    uv run python -m src.experiment_harness.cli list-datasets
+    uv run python -m src.experiment_harness.cli import-legacy
 """
 from __future__ import annotations
 
@@ -22,9 +22,11 @@ import click
 
 from .config_schema import ExperimentConfig
 from .dataset_registry import DatasetRegistry
+from .grid_generator import GridGenerator
+from .online_simulator import OnlineSimulator
 from .results_db import ResultsDB
 from .runner import ExperimentRunner
-from .signals import SIGNAL_REGISTRY
+from .signals import SIGNAL_REGISTRY, ensure_signals_loaded
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,31 @@ def run(config_path: str, lake_root: str | None) -> None:
     click.echo(f"Completed {len(run_ids)} runs.")
     for rid in run_ids:
         click.echo(f"  {rid}")
+
+
+@cli.command("generate-grid")
+@click.argument("config_path", type=click.Path(exists=True))
+@click.option(
+    "--lake-root",
+    default=None,
+    type=str,
+    help="Override lake root directory. Default: backend/lake/",
+)
+def generate_grid(config_path: str, lake_root: str | None) -> None:
+    """Generate grid variants from a config's grid_variant block."""
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    config: ExperimentConfig = ExperimentConfig.from_yaml(Path(config_path))
+    if config.grid_variant is None:
+        raise click.BadParameter(
+            f"Config '{config_path}' does not include a grid_variant block."
+        )
+
+    specs = ExperimentRunner._expand_grid_variant_specs(config.grid_variant)
+    generator = GridGenerator(resolved_lake)
+    click.echo(f"Generating {len(specs)} variant(s) at {resolved_lake} ...")
+    for idx, spec in enumerate(specs, start=1):
+        variant_id = generator.generate(spec)
+        click.echo(f"  [{idx}/{len(specs)}] {variant_id}")
 
 
 @cli.command()
@@ -252,11 +279,63 @@ def import_legacy(lake_root: str | None) -> None:
     click.echo(f"Imported {imported_count} legacy runs.")
 
 
+@cli.command("online-sim")
+@click.option("--signal", required=True, type=str, help="Signal name to simulate.")
+@click.option("--dataset-id", required=True, type=str, help="Dataset ID to simulate.")
+@click.option(
+    "--signal-params-json",
+    default="{}",
+    type=str,
+    help="JSON object of signal constructor params.",
+)
+@click.option(
+    "--bin-budget-ms",
+    default=100.0,
+    type=float,
+    help="Per-bin budget in milliseconds.",
+)
+@click.option(
+    "--lake-root",
+    default=None,
+    type=str,
+    help="Override lake root directory.",
+)
+def online_sim(
+    signal: str,
+    dataset_id: str,
+    signal_params_json: str,
+    bin_budget_ms: float,
+    lake_root: str | None,
+) -> None:
+    """Run online simulation for one signal/dataset combo."""
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    try:
+        params: dict[str, Any] = json.loads(signal_params_json)
+    except json.JSONDecodeError as exc:
+        raise click.BadParameter(
+            f"Invalid --signal-params-json: {exc}"
+        ) from exc
+
+    sim = OnlineSimulator(resolved_lake)
+    result = sim.simulate(
+        dataset_id=dataset_id,
+        signal_name=signal,
+        signal_params=params,
+        bin_budget_ms=bin_budget_ms,
+    )
+
+    click.echo(f"signal={result.signal_name} dataset={dataset_id}")
+    click.echo(
+        f"p99_total_us={result.total_latency_us.get('p99', 0.0):.2f} "
+        f"budget_pct={result.p99_budget_pct:.2f}% "
+        f"retrain_count={result.retrain_count}"
+    )
+
+
 @cli.command("list-signals")
 def list_signals() -> None:
     """List all registered signals in the harness."""
-    # Force import of signal modules to populate registry
-    _ensure_signals_loaded()
+    ensure_signals_loaded()
 
     if not SIGNAL_REGISTRY:
         click.echo("No signals registered.")
@@ -300,39 +379,6 @@ def list_datasets(lake_root: str | None) -> None:
     click.echo(f"Found {len(datasets)} datasets:")
     for ds_id in datasets:
         click.echo(f"  {ds_id}")
-
-
-def _ensure_signals_loaded() -> None:
-    """Import all signal sub-modules to trigger registration.
-
-    Signal modules register themselves at import time via
-    register_signal(). This function ensures all known sub-packages
-    are imported so the registry is fully populated.
-    """
-    import importlib
-    import pkgutil
-
-    from . import signals as signals_pkg
-
-    for sub_pkg_name in ("statistical", "ml"):
-        sub_pkg_path: str = f"{signals_pkg.__name__}.{sub_pkg_name}"
-        try:
-            sub_pkg = importlib.import_module(sub_pkg_path)
-        except ImportError:
-            continue
-
-        if hasattr(sub_pkg, "__path__"):
-            for _importer, mod_name, _is_pkg in pkgutil.iter_modules(
-                sub_pkg.__path__
-            ):
-                try:
-                    importlib.import_module(f"{sub_pkg_path}.{mod_name}")
-                except ImportError:
-                    logger.debug(
-                        "Could not import signal module %s.%s",
-                        sub_pkg_path,
-                        mod_name,
-                    )
 
 
 if __name__ == "__main__":

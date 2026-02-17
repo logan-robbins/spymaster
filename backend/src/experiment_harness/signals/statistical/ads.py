@@ -20,10 +20,10 @@ from typing import Any
 
 import numpy as np
 
-from experiment_harness.signals.base import SignalResult, StatisticalSignal
-from experiment_harness.signals.features import DEFAULT_BAND_DEFS
-from experiment_harness.eval_engine import rolling_ols_slope, robust_zscore
-from experiment_harness.signals import register_signal
+from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.experiment_harness.signals.features import DEFAULT_BAND_DEFS
+from src.experiment_harness.eval_engine import rolling_ols_slope, robust_zscore
+from src.experiment_harness.signals import register_signal
 
 
 class ADSSignal(StatisticalSignal):

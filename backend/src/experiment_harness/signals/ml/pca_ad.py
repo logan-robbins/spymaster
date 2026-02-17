@@ -23,15 +23,15 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from experiment_harness.eval_engine import rolling_ols_slope, robust_zscore
-from experiment_harness.signals.base import MLSignal, MLSignalResult
-from experiment_harness.signals.features import (
+from src.experiment_harness.eval_engine import rolling_ols_slope, robust_zscore
+from src.experiment_harness.signals.base import MLSignal, MLSignalResult
+from src.experiment_harness.signals.features import (
     DEFAULT_BAND_DEFS,
     band_asymmetry,
     distance_weighted_sum,
     rolling_mean_std,
 )
-from experiment_harness.signals.labels import compute_labels
+from src.experiment_harness.signals.labels import compute_labels
 
 logger = logging.getLogger(__name__)
 

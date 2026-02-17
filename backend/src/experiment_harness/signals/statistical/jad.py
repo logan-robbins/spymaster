@@ -25,9 +25,9 @@ from typing import Any
 
 import numpy as np
 
-from experiment_harness.signals.base import SignalResult, StatisticalSignal
-from experiment_harness.eval_engine import robust_zscore
-from experiment_harness.signals import register_signal
+from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.experiment_harness.eval_engine import robust_zscore
+from src.experiment_harness.signals import register_signal
 
 
 def _build_weights(cols: np.ndarray, spot_col: int = 50) -> np.ndarray:

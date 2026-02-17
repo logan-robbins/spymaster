@@ -1,0 +1,44 @@
+name: legacy_iirc
+description: Legacy IIRC rerun mapped from vp_experiments agents/iirc/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - iirc
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20]
+  per_signal:
+    iirc:
+      bid_slice:
+        - [34, 50]
+      ask_slice:
+        - [51, 67]
+      eps: [1.0]
+      fast_window: [10]
+      slow_window: [30]
+      fast_weight: [0.6]
+      slow_weight: [0.4]
+      noise_floor: [0.1]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/iirc
+  run_name_prefix: legacy_iirc
+  tags:
+    stage: legacy
+    source: vp_experiments

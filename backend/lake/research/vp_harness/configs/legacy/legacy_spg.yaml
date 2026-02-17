@@ -1,0 +1,47 @@
+name: legacy_spg
+description: Legacy SPG rerun mapped from vp_experiments agents/spg/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - spg
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20]
+  per_signal:
+    spg:
+      fast_span: [5]
+      slow_span: [20]
+      curv_cols:
+        - [48, 49, 50, 51, 52]
+      curv_span: [10]
+      blend_smooth: [0.7]
+      blend_curv: [0.3]
+      ema_fast_weight: [0.6]
+      ema_slow_weight: [0.4]
+      ask_band:
+        - [51, 67]
+      bid_band:
+        - [34, 50]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/spg
+  run_name_prefix: legacy_spg
+  tags:
+    stage: legacy
+    source: vp_experiments

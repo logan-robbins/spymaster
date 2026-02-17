@@ -1,0 +1,44 @@
+name: legacy_jad
+description: Legacy JAD rerun mapped from vp_experiments agents/jad/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - jad
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [25]
+  per_signal:
+    jad:
+      bid_cols:
+        - [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+      ask_cols:
+        - [51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74]
+      zscore_window: [300]
+      tanh_scale: [3.0]
+      confirm_weights:
+        - [0.4, 0.6]
+      disagree_weights:
+        - [0.8, 0.2]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/jad
+  run_name_prefix: legacy_jad
+  tags:
+    stage: legacy
+    source: vp_experiments

@@ -1,0 +1,41 @@
+name: legacy_gbm_mf
+description: Legacy GBM_MF rerun mapped from vp_experiments agents/gbm_mf/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - gbm_mf
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [30]
+  per_signal:
+    gbm_mf:
+      slope_window: [50]
+      rolling_windows:
+        - [50, 200, 600]
+      min_train_bins: [2400]
+      retrain_interval: [600]
+      num_boost_round: [200]
+      early_stopping: [20]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 21600
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/gbm_mf
+  run_name_prefix: legacy_gbm_mf
+  tags:
+    stage: legacy
+    source: vp_experiments

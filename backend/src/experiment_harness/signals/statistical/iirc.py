@@ -20,9 +20,9 @@ from typing import Any
 
 import numpy as np
 
-from experiment_harness.signals.base import SignalResult, StatisticalSignal
-from experiment_harness.eval_engine import rolling_ols_slope
-from experiment_harness.signals import register_signal
+from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.experiment_harness.eval_engine import rolling_ols_slope
+from src.experiment_harness.signals import register_signal
 
 
 class IIRCSignal(StatisticalSignal):
@@ -145,6 +145,15 @@ class IIRCSignal(StatisticalSignal):
                 "p95": float(pcts[4]),
             }
 
+        adaptive_thresholds: list[float] = list(self.default_thresholds())
+        if len(nonzero) > 0:
+            abs_p95: float = float(np.percentile(np.abs(nonzero), 95))
+            if abs_p95 > 0.1:
+                adaptive_thresholds.extend([0.08, 0.10])
+            if abs_p95 > 0.5:
+                adaptive_thresholds.extend([0.20, 0.50])
+        adaptive_thresholds = sorted(set(adaptive_thresholds))
+
         return SignalResult(
             signal=signal,
             metadata={
@@ -153,6 +162,7 @@ class IIRCSignal(StatisticalSignal):
                 "nonzero_pcts": nonzero_pcts,
                 "imbalance_mean": float(np.mean(imbalance)),
                 "imbalance_std": float(np.std(imbalance)),
+                "adaptive_thresholds": adaptive_thresholds,
             },
         )
 

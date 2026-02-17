@@ -1,0 +1,41 @@
+name: legacy_svm_sp
+description: Legacy SVM_SP rerun mapped from vp_experiments agents/svm_sp/run.py.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - svm_sp
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [30]
+  per_signal:
+    svm_sp:
+      sampled_k_indices:
+        - [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+      rolling_windows:
+        - [50, 200, 600]
+      min_train_bins: [1200]
+      retrain_interval: [300]
+      svm_c: [0.1]
+
+parallel:
+  max_workers: 1
+  timeout_seconds: 21600
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/legacy/svm_sp
+  run_name_prefix: legacy_svm_sp
+  tags:
+    stage: legacy
+    source: vp_experiments

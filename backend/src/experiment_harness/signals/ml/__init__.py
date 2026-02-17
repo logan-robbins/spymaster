@@ -5,13 +5,13 @@ with the signal registry at import time.
 """
 from __future__ import annotations
 
-from experiment_harness.signals import register_signal
-from experiment_harness.signals.ml.gbm_mf import GBMMFSignal
-from experiment_harness.signals.ml.knn_cl import KNNCLSignal
-from experiment_harness.signals.ml.lsvm_der import LSVMDERSignal
-from experiment_harness.signals.ml.pca_ad import PCAADSignal
-from experiment_harness.signals.ml.svm_sp import SVMSPSignal
-from experiment_harness.signals.ml.xgb_snap import XGBSnapSignal
+from src.experiment_harness.signals import register_signal
+from src.experiment_harness.signals.ml.gbm_mf import GBMMFSignal
+from src.experiment_harness.signals.ml.knn_cl import KNNCLSignal
+from src.experiment_harness.signals.ml.lsvm_der import LSVMDERSignal
+from src.experiment_harness.signals.ml.pca_ad import PCAADSignal
+from src.experiment_harness.signals.ml.svm_sp import SVMSPSignal
+from src.experiment_harness.signals.ml.xgb_snap import XGBSnapSignal
 
 register_signal("svm_sp", SVMSPSignal)
 register_signal("gbm_mf", GBMMFSignal)
