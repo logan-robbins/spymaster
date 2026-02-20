@@ -48,7 +48,6 @@ def main() -> None:
     )
     logger = logging.getLogger("warm_cache")
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
     lake_root = backend_root / "lake"
 
     from src.vacuum_pressure.config import resolve_config
@@ -64,7 +63,7 @@ def main() -> None:
         args.product_type, args.symbol, args.dt, args.start_time,
     )
 
-    base_config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    base_config = resolve_config(args.product_type, args.symbol)
 
     warmup_start_ns, _emit_after_ns = _compute_time_boundaries(
         args.product_type, args.dt, args.start_time,

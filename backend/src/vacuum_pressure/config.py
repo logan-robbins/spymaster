@@ -567,11 +567,8 @@ def parse_projection_horizons_bins_override(raw: Any) -> Tuple[int, ...] | None:
 def resolve_config(
     product_type: str,
     symbol: str,
-    products_yaml_path: Path,  # retained for call-site compatibility
 ) -> VPRuntimeConfig:
     """Resolve runtime config and enforce locked single-instrument contract."""
-    del products_yaml_path
-
     locked_path = _resolve_locked_config_path()
     locked_cfg = _load_locked_instrument_config(locked_path)
 

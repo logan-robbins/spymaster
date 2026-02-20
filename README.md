@@ -99,7 +99,7 @@ Frontend URL query params:
 - `serving=<name>` — load ServingSpec for server-side scoring
 - state-model override params (`state_model_enabled`, `state_model_d1_weight`, etc.) — forwarded to WebSocket
 - `projection_source=backend|frontend` — projection band source (default: backend)
-- `dev_scoring=true` — enable client-side ADS/PFP/SVac composite (dev only, disabled by default)
+- `dev_scoring=true` — enable client-side ADS/PFP/SVac composite (dev only, disabled by default). Requires grid coverage at least `k=-23..+23` (backend `grid_radius_ticks >= 23`).
 
 ## Experiment Workflow
 
@@ -112,6 +112,9 @@ uv run python -m src.experiment_harness.cli generate <pipeline_spec.yaml>
 ```
 
 Idempotent: skips if hash-addressed output exists under `lake/research/vp_immutable/`.
+Output contract:
+- `bins.parquet` = one row per emitted bin (`bin_seq`, `ts_ns`, `mid_price`, bin boundaries, and book metadata).
+- `grid_clean.parquet` = per-bin per-k rows.
 
 ### 2. Run experiment (from ExperimentSpec)
 
@@ -120,6 +123,7 @@ uv run python -m src.experiment_harness.cli run <experiment_spec.yaml>
 ```
 
 Auto-generates the referenced pipeline's dataset if missing. Resolves ExperimentSpec -> ServingSpec -> PipelineSpec. Expands sweep axes, evaluates TP/SL, persists results.
+Runner behavior is fail-fast: any spec error aborts the experiment run.
 
 ### 3. Compare results
 
@@ -133,7 +137,7 @@ uv run python -m src.experiment_harness.cli compare --min-signals 5
 uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run-id <winner_run_id>
 ```
 
-Writes a new ServingSpec YAML to `configs/serving/`. Prints runtime overrides and serving URL.
+Writes a new ServingSpec YAML to `configs/serving/`. Prints runtime overrides and serving URL (`ws://localhost:8002/v1/vacuum-pressure/stream?serving=<name>`).
 
 ### 5. Stream with promoted config
 
@@ -158,6 +162,8 @@ REST API endpoints (served by VP server on :8002):
 - `GET /v1/experiments/runs/{run_id}/detail`
 
 Streaming URL is constructed from `manifest.json` instrument metadata + signal params mapped to state-model WebSocket query params.
+Manifest parsing accepts both legacy top-level instrument fields and nested `source_manifest`/`spec` layouts.
+Derivative launch URL building is strict: unknown derivative params are rejected (`can_stream=false`) to avoid silent partial mappings.
 
 ## Data Locations
 

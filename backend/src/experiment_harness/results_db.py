@@ -52,34 +52,64 @@ class ResultsDB:
         Returns:
             The generated run_id (16-character hex string).
         """
-        run_id: str = uuid.uuid4().hex[:16]
-        meta["run_id"] = run_id
-        meta["timestamp_utc"] = datetime.now(tz=timezone.utc).isoformat()
+        run_ids = self.append_runs([(meta, results)])
+        return run_ids[0]
 
-        # Append meta row
-        meta_df: pd.DataFrame = pd.DataFrame([meta])
+    def append_runs(
+        self,
+        runs: list[tuple[dict[str, Any], list[dict[str, Any]]]],
+    ) -> list[str]:
+        """Append multiple experiment runs in one parquet read/write cycle.
+
+        Args:
+            runs: List of ``(meta, results)`` pairs.
+
+        Returns:
+            Generated run IDs in the same order as input.
+        """
+        if not runs:
+            return []
+
+        run_ids: list[str] = []
+        meta_rows: list[dict[str, Any]] = []
+        result_rows: list[dict[str, Any]] = []
+
+        for meta, results in runs:
+            run_id = uuid.uuid4().hex[:16]
+            run_ids.append(run_id)
+
+            meta_row = dict(meta)
+            meta_row["run_id"] = run_id
+            meta_row["timestamp_utc"] = datetime.now(tz=timezone.utc).isoformat()
+            meta_rows.append(meta_row)
+
+            for row in results:
+                result_row = dict(row)
+                result_row["run_id"] = run_id
+                result_rows.append(result_row)
+
+        new_meta_df = pd.DataFrame(meta_rows)
         if self._meta_path.exists():
-            existing: pd.DataFrame = pd.read_parquet(self._meta_path)
-            meta_df = pd.concat([existing, meta_df], ignore_index=True)
+            existing_meta = pd.read_parquet(self._meta_path)
+            meta_df = pd.concat([existing_meta, new_meta_df], ignore_index=True)
+        else:
+            meta_df = new_meta_df
         meta_df.to_parquet(self._meta_path, index=False)
 
-        # Append result rows
-        for r in results:
-            r["run_id"] = run_id
-        runs_df: pd.DataFrame = pd.DataFrame(results)
+        new_runs_df = pd.DataFrame(result_rows)
         if self._runs_path.exists():
-            existing = pd.read_parquet(self._runs_path)
-            runs_df = pd.concat([existing, runs_df], ignore_index=True)
+            existing_runs = pd.read_parquet(self._runs_path)
+            runs_df = pd.concat([existing_runs, new_runs_df], ignore_index=True)
+        else:
+            runs_df = new_runs_df
         runs_df.to_parquet(self._runs_path, index=False)
 
         logger.info(
-            "Appended run '%s': %d threshold results for signal '%s' on dataset '%s'",
-            run_id,
-            len(results),
-            meta.get("signal_name", "unknown"),
-            meta.get("dataset_id", "unknown"),
+            "Appended %d runs (%d threshold rows)",
+            len(runs),
+            len(result_rows),
         )
-        return run_id
+        return run_ids
 
     def query_best(
         self,

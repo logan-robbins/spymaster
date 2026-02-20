@@ -56,10 +56,20 @@ def rolling_ols_slope(arr: np.ndarray, window: int) -> np.ndarray:
     if abs(denom) < 1e-30:
         return result
 
-    for i in range(window - 1, n):
-        y: np.ndarray = arr[i - window + 1 : i + 1]
-        sum_y: float = float(y.sum())
-        sum_xy: float = float(np.dot(x, y))
+    # Initialize first full window.
+    first_window = arr[:window]
+    sum_y: float = float(first_window.sum())
+    sum_xy: float = float(np.dot(x, first_window))
+    result[window - 1] = (window * sum_xy - sum_x * sum_y) / denom
+
+    # O(1) sliding updates:
+    # T_new = T_old - S_old + y_old + (w-1) * y_new
+    # S_new = S_old - y_old + y_new
+    for i in range(window, n):
+        y_old = float(arr[i - window])
+        y_new = float(arr[i])
+        sum_xy = sum_xy - sum_y + y_old + (window - 1) * y_new
+        sum_y = sum_y - y_old + y_new
         result[i] = (window * sum_xy - sum_x * sum_y) / denom
 
     return result
@@ -170,9 +180,7 @@ class EvalEngine:
         )
 
         k_values: np.ndarray = np.arange(K_MIN, K_MAX + 1, dtype=np.int32)
-        bin_seq_to_idx: dict[int, int] = {
-            seq: i for i, seq in enumerate(bins_df["bin_seq"].values)
-        }
+        bin_seq_index = pd.Index(bins_df["bin_seq"].to_numpy(copy=False))
 
         result: dict[str, Any] = {
             "bins": bins_df,
@@ -183,20 +191,16 @@ class EvalEngine:
         }
 
         # Pivot each column to (n_bins, 101) array
-        bin_seqs: np.ndarray = grid_df["bin_seq"].values
-        k_vals: np.ndarray = grid_df["k"].values
+        bin_seqs: np.ndarray = grid_df["bin_seq"].to_numpy(copy=False)
+        k_vals: np.ndarray = grid_df["k"].to_numpy(copy=False).astype(np.int32, copy=False)
+        b_idxs = bin_seq_index.get_indexer(bin_seqs)
+        k_idxs = k_vals - K_MIN
+        valid_mask = (b_idxs >= 0) & (k_idxs >= 0) & (k_idxs < N_TICKS)
 
         for col in columns:
             arr: np.ndarray = np.zeros((n_bins, N_TICKS), dtype=np.float64)
-            col_vals: np.ndarray = grid_df[col].values.astype(np.float64)
-
-            for row_i in range(len(grid_df)):
-                b_idx: int | None = bin_seq_to_idx.get(bin_seqs[row_i])
-                if b_idx is None:
-                    continue
-                k_idx: int = int(k_vals[row_i]) - K_MIN
-                if 0 <= k_idx < N_TICKS:
-                    arr[b_idx, k_idx] = col_vals[row_i]
+            col_vals: np.ndarray = grid_df[col].to_numpy(dtype=np.float64, copy=False)
+            arr[b_idxs[valid_mask], k_idxs[valid_mask]] = col_vals[valid_mask]
 
             result[col] = arr
 

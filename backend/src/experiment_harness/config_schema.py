@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.vp_shared.yaml_io import load_yaml_mapping
 
@@ -21,6 +21,7 @@ class GridVariantConfig(BaseModel):
 
     Each field accepts either a single value (fixed) or a list of values (sweep axis).
     """
+    model_config = ConfigDict(extra="forbid")
 
     cell_width_ms: int | list[int] = 100
     c1_v_add: float | list[float] = 1.0
@@ -50,12 +51,14 @@ class EvalConfig(BaseModel):
 
     Fields accepting list[int] enable threshold sweeps across TP/SL values.
     """
+    model_config = ConfigDict(extra="forbid")
 
     tp_ticks: int | list[int] = 8
     sl_ticks: int | list[int] = 4
     max_hold_bins: int = 1200
     warmup_bins: int = 300
     tick_size: float = 0.25
+    cooldown_bins: int | list[int] = 20
     min_signals: int = 5
 
     @field_validator("min_signals")
@@ -63,6 +66,17 @@ class EvalConfig(BaseModel):
     def _min_signals_positive(cls, v: int) -> int:
         if v < 1:
             raise ValueError("min_signals must be >= 1")
+        return v
+
+    @field_validator("cooldown_bins")
+    @classmethod
+    def _cooldown_positive(
+        cls,
+        v: int | list[int],
+    ) -> int | list[int]:
+        values = v if isinstance(v, list) else [v]
+        if any(int(x) < 1 for x in values):
+            raise ValueError("cooldown_bins must be >= 1")
         return v
 
 
@@ -75,6 +89,7 @@ class SweepConfig(BaseModel):
         per_signal: Sweep axes specific to individual signals.
             Outer key is signal name, inner dict has same structure as universal.
     """
+    model_config = ConfigDict(extra="forbid")
 
     universal: dict[str, list[Any]] = Field(default_factory=dict)
     per_signal: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
@@ -87,15 +102,23 @@ class ParallelConfig(BaseModel):
         max_workers: Maximum number of concurrent workers.
         timeout_seconds: Per-worker timeout in seconds.
     """
+    model_config = ConfigDict(extra="forbid")
 
-    max_workers: int = 4
-    timeout_seconds: int = 3600
+    max_workers: int = 3
+    timeout_seconds: int = 7200
 
     @field_validator("max_workers")
     @classmethod
     def _max_workers_positive(cls, v: int) -> int:
         if v < 1:
             raise ValueError("max_workers must be >= 1")
+        return v
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _timeout_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("timeout_seconds must be >= 1")
         return v
 
 
@@ -108,6 +131,7 @@ class OnlineSimConfig(BaseModel):
         measure_memory: Whether to measure peak memory usage.
         warmup_bins: Number of bins to skip before measuring.
     """
+    model_config = ConfigDict(extra="forbid")
 
     signals: list[str] = Field(default_factory=list)
     measure_latency: bool = True
@@ -120,6 +144,7 @@ class TrackingConfig(BaseModel):
 
     MLflow is canonical; optional W&B mirroring can be enabled per campaign.
     """
+    model_config = ConfigDict(extra="forbid")
 
     backend: Literal["mlflow", "none"] = "mlflow"
     tracking_uri: str | None = None
@@ -150,6 +175,7 @@ class ExperimentConfig(BaseModel):
         online_sim: Optional online simulation configuration.
         tracking: Experiment tracking backend/settings.
     """
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""

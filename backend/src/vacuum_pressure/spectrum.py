@@ -6,12 +6,13 @@ own time history; no cross-cell coupling is used in this phase.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Sequence
+from typing import Sequence
 
 import numpy as np
 
 from ..vp_shared.zscore import (
     sanitize_unit_interval_array,
+    validate_non_negative_weight_vector,
     validate_positive_weight_vector,
     validate_zscore_tanh_params,
 )
@@ -27,7 +28,7 @@ class SpectrumOutput:
 
     score: np.ndarray
     state_code: np.ndarray
-    projected_score_by_horizon: Dict[int, np.ndarray]
+    projected_score_by_horizon: dict[int, np.ndarray]
     composite: np.ndarray
     composite_d1: np.ndarray
     composite_d2: np.ndarray
@@ -93,7 +94,7 @@ class IndependentCellSpectrum:
             field_name="rollup_weights",
         )
 
-        deriv_w = validate_positive_weight_vector(
+        deriv_w = validate_non_negative_weight_vector(
             list(derivative_weights),
             expected_size=3,
             field_name="derivative_weights",

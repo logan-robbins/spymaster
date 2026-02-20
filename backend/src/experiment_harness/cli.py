@@ -117,6 +117,7 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
     click.echo("Streaming events...")
     t_start: float = time.monotonic()
 
+    all_bin_rows: list[dict[str, Any]] = []
     all_bucket_rows: list[dict[str, Any]] = []
     n_bins: int = 0
 
@@ -133,28 +134,54 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
         bin_seq: int = int(bin_grid["bin_seq"])
         n_bins += 1
 
+        all_bin_rows.append(
+            {
+                "bin_seq": bin_seq,
+                "ts_ns": ts_ns,
+                "bin_start_ns": int(bin_grid["bin_start_ns"]),
+                "bin_end_ns": int(bin_grid["bin_end_ns"]),
+                "mid_price": float(bin_grid["mid_price"]),
+                "event_id": int(bin_grid["event_id"]),
+                "bin_event_count": int(bin_grid["bin_event_count"]),
+                "book_valid": bool(bin_grid["book_valid"]),
+                "best_bid_price_int": int(bin_grid["best_bid_price_int"]),
+                "best_ask_price_int": int(bin_grid["best_ask_price_int"]),
+                "spot_ref_price_int": int(bin_grid["spot_ref_price_int"]),
+            }
+        )
+
         for bucket in bin_grid["buckets"]:
-            bucket["bin_seq"] = bin_seq
-            all_bucket_rows.append(bucket)
+            row = dict(bucket)
+            row["bin_seq"] = bin_seq
+            all_bucket_rows.append(row)
 
     elapsed: float = time.monotonic() - t_start
     click.echo(f"Collected {n_bins} bins ({len(all_bucket_rows)} rows) in {elapsed:.2f}s")
 
-    if not all_bucket_rows:
+    if not all_bin_rows:
         raise click.ClickException(
             "No bins emitted. Check date/time window and data availability."
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    df: pd.DataFrame = pd.DataFrame(all_bucket_rows)
-    df.to_parquet(bins_path, index=False)
-    click.echo(f"  bins.parquet: {len(df)} rows")
+    bins_df: pd.DataFrame = pd.DataFrame(all_bin_rows)
+    bins_df.to_parquet(bins_path, index=False)
+    click.echo(f"  bins.parquet: {len(bins_df)} rows")
 
+    if not all_bucket_rows:
+        raise click.ClickException(
+            "No grid rows emitted. Check date/time window and data availability."
+        )
+
+    df: pd.DataFrame = pd.DataFrame(all_bucket_rows)
     numeric_cols: list[str] = [
         c for c in df.columns
-        if c not in ("k", "bin_seq") and df[c].dtype.kind in ("f", "i")
+        if c not in ("k", "bin_seq") and df[c].dtype.kind in ("f", "i", "u", "b")
     ]
-    mask = df[numeric_cols].abs().sum(axis=1) > 0
+    if numeric_cols:
+        mask = df[numeric_cols].abs().sum(axis=1) > 0
+    else:
+        mask = pd.Series(True, index=df.index)
     df_clean: pd.DataFrame = df[mask].reset_index(drop=True)
     grid_clean_path: Path = output_dir / "grid_clean.parquet"
     df_clean.to_parquet(grid_clean_path, index=False)
@@ -163,6 +190,7 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
     manifest: dict[str, Any] = {
         "pipeline_spec_name": pipeline_spec.name,
         "dataset_id": dataset_id,
+        "product_type": pipeline_spec.capture.product_type,
         "symbol": pipeline_spec.capture.symbol,
         "dt": pipeline_spec.capture.dt,
         "start_time": pipeline_spec.capture.start_time,
@@ -170,6 +198,14 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
         "cell_width_ms": config.cell_width_ms,
         "n_bins": n_bins,
         "code_version": pipeline_spec.pipeline_code_version,
+        "source_manifest": {
+            "product_type": pipeline_spec.capture.product_type,
+            "symbol": pipeline_spec.capture.symbol,
+            "dt": pipeline_spec.capture.dt,
+            "capture_start_et": pipeline_spec.capture.start_time,
+            "capture_end_et": pipeline_spec.capture.end_time,
+            "stream_start_time_hhmm": pipeline_spec.capture.start_time.replace(":", ""),
+        },
     }
     manifest_path: Path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=False))
@@ -510,7 +546,7 @@ def promote(
     click.echo()
     click.echo(
         f"Streaming URL pattern: "
-        f"ws://localhost:8000/ws/vp?serving={promoted.name}"
+        f"ws://localhost:8002/v1/vacuum-pressure/stream?serving={promoted.name}"
     )
 
 

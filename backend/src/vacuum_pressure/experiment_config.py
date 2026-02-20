@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..vp_shared.yaml_io import load_yaml_mapping
 
@@ -47,6 +47,7 @@ class ExperimentEvalConfig(BaseModel):
         min_signals: Minimum number of signals required for a threshold
             evaluation to be considered statistically valid.
     """
+    model_config = ConfigDict(extra="forbid")
 
     tp_ticks: list[int] | int = Field(default=[8])
     sl_ticks: list[int] | int = Field(default=[4])
@@ -96,6 +97,7 @@ class ExperimentSweepConfig(BaseModel):
         per_signal: Signal-specific sweep axes.  Outer key is the signal
             name, inner dict maps parameter names to lists of values.
     """
+    model_config = ConfigDict(extra="forbid")
 
     scoring: dict[str, Any] = Field(default_factory=dict)
     per_signal: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -108,6 +110,7 @@ class ExperimentParallelConfig(BaseModel):
         max_workers: Maximum number of concurrent workers.
         timeout_seconds: Per-worker timeout in seconds.
     """
+    model_config = ConfigDict(extra="forbid")
 
     max_workers: int = 3
     timeout_seconds: int = 7200
@@ -138,6 +141,7 @@ class ExperimentTrackingConfig(BaseModel):
         run_name_prefix: Optional prefix for individual run names.
         tags: Arbitrary key-value tags attached to every run.
     """
+    model_config = ConfigDict(extra="forbid")
 
     backend: Literal["mlflow", "none"] = "mlflow"
     experiment_name: str | None = None
@@ -167,6 +171,7 @@ class ExperimentSpec(BaseModel):
         parallel: Parallelism settings.
         tracking: Experiment tracking backend/settings.
     """
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
@@ -296,6 +301,12 @@ class ExperimentSpec(BaseModel):
                 universal[key] = values
             else:
                 universal[key] = [values]
+
+        if "cooldown_bins" not in universal:
+            cooldown = self.eval.cooldown_bins
+            universal["cooldown_bins"] = (
+                cooldown if isinstance(cooldown, list) else [cooldown]
+            )
 
         return universal
 

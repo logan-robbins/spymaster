@@ -23,8 +23,8 @@ import pandas as pd
 
 from ..vp_shared.zscore import (
     robust_z_current_vectorized,
+    validate_non_negative_weight_vector,
     sanitize_unit_interval_array,
-    validate_positive_weight_vector,
     validate_zscore_tanh_params,
     weighted_tanh_blend,
 )
@@ -87,7 +87,7 @@ class SpectrumScorer:
             tanh_scale=tanh_scale,
             threshold_neutral=threshold,
         )
-        weights = validate_positive_weight_vector(
+        weights = validate_non_negative_weight_vector(
             config.derivative_weights,
             expected_size=3,
             field_name="derivative_weights",
@@ -292,35 +292,57 @@ def score_dataset(
 
     scorer = SpectrumScorer(config, n_cells)
 
-    # Pre-allocate output columns.
-    grid_df["flow_score"] = np.float64(0.0)
-    grid_df["flow_state_code"] = np.int8(0)
+    n_rows = len(grid_df)
+    if n_rows == 0:
+        grid_df["flow_score"] = np.float64(0.0)
+        grid_df["flow_state_code"] = np.int8(0)
+        return grid_df
 
-    # Process bins in chronological order.
-    grouped = grid_df.groupby(bin_col, sort=True)
-    for bin_id, group in grouped:
-        if len(group) != n_cells:
-            raise ValueError(
-                f"Bin {bin_id} has {len(group)} rows, expected {n_cells}"
-            )
+    bin_vals = grid_df[bin_col].to_numpy(copy=False)
+    k_vals = grid_df[k_col].to_numpy(copy=False)
+    d1_vals = grid_df["composite_d1"].to_numpy(dtype=np.float64, copy=False)
+    d2_vals = grid_df["composite_d2"].to_numpy(dtype=np.float64, copy=False)
+    d3_vals = grid_df["composite_d3"].to_numpy(dtype=np.float64, copy=False)
 
-        # Sort by k within each bin and extract derivative arrays.
-        ordered: pd.DataFrame = group.sort_values(k_col)
-        d1: np.ndarray = ordered["composite_d1"].to_numpy(dtype=np.float64)
-        d2: np.ndarray = ordered["composite_d2"].to_numpy(dtype=np.float64)
-        d3: np.ndarray = ordered["composite_d3"].to_numpy(dtype=np.float64)
+    # Single global ordering by (bin_seq, k) avoids per-group sort and .loc writes.
+    order = np.lexsort((k_vals, bin_vals))
+    sorted_bins = bin_vals[order]
+    sorted_d1 = d1_vals[order]
+    sorted_d2 = d2_vals[order]
+    sorted_d3 = d3_vals[order]
 
-        score, state_code = scorer.update(d1, d2, d3)
+    split_idx = np.flatnonzero(sorted_bins[1:] != sorted_bins[:-1]) + 1
+    starts = np.concatenate(([0], split_idx))
+    ends = np.concatenate((split_idx, [n_rows]))
 
-        # Write results back to the original DataFrame rows, in k order.
-        idx: pd.Index = ordered.index
-        grid_df.loc[idx, "flow_score"] = score
-        grid_df.loc[idx, "flow_state_code"] = state_code
+    sorted_scores = np.empty(n_rows, dtype=np.float64)
+    sorted_states = np.empty(n_rows, dtype=np.int8)
+
+    for start, end in zip(starts, ends, strict=False):
+        size = end - start
+        if size != n_cells:
+            bin_id = sorted_bins[start]
+            raise ValueError(f"Bin {bin_id} has {size} rows, expected {n_cells}")
+        score, state_code = scorer.update(
+            sorted_d1[start:end],
+            sorted_d2[start:end],
+            sorted_d3[start:end],
+        )
+        sorted_scores[start:end] = score
+        sorted_states[start:end] = state_code
+
+    flow_score = np.empty(n_rows, dtype=np.float64)
+    flow_state = np.empty(n_rows, dtype=np.int8)
+    flow_score[order] = sorted_scores
+    flow_state[order] = sorted_states
+
+    grid_df["flow_score"] = flow_score
+    grid_df["flow_state_code"] = flow_state
 
     logger.debug(
         "score_dataset complete: %d bins, %d cells/bin, %d total rows",
-        grouped.ngroups,
+        len(starts),
         n_cells,
-        len(grid_df),
+        n_rows,
     )
     return grid_df

@@ -125,13 +125,8 @@ class PipelineSpec(BaseModel):
 
     def resolve_runtime_config(
         self,
-        products_yaml_path: Path | None = None,
     ) -> VPRuntimeConfig:
         """Resolve full VPRuntimeConfig from instrument.yaml + overrides.
-
-        Args:
-            products_yaml_path: Legacy products.yaml path forwarded to
-                resolve_config for call-site compatibility.
 
         Returns:
             Fully validated VPRuntimeConfig with pipeline overrides applied.
@@ -139,7 +134,6 @@ class PipelineSpec(BaseModel):
         base_cfg = resolve_config(
             self.capture.product_type,
             self.capture.symbol,
-            products_yaml_path,
         )
         overrides = self.pipeline.non_none_dict()
         if not overrides:

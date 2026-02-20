@@ -209,8 +209,6 @@ def main() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
-
     from src.vacuum_pressure.config import (
         build_config_with_overrides,
         parse_projection_horizons_bins_override,
@@ -218,7 +216,7 @@ def main() -> None:
     )
     from src.vacuum_pressure.server import create_app
 
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
     try:
         projection_horizons_bins = parse_projection_horizons_bins_override(
             args.projection_horizons_bins
@@ -281,7 +279,6 @@ def main() -> None:
 
     app = create_app(
         lake_root=backend_root / "lake",
-        products_yaml_path=products_yaml_path,
         perf_latency_jsonl=args.perf_latency_jsonl,
         perf_window_start_et=args.perf_window_start_et,
         perf_window_end_et=args.perf_window_end_et,

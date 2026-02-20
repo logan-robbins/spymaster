@@ -385,8 +385,7 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
     """Sweep projection params and score each run on hit-rate + derivative shift metrics."""
     from src.vacuum_pressure.config import resolve_config
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
 
     eval_start_ns = _parse_et_timestamp_ns(args.dt, args.eval_start)
     eval_end_ns = _parse_et_timestamp_ns(args.dt, args.eval_end)
@@ -820,8 +819,7 @@ def _run_regime_mode(args: argparse.Namespace) -> None:
     """Directional micro-regime detection + TP/SL trade evaluation."""
     from src.vacuum_pressure.config import resolve_config
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
 
     eval_start_ns = _parse_et_timestamp_ns(args.dt, args.eval_start)
     eval_end_ns = _parse_et_timestamp_ns(args.dt, args.eval_end)
@@ -1086,8 +1084,7 @@ def main() -> None:
 
     from src.vacuum_pressure.config import resolve_config
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
 
     eval_start_ns = _parse_et_timestamp_ns(args.dt, args.eval_start)
     eval_end_ns = _parse_et_timestamp_ns(args.dt, args.eval_end)

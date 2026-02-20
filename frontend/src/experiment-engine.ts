@@ -26,6 +26,7 @@ import { SVacSignal } from './experiment-svac';
 const W_ADS = 0.40;
 const W_PFP = 0.30;
 const W_SVAC = 0.30;
+const REQUIRED_GRID_RADIUS_TICKS = 23;
 
 export interface CompositeSignal {
   /** Blended directional signal (positive = bullish, negative = bearish). */
@@ -57,6 +58,7 @@ export class ExperimentEngine {
   private readonly ads: ADSSignal;
   private readonly pfp: PFPSignal;
   private readonly svac: SVacSignal;
+  private coverageValidated: boolean = false;
 
   constructor(config: ExperimentEngineConfig) {
     this.ads = new ADSSignal(config.cellWidthMs);
@@ -68,6 +70,11 @@ export class ExperimentEngine {
    * Process one bin's grid data. Returns composite directional signal.
    */
   update(grid: Map<number, ExperimentBucketRow>): CompositeSignal {
+    if (!this.coverageValidated) {
+      this.assertGridCoverage(grid);
+      this.coverageValidated = true;
+    }
+
     const adsVal = this.ads.update(grid);
     const pfpVal = this.pfp.update(grid);
     const svacVal = this.svac.update(grid);
@@ -111,5 +118,18 @@ export class ExperimentEngine {
     this.ads.reset();
     this.pfp.reset();
     this.svac.reset();
+    this.coverageValidated = false;
+  }
+
+  private assertGridCoverage(grid: Map<number, ExperimentBucketRow>): void {
+    for (let k = -REQUIRED_GRID_RADIUS_TICKS; k <= REQUIRED_GRID_RADIUS_TICKS; k++) {
+      if (k === 0) continue;
+      if (!grid.has(k)) {
+        throw new Error(
+          `ExperimentEngine requires full k coverage [-${REQUIRED_GRID_RADIUS_TICKS}, +${REQUIRED_GRID_RADIUS_TICKS}] ` +
+          `for ADS/PFP. Missing k=${k}. Increase backend grid_radius_ticks.`,
+        );
+      }
+    }
   }
 }

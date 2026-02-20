@@ -60,7 +60,6 @@ def test_locked_config_is_single_source_of_truth(tmp_path: Path, monkeypatch: py
     cfg = resolve_config(
         product_type="future_mbo",
         symbol="MNQH6",
-        products_yaml_path=tmp_path / "unused.yaml",
     )
     assert cfg.symbol == "MNQH6"
     assert cfg.tick_size == 0.25
@@ -80,5 +79,4 @@ def test_locked_config_rejects_symbol_mismatch(tmp_path: Path, monkeypatch: pyte
         resolve_config(
             product_type="future_mbo",
             symbol="ESH6",
-            products_yaml_path=tmp_path / "unused.yaml",
         )

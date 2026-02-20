@@ -133,44 +133,43 @@ class ExperimentRunner:
             dataset_cache: dict[str, Any] = self._load_dataset_for_specs(
                 dataset_id, dataset_specs
             )
+            completed_specs: list[tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]] = []
 
             for spec in dataset_specs:
-                try:
-                    meta, results = self._run_single(
-                        dataset_id=spec["dataset_id"],
-                        signal_name=spec["signal_name"],
-                        signal_params=spec["signal_params"],
-                        eval_config=spec["eval_config"],
-                        dataset_cache=dataset_cache,
-                    )
-                    meta["experiment_name"] = config.name
-                    meta["config_hash"] = config_hash
-                    meta["grid_variant_id"] = spec.get("grid_variant_id", "immutable")
+                meta, results = self._run_single(
+                    dataset_id=spec["dataset_id"],
+                    signal_name=spec["signal_name"],
+                    signal_params=spec["signal_params"],
+                    eval_config=spec["eval_config"],
+                    dataset_cache=dataset_cache,
+                )
+                meta["experiment_name"] = config.name
+                meta["config_hash"] = config_hash
+                meta["grid_variant_id"] = spec.get("grid_variant_id", "immutable")
+                completed_specs.append((spec, meta, results))
 
-                    run_id: str = self.results_db.append_run(meta, results)
-                    tracker.log_run(
-                        run_id_local=run_id,
-                        config_name=config.name,
-                        config_hash=config_hash,
-                        meta=meta,
-                        results=results,
-                    )
-                    run_ids.append(run_id)
-                    logger.info(
-                        "Completed run %s: signal=%s dataset=%s tp_ticks=%d sl_ticks=%d",
-                        run_id,
-                        spec["signal_name"],
-                        spec["dataset_id"],
-                        spec["eval_config"]["tp_ticks"],
-                        spec["eval_config"]["sl_ticks"],
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed: signal=%s dataset=%s params=%s",
-                        spec["signal_name"],
-                        spec["dataset_id"],
-                        spec["signal_params"],
-                    )
+            batch_run_ids = self.results_db.append_runs(
+                [(meta, results) for _, meta, results in completed_specs]
+            )
+            for run_id, (spec, meta, results) in zip(
+                batch_run_ids, completed_specs, strict=False
+            ):
+                tracker.log_run(
+                    run_id_local=run_id,
+                    config_name=config.name,
+                    config_hash=config_hash,
+                    meta=meta,
+                    results=results,
+                )
+                run_ids.append(run_id)
+                logger.info(
+                    "Completed run %s: signal=%s dataset=%s tp_ticks=%d sl_ticks=%d",
+                    run_id,
+                    spec["signal_name"],
+                    spec["dataset_id"],
+                    spec["eval_config"]["tp_ticks"],
+                    spec["eval_config"]["sl_ticks"],
+                )
 
         return run_ids
 
@@ -202,6 +201,7 @@ class ExperimentRunner:
             dataset_cache: dict[str, Any] = self._load_dataset_for_specs(
                 dataset_id, dataset_specs
             )
+            completed_specs: list[tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]] = []
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_spec = {
@@ -226,28 +226,41 @@ class ExperimentRunner:
                         meta["config_hash"] = config_hash
                         meta["grid_variant_id"] = spec.get("grid_variant_id", "immutable")
 
-                        run_id: str = self.results_db.append_run(meta, results)
-                        tracker.log_run(
-                            run_id_local=run_id,
-                            config_name=config.name,
-                            config_hash=config_hash,
-                            meta=meta,
-                            results=results,
-                        )
-                        run_ids.append(run_id)
-                        logger.info(
-                            "Completed run %s: signal=%s dataset=%s",
-                            run_id,
-                            spec["signal_name"],
-                            spec["dataset_id"],
-                        )
-                    except Exception:
+                        completed_specs.append((spec, meta, results))
+                    except Exception as exc:
                         logger.exception(
                             "Failed: signal=%s dataset=%s params=%s",
                             spec["signal_name"],
                             spec["dataset_id"],
                             spec["signal_params"],
                         )
+                        for pending in future_to_spec:
+                            if not pending.done():
+                                pending.cancel()
+                        raise RuntimeError(
+                            "Experiment failed; aborting remaining specs."
+                        ) from exc
+
+            batch_run_ids = self.results_db.append_runs(
+                [(meta, results) for _, meta, results in completed_specs]
+            )
+            for run_id, (spec, meta, results) in zip(
+                batch_run_ids, completed_specs, strict=False
+            ):
+                tracker.log_run(
+                    run_id_local=run_id,
+                    config_name=config.name,
+                    config_hash=config_hash,
+                    meta=meta,
+                    results=results,
+                )
+                run_ids.append(run_id)
+                logger.info(
+                    "Completed run %s: signal=%s dataset=%s",
+                    run_id,
+                    spec["signal_name"],
+                    spec["dataset_id"],
+                )
 
         return run_ids
 
@@ -454,11 +467,21 @@ class ExperimentRunner:
             else [config.eval.sl_ticks]
         )
 
-        cooldown_values: list[int] = config.sweep.universal.get(
-            "cooldown_bins", [30]
-        )
-        if not isinstance(cooldown_values, list):
-            cooldown_values = [cooldown_values]
+        base_cooldown = config.eval.cooldown_bins
+        if isinstance(base_cooldown, list):
+            cooldown_values: list[int] = list(base_cooldown)
+        else:
+            cooldown_values = [base_cooldown]
+
+        if "cooldown_bins" in config.sweep.universal:
+            sweep_cooldown = config.sweep.universal["cooldown_bins"]
+            if isinstance(sweep_cooldown, list):
+                cooldown_values = list(sweep_cooldown)
+            else:
+                cooldown_values = [sweep_cooldown]
+        cooldown_values = [int(v) for v in cooldown_values]
+        if any(v < 1 for v in cooldown_values):
+            raise ValueError(f"cooldown_bins values must be >= 1, got {cooldown_values}")
 
         specs: list[dict[str, Any]] = []
 

@@ -132,7 +132,7 @@ def _annotate_permutation_labels(
     *,
     ask_move_ticks: int,
     bid_move_ticks: int,
-) -> None:
+) -> np.ndarray:
     """Annotate each bucket row with permutation microstate + directional labels."""
     ask_sign = _sign_from_ticks(ask_move_ticks)
     bid_sign = _sign_from_ticks(bid_move_ticks)
@@ -148,16 +148,22 @@ def _annotate_permutation_labels(
     grid["chase_up_flag"] = chase_up_flag
     grid["chase_down_flag"] = chase_down_flag
 
-    for bucket in grid["buckets"]:
+    buckets: list[Dict[str, Any]] = grid["buckets"]
+    state5_series = np.empty(len(buckets), dtype=np.int8)
+    for idx, bucket in enumerate(buckets):
         k = int(bucket["k"])
+        state5 = _state5_code(k, ask_sign, bid_sign)
         bucket["best_ask_move_ticks"] = ask_move_ticks
         bucket["best_bid_move_ticks"] = bid_move_ticks
         bucket["ask_reprice_sign"] = ask_sign
         bucket["bid_reprice_sign"] = bid_sign
         bucket["microstate_id"] = micro_id
-        bucket["state5_code"] = _state5_code(k, ask_sign, bid_sign)
+        bucket["state5_code"] = state5
         bucket["chase_up_flag"] = chase_up_flag
         bucket["chase_down_flag"] = chase_down_flag
+        state5_series[idx] = state5
+
+    return state5_series
 
 
 def _state_model_params_from_config(config: VPRuntimeConfig) -> DerivativeRuntimeParams:
@@ -834,16 +840,12 @@ def stream_events(
                 prev_best_bid_price_int,
                 tick_int=engine.tick_int,
             )
-            _annotate_permutation_labels(
+            state5_series = _annotate_permutation_labels(
                 grid,
                 ask_move_ticks=ask_move_ticks,
                 bid_move_ticks=bid_move_ticks,
             )
             if state_model is not None:
-                state5_series = np.asarray(
-                    [int(row["state5_code"]) for row in grid["buckets"]],
-                    dtype=np.int8,
-                )
                 model_out = state_model.update(state5_series)
                 _annotate_state_model(grid, model_out)
             prev_best_ask_price_int = int(grid["best_ask_price_int"])
@@ -902,16 +904,12 @@ def stream_events(
             prev_best_bid_price_int,
             tick_int=engine.tick_int,
         )
-        _annotate_permutation_labels(
+        state5_series = _annotate_permutation_labels(
             grid,
             ask_move_ticks=ask_move_ticks,
             bid_move_ticks=bid_move_ticks,
         )
         if state_model is not None:
-            state5_series = np.asarray(
-                [int(row["state5_code"]) for row in grid["buckets"]],
-                dtype=np.int8,
-            )
             model_out = state_model.update(state5_series)
             _annotate_state_model(grid, model_out)
         if capture_producer_timing:
@@ -952,6 +950,7 @@ async def async_stream_events(
 
     q: thread_queue.Queue = thread_queue.Queue(maxsize=256)
     _SENTINEL = object()
+    producer_errors: list[Exception] = []
 
     def _producer() -> None:
         latency_writer = None
@@ -989,6 +988,7 @@ async def async_stream_events(
             logger.info("async fixed-bin producer done: %d bins produced", produced)
         except Exception as exc:
             logger.error("async fixed-bin producer error: %s", exc, exc_info=True)
+            producer_errors.append(exc)
         finally:
             if latency_writer is not None:
                 latency_writer.close()
@@ -1005,6 +1005,8 @@ async def async_stream_events(
         while True:
             item = await loop.run_in_executor(None, q.get)
             if item is _SENTINEL:
+                if producer_errors:
+                    raise RuntimeError("async fixed-bin producer failed") from producer_errors[0]
                 break
             if not first:
                 await asyncio.sleep(interval_s)

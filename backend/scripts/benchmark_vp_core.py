@@ -46,8 +46,7 @@ def main() -> None:
     from src.vacuum_pressure.config import resolve_config
     from src.vacuum_pressure.core_pipeline import stream_core_events
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
 
     t0 = time.monotonic()
     bins = 0

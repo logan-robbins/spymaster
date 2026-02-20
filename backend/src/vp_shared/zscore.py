@@ -46,6 +46,30 @@ def validate_positive_weight_vector(
     return weights / float(weights.sum())
 
 
+def validate_non_negative_weight_vector(
+    values: Sequence[float],
+    *,
+    expected_size: int,
+    field_name: str,
+) -> np.ndarray:
+    """Validate and normalize a non-negative weight vector.
+
+    Allows zero-valued entries but requires at least one positive weight.
+    """
+    weights = np.asarray(values, dtype=np.float64)
+    if weights.ndim != 1 or weights.size != expected_size:
+        raise ValueError(
+            f"{field_name} must contain exactly {expected_size} values, "
+            f"got shape {weights.shape}"
+        )
+    if np.any(weights < 0.0):
+        raise ValueError(f"{field_name} values must be >= 0")
+    total = float(weights.sum())
+    if total <= 0.0:
+        raise ValueError(f"{field_name} must contain at least one value > 0")
+    return weights / total
+
+
 def robust_zscore_rolling_1d(
     arr: np.ndarray,
     *,
@@ -91,10 +115,11 @@ def robust_or_global_z_series(
     if float(np.max(np.abs(z))) > 0.0:
         return z
 
+    mean = float(np.mean(arr))
     std = float(np.std(arr))
     if std <= scale_eps:
         return z
-    return arr / std
+    return (arr - mean) / std
 
 
 def robust_or_global_z_latest(
@@ -116,7 +141,8 @@ def robust_or_global_z_latest(
     std = float(np.std(arr))
     if std <= scale_eps:
         return 0.0
-    return float(arr[-1] / std)
+    mean = float(np.mean(arr))
+    return float((arr[-1] - mean) / std)
 
 
 def robust_z_current_vectorized(

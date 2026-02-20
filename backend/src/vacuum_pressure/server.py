@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from urllib.parse import urlencode
 
 import pandas as pd
@@ -23,11 +23,7 @@ from .stream_pipeline import ProducerLatencyConfig, async_stream_events  # noqa:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PRODUCTS_YAML = (
-    Path(__file__).resolve().parents[1] / "data_eng" / "config" / "products.yaml"
-)
-
-_BASE_GRID_FIELDS: List[tuple[str, pa.DataType]] = [
+_BASE_GRID_FIELDS: list[tuple[str, pa.DataType]] = [
     ("k", pa.int32()),
     ("pressure_variant", pa.float64()),
     ("vacuum_variant", pa.float64()),
@@ -77,7 +73,7 @@ def _grid_schema(_config: VPRuntimeConfig) -> pa.Schema:
     return pa.schema([pa.field(name, dtype) for name, dtype in _BASE_GRID_FIELDS])
 
 
-def _grid_to_arrow_ipc(grid_dict: Dict[str, Any], schema: pa.Schema) -> bytes:
+def _grid_to_arrow_ipc(grid_dict: dict[str, Any], schema: pa.Schema) -> bytes:
     record_batch = pa.RecordBatch.from_pylist(grid_dict["buckets"], schema=schema)
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
@@ -117,7 +113,6 @@ def _et_hhmm_to_utc_ns(dt: str, hhmm: str) -> int:
 
 def create_app(
     lake_root: Path | None = None,
-    products_yaml_path: Path | None = None,
     perf_latency_jsonl: Path | None = None,
     perf_window_start_et: str | None = None,
     perf_window_end_et: str | None = None,
@@ -130,8 +125,6 @@ def create_app(
     """Create the FastAPI app for canonical fixed-bin streaming."""
     if lake_root is None:
         lake_root = Path(__file__).resolve().parents[2] / "lake"
-    if products_yaml_path is None:
-        products_yaml_path = _DEFAULT_PRODUCTS_YAML
     if perf_summary_every_bins <= 0:
         raise ValueError(f"perf_summary_every_bins must be > 0, got {perf_summary_every_bins}")
     if perf_latency_jsonl is None and (perf_window_start_et is not None or perf_window_end_et is not None):
@@ -198,6 +191,7 @@ def create_app(
         "mixed_weight": "state_model_mixed_weight",
         "enable_weighted_blend": "state_model_enable_weighted_blend",
     }
+    _SIGNAL_PARAM_IGNORED: set[str] = {"cell_width_ms"}
 
     def _build_streaming_url(
         dataset_id: str,
@@ -211,20 +205,51 @@ def create_app(
         """
         if signal_name != "derivative":
             return None, False
+        if not isinstance(signal_params, dict):
+            return None, False
 
         manifest = _load_manifest(dataset_id)
         if manifest is None:
             return None, False
 
         src = manifest.get("source_manifest", {})
-        product_type = src.get("product_type", "future_mbo")
-        symbol = src.get("symbol", "")
-        dt = src.get("dt", "")
-        start_et = src.get("capture_start_et", src.get("stream_start_time_hhmm", ""))
+        if not isinstance(src, dict):
+            src = {}
+        spec = manifest.get("spec", {})
+        if not isinstance(spec, dict):
+            spec = {}
+
+        product_type = (
+            src.get("product_type")
+            or manifest.get("product_type")
+            or spec.get("product_type")
+            or "future_mbo"
+        )
+        symbol = (
+            src.get("symbol")
+            or manifest.get("symbol")
+            or spec.get("symbol")
+            or ""
+        )
+        dt = (
+            src.get("dt")
+            or manifest.get("dt")
+            or spec.get("dt")
+            or ""
+        )
+        start_et = (
+            src.get("capture_start_et")
+            or src.get("stream_start_time_hhmm")
+            or manifest.get("start_time")
+            or spec.get("start_time")
+            or ""
+        )
         if ":" not in start_et and len(start_et) == 4:
             start_et = f"{start_et[:2]}:{start_et[2:]}"
         elif ":" in start_et and len(start_et) > 5:
             start_et = start_et[:5]
+        if not symbol or not dt or not start_et:
+            return None, False
 
         params: dict[str, Any] = {
             "product_type": product_type,
@@ -232,6 +257,19 @@ def create_app(
             "dt": dt,
             "start_time": start_et,
         }
+
+        unknown_params = sorted(
+            key
+            for key in signal_params.keys()
+            if key not in _SIGNAL_PARAM_TO_WS and key not in _SIGNAL_PARAM_IGNORED
+        )
+        if unknown_params:
+            logger.error(
+                "Cannot build derivative streaming URL for dataset=%s: unmapped signal params=%s",
+                dataset_id,
+                unknown_params,
+            )
+            return None, False
 
         for harness_key, ws_key in _SIGNAL_PARAM_TO_WS.items():
             if harness_key in signal_params:
@@ -267,6 +305,14 @@ def create_app(
             )
         else:
             params_lookup = {}
+        timestamp_lookup: dict[str, str] = {}
+        if "timestamp_utc" in meta_df.columns:
+            timestamp_lookup = {
+                str(run_id): str(ts)
+                for run_id, ts in zip(
+                    meta_df["run_id"], meta_df["timestamp_utc"], strict=False
+                )
+            }
 
         if sort in best_df.columns:
             ascending = sort not in ("tp_rate", "mean_pnl_ticks", "events_per_hour", "n_signals")
@@ -303,16 +349,21 @@ def create_app(
                 "events_per_hour": _safe_float(row.get("events_per_hour")),
                 "eval_tp_ticks": _safe_int(row.get("eval_tp_ticks")),
                 "eval_sl_ticks": _safe_int(row.get("eval_sl_ticks")),
-                "timestamp_utc": str(meta_df.loc[meta_df["run_id"] == run_id, "timestamp_utc"].values[0])
-                if "timestamp_utc" in meta_df.columns and run_id in meta_df["run_id"].values
-                else "",
+                "timestamp_utc": timestamp_lookup.get(str(run_id), ""),
                 "streaming_url": streaming_url,
                 "can_stream": can_stream,
             })
 
-        all_meta = db.query_runs()
-        all_signals = sorted(all_meta["signal_name"].unique().tolist()) if "signal_name" in all_meta.columns else []
-        all_datasets = sorted(all_meta["dataset_id"].unique().tolist()) if "dataset_id" in all_meta.columns else []
+        all_signals = (
+            sorted(meta_df["signal_name"].astype(str).unique().tolist())
+            if "signal_name" in meta_df.columns
+            else []
+        )
+        all_datasets = (
+            sorted(meta_df["dataset_id"].astype(str).unique().tolist())
+            if "dataset_id" in meta_df.columns
+            else []
+        )
 
         return {
             "runs": runs,
@@ -403,7 +454,7 @@ def create_app(
         await websocket.accept()
 
         try:
-            config = resolve_config(product_type, symbol, products_yaml_path)
+            config = resolve_config(product_type, symbol)
             request_projection_horizons_bins = (
                 parse_projection_horizons_bins_override(projection_horizons_bins)
                 if projection_horizons_bins is not None

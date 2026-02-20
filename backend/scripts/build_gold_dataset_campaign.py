@@ -278,11 +278,9 @@ def run_campaign(
     max_variants: int | None,
     dry_run: bool,
 ) -> dict[str, Any]:
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
     base_cfg = resolve_config(
         campaign.base_capture.product_type,
         campaign.base_capture.symbol,
-        products_yaml_path,
     )
     runtime_allowed = _runtime_override_keys_from_config(base_cfg)
 

@@ -452,9 +452,8 @@ def main() -> None:
 
     stream_start_time_hhmm = _stream_start_hhmm(capture_start_et)
 
-    products_yaml_path = backend_root / "src" / "data_eng" / "config" / "products.yaml"
     lake_root = backend_root / "lake"
-    config = resolve_config(args.product_type, args.symbol, products_yaml_path)
+    config = resolve_config(args.product_type, args.symbol)
 
     logger.info(
         "starting output capture: %s/%s dt=%s capture=[%s,%s) ET stream_start=%s output_dir=%s",
