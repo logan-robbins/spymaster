@@ -29,8 +29,6 @@
  */
 
 import { tableFromIPC } from 'apache-arrow';
-import { ExperimentEngine } from './experiment-engine';
-import type { CompositeSignal } from './experiment-engine';
 
 // ------------------------------------------------------------------ Types
 
@@ -122,8 +120,7 @@ interface StreamParams {
   start_time?: string;
   serving?: string;
   projection_horizons_bins?: string;
-  projection_source?: 'backend' | 'frontend';
-  dev_scoring?: boolean;
+  projection_source?: 'backend';
   // Runtime model overrides (forwarded to WebSocket query params)
   state_model_enabled?: string;
   state_model_center_exclusion_radius?: string;
@@ -157,8 +154,7 @@ let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
 let runtimeModelConfig: RuntimeModelConfig | null = null;
 let latestRuntimeModel: RuntimeModelUpdate | null = null;
-let projectionSource: 'backend' | 'frontend' = 'backend';
-let devScoringEnabled = false;
+let projectionSource: 'backend' = 'backend';
 
 // BBO state for overlay rendering
 let bestBidDollars = 0;
@@ -172,11 +168,6 @@ let askTrail: (number | null)[] = [];
 // Time axis: timestamp (ns) for each heatmap column
 let columnTimestamps: (bigint | null)[] = [];
 
-// Experiment engine for projection bands
-let experimentEngine: ExperimentEngine | null = null;
-let currentCompositeSignal: CompositeSignal = {
-  composite: 0, pfp: 0, ads: 0, svac: 0, warmupFraction: 0,
-};
 // Composite signal trail: stores composite value per heatmap column for persistent bands
 let compositeTrail: (number | null)[] = [];
 // Warmup fraction trail: stores warmup state per column
@@ -789,19 +780,12 @@ function pushHeatmapColumnFromGrid(
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
 
-  // Update experiment engine for projection bands
-  let localComposite: CompositeSignal | null = null;
-  if (experimentEngine) {
-    localComposite = experimentEngine.update(grid);
-    currentCompositeSignal = localComposite;
-  }
-
-  if (projectionSource === 'backend' && latestRuntimeModel !== null) {
+  if (latestRuntimeModel !== null) {
     compositeTrail[HMAP_HISTORY - 1] = latestRuntimeModel.score;
     warmupTrail[HMAP_HISTORY - 1] = latestRuntimeModel.ready ? 1 : 0;
-  } else if (localComposite !== null) {
-    compositeTrail[HMAP_HISTORY - 1] = localComposite.composite;
-    warmupTrail[HMAP_HISTORY - 1] = localComposite.warmupFraction;
+  } else {
+    compositeTrail[HMAP_HISTORY - 1] = null;
+    warmupTrail[HMAP_HISTORY - 1] = null;
   }
 }
 
@@ -1048,12 +1032,10 @@ function updateRuntimeModelPanel(): void {
   scoreEl.textContent = fmt(latestRuntimeModel.score, 3);
   scoreEl.style.color = signColour(latestRuntimeModel.score, 3.0);
 
-  const drift = currentCompositeSignal.composite - latestRuntimeModel.score;
   detailEl.textContent =
     `bull=${latestRuntimeModel.bullIntensity.toFixed(3)} ` +
     `bear=${latestRuntimeModel.bearIntensity.toFixed(3)} ` +
-    `d1/z1=${latestRuntimeModel.d1.toFixed(3)}/${latestRuntimeModel.z1.toFixed(3)} ` +
-    `drift(frontend-backend)=${drift.toFixed(3)}`;
+    `d1/z1=${latestRuntimeModel.d1.toFixed(3)}/${latestRuntimeModel.z1.toFixed(3)}`;
   detailEl.style.color = '#888';
 }
 
@@ -1197,7 +1179,6 @@ function sampleTrailInterpolated(
  */
 function renderProjectionBands(
   ctx: CanvasRenderingContext2D,
-  _signal: CompositeSignal,
   _spotRow: number,
   ch: number,
   dataWidth: number,
@@ -1422,7 +1403,7 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   if (dataWidth < cw) {
     const lastSpotRow = spotTrail[HMAP_HISTORY - 1];
     renderProjectionBands(
-      ctx, currentCompositeSignal,
+      ctx,
       lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS,
       ch, dataWidth, cw,
     );
@@ -1912,14 +1893,6 @@ function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig | n
     normalizedCfg.projection_horizons_bins,
     normalizedCfg.cell_width_ms,
   );
-  if (devScoringEnabled) {
-    experimentEngine = new ExperimentEngine({
-      cellWidthMs: normalizedCfg.cell_width_ms,
-    });
-    console.warn('[VP] DEV: client-side scoring enabled -- may differ from server');
-  } else {
-    experimentEngine = null;
-  }
   runtimeModelConfig = modelCfg;
   latestRuntimeModel = null;
 
@@ -1962,6 +1935,20 @@ function parseStreamParams(): StreamParams {
     $warningBanner.style.background = '#660000';
   }
 
+  const projectionSource = params.get('projection_source');
+  if (projectionSource === 'frontend') {
+    streamContractError(
+      'url',
+      'projection_source=frontend is no longer supported; use backend runtime model projection.',
+    );
+  }
+  if (params.get('dev_scoring') === 'true') {
+    streamContractError(
+      'url',
+      'dev_scoring=true is no longer supported; use backend runtime model projection.',
+    );
+  }
+
   const runtimeKeys = [
     'state_model_enabled', 'state_model_center_exclusion_radius', 'state_model_spatial_decay_power',
     'state_model_zscore_window_bins', 'state_model_zscore_min_periods', 'state_model_tanh_scale',
@@ -1978,8 +1965,7 @@ function parseStreamParams(): StreamParams {
     start_time: params.get('start_time') || undefined,
     serving: params.get('serving') || undefined,
     projection_horizons_bins: params.get('projection_horizons_bins') || undefined,
-    projection_source: params.get('projection_source') === 'frontend' ? 'frontend' : 'backend',
-    dev_scoring: params.get('dev_scoring') === 'true',
+    projection_source: 'backend',
   };
 
   for (const key of runtimeKeys) {
@@ -2039,10 +2025,6 @@ function resetStreamState(): void {
   bestAskDollars = 0;
   currentBinEndNs = 0n;
 
-  if (experimentEngine) experimentEngine.reset();
-  currentCompositeSignal = {
-    composite: 0, pfp: 0, ads: 0, svac: 0, warmupFraction: 0,
-  };
 
   for (let i = 0; i < compositeTrail.length; i++) compositeTrail[i] = null;
   for (let i = 0; i < warmupTrail.length; i++) warmupTrail[i] = null;
@@ -2136,9 +2118,8 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source, dev_scoring } = streamParams;
+  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source } = streamParams;
   projectionSource = projection_source ?? 'backend';
-  devScoringEnabled = dev_scoring ?? false;
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +

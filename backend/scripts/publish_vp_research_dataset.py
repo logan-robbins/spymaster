@@ -33,6 +33,7 @@ backend_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(backend_root))
 
 PROJ_PREFIX = "proj_score_h"
+MODEL_OUTPUT_COLUMNS: frozenset[str] = frozenset({"flow_score", "flow_state_code"})
 IMMUTABLE_DIRNAME = "vp_immutable"
 EXPERIMENT_DIRNAME = "vp_experiments"
 DEFAULT_RESEARCH_ROOT = backend_root / "lake" / "research"
@@ -143,7 +144,8 @@ def _materialize_clean_grid_table(
     schema = pq.read_schema(buckets_path)
     all_cols = list(schema.names)
 
-    clean_cols = [col for col in all_cols if col not in set(projection_cols)]
+    excluded_cols = set(projection_cols) | set(MODEL_OUTPUT_COLUMNS)
+    clean_cols = [col for col in all_cols if col not in excluded_cols]
 
     if not clean_cols:
         raise ValueError("Computed clean-grid column list is empty.")

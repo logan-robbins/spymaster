@@ -174,12 +174,14 @@ def _grid_bucket_rows(grid: Dict[str, Any]) -> list[Dict[str, Any]]:
         "book_valid": bool(grid["book_valid"]),
     }
     rows: list[Dict[str, Any]] = []
-    for bucket in grid["buckets"]:
+    cols = grid["grid_cols"]
+    n_rows = len(cols["k"])
+    for i in range(n_rows):
         row: Dict[str, Any] = dict(prefix)
         for name, _dtype in _BUCKET_INT_FIELDS:
-            row[name] = int(bucket[name])
+            row[name] = int(cols[name][i])
         for name in _BUCKET_FLOAT_FIELDS:
-            row[name] = float(bucket[name])
+            row[name] = float(cols[name][i])
         rows.append(row)
     return rows
 

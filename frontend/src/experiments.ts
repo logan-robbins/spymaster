@@ -1,8 +1,8 @@
 /**
  * Experiment Browser — fetches ranked experiment results from the backend
  * REST API and renders them in a sortable, filterable table. Clicking a run
- * opens its detail panel; "Launch Stream" opens the streaming UI with that
- * run's exact runtime-model parameter overrides.
+ * opens its detail panel; "Launch Stream" opens the canonical streaming UI
+ * for the run's dataset window (with derivative overrides when applicable).
  */
 
 // ---------- Types ----------
@@ -282,7 +282,7 @@ async function selectRun(runId: string): Promise<void> {
     } else {
       $btnLaunch.disabled = true;
       $btnLaunch.onclick = null;
-      $launchNote.textContent = 'Only derivative signal runs can be streamed with runtime overrides';
+      $launchNote.textContent = 'Stream launch unavailable for this run (missing dataset metadata or unsupported params)';
     }
 
   } catch (err) {

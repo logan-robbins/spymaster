@@ -74,7 +74,26 @@ def _grid_schema(_config: VPRuntimeConfig) -> pa.Schema:
 
 
 def _grid_to_arrow_ipc(grid_dict: dict[str, Any], schema: pa.Schema) -> bytes:
-    record_batch = pa.RecordBatch.from_pylist(grid_dict["buckets"], schema=schema)
+    grid_cols = grid_dict.get("grid_cols")
+    if not isinstance(grid_cols, dict):
+        raise KeyError("grid_dict must contain 'grid_cols' mapping")
+
+    arrays: list[pa.Array] = []
+    n_rows: int | None = None
+    for field in schema:
+        name = field.name
+        if name not in grid_cols:
+            raise KeyError(f"grid_cols missing required field '{name}'")
+        arr = pa.array(grid_cols[name], type=field.type)
+        if n_rows is None:
+            n_rows = len(arr)
+        elif len(arr) != n_rows:
+            raise ValueError(
+                f"grid_cols field '{name}' has length {len(arr)} != {n_rows}"
+            )
+        arrays.append(arr)
+
+    record_batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, schema) as writer:
         writer.write_batch(record_batch)
@@ -200,13 +219,13 @@ def create_app(
     ) -> tuple[str | None, bool]:
         """Build a vacuum-pressure.html URL from run metadata.
 
-        Returns (streaming_url, can_stream). Only derivative signals
-        map to the state-model query params.
+        Returns (streaming_url, can_stream).
+        Derivative runs map signal params to runtime state-model overrides.
+        Non-derivative runs still launch the canonical stream for the same
+        instrument/time window.
         """
-        if signal_name != "derivative":
-            return None, False
         if not isinstance(signal_params, dict):
-            return None, False
+            signal_params = {}
 
         manifest = _load_manifest(dataset_id)
         if manifest is None:
@@ -258,22 +277,25 @@ def create_app(
             "start_time": start_et,
         }
 
-        unknown_params = sorted(
-            key
-            for key in signal_params.keys()
-            if key not in _SIGNAL_PARAM_TO_WS and key not in _SIGNAL_PARAM_IGNORED
-        )
-        if unknown_params:
-            logger.error(
-                "Cannot build derivative streaming URL for dataset=%s: unmapped signal params=%s",
-                dataset_id,
-                unknown_params,
+        if signal_name == "derivative":
+            unknown_params = sorted(
+                key
+                for key in signal_params.keys()
+                if key not in _SIGNAL_PARAM_TO_WS and key not in _SIGNAL_PARAM_IGNORED
             )
-            return None, False
+            if unknown_params:
+                logger.error(
+                    "Cannot build derivative streaming URL for dataset=%s: unmapped signal params=%s",
+                    dataset_id,
+                    unknown_params,
+                )
+                return None, False
 
-        for harness_key, ws_key in _SIGNAL_PARAM_TO_WS.items():
-            if harness_key in signal_params:
-                params[ws_key] = signal_params[harness_key]
+            for harness_key, ws_key in _SIGNAL_PARAM_TO_WS.items():
+                if harness_key in signal_params:
+                    params[ws_key] = signal_params[harness_key]
+        else:
+            params["projection_source"] = "backend"
 
         return f"/vacuum-pressure.html?{urlencode(params)}", True
 

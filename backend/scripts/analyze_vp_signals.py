@@ -111,35 +111,32 @@ def _collect_bins(
         if ts_ns >= eval_end_ns:
             break
 
-        buckets = grid["buckets"]
-        if not buckets:
+        cols = grid["grid_cols"]
+        if len(cols["k"]) == 0:
             continue
 
         ts_bins.append(ts_ns)
         mid_prices.append(float(grid["mid_price"]))
 
-        score_row = np.array([float(b["flow_score"]) for b in buckets], dtype=np.float64)
-        state_row = np.array([int(b["flow_state_code"]) for b in buckets], dtype=np.int8)
+        score_row = np.asarray(cols["flow_score"], dtype=np.float64)
+        state_row = np.asarray(cols["flow_state_code"], dtype=np.int8)
         scores.append(score_row)
         states.append(state_row)
 
         if collect_pressure_vacuum:
-            pressures.append(np.array([float(b["pressure_variant"]) for b in buckets], dtype=np.float64))
-            vacuums.append(np.array([float(b["vacuum_variant"]) for b in buckets], dtype=np.float64))
+            pressures.append(np.asarray(cols["pressure_variant"], dtype=np.float64))
+            vacuums.append(np.asarray(cols["vacuum_variant"], dtype=np.float64))
 
         if projection_keys is None:
             projection_keys = {}
-            sample_bucket = buckets[0]
             for horizon in config.projection_horizons_ms:
                 key = f"proj_score_h{int(horizon)}"
-                if key in sample_bucket:
+                if key in cols:
                     projection_keys[int(horizon)] = key
             projections = {h: [] for h in projection_keys}
 
         for horizon, key in (projection_keys or {}).items():
-            projections[horizon].append(
-                np.array([float(b[key]) for b in buckets], dtype=np.float64)
-            )
+            projections[horizon].append(np.asarray(cols[key], dtype=np.float64))
 
     if not ts_bins:
         raise RuntimeError("No bins were captured for the requested window.")

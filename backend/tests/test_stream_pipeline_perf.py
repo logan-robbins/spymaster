@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Iterator, Tuple
 
+import numpy as np
 import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -77,10 +78,13 @@ def _events_with_up_chase_repricing() -> list[MBOEvent]:
 
 
 def _bucket_by_k(grid: dict, k: int) -> dict:
-    for row in grid["buckets"]:
-        if int(row["k"]) == k:
-            return row
-    raise AssertionError(f"missing bucket row for k={k}")
+    cols = grid["grid_cols"]
+    k_arr = np.asarray(cols["k"], dtype=np.int32)
+    matches = np.where(k_arr == int(k))[0]
+    if matches.size == 0:
+        raise AssertionError(f"missing bucket row for k={k}")
+    idx = int(matches[0])
+    return {name: cols[name][idx] for name in cols.keys()}
 
 
 def _iter_for(events: list[MBOEvent]):
@@ -188,10 +192,11 @@ def test_stream_events_empty_bin_applies_passive_decay(
     assert int(grids[1]["bin_event_count"]) == 2
     assert int(grids[2]["bin_event_count"]) == 0
 
-    active_row = max(
-        grids[1]["buckets"],
-        key=lambda row: float(row["add_mass"]),
-    )
+    cols = grids[1]["grid_cols"]
+    add_mass = np.asarray(cols["add_mass"], dtype=np.float64)
+    k_vals = np.asarray(cols["k"], dtype=np.int32)
+    active_idx = int(np.argmax(add_mass))
+    active_row = {"add_mass": add_mass[active_idx], "k": k_vals[active_idx]}
     assert float(active_row["add_mass"]) > 0.0
     k = int(active_row["k"])
 

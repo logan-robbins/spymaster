@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # cli.py is at backend/src/experiment_harness/cli.py
 # parents[0] = experiment_harness/, [1] = src/, [2] = backend/
 _DEFAULT_LAKE_ROOT: Path = Path(__file__).resolve().parents[2] / "lake"
+_IMMUTABLE_EXCLUDED_MODEL_COLUMNS: set[str] = {"flow_score", "flow_state_code"}
 
 
 def _resolve_lake_root(lake_root_arg: str | None) -> Path:
@@ -150,9 +151,17 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
             }
         )
 
-        for bucket in bin_grid["buckets"]:
-            row = dict(bucket)
-            row["bin_seq"] = bin_seq
+        cols = bin_grid["grid_cols"]
+        n_rows = len(cols["k"])
+        for row_idx in range(n_rows):
+            row: dict[str, Any] = {"bin_seq": bin_seq}
+            for col_name, col_values in cols.items():
+                if col_name in _IMMUTABLE_EXCLUDED_MODEL_COLUMNS:
+                    continue
+                value = col_values[row_idx]
+                if hasattr(value, "item"):
+                    value = value.item()
+                row[col_name] = value
             all_bucket_rows.append(row)
 
     elapsed: float = time.monotonic() - t_start
@@ -196,6 +205,13 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
         "start_time": pipeline_spec.capture.start_time,
         "end_time": pipeline_spec.capture.end_time,
         "cell_width_ms": config.cell_width_ms,
+        "flow_scoring": {
+            "derivative_weights": list(config.flow_derivative_weights),
+            "tanh_scale": float(config.flow_tanh_scale),
+            "threshold_neutral": float(config.flow_neutral_threshold),
+            "zscore_window_bins": int(config.flow_zscore_window_bins),
+            "zscore_min_periods": int(config.flow_zscore_min_periods),
+        },
         "n_bins": n_bins,
         "code_version": pipeline_spec.pipeline_code_version,
         "source_manifest": {

@@ -1,13 +1,10 @@
-"""Live frontend ADS+PFP+SVac composite signal for harness evaluation.
+"""ADS+PFP+SVac composite signal for harness evaluation.
 
-This signal reproduces the current frontend projection-composite logic from:
-    - frontend/src/experiment-ads.ts
-    - frontend/src/experiment-pfp.ts
-    - frontend/src/experiment-svac.ts
-    - frontend/src/experiment-engine.ts
+This module is the canonical implementation for ADS/PFP/SVac math used by
+offline evaluation after removal of frontend-side duplicate signal models.
 
 Design goals:
-    1. Match frontend directional math as closely as possible.
+    1. Preserve directional math semantics used by prior campaigns.
     2. Keep parameters tunable from harness YAML sweeps.
     3. Preserve time-based semantics by converting ms -> bins via cell_width_ms.
 """
@@ -384,4 +381,3 @@ class ADSPFPSVacSignal(StatisticalSignal):
 
 
 register_signal("ads_pfp_svac", ADSPFPSVacSignal)
-

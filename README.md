@@ -98,8 +98,7 @@ Frontend URL query params:
 - `product_type`, `symbol`, `dt`, `start_time` — required instrument params
 - `serving=<name>` — load ServingSpec for server-side scoring
 - state-model override params (`state_model_enabled`, `state_model_d1_weight`, etc.) — forwarded to WebSocket
-- `projection_source=backend|frontend` — projection band source (default: backend)
-- `dev_scoring=true` — enable client-side ADS/PFP/SVac composite (dev only, disabled by default). Requires grid coverage at least `k=-23..+23` (backend `grid_radius_ticks >= 23`).
+- `projection_source=backend` — backend runtime-model projection only (`projection_source=frontend` and `dev_scoring=true` are rejected fail-fast)
 
 ## Experiment Workflow
 
@@ -163,7 +162,9 @@ REST API endpoints (served by VP server on :8002):
 
 Streaming URL is constructed from `manifest.json` instrument metadata + signal params mapped to state-model WebSocket query params.
 Manifest parsing accepts both legacy top-level instrument fields and nested `source_manifest`/`spec` layouts.
-Derivative launch URL building is strict: unknown derivative params are rejected (`can_stream=false`) to avoid silent partial mappings.
+Run launch now supports all signals:
+- derivative runs map signal params to runtime state-model query params (strict; unknown derivative params are rejected with `can_stream=false`)
+- non-derivative runs launch the canonical stream for the same dataset/instrument window
 
 ## Data Locations
 
@@ -172,6 +173,8 @@ Raw replay input:
 
 Immutable experiment datasets:
 - `backend/lake/research/vp_immutable/<dataset_id>/` — per dataset: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`
+  - `grid_clean.parquet` excludes model output columns (`flow_score`, `flow_state_code`) to keep immutable artifacts model-agnostic.
+  - When legacy signals request those fields, harness load derives them from `composite_d1/d2/d3` using manifest/default scoring config.
 
 Harness results:
 - `backend/lake/research/vp_harness/results/` — `runs_meta.parquet` and `runs.parquet`
@@ -200,7 +203,6 @@ Live serving:
 Frontend:
 1. `frontend/src/vacuum-pressure.ts` — streaming visualization, Arrow IPC parsing, projection rendering
 2. `frontend/src/experiments.ts` — experiment browser table, filters, detail panel, launch logic
-3. `frontend/src/experiment-engine.ts` — client-side ADS/PFP/SVac composite (dev mode only)
 
 Offline experiment:
 1. `backend/src/experiment_harness/cli.py` — Click CLI (generate, run, compare, promote, list-signals, list-datasets, online-sim)

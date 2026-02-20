@@ -78,23 +78,59 @@ def robust_zscore_rolling_1d(
     scale_eps: float = 1e-12,
 ) -> np.ndarray:
     """Rolling robust z-score on a 1D series using median/MAD."""
-    n = len(arr)
+    if window < 2:
+        raise ValueError(f"window must be >= 2, got {window}")
+    if min_periods < 2:
+        raise ValueError(f"min_periods must be >= 2, got {min_periods}")
+    if min_periods > window:
+        raise ValueError(
+            f"min_periods cannot exceed window ({min_periods} > {window})"
+        )
+
+    values = np.asarray(arr, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError(f"arr must be 1D, got shape {values.shape}")
+
+    n = values.size
     result = np.zeros(n, dtype=np.float64)
+    if n == 0:
+        return result
 
-    for i in range(n):
-        start = max(0, i - window + 1)
-        segment = arr[start : i + 1]
-        if len(segment) < min_periods:
-            result[i] = 0.0
+    # Prefix requires variable-length windows. This loop is bounded by window size.
+    prefix_end = min(window - 1, n)
+    for i in range(prefix_end):
+        seg_len = i + 1
+        if seg_len < min_periods:
             continue
-
+        segment = values[:seg_len]
         med = float(np.median(segment))
         mad = float(np.median(np.abs(segment - med)))
         scale = MAD_TO_SIGMA * mad
-        if scale <= scale_eps:
-            result[i] = 0.0
-        else:
-            result[i] = float((arr[i] - med) / scale)
+        if scale > scale_eps:
+            result[i] = float((values[i] - med) / scale)
+
+    n_full = n - window + 1
+    if n_full <= 0:
+        return result
+
+    # Main path: full-size rolling windows with vectorized median/MAD.
+    windows = np.lib.stride_tricks.sliding_window_view(values, window_shape=window)
+
+    # Keep per-chunk temp arrays bounded (about 64MB of window data).
+    target_floats = 8_000_000
+    chunk_windows = max(1, target_floats // window)
+    out_base = window - 1
+
+    for start in range(0, n_full, chunk_windows):
+        stop = min(n_full, start + chunk_windows)
+        win_chunk = windows[start:stop]
+        med = np.median(win_chunk, axis=1)
+        mad = np.median(np.abs(win_chunk - med[:, None]), axis=1)
+        scale = MAD_TO_SIGMA * mad
+        out_idx = np.arange(out_base + start, out_base + stop, dtype=np.int64)
+        valid = scale > scale_eps
+        if np.any(valid):
+            result[out_idx[valid]] = (values[out_idx[valid]] - med[valid]) / scale[valid]
 
     return result
 

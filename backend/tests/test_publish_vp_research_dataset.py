@@ -155,7 +155,8 @@ def test_publish_dataset_splits_and_freezes_base_data(tmp_path: Path) -> None:
     clean_schema = pq.read_schema(immutable / "grid_clean.parquet").names
     assert "proj_score_h250" not in clean_schema
     assert "proj_score_h500" not in clean_schema
-    assert "flow_score" in clean_schema
+    assert "flow_score" not in clean_schema
+    assert "flow_state_code" not in clean_schema
     assert result["projection_columns_removed"] == ["proj_score_h250", "proj_score_h500"]
 
     for path in [

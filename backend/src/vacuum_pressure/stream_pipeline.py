@@ -66,6 +66,53 @@ _BELOW_STATE5_BY_SIGNS: dict[tuple[int, int], int] = {
     (-1, -1): STATE5_BEAR_VACUUM,
 }
 
+_GRID_FLOAT_COLS: tuple[str, ...] = (
+    "pressure_variant",
+    "vacuum_variant",
+    "add_mass",
+    "pull_mass",
+    "fill_mass",
+    "rest_depth",
+    "bid_depth",
+    "ask_depth",
+    "v_add",
+    "v_pull",
+    "v_fill",
+    "v_rest_depth",
+    "v_bid_depth",
+    "v_ask_depth",
+    "a_add",
+    "a_pull",
+    "a_fill",
+    "a_rest_depth",
+    "a_bid_depth",
+    "a_ask_depth",
+    "j_add",
+    "j_pull",
+    "j_fill",
+    "j_rest_depth",
+    "j_bid_depth",
+    "j_ask_depth",
+    "composite",
+    "composite_d1",
+    "composite_d2",
+    "composite_d3",
+    "flow_score",
+)
+
+_GRID_INT_COL_DTYPES: dict[str, Any] = {
+    "flow_state_code": np.int8,
+    "best_ask_move_ticks": np.int32,
+    "best_bid_move_ticks": np.int32,
+    "ask_reprice_sign": np.int8,
+    "bid_reprice_sign": np.int8,
+    "microstate_id": np.int8,
+    "state5_code": np.int8,
+    "chase_up_flag": np.int8,
+    "chase_down_flag": np.int8,
+    "last_event_id": np.int64,
+}
+
 
 @dataclass(frozen=True)
 class ProducerLatencyConfig:
@@ -133,7 +180,7 @@ def _annotate_permutation_labels(
     ask_move_ticks: int,
     bid_move_ticks: int,
 ) -> np.ndarray:
-    """Annotate each bucket row with permutation microstate + directional labels."""
+    """Annotate each emitted row with permutation microstate + directional labels."""
     ask_sign = _sign_from_ticks(ask_move_ticks)
     bid_sign = _sign_from_ticks(bid_move_ticks)
     micro_id = _microstate_id(ask_sign, bid_sign)
@@ -148,20 +195,23 @@ def _annotate_permutation_labels(
     grid["chase_up_flag"] = chase_up_flag
     grid["chase_down_flag"] = chase_down_flag
 
-    buckets: list[Dict[str, Any]] = grid["buckets"]
-    state5_series = np.empty(len(buckets), dtype=np.int8)
-    for idx, bucket in enumerate(buckets):
-        k = int(bucket["k"])
-        state5 = _state5_code(k, ask_sign, bid_sign)
-        bucket["best_ask_move_ticks"] = ask_move_ticks
-        bucket["best_bid_move_ticks"] = bid_move_ticks
-        bucket["ask_reprice_sign"] = ask_sign
-        bucket["bid_reprice_sign"] = bid_sign
-        bucket["microstate_id"] = micro_id
-        bucket["state5_code"] = state5
-        bucket["chase_up_flag"] = chase_up_flag
-        bucket["chase_down_flag"] = chase_down_flag
-        state5_series[idx] = state5
+    cols: Dict[str, np.ndarray] = grid["grid_cols"]
+    k_values = np.asarray(cols["k"], dtype=np.int32)
+    state_above = _ABOVE_STATE5_BY_SIGNS[(ask_sign, bid_sign)]
+    state_below = _BELOW_STATE5_BY_SIGNS[(ask_sign, bid_sign)]
+
+    state5_series = np.full(k_values.shape[0], STATE5_MIXED, dtype=np.int8)
+    state5_series[k_values > 0] = np.int8(state_above)
+    state5_series[k_values < 0] = np.int8(state_below)
+
+    cols["best_ask_move_ticks"].fill(ask_move_ticks)
+    cols["best_bid_move_ticks"].fill(bid_move_ticks)
+    cols["ask_reprice_sign"].fill(ask_sign)
+    cols["bid_reprice_sign"].fill(bid_sign)
+    cols["microstate_id"].fill(micro_id)
+    cols["state5_code"][:] = state5_series
+    cols["chase_up_flag"].fill(chase_up_flag)
+    cols["chase_down_flag"].fill(chase_down_flag)
 
     return state5_series
 
@@ -518,13 +568,7 @@ def _build_bin_grid(
     bin_event_count: int,
     window_radius: int,
 ) -> Dict[str, Any]:
-    """Snapshot engine + spectrum, extract serve-time window around spot.
-
-    1. Feed ALL N_TICKS pressure/vacuum to spectrum.
-    2. Compute spot, find array center index.
-    3. Slice ±window_radius ticks around spot.
-    4. Emit with relative k values for frontend compatibility.
-    """
+    """Snapshot engine + spectrum and emit a dense columnar window around spot."""
     full = engine.grid_snapshot_arrays()
     pressure_full = full["pressure_variant"]
     vacuum_full = full["vacuum_variant"]
@@ -540,8 +584,16 @@ def _build_bin_grid(
     spot_int = engine.spot_ref_price_int
     center_idx = engine.spot_to_idx(spot_int) if spot_int > 0 else None
 
+    n_rows = 2 * window_radius + 1
+    k_values = np.arange(-window_radius, window_radius + 1, dtype=np.int32)
+    grid_cols: Dict[str, np.ndarray] = {"k": k_values}
+    for col in _GRID_FLOAT_COLS:
+        grid_cols[col] = np.zeros(n_rows, dtype=np.float64)
+    for col, dtype in _GRID_INT_COL_DTYPES.items():
+        grid_cols[col] = np.zeros(n_rows, dtype=dtype)
+
     if center_idx is None:
-        # No valid spot — emit empty grid
+        # No valid spot — emit empty grid columns.
         return {
             "ts_ns": bin_end_ns,
             "bin_seq": bin_seq,
@@ -554,10 +606,7 @@ def _build_bin_grid(
             "best_bid_price_int": engine.best_bid_price_int,
             "best_ask_price_int": engine.best_ask_price_int,
             "book_valid": engine.book_valid,
-            "buckets": [
-                _empty_bucket_row(k)
-                for k in range(-window_radius, window_radius + 1)
-            ],
+            "grid_cols": grid_cols,
         }
 
     # Extract window with padding for edges
@@ -569,97 +618,49 @@ def _build_bin_grid(
     arr_start = max(0, w_start)
     arr_end = min(n_ticks, w_end)
 
-    # How many zeros to pad on each side
+    # How many zeros to pad on each side.
     pad_left = arr_start - w_start
-    pad_right = w_end - arr_end
+    if arr_end > arr_start:
+        dst_slice = slice(pad_left, pad_left + (arr_end - arr_start))
+        src_slice = slice(arr_start, arr_end)
 
-    # Build output buckets
-    buckets: list[Dict[str, Any]] = []
-
-    add_mass = full["add_mass"]
-    pull_mass = full["pull_mass"]
-    fill_mass = full["fill_mass"]
-    rest_depth = full["rest_depth"]
-    bid_depth = full["bid_depth"]
-    ask_depth = full["ask_depth"]
-    v_add = full["v_add"]
-    v_pull = full["v_pull"]
-    v_fill = full["v_fill"]
-    v_rest_depth = full["v_rest_depth"]
-    v_bid_depth = full["v_bid_depth"]
-    v_ask_depth = full["v_ask_depth"]
-    a_add = full["a_add"]
-    a_pull = full["a_pull"]
-    a_fill = full["a_fill"]
-    a_rest_depth = full["a_rest_depth"]
-    a_bid_depth = full["a_bid_depth"]
-    a_ask_depth = full["a_ask_depth"]
-    j_add = full["j_add"]
-    j_pull = full["j_pull"]
-    j_fill = full["j_fill"]
-    j_rest_depth = full["j_rest_depth"]
-    j_bid_depth = full["j_bid_depth"]
-    j_ask_depth = full["j_ask_depth"]
-    pressure_variant = full["pressure_variant"]
-    vacuum_variant = full["vacuum_variant"]
-    last_event_id = full["last_event_id"]
-    flow_score = spectrum_out.score
-    flow_state_code = spectrum_out.state_code
-    composite = spectrum_out.composite
-    composite_d1 = spectrum_out.composite_d1
-    composite_d2 = spectrum_out.composite_d2
-    composite_d3 = spectrum_out.composite_d3
-
-    # Left padding (out-of-range ticks)
-    for i in range(pad_left):
-        k = -window_radius + i
-        buckets.append(_empty_bucket_row(k))
-
-    # Actual data slice
-    for abs_idx in range(arr_start, arr_end):
-        k = abs_idx - center_idx
-        row: Dict[str, Any] = {
-            "k": int(k),
-            "add_mass": float(add_mass[abs_idx]),
-            "pull_mass": float(pull_mass[abs_idx]),
-            "fill_mass": float(fill_mass[abs_idx]),
-            "rest_depth": float(rest_depth[abs_idx]),
-            "bid_depth": float(bid_depth[abs_idx]),
-            "ask_depth": float(ask_depth[abs_idx]),
-            "v_add": float(v_add[abs_idx]),
-            "v_pull": float(v_pull[abs_idx]),
-            "v_fill": float(v_fill[abs_idx]),
-            "v_rest_depth": float(v_rest_depth[abs_idx]),
-            "v_bid_depth": float(v_bid_depth[abs_idx]),
-            "v_ask_depth": float(v_ask_depth[abs_idx]),
-            "a_add": float(a_add[abs_idx]),
-            "a_pull": float(a_pull[abs_idx]),
-            "a_fill": float(a_fill[abs_idx]),
-            "a_rest_depth": float(a_rest_depth[abs_idx]),
-            "a_bid_depth": float(a_bid_depth[abs_idx]),
-            "a_ask_depth": float(a_ask_depth[abs_idx]),
-            "j_add": float(j_add[abs_idx]),
-            "j_pull": float(j_pull[abs_idx]),
-            "j_fill": float(j_fill[abs_idx]),
-            "j_rest_depth": float(j_rest_depth[abs_idx]),
-            "j_bid_depth": float(j_bid_depth[abs_idx]),
-            "j_ask_depth": float(j_ask_depth[abs_idx]),
-            "pressure_variant": float(pressure_variant[abs_idx]),
-            "vacuum_variant": float(vacuum_variant[abs_idx]),
-            "last_event_id": int(last_event_id[abs_idx]),
-            "composite": float(composite[abs_idx]),
-            "composite_d1": float(composite_d1[abs_idx]),
-            "composite_d2": float(composite_d2[abs_idx]),
-            "composite_d3": float(composite_d3[abs_idx]),
-            "flow_score": float(flow_score[abs_idx]),
-            "flow_state_code": int(flow_state_code[abs_idx]),
-        }
-        buckets.append(row)
-
-    # Right padding
-    for i in range(pad_right):
-        k = window_radius - pad_right + 1 + i
-        buckets.append(_empty_bucket_row(k))
+        grid_cols["pressure_variant"][dst_slice] = full["pressure_variant"][src_slice]
+        grid_cols["vacuum_variant"][dst_slice] = full["vacuum_variant"][src_slice]
+        grid_cols["add_mass"][dst_slice] = full["add_mass"][src_slice]
+        grid_cols["pull_mass"][dst_slice] = full["pull_mass"][src_slice]
+        grid_cols["fill_mass"][dst_slice] = full["fill_mass"][src_slice]
+        grid_cols["rest_depth"][dst_slice] = full["rest_depth"][src_slice]
+        grid_cols["bid_depth"][dst_slice] = full["bid_depth"][src_slice]
+        grid_cols["ask_depth"][dst_slice] = full["ask_depth"][src_slice]
+        grid_cols["v_add"][dst_slice] = full["v_add"][src_slice]
+        grid_cols["v_pull"][dst_slice] = full["v_pull"][src_slice]
+        grid_cols["v_fill"][dst_slice] = full["v_fill"][src_slice]
+        grid_cols["v_rest_depth"][dst_slice] = full["v_rest_depth"][src_slice]
+        grid_cols["v_bid_depth"][dst_slice] = full["v_bid_depth"][src_slice]
+        grid_cols["v_ask_depth"][dst_slice] = full["v_ask_depth"][src_slice]
+        grid_cols["a_add"][dst_slice] = full["a_add"][src_slice]
+        grid_cols["a_pull"][dst_slice] = full["a_pull"][src_slice]
+        grid_cols["a_fill"][dst_slice] = full["a_fill"][src_slice]
+        grid_cols["a_rest_depth"][dst_slice] = full["a_rest_depth"][src_slice]
+        grid_cols["a_bid_depth"][dst_slice] = full["a_bid_depth"][src_slice]
+        grid_cols["a_ask_depth"][dst_slice] = full["a_ask_depth"][src_slice]
+        grid_cols["j_add"][dst_slice] = full["j_add"][src_slice]
+        grid_cols["j_pull"][dst_slice] = full["j_pull"][src_slice]
+        grid_cols["j_fill"][dst_slice] = full["j_fill"][src_slice]
+        grid_cols["j_rest_depth"][dst_slice] = full["j_rest_depth"][src_slice]
+        grid_cols["j_bid_depth"][dst_slice] = full["j_bid_depth"][src_slice]
+        grid_cols["j_ask_depth"][dst_slice] = full["j_ask_depth"][src_slice]
+        grid_cols["composite"][dst_slice] = spectrum_out.composite[src_slice]
+        grid_cols["composite_d1"][dst_slice] = spectrum_out.composite_d1[src_slice]
+        grid_cols["composite_d2"][dst_slice] = spectrum_out.composite_d2[src_slice]
+        grid_cols["composite_d3"][dst_slice] = spectrum_out.composite_d3[src_slice]
+        grid_cols["flow_score"][dst_slice] = spectrum_out.score[src_slice]
+        grid_cols["flow_state_code"][dst_slice] = np.asarray(
+            spectrum_out.state_code[src_slice], dtype=np.int8
+        )
+        grid_cols["last_event_id"][dst_slice] = np.asarray(
+            full["last_event_id"][src_slice], dtype=np.int64
+        )
 
     return {
         "ts_ns": bin_end_ns,
@@ -673,45 +674,8 @@ def _build_bin_grid(
         "best_bid_price_int": engine.best_bid_price_int,
         "best_ask_price_int": engine.best_ask_price_int,
         "book_valid": engine.book_valid,
-        "buckets": buckets,
+        "grid_cols": grid_cols,
     }
-
-
-def _empty_bucket_row(k: int) -> Dict[str, Any]:
-    """Create a zero-valued bucket row for padding."""
-    row: Dict[str, Any] = {
-        "k": k,
-        "add_mass": 0.0,
-        "pull_mass": 0.0,
-        "fill_mass": 0.0,
-        "rest_depth": 0.0,
-        "bid_depth": 0.0,
-        "ask_depth": 0.0,
-        "v_add": 0.0, "v_pull": 0.0, "v_fill": 0.0, "v_rest_depth": 0.0,
-        "v_bid_depth": 0.0, "v_ask_depth": 0.0,
-        "a_add": 0.0, "a_pull": 0.0, "a_fill": 0.0, "a_rest_depth": 0.0,
-        "a_bid_depth": 0.0, "a_ask_depth": 0.0,
-        "j_add": 0.0, "j_pull": 0.0, "j_fill": 0.0, "j_rest_depth": 0.0,
-        "j_bid_depth": 0.0, "j_ask_depth": 0.0,
-        "pressure_variant": 0.0,
-        "vacuum_variant": 0.0,
-        "last_event_id": 0,
-        "composite": 0.0,
-        "composite_d1": 0.0,
-        "composite_d2": 0.0,
-        "composite_d3": 0.0,
-        "flow_score": 0.0,
-        "flow_state_code": 0,
-        "best_ask_move_ticks": 0,
-        "best_bid_move_ticks": 0,
-        "ask_reprice_sign": 0,
-        "bid_reprice_sign": 0,
-        "microstate_id": 4,
-        "state5_code": STATE5_MIXED,
-        "chase_up_flag": 0,
-        "chase_down_flag": 0,
-    }
-    return row
 
 
 def stream_events(

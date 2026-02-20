@@ -11,13 +11,18 @@ with module-level utility functions. Supports:
 """
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from src.vp_shared.zscore import robust_zscore_rolling_1d
+from src.vacuum_pressure.scoring import score_dataset
+from src.vacuum_pressure.serving_config import ScoringConfig
 
 from .dataset_registry import DatasetRegistry
 
@@ -27,6 +32,56 @@ logger = logging.getLogger(__name__)
 K_MIN: int = -50
 K_MAX: int = 50
 N_TICKS: int = 101
+_DERIVABLE_FLOW_COLUMNS: frozenset[str] = frozenset({"flow_score", "flow_state_code"})
+_FLOW_SUPPORT_COLUMNS: tuple[str, ...] = ("composite_d1", "composite_d2", "composite_d3")
+
+
+def _resolve_flow_scoring_config(dataset_root: Path) -> ScoringConfig:
+    """Resolve flow-scoring params from dataset manifest, falling back to defaults."""
+    manifest_path = dataset_root / "manifest.json"
+    defaults = ScoringConfig()
+    if not manifest_path.exists():
+        return defaults
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to parse manifest for scoring config: {manifest_path}"
+        ) from exc
+
+    overrides: dict[str, Any] = {}
+    flow_scoring = payload.get("flow_scoring")
+    if isinstance(flow_scoring, dict):
+        if "derivative_weights" in flow_scoring:
+            overrides["derivative_weights"] = flow_scoring["derivative_weights"]
+        if "tanh_scale" in flow_scoring:
+            overrides["tanh_scale"] = flow_scoring["tanh_scale"]
+        if "threshold_neutral" in flow_scoring:
+            overrides["threshold_neutral"] = flow_scoring["threshold_neutral"]
+        if "zscore_window_bins" in flow_scoring:
+            overrides["zscore_window_bins"] = flow_scoring["zscore_window_bins"]
+        if "zscore_min_periods" in flow_scoring:
+            overrides["zscore_min_periods"] = flow_scoring["zscore_min_periods"]
+    else:
+        legacy_params = payload.get("grid_dependent_params")
+        if isinstance(legacy_params, dict):
+            if legacy_params.get("flow_derivative_weights") is not None:
+                overrides["derivative_weights"] = legacy_params["flow_derivative_weights"]
+            if legacy_params.get("flow_tanh_scale") is not None:
+                overrides["tanh_scale"] = legacy_params["flow_tanh_scale"]
+
+    if not overrides:
+        return defaults
+
+    merged = defaults.model_dump()
+    merged.update(overrides)
+    try:
+        return ScoringConfig.model_validate(merged)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid flow_scoring payload in manifest: {manifest_path}"
+        ) from exc
 
 
 def rolling_ols_slope(arr: np.ndarray, window: int) -> np.ndarray:
@@ -174,10 +229,48 @@ class EvalEngine:
         mid_price: np.ndarray = bins_df["mid_price"].values.astype(np.float64)
         ts_ns: np.ndarray = bins_df["ts_ns"].values.astype(np.int64)
 
-        read_cols: list[str] = ["bin_seq", "k"] + list(columns)
+        grid_schema_cols = set(pq.read_schema(paths.grid_clean_parquet).names)
+        missing_cols = [c for c in columns if c not in grid_schema_cols]
+        missing_flow_cols = [c for c in missing_cols if c in _DERIVABLE_FLOW_COLUMNS]
+        missing_unsupported = [c for c in missing_cols if c not in _DERIVABLE_FLOW_COLUMNS]
+        if missing_unsupported:
+            raise KeyError(
+                f"Dataset '{dataset_id}' missing required columns: {missing_unsupported}"
+            )
+
+        read_cols: list[str] = ["bin_seq", "k"] + [
+            c for c in columns if c in grid_schema_cols
+        ]
+        if missing_flow_cols:
+            missing_support = [c for c in _FLOW_SUPPORT_COLUMNS if c not in grid_schema_cols]
+            if missing_support:
+                raise KeyError(
+                    f"Dataset '{dataset_id}' missing columns needed to derive flow fields: {missing_support}"
+                )
+            read_cols.extend(_FLOW_SUPPORT_COLUMNS)
+
+        dedup_read_cols: list[str] = []
+        seen: set[str] = set()
+        for col in read_cols:
+            if col in seen:
+                continue
+            seen.add(col)
+            dedup_read_cols.append(col)
+
         grid_df: pd.DataFrame = pd.read_parquet(
-            paths.grid_clean_parquet, columns=read_cols
+            paths.grid_clean_parquet, columns=dedup_read_cols
         )
+
+        if missing_flow_cols:
+            scoring_cfg = _resolve_flow_scoring_config(paths.grid_clean_parquet.parent)
+            score_input = grid_df[
+                ["bin_seq", "k", "composite_d1", "composite_d2", "composite_d3"]
+            ].copy()
+            scored_df = score_dataset(score_input, scoring_cfg, N_TICKS)
+            if "flow_score" in missing_flow_cols:
+                grid_df["flow_score"] = scored_df["flow_score"].to_numpy(copy=False)
+            if "flow_state_code" in missing_flow_cols:
+                grid_df["flow_state_code"] = scored_df["flow_state_code"].to_numpy(copy=False)
 
         k_values: np.ndarray = np.arange(K_MIN, K_MAX + 1, dtype=np.int32)
         bin_seq_index = pd.Index(bins_df["bin_seq"].to_numpy(copy=False))

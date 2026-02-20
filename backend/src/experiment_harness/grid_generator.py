@@ -51,8 +51,6 @@ _GRID_SCALAR_COLS: list[str] = [
     "j_ask_depth",
     "pressure_variant",
     "vacuum_variant",
-    "flow_score",
-    "flow_state_code",
     "best_ask_move_ticks",
     "best_bid_move_ticks",
     "ask_reprice_sign",
@@ -144,7 +142,12 @@ class GridGenerator:
         grid_df.to_parquet(grid_path, index=False, engine="pyarrow")
         logger.info("Wrote %d grid rows to %s", len(grid_df), grid_path)
 
-        manifest = self._build_manifest(spec, variant_id, len(bins_records))
+        manifest = self._build_manifest(
+            spec,
+            variant_id,
+            len(bins_records),
+            runtime_config=runtime_config,
+        )
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         logger.info("Wrote manifest to %s", manifest_path)
 
@@ -328,15 +331,16 @@ class GridGenerator:
                 "spot_ref_price_int": spot_ref_int,
             })
 
-            buckets: list[dict[str, Any]] = grid.get("buckets", [])
-            for bucket in buckets:
+            cols: dict[str, Any] = grid["grid_cols"]
+            n_rows = len(cols["k"])
+            for row_idx in range(n_rows):
                 row: dict[str, Any] = {
                     "bin_seq": bin_seq,
-                    "k": int(bucket["k"]),
+                    "k": int(cols["k"][row_idx]),
                 }
                 for col in _GRID_SCALAR_COLS:
-                    row[col] = float(bucket.get(col, 0.0))
-                row["last_event_id"] = int(bucket.get("last_event_id", 0))
+                    row[col] = float(cols[col][row_idx])
+                row["last_event_id"] = int(cols["last_event_id"][row_idx])
 
                 grid_rows.append(row)
 
@@ -365,12 +369,21 @@ class GridGenerator:
         spec: GridVariantConfig,
         variant_id: str,
         n_bins: int,
+        *,
+        runtime_config: Any,
     ) -> dict[str, Any]:
         """Build manifest dict for reproducibility."""
         return {
             "variant_id": variant_id,
             "n_bins": n_bins,
             "spec": spec.model_dump(),
+            "flow_scoring": {
+                "derivative_weights": list(runtime_config.flow_derivative_weights),
+                "tanh_scale": float(runtime_config.flow_tanh_scale),
+                "threshold_neutral": float(runtime_config.flow_neutral_threshold),
+                "zscore_window_bins": int(runtime_config.flow_zscore_window_bins),
+                "zscore_min_periods": int(runtime_config.flow_zscore_min_periods),
+            },
             "grid_dependent_params": {
                 "cell_width_ms": spec.cell_width_ms,
                 "c1_v_add": spec.c1_v_add,

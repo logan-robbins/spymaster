@@ -60,6 +60,16 @@ def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
 
 
 def _make_grid(ts_ns: int, seq: int, event_id: int) -> Dict[str, Any]:
+    bucket_rows = [
+        _make_bucket_row(-1, 0.1 * (seq + 1), event_id),
+        _make_bucket_row(0, 0.2 * (seq + 1), event_id),
+    ]
+    grid_cols: Dict[str, Any] = {}
+    for field_name, _dtype in cache_vp_output._BUCKET_INT_FIELDS:
+        grid_cols[field_name] = [int(row[field_name]) for row in bucket_rows]
+    for field_name in cache_vp_output._BUCKET_FLOAT_FIELDS:
+        grid_cols[field_name] = [float(row[field_name]) for row in bucket_rows]
+
     return {
         "ts_ns": ts_ns,
         "bin_seq": seq,
@@ -72,10 +82,7 @@ def _make_grid(ts_ns: int, seq: int, event_id: int) -> Dict[str, Any]:
         "best_bid_price_int": 99_900 + seq,
         "best_ask_price_int": 100_100 + seq,
         "book_valid": True,
-        "buckets": [
-            _make_bucket_row(-1, 0.1 * (seq + 1), event_id),
-            _make_bucket_row(0, 0.2 * (seq + 1), event_id),
-        ],
+        "grid_cols": grid_cols,
     }
 
 
