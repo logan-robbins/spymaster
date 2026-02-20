@@ -169,6 +169,15 @@ Immutable experiment datasets:
 Harness results:
 - `backend/lake/research/vp_harness/results/` — `runs_meta.parquet` and `runs.parquet`
 
+## Archived Python Paths
+
+Inactive and legacy Python files are archived under `dep/` with original path structure preserved.
+
+Current archived examples:
+- `dep/backend/scripts/batch_download_equities.py`
+- `dep/backend/src/experiment_harness/comparison.py`
+- `dep/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/`
+
 ## System Map
 
 Live serving:

@@ -1,124 +1,86 @@
 # Spymaster Backend
 
-Python 3.12 backend using `uv` for dependency and command execution.
+Futures-only vacuum-pressure backend (live server + experiment harness + offline dataset pipeline).
 
 ## Environment
 
 - Python: `>=3.12,<3.13`
-- Package/tool runner: `uv`
-- Virtual environment location: `.venv`
+- Package/tool runner: `uv` only
+- Virtual environment: `backend/.venv`
 
 ## Setup
 
 ```bash
+cd backend
 uv sync
 ```
 
-## Common Commands
+## Primary Entry Points
 
 ```bash
-# Run tests
-uv run pytest
-
-# Inspect futures downloader options
-uv run scripts/batch_download_futures.py --help
-
-# Inspect equities downloader options
-uv run scripts/batch_download_equities.py --help
-
-# Run vacuum-pressure replay pipeline
+# Live VP server
 uv run scripts/run_vacuum_pressure.py --help
 
-# Warm cache artifacts
+# Experiment harness CLI
+uv run python -m src.experiment_harness.cli --help
+
+# Databento futures downloader
+uv run scripts/batch_download_futures.py --help
+```
+
+## Offline Data Pipeline Commands
+
+```bash
+# Capture cached stream output from the VP pipeline
+uv run scripts/cache_vp_output.py --help
+
+# Build batch gold datasets from campaign configs
+uv run scripts/build_gold_dataset_campaign.py --help
+
+# Publish cache output into immutable + experiment dataset layout
+uv run scripts/publish_vp_research_dataset.py --help
+```
+
+## VP Diagnostics
+
+```bash
+# Warm replay cache for faster startup
 uv run scripts/warm_cache.py --help
+
+# Core throughput benchmark
+uv run scripts/benchmark_vp_core.py --help
+
+# Signal analytics diagnostics
+uv run scripts/analyze_vp_signals.py --help
 ```
 
-## Lake Layout
+## Data Layout
 
-Lake root: `lake/`
+Lake root: `backend/lake/`
 
-- Raw data: `lake/raw/source=databento/...`
-- Bronze data: `lake/bronze/source=databento/...`
-- Cache data: `lake/cache/...`
+- Raw replay `.dbn`: `lake/raw/source=databento/product_type=future_mbo/symbol=<root>/table=market_by_order_dbn/`
+- Immutable harness datasets: `lake/research/vp_immutable/<dataset_id>/`
+- Harness configs: `lake/research/vp_harness/configs/{pipelines,serving,experiments,gold_campaigns}/`
+- Harness results: `lake/research/vp_harness/results/`
 
-## GCS Transfer Status (Completed)
+## Archived Python Paths
 
-- Project: `transformer-478002`
-- Bucket: `gs://spylake-478002-260215-47a822d7`
-- Prefix: `gs://spylake-478002-260215-47a822d7/lake`
-- Transfer scope: full recursive copy of local `lake/` structure and files
-- Final parity:
-- Local files: `27`
-- Remote files: `27`
-- Local bytes: `17220317736`
-- Remote bytes: `17220317736`
+Legacy and non-primary Python paths are archived under `dep/` with original structure preserved.
 
-## GCS Public Access Status (Enabled)
+- Equities downloader: `dep/backend/scripts/batch_download_equities.py`
+- Deprecated harness helper: `dep/backend/src/experiment_harness/comparison.py`
+- Archived experiment workspace Python: `dep/backend/lake/research/vp_experiments/mnqh6_20260206_0925_1025/`
 
-- Bucket: `gs://spylake-478002-260215-47a822d7`
-- Public principal: `allUsers`
-- Public roles applied:
-- `roles/storage.objectViewer` (public object reads)
-- `roles/storage.legacyBucketReader` (public bucket object listing)
-- Anonymous verification:
-- Object fetch HTTP status: `200`
-- Bucket listing HTTP status: `200`
-
-### Public Access Commands Used
+## Verification
 
 ```bash
-gcloud storage buckets add-iam-policy-binding \
-  gs://spylake-478002-260215-47a822d7 \
-  --member=allUsers \
-  --role=roles/storage.objectViewer
+cd backend
 
-gcloud storage buckets add-iam-policy-binding \
-  gs://spylake-478002-260215-47a822d7 \
-  --member=allUsers \
-  --role=roles/storage.legacyBucketReader
-```
+# Focused checks
+uv run scripts/run_vacuum_pressure.py --help
+uv run python -m src.experiment_harness.cli --help
+uv run scripts/batch_download_futures.py --help
 
-### Public Access Verification
-
-```bash
-# Anonymous object read
-curl -sS -o /dev/null -w '%{http_code}\n' \
-  'https://storage.googleapis.com/spylake-478002-260215-47a822d7/lake/raw/source=databento/product_type=equity_mbo/symbol=QQQ/table=market_by_order_dbn/symbology.json'
-
-# Anonymous bucket object listing
-curl -sS -o /dev/null -w '%{http_code}\n' \
-  'https://storage.googleapis.com/storage/v1/b/spylake-478002-260215-47a822d7/o?prefix=lake/&maxResults=5'
-```
-
-### Command Used
-
-```bash
-gsutil -m -q \
-  -o GSUtil:parallel_process_count=8 \
-  -o GSUtil:parallel_thread_count=32 \
-  -o GSUtil:parallel_composite_upload_threshold=150M \
-  rsync -r "/Users/logan.robbins/research/spymaster/backend/lake" \
-  "gs://spylake-478002-260215-47a822d7/lake"
-```
-
-### Verify Command
-
-```bash
-echo "LOCAL_FILES=$(find lake -type f | wc -l | tr -d ' ')"
-echo "LOCAL_BYTES=$(find lake -type f -exec stat -f %z {} + | awk '{s+=$1} END {printf(\"%.0f\", s)}')"
-
-echo "REMOTE_FILES=$(gcloud storage ls -r 'gs://spylake-478002-260215-47a822d7/lake/**' | wc -l | tr -d ' ')"
-echo "REMOTE_BYTES=$(gcloud storage du -s 'gs://spylake-478002-260215-47a822d7/lake' | awk '{print $1}')"
-```
-
-## Transfer Debugging
-
-- Transfer logs from this run are under `logs/`:
-- `logs/gsutil_rsync_*.log`
-- `logs/gsutil_rsync_fast_*.log`
-- `logs/gsutil_rsync_quiet*.log`
-- Listing command:
-
-```bash
-gcloud storage ls -r 'gs://spylake-478002-260215-47a822d7/lake/**' | sort
+# Backend tests
+uv run pytest tests/
 ```
