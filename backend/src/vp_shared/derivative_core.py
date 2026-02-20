@@ -114,17 +114,12 @@ def derivative_base_from_intensities(
     bear_pressure_weight: float,
     bear_vacuum_weight: float,
     mixed_weight: float,
-    enable_weighted_blend: bool,
 ) -> tuple[np.ndarray | float, np.ndarray | float, np.ndarray | float]:
     bull = bull_pressure_weight * i_bull_press + bull_vacuum_weight * i_bull_vac
     bear = bear_pressure_weight * i_bear_press + bear_vacuum_weight * i_bear_vac
     net = bull - bear
-
-    if enable_weighted_blend:
-        mixed_damp = 1.0 - mixed_weight * i_mixed
-        mixed_damp = np.clip(mixed_damp, 0.0, 1.0)
-        base = net * mixed_damp
-    else:
-        base = net
+    mixed_damp = 1.0 - mixed_weight * i_mixed
+    mixed_damp = np.clip(mixed_damp, 0.0, 1.0)
+    base = net * mixed_damp
 
     return bull, bear, base

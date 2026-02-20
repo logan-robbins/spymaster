@@ -62,7 +62,6 @@ class DerivativeSignal(StatisticalSignal):
         bear_pressure_weight: float = 1.0,
         bear_vacuum_weight: float = 1.0,
         mixed_weight: float = 0.0,
-        enable_weighted_blend: bool = False,
     ) -> None:
         if cell_width_ms <= 0:
             raise ValueError(f"cell_width_ms must be > 0, got {cell_width_ms}")
@@ -96,7 +95,6 @@ class DerivativeSignal(StatisticalSignal):
         self.bear_pressure_weight = float(bear_pressure_weight)
         self.bear_vacuum_weight = float(bear_vacuum_weight)
         self.mixed_weight = float(mixed_weight)
-        self.enable_weighted_blend = bool(enable_weighted_blend)
 
     @property
     def name(self) -> str:
@@ -141,7 +139,6 @@ class DerivativeSignal(StatisticalSignal):
             bear_pressure_weight=self.bear_pressure_weight,
             bear_vacuum_weight=self.bear_vacuum_weight,
             mixed_weight=self.mixed_weight,
-            enable_weighted_blend=self.enable_weighted_blend,
         )
 
         dt_s = float(self.cell_width_ms) / 1000.0

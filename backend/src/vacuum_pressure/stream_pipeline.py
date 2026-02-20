@@ -232,7 +232,6 @@ def _state_model_params_from_config(config: VPRuntimeConfig) -> DerivativeRuntim
         bear_pressure_weight=config.state_model_bear_pressure_weight,
         bear_vacuum_weight=config.state_model_bear_vacuum_weight,
         mixed_weight=config.state_model_mixed_weight,
-        enable_weighted_blend=config.state_model_enable_weighted_blend,
     )
     params.validate()
     return params
@@ -719,13 +718,11 @@ def stream_events(
             damping_lambda=projection_damping_lambda,
         ),
     )
-    state_model: DerivativeRuntime | None = None
-    if config.state_model_enabled:
-        state_model = DerivativeRuntime(
-            k_values=np.arange(-window_radius, window_radius + 1, dtype=np.int32),
-            cell_width_ms=config.cell_width_ms,
-            params=_state_model_params_from_config(config),
-        )
+    state_model = DerivativeRuntime(
+        k_values=np.arange(-window_radius, window_radius + 1, dtype=np.int32),
+        cell_width_ms=config.cell_width_ms,
+        params=_state_model_params_from_config(config),
+    )
 
     event_count = 0
     yielded_count = 0
@@ -809,9 +806,8 @@ def stream_events(
                 ask_move_ticks=ask_move_ticks,
                 bid_move_ticks=bid_move_ticks,
             )
-            if state_model is not None:
-                model_out = state_model.update(state5_series)
-                _annotate_state_model(grid, model_out)
+            model_out = state_model.update(state5_series)
+            _annotate_state_model(grid, model_out)
             prev_best_ask_price_int = int(grid["best_ask_price_int"])
             prev_best_bid_price_int = int(grid["best_bid_price_int"])
             if capture_producer_timing:

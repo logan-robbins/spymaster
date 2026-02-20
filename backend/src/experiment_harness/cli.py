@@ -11,7 +11,7 @@ Entry point::
     uv run python -m src.experiment_harness.cli list-signals
     uv run python -m src.experiment_harness.cli list-datasets
     uv run python -m src.experiment_harness.cli generate path/to/pipeline_spec.yaml
-    uv run python -m src.experiment_harness.cli promote path/to/experiment_spec.yaml --run-id abc12345
+    uv run python -m src.experiment_harness.cli promote path/to/experiment_spec.yaml --run-id abc12345 --alias vp_main
 """
 from __future__ import annotations
 
@@ -503,38 +503,50 @@ def generate(config_path: str, lake_root: str | None) -> None:
     help="Run ID from experiment results to promote.",
 )
 @click.option(
+    "--alias",
+    required=True,
+    type=str,
+    help="Serving alias used at runtime (URL: ?serving=<alias>).",
+)
+@click.option(
     "--lake-root",
     default=None,
     type=str,
     help="Override lake root directory. Default: backend/lake/",
 )
-@click.option(
-    "--output",
-    default=None,
-    type=str,
-    help="Override output path for the promoted ServingSpec YAML.",
-)
 def promote(
     config_path: str,
     run_id: str,
+    alias: str,
     lake_root: str | None,
-    output: str | None,
 ) -> None:
-    """Promote a winning experiment run to a ServingSpec YAML.
+    """Promote a winning experiment run to an immutable serving version.
 
     Loads CONFIG_PATH as an ExperimentSpec, extracts the winning parameters
-    from RUN_ID, and writes a new ServingSpec YAML ready for serving.
+    from RUN_ID, resolves a full runtime snapshot, writes immutable serving
+    version YAML, and updates the alias registry mapping.
     """
+    from datetime import datetime, timezone
+
+    from ..vacuum_pressure.config import build_config_with_overrides
     from ..vacuum_pressure.experiment_config import ExperimentSpec
-    from ..vacuum_pressure.serving_config import ServingSpec
+    from ..vacuum_pressure.serving_config import (
+        PublishedServingSource,
+        PublishedServingSpec,
+        ServingSpec,
+    )
+    from ..vacuum_pressure.serving_registry import ServingRegistry
 
     resolved_lake: Path = _resolve_lake_root(lake_root)
     spec: ExperimentSpec = ExperimentSpec.from_yaml(Path(config_path))
 
     results_db_root: Path = resolved_lake / "research" / "vp_harness" / "results"
+    results_db = ResultsDB(results_db_root)
 
     click.echo(f"Experiment: {spec.name}")
     click.echo(f"Run ID:     {run_id}")
+    alias_clean = alias.strip().lower()
+    click.echo(f"Alias:      {alias_clean}")
     click.echo()
 
     promoted: ServingSpec = spec.extract_winning_serving(
@@ -542,27 +554,68 @@ def promote(
         results_db_root=results_db_root,
         lake_root=resolved_lake,
     )
+    pipeline_spec = promoted.resolve_pipeline(resolved_lake)
+    runtime_base = pipeline_spec.resolve_runtime_config()
+    serving_runtime_fields: dict[str, Any] = promoted.to_runtime_fields(
+        cell_width_ms=runtime_base.cell_width_ms
+    )
+    effective_runtime = build_config_with_overrides(runtime_base, serving_runtime_fields)
 
-    if output is not None:
-        output_path: Path = Path(output).resolve()
-    else:
-        output_path = ServingSpec.configs_dir(resolved_lake) / f"{promoted.name}.yaml"
+    meta_df = results_db.query_runs(run_id=run_id)
+    if meta_df.empty:
+        raise click.ClickException(
+            f"Run '{run_id}' was not found in ResultsDB metadata at {results_db_root}"
+        )
+    meta_row = meta_df.iloc[0].to_dict()
+    config_hash = str(meta_row.get("config_hash", "")).strip()
+    if not config_hash:
+        raise click.ClickException(
+            f"Run '{run_id}' is missing config_hash in ResultsDB metadata."
+        )
 
-    promoted.to_yaml(output_path)
+    promoted_at_utc = datetime.now(tz=timezone.utc).isoformat()
+    registry = ServingRegistry(resolved_lake)
+    serving_id = registry.build_serving_id(
+        experiment_name=spec.name,
+        run_id=run_id,
+        config_hash=config_hash,
+    )
 
-    click.echo(f"Promoted:   {promoted.name}")
-    click.echo(f"Output:     {output_path}")
+    runtime_snapshot = effective_runtime.to_dict()
+    runtime_snapshot["stream_dt"] = pipeline_spec.capture.dt
+    runtime_snapshot["stream_start_time"] = pipeline_spec.capture.start_time
+
+    published = PublishedServingSpec(
+        serving_id=serving_id,
+        description=promoted.description,
+        runtime_snapshot=runtime_snapshot,
+        source=PublishedServingSource(
+            run_id=run_id,
+            experiment_name=spec.name,
+            config_hash=config_hash,
+            promoted_at_utc=promoted_at_utc,
+            serving_spec_name=promoted.name,
+            signal_name=promoted.signal.name if promoted.signal is not None else None,
+        ),
+    )
+    result = registry.promote(alias=alias_clean, spec=published, actor="cli.promote")
+
+    click.echo(f"Serving ID: {result.serving_id}")
+    click.echo(f"Alias:      {result.alias}")
+    click.echo(f"Spec:       {result.spec_path}")
+    click.echo(f"Reused:     {result.reused_existing}")
     click.echo()
 
-    overrides: dict[str, Any] = promoted.to_runtime_overrides()
-    click.echo("Runtime overrides:")
-    for key, value in sorted(overrides.items()):
-        click.echo(f"  {key}: {value}")
-
-    click.echo()
+    click.echo("Runtime snapshot identity:")
+    click.echo(f"  config_version: {effective_runtime.config_version}")
+    click.echo(f"  config_hash:    {config_hash}")
     click.echo(
-        f"Streaming URL pattern: "
-        f"ws://localhost:8002/v1/vacuum-pressure/stream?serving={promoted.name}"
+        "WebSocket URL: "
+        f"ws://localhost:8002/v1/vacuum-pressure/stream?serving={result.alias}"
+    )
+    click.echo(
+        "Frontend URL:  "
+        f"http://localhost:5174/vacuum-pressure.html?serving={result.alias}"
     )
 
 

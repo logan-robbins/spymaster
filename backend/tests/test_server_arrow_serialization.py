@@ -9,7 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.server import _grid_schema, _grid_to_arrow_ipc
+from src.vacuum_pressure.stream_contract import grid_schema, grid_to_arrow_ipc
 
 
 def _test_config() -> VPRuntimeConfig:
@@ -41,7 +41,7 @@ def _test_config() -> VPRuntimeConfig:
 
 
 def test_grid_to_arrow_ipc_serializes_expected_rows() -> None:
-    schema = _grid_schema(_test_config())
+    schema = grid_schema(_test_config())
     grid = {
         "grid_cols": {
             "k": [-1, 0],
@@ -89,7 +89,7 @@ def test_grid_to_arrow_ipc_serializes_expected_rows() -> None:
         },
     }
 
-    payload = _grid_to_arrow_ipc(grid, schema)
+    payload = grid_to_arrow_ipc(grid, schema)
     table = pa.ipc.open_stream(pa.py_buffer(payload)).read_all()
 
     assert table.schema.equals(schema)

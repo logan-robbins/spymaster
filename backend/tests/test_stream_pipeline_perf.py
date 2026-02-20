@@ -12,7 +12,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig, build_config_with_overrides
+from src.vacuum_pressure.config import VPRuntimeConfig
 from src.vacuum_pressure.stream_pipeline import (
     ProducerLatencyConfig,
     async_stream_events,
@@ -295,23 +295,3 @@ def test_async_stream_events_latency_window_filter(
     records = [json.loads(line) for line in output_path.read_text().splitlines() if line.strip()]
     assert len(records) == 1
     assert records[0]["bin_seq"] == 1
-
-
-def test_stream_events_can_disable_runtime_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
-        _iter_for(_events_with_gap()),
-    )
-    config = build_config_with_overrides(_test_config(), {"state_model_enabled": False})
-    grids = list(
-        stream_events(
-            lake_root=Path("/tmp"),
-            config=config,
-            dt="2026-02-06",
-            start_time=None,
-        )
-    )
-    assert len(grids) == 3
-    assert "state_model_name" not in grids[0]

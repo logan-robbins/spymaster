@@ -42,7 +42,6 @@ class DerivativeRuntimeParams:
     bear_pressure_weight: float = 1.0
     bear_vacuum_weight: float = 1.0
     mixed_weight: float = 0.0
-    enable_weighted_blend: bool = False
 
     def validate(self) -> None:
         """Fail fast on invalid runtime model parameters."""
@@ -164,7 +163,6 @@ class DerivativeRuntime:
             bear_pressure_weight=self._params.bear_pressure_weight,
             bear_vacuum_weight=self._params.bear_vacuum_weight,
             mixed_weight=self._params.mixed_weight,
-            enable_weighted_blend=self._params.enable_weighted_blend,
         )
 
         if self._sample_count == 0:

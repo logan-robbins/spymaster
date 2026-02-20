@@ -4,7 +4,7 @@
  * Price-anchored heatmap: the Y-axis represents fixed dollar price levels.
  * Spot moves within the grid as a visible polyline trail.
  *
- * Connects to ws://localhost:8002/v1/vacuum-pressure/stream
+ * Connects to ws://localhost:8002/v1/vacuum-pressure/stream?serving=<alias_or_id>
  * Renders:
  *   - Left panel:  current depth profile (horizontal bars per level)
  *   - Centre panel: scrolling heatmap   (time x price, colour = flow state)
@@ -59,7 +59,6 @@ interface RuntimeConfig {
 
 interface RuntimeModelConfig {
   name: string;
-  enabled: boolean;
 }
 
 interface RuntimeModelUpdate {
@@ -114,29 +113,7 @@ interface GridBucketRow {
 
 /** Parsed and validated URL query parameters. */
 interface StreamParams {
-  product_type: string;
-  symbol: string;
-  dt: string;
-  start_time?: string;
-  serving?: string;
-  projection_horizons_bins?: string;
-  projection_source?: 'backend';
-  // Runtime model overrides (forwarded to WebSocket query params)
-  state_model_enabled?: string;
-  state_model_center_exclusion_radius?: string;
-  state_model_spatial_decay_power?: string;
-  state_model_zscore_window_bins?: string;
-  state_model_zscore_min_periods?: string;
-  state_model_tanh_scale?: string;
-  state_model_d1_weight?: string;
-  state_model_d2_weight?: string;
-  state_model_d3_weight?: string;
-  state_model_bull_pressure_weight?: string;
-  state_model_bull_vacuum_weight?: string;
-  state_model_bear_pressure_weight?: string;
-  state_model_bear_vacuum_weight?: string;
-  state_model_mixed_weight?: string;
-  state_model_enable_weighted_blend?: string;
+  serving: string;
 }
 
 // --------------------------------------------------------- Layout constants
@@ -154,7 +131,6 @@ let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
 let runtimeModelConfig: RuntimeModelConfig | null = null;
 let latestRuntimeModel: RuntimeModelUpdate | null = null;
-let projectionSource: 'backend' = 'backend';
 
 // BBO state for overlay rendering
 let bestBidDollars = 0;
@@ -536,16 +512,6 @@ function requireBigIntField(
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function optionalNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
 }
 
 /** Heatmap cell colour: single-channel green pressure gradient.
@@ -1004,12 +970,12 @@ function updateRuntimeModelPanel(): void {
   const scoreEl = $('sig-model-score');
   const detailEl = $('sig-model-detail');
 
-  if (!runtimeModelConfig || !runtimeModelConfig.enabled) {
-    statusEl.textContent = 'DISABLED';
-    statusEl.style.color = '#888';
+  if (!runtimeModelConfig) {
+    statusEl.textContent = 'WAIT';
+    statusEl.style.color = '#ccaa22';
     scoreEl.textContent = '0.0';
     scoreEl.style.color = '#888';
-    detailEl.textContent = 'runtime model disabled by config';
+    detailEl.textContent = 'awaiting runtime model config';
     detailEl.style.color = '#777';
     return;
   }
@@ -1876,7 +1842,7 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
  * Apply a runtime config received from the server.
  * Updates the metadata display and hides the warning banner.
  */
-function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig | null): void {
+function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig): void {
   if (cfg.grid_radius_ticks < 1) {
     streamContractError(
       'runtime_config',
@@ -1920,60 +1886,31 @@ function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig | n
 
 // -------------------------------------------------------- URL contract
 
-/** Parse and validate URL query parameters.  Fails fast if product_type is missing. */
+/** Parse and validate URL query parameters for parity mode. */
 function parseStreamParams(): StreamParams {
   const params = new URLSearchParams(window.location.search);
-  const product_type = params.get('product_type');
-  if (!product_type) {
+  const serving = params.get('serving');
+  if (!serving || !serving.trim()) {
     const msg =
-      'Missing required query parameter: product_type. ' +
-      'Example: ?product_type=equity_mbo&symbol=QQQ&dt=2026-02-06';
+      'Missing required query parameter: serving. ' +
+      'Example: ?serving=vp_main';
     console.error(`[VP] ${msg}`);
     // Show error in the UI
     $warningBanner.textContent = msg;
     $warningBanner.style.display = '';
     $warningBanner.style.background = '#660000';
+    streamContractError('url', msg);
   }
 
-  const projectionSource = params.get('projection_source');
-  if (projectionSource === 'frontend') {
+  const extraParams = Array.from(params.keys()).filter((key) => key !== 'serving');
+  if (extraParams.length > 0) {
     streamContractError(
       'url',
-      'projection_source=frontend is no longer supported; use backend runtime model projection.',
-    );
-  }
-  if (params.get('dev_scoring') === 'true') {
-    streamContractError(
-      'url',
-      'dev_scoring=true is no longer supported; use backend runtime model projection.',
+      `Unsupported URL parameters in serving parity mode: ${extraParams.join(', ')}`,
     );
   }
 
-  const runtimeKeys = [
-    'state_model_enabled', 'state_model_center_exclusion_radius', 'state_model_spatial_decay_power',
-    'state_model_zscore_window_bins', 'state_model_zscore_min_periods', 'state_model_tanh_scale',
-    'state_model_d1_weight', 'state_model_d2_weight', 'state_model_d3_weight',
-    'state_model_bull_pressure_weight', 'state_model_bull_vacuum_weight',
-    'state_model_bear_pressure_weight', 'state_model_bear_vacuum_weight',
-    'state_model_mixed_weight', 'state_model_enable_weighted_blend',
-  ] as const;
-
-  const result: StreamParams = {
-    product_type: product_type || 'equity_mbo',
-    symbol: params.get('symbol') || 'QQQ',
-    dt: params.get('dt') || '2026-02-06',
-    start_time: params.get('start_time') || undefined,
-    serving: params.get('serving') || undefined,
-    projection_horizons_bins: params.get('projection_horizons_bins') || undefined,
-    projection_source: 'backend',
-  };
-
-  for (const key of runtimeKeys) {
-    const val = params.get(key);
-    if (val !== null) (result as unknown as Record<string, unknown>)[key] = val;
-  }
-
-  return result;
+  return { serving: (serving || '').trim() };
 }
 
 // ---------------------------------------------------------------- WebSocket
@@ -2118,36 +2055,11 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source } = streamParams;
-  projectionSource = projection_source ?? 'backend';
-
-  const urlBase =
+  const url =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
-    `?product_type=${encodeURIComponent(product_type)}` +
-    `&symbol=${encodeURIComponent(symbol)}` +
-    `&dt=${encodeURIComponent(dt)}`;
-  const wsParams = new URLSearchParams();
-  if (start_time) wsParams.set('start_time', start_time);
-  if (streamParams.serving) wsParams.set('serving', streamParams.serving);
-  if (projection_horizons_bins) wsParams.set('projection_horizons_bins', projection_horizons_bins);
+    `?serving=${encodeURIComponent(streamParams.serving)}`;
 
-  // Forward runtime-model overrides from URL to WebSocket
-  const runtimeKeys = [
-    'state_model_enabled', 'state_model_center_exclusion_radius', 'state_model_spatial_decay_power',
-    'state_model_zscore_window_bins', 'state_model_zscore_min_periods', 'state_model_tanh_scale',
-    'state_model_d1_weight', 'state_model_d2_weight', 'state_model_d3_weight',
-    'state_model_bull_pressure_weight', 'state_model_bull_vacuum_weight',
-    'state_model_bear_pressure_weight', 'state_model_bear_vacuum_weight',
-    'state_model_mixed_weight', 'state_model_enable_weighted_blend',
-  ] as const;
-  for (const key of runtimeKeys) {
-    const val = (streamParams as unknown as Record<string, unknown>)[key];
-    if (val !== undefined && val !== null) wsParams.set(key, String(val));
-  }
-
-  const url = wsParams.toString() ? `${urlBase}&${wsParams.toString()}` : urlBase;
-
-  console.log(`[VP] Connecting to: ${url} (projection_source=${projectionSource})`);
+  console.log(`[VP] Connecting to: ${url}`);
   const ws = new WebSocket(url);
   wsClient = ws;
 
@@ -2181,21 +2093,18 @@ function connectWS(): void {
               msg,
               'projection_horizons_ms',
             );
-            let modelCfg: RuntimeModelConfig | null = null;
-            const runtimeModelRaw = msg.state_model;
+            const runtimeModelRaw = requireField('runtime_config', msg, 'state_model');
             if (
-              runtimeModelRaw !== undefined &&
-              runtimeModelRaw !== null &&
-              typeof runtimeModelRaw === 'object' &&
-              !Array.isArray(runtimeModelRaw)
+              runtimeModelRaw === null ||
+              typeof runtimeModelRaw !== 'object' ||
+              Array.isArray(runtimeModelRaw)
             ) {
-              const runtimeModelObj = runtimeModelRaw as Record<string, unknown>;
-              const modelName = optionalString(runtimeModelObj.name);
-              const modelEnabled = optionalBoolean(runtimeModelObj.enabled);
-              if (modelName && modelEnabled !== undefined) {
-                modelCfg = { name: modelName, enabled: modelEnabled };
-              }
+              streamContractError('runtime_config', 'state_model must be an object');
             }
+            const runtimeModelObj = runtimeModelRaw as Record<string, unknown>;
+            const modelCfg: RuntimeModelConfig = {
+              name: requireStringField('runtime_config.state_model', runtimeModelObj, 'name'),
+            };
 
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
@@ -2258,58 +2167,25 @@ function connectWS(): void {
             const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
             const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
-            const runtimeModelName = optionalString(msg.state_model_name);
-            const runtimeModelScore = optionalNumber(msg.state_model_score);
-            const runtimeModelReady = optionalBoolean(msg.state_model_ready);
-            const runtimeModelSampleCount = optionalNumber(msg.state_model_sample_count);
-            const runtimeModelBase = optionalNumber(msg.state_model_base);
-            const runtimeModelD1 = optionalNumber(msg.state_model_d1);
-            const runtimeModelD2 = optionalNumber(msg.state_model_d2);
-            const runtimeModelD3 = optionalNumber(msg.state_model_d3);
-            const runtimeModelZ1 = optionalNumber(msg.state_model_z1);
-            const runtimeModelZ2 = optionalNumber(msg.state_model_z2);
-            const runtimeModelZ3 = optionalNumber(msg.state_model_z3);
-            const runtimeModelBullIntensity = optionalNumber(msg.state_model_bull_intensity);
-            const runtimeModelBearIntensity = optionalNumber(msg.state_model_bear_intensity);
-            const runtimeModelMixedIntensity = optionalNumber(msg.state_model_mixed_intensity);
-            const runtimeModelDominantState5 = optionalNumber(msg.state_model_dominant_state5_code);
-            if (
-              runtimeModelName &&
-              runtimeModelScore !== undefined &&
-              runtimeModelReady !== undefined &&
-              runtimeModelSampleCount !== undefined &&
-              runtimeModelBase !== undefined &&
-              runtimeModelD1 !== undefined &&
-              runtimeModelD2 !== undefined &&
-              runtimeModelD3 !== undefined &&
-              runtimeModelZ1 !== undefined &&
-              runtimeModelZ2 !== undefined &&
-              runtimeModelZ3 !== undefined &&
-              runtimeModelBullIntensity !== undefined &&
-              runtimeModelBearIntensity !== undefined &&
-              runtimeModelMixedIntensity !== undefined &&
-              runtimeModelDominantState5 !== undefined
-            ) {
-              latestRuntimeModel = {
-                name: runtimeModelName,
-                score: runtimeModelScore,
-                ready: runtimeModelReady,
-                sampleCount: Math.round(runtimeModelSampleCount),
-                base: runtimeModelBase,
-                d1: runtimeModelD1,
-                d2: runtimeModelD2,
-                d3: runtimeModelD3,
-                z1: runtimeModelZ1,
-                z2: runtimeModelZ2,
-                z3: runtimeModelZ3,
-                bullIntensity: runtimeModelBullIntensity,
-                bearIntensity: runtimeModelBearIntensity,
-                mixedIntensity: runtimeModelMixedIntensity,
-                dominantState5Code: Math.round(runtimeModelDominantState5),
-              };
-            } else {
-              latestRuntimeModel = null;
-            }
+            latestRuntimeModel = {
+              name: requireStringField('grid_update', msg, 'state_model_name'),
+              score: requireNumberField('grid_update', msg, 'state_model_score'),
+              ready: requireBooleanField('grid_update', msg, 'state_model_ready'),
+              sampleCount: Math.round(requireNumberField('grid_update', msg, 'state_model_sample_count')),
+              base: requireNumberField('grid_update', msg, 'state_model_base'),
+              d1: requireNumberField('grid_update', msg, 'state_model_d1'),
+              d2: requireNumberField('grid_update', msg, 'state_model_d2'),
+              d3: requireNumberField('grid_update', msg, 'state_model_d3'),
+              z1: requireNumberField('grid_update', msg, 'state_model_z1'),
+              z2: requireNumberField('grid_update', msg, 'state_model_z2'),
+              z3: requireNumberField('grid_update', msg, 'state_model_z3'),
+              bullIntensity: requireNumberField('grid_update', msg, 'state_model_bull_intensity'),
+              bearIntensity: requireNumberField('grid_update', msg, 'state_model_bear_intensity'),
+              mixedIntensity: requireNumberField('grid_update', msg, 'state_model_mixed_intensity'),
+              dominantState5Code: Math.round(
+                requireNumberField('grid_update', msg, 'state_model_dominant_state5_code'),
+              ),
+            };
 
             // Convert integer prices to dollars using runtime price scale.
             // spot_ref_price_int is the canonical anchor for k-to-price mapping.

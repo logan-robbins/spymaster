@@ -2,7 +2,7 @@
  * Experiment Browser — fetches ranked experiment results from the backend
  * REST API and renders them in a sortable, filterable table. Clicking a run
  * opens its detail panel; "Launch Stream" opens the canonical streaming UI
- * for the run's dataset window (with derivative overrides when applicable).
+ * for the promoted serving alias mapped to that run.
  */
 
 // ---------- Types ----------
@@ -278,11 +278,11 @@ async function selectRun(runId: string): Promise<void> {
       $btnLaunch.onclick = () => {
         window.open(detail.streaming_url!, '_blank');
       };
-      $launchNote.textContent = 'Opens streaming UI with this run\'s parameters';
+      $launchNote.textContent = 'Opens streaming UI with the promoted serving alias';
     } else {
       $btnLaunch.disabled = true;
       $btnLaunch.onclick = null;
-      $launchNote.textContent = 'Stream launch unavailable for this run (missing dataset metadata or unsupported params)';
+      $launchNote.textContent = 'Stream launch unavailable (run is not promoted to a serving alias)';
     }
 
   } catch (err) {

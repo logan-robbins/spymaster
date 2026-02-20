@@ -41,7 +41,6 @@ DEFAULT_C6_V_REST_NEG: float = 0.5
 DEFAULT_C7_A_PULL: float = 0.3
 
 # Derivative runtime model defaults (matching harness best row baseline)
-DEFAULT_STATE_MODEL_ENABLED: bool = True
 DEFAULT_STATE_MODEL_CENTER_EXCLUSION_RADIUS: int = 0
 DEFAULT_STATE_MODEL_SPATIAL_DECAY_POWER: float = 0.0
 DEFAULT_STATE_MODEL_ZSCORE_WINDOW_BINS: int = 240
@@ -55,7 +54,6 @@ DEFAULT_STATE_MODEL_BULL_VACUUM_WEIGHT: float = 1.0
 DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT: float = 1.0
 DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT: float = 1.0
 DEFAULT_STATE_MODEL_MIXED_WEIGHT: float = 0.0
-DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND: bool = False
 
 _RUNTIME_REQUIRED_FIELDS: tuple[str, ...] = (
     "product_type",
@@ -131,7 +129,6 @@ class VPRuntimeConfig:
     c5_v_fill: float = DEFAULT_C5_V_FILL
     c6_v_rest_neg: float = DEFAULT_C6_V_REST_NEG
     c7_a_pull: float = DEFAULT_C7_A_PULL
-    state_model_enabled: bool = DEFAULT_STATE_MODEL_ENABLED
     state_model_center_exclusion_radius: int = DEFAULT_STATE_MODEL_CENTER_EXCLUSION_RADIUS
     state_model_spatial_decay_power: float = DEFAULT_STATE_MODEL_SPATIAL_DECAY_POWER
     state_model_zscore_window_bins: int = DEFAULT_STATE_MODEL_ZSCORE_WINDOW_BINS
@@ -145,7 +142,6 @@ class VPRuntimeConfig:
     state_model_bear_pressure_weight: float = DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT
     state_model_bear_vacuum_weight: float = DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT
     state_model_mixed_weight: float = DEFAULT_STATE_MODEL_MIXED_WEIGHT
-    state_model_enable_weighted_blend: bool = DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict for wire protocol."""
@@ -183,7 +179,6 @@ class VPRuntimeConfig:
             "c5_v_fill": self.c5_v_fill,
             "c6_v_rest_neg": self.c6_v_rest_neg,
             "c7_a_pull": self.c7_a_pull,
-            "state_model_enabled": self.state_model_enabled,
             "state_model_center_exclusion_radius": self.state_model_center_exclusion_radius,
             "state_model_spatial_decay_power": self.state_model_spatial_decay_power,
             "state_model_zscore_window_bins": self.state_model_zscore_window_bins,
@@ -197,7 +192,6 @@ class VPRuntimeConfig:
             "state_model_bear_pressure_weight": self.state_model_bear_pressure_weight,
             "state_model_bear_vacuum_weight": self.state_model_bear_vacuum_weight,
             "state_model_mixed_weight": self.state_model_mixed_weight,
-            "state_model_enable_weighted_blend": self.state_model_enable_weighted_blend,
             "config_version": self.config_version,
         }
 
@@ -266,20 +260,6 @@ def _parse_float_sequence(raw: Any, field_name: str) -> Tuple[float, ...]:
     return tuple(out)
 
 
-def _parse_bool(raw: Any, field_name: str) -> bool:
-    if isinstance(raw, bool):
-        return raw
-    if isinstance(raw, str):
-        token = raw.strip().lower()
-        if token in {"1", "true", "yes", "y", "on"}:
-            return True
-        if token in {"0", "false", "no", "n", "off"}:
-            return False
-    raise ValueError(
-        f"'{field_name}' must be a boolean (true/false), got {raw!r}."
-    )
-
-
 def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[str, Any]:
     """Normalize and validate runtime fields from YAML/override payloads."""
     missing = [f for f in _RUNTIME_REQUIRED_FIELDS if f not in raw]
@@ -325,10 +305,6 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
         "c5_v_fill": float(raw["c5_v_fill"]),
         "c6_v_rest_neg": float(raw["c6_v_rest_neg"]),
         "c7_a_pull": float(raw["c7_a_pull"]),
-        "state_model_enabled": _parse_bool(
-            raw.get("state_model_enabled", DEFAULT_STATE_MODEL_ENABLED),
-            "state_model_enabled",
-        ),
         "state_model_center_exclusion_radius": int(
             raw.get(
                 "state_model_center_exclusion_radius",
@@ -379,13 +355,6 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
             )
         ),
         "state_model_mixed_weight": float(raw.get("state_model_mixed_weight", DEFAULT_STATE_MODEL_MIXED_WEIGHT)),
-        "state_model_enable_weighted_blend": _parse_bool(
-            raw.get(
-                "state_model_enable_weighted_blend",
-                DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND,
-            ),
-            "state_model_enable_weighted_blend",
-        ),
     }
 
     if fields["product_type"] not in VALID_PRODUCT_TYPES:
@@ -512,7 +481,16 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"Invalid single-instrument config format at {path}.")
 
-    fields = _normalize_runtime_fields(raw, source=str(path))
+    return build_config_from_mapping(raw, source=str(path))
+
+
+def build_config_from_mapping(
+    raw: Mapping[str, Any],
+    *,
+    source: str,
+) -> VPRuntimeConfig:
+    """Build a validated runtime config directly from a raw mapping."""
+    fields = _normalize_runtime_fields(raw, source=source)
     config_version = _compute_config_version(fields)
     return VPRuntimeConfig(**fields, config_version=config_version)
 

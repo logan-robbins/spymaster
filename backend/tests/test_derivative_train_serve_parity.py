@@ -20,7 +20,7 @@ def test_derivative_batch_runtime_score_parity() -> None:
     k_values = np.arange(-50, 51, dtype=np.int32)
     state5 = rng.integers(-2, 3, size=(n_bins, n_ticks), dtype=np.int8)
 
-    params: dict[str, float | int | bool] = {
+    params: dict[str, float | int] = {
         "center_exclusion_radius": 1,
         "spatial_decay_power": 0.35,
         "zscore_window_bins": 32,
@@ -34,7 +34,6 @@ def test_derivative_batch_runtime_score_parity() -> None:
         "bear_pressure_weight": 1.1,
         "bear_vacuum_weight": 0.9,
         "mixed_weight": 0.2,
-        "enable_weighted_blend": True,
     }
     cell_width_ms = 100
 

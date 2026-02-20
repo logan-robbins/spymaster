@@ -30,7 +30,6 @@ c4_v_pull: 1.0
 c5_v_fill: 1.5
 c6_v_rest_neg: 0.5
 c7_a_pull: 0.3
-state_model_enabled: true
 state_model_center_exclusion_radius: 0
 state_model_spatial_decay_power: 0.0
 state_model_zscore_window_bins: 240
@@ -44,4 +43,3 @@ state_model_bull_vacuum_weight: 1.0
 state_model_bear_pressure_weight: 1.0
 state_model_bear_vacuum_weight: 1.0
 state_model_mixed_weight: 0.0
-state_model_enable_weighted_blend: false

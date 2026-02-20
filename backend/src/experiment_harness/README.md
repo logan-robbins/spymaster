@@ -26,11 +26,13 @@ ExperimentSpec  ->  ServingSpec  ->  PipelineSpec
 Config YAML locations:
 - `lake/research/vp_harness/configs/pipelines/` — PipelineSpec YAMLs
 - `lake/research/vp_harness/configs/serving/` — ServingSpec YAMLs
+- `lake/research/vp_harness/configs/serving_versions/` — immutable PublishedServingSpec YAMLs for runtime
 - `lake/research/vp_harness/configs/experiments/` — ExperimentSpec YAMLs
 
 Config models:
 - `src/vacuum_pressure/pipeline_config.py` — PipelineSpec
-- `src/vacuum_pressure/serving_config.py` — ServingSpec
+- `src/vacuum_pressure/serving_config.py` — ServingSpec, PublishedServingSpec
+- `src/vacuum_pressure/serving_registry.py` — alias/version registry
 - `src/vacuum_pressure/experiment_config.py` — ExperimentSpec
 - `src/vacuum_pressure/scoring.py` — SpectrumScorer (single implementation for server + harness)
 
@@ -68,10 +70,10 @@ Options: `--signal`, `--dataset-id`, `--sort {tp_rate,mean_pnl_ticks,events_per_
 ### Promote winner
 
 ```bash
-uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run-id <winner_run_id>
+uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run-id <winner_run_id> --alias <serving_alias>
 ```
 
-Extracts winning params from ResultsDB, writes a new ServingSpec YAML to `configs/serving/`. Prints runtime overrides for `instrument.yaml` and serving URL.
+Extracts winning params from ResultsDB, builds a runtime snapshot, writes immutable PublishedServingSpec YAML to `configs/serving_versions/`, and updates serving alias mapping in `serving_registry.sqlite`.
 
 ### List signals and datasets
 
@@ -125,10 +127,9 @@ Both APIs produce identical outputs for identical inputs.
 ## Promotion Flow
 
 1. `compare` to find best run_id
-2. `promote` writes ServingSpec YAML to `configs/serving/`
-3. Update `instrument.yaml` with printed runtime overrides
-4. Restart backend
-5. Stream: `?serving=<promoted_name>` in WebSocket URL
+2. `promote` writes immutable PublishedServingSpec to `configs/serving_versions/`
+3. `promote` updates alias mapping in `serving_registry.sqlite`
+4. Stream using `?serving=<alias_or_id>` (no ad-hoc runtime query overrides)
 
 ## Tracking
 
