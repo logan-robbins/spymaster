@@ -23,6 +23,11 @@ from ..data_eng.config import PRICE_SCALE
 from .config import VPRuntimeConfig
 from .event_engine import AbsoluteTickEngine
 from .replay_source import _resolve_dbn_path, iter_mbo_events
+from .runtime_model import (
+    PermDerivativeRuntime,
+    PermDerivativeRuntimeOutput,
+    PermDerivativeRuntimeParams,
+)
 from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 logger = logging.getLogger(__name__)
@@ -30,6 +35,36 @@ logger = logging.getLogger(__name__)
 FUTURES_WARMUP_HOURS = 0.5
 EQUITY_WARMUP_HOURS = 0.5
 _PRODUCER_PERF_KEY = "_producer_perf"
+
+STATE5_BEAR_VACUUM = -2
+STATE5_BEAR_PRESSURE = -1
+STATE5_MIXED = 0
+STATE5_BULL_PRESSURE = 1
+STATE5_BULL_VACUUM = 2
+
+_ABOVE_STATE5_BY_SIGNS: dict[tuple[int, int], int] = {
+    (1, 1): STATE5_BULL_VACUUM,
+    (1, 0): STATE5_BEAR_PRESSURE,
+    (1, -1): STATE5_BEAR_PRESSURE,
+    (0, 1): STATE5_BULL_VACUUM,
+    (0, 0): STATE5_MIXED,
+    (0, -1): STATE5_BEAR_PRESSURE,
+    (-1, 1): STATE5_MIXED,
+    (-1, 0): STATE5_BEAR_PRESSURE,
+    (-1, -1): STATE5_BEAR_PRESSURE,
+}
+
+_BELOW_STATE5_BY_SIGNS: dict[tuple[int, int], int] = {
+    (1, 1): STATE5_BULL_PRESSURE,
+    (1, 0): STATE5_BEAR_VACUUM,
+    (1, -1): STATE5_BEAR_VACUUM,
+    (0, 1): STATE5_BULL_PRESSURE,
+    (0, 0): STATE5_MIXED,
+    (0, -1): STATE5_BEAR_VACUUM,
+    (-1, 1): STATE5_MIXED,
+    (-1, 0): STATE5_BEAR_VACUUM,
+    (-1, -1): STATE5_BEAR_VACUUM,
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +85,123 @@ def _latency_us(start_ns: int | None, end_ns: int | None) -> float | None:
     if delta_ns < 0:
         return 0.0
     return float(delta_ns) / 1_000.0
+
+
+def _sign_from_ticks(delta_ticks: int) -> int:
+    """Map tick move into {-1, 0, +1}."""
+    if delta_ticks > 0:
+        return 1
+    if delta_ticks < 0:
+        return -1
+    return 0
+
+
+def _best_move_ticks(
+    current_price_int: int,
+    previous_price_int: int | None,
+    *,
+    tick_int: int,
+) -> int:
+    """Compute integer best-price move in ticks between emitted bins."""
+    if tick_int <= 0:
+        return 0
+    if previous_price_int is None:
+        return 0
+    if current_price_int <= 0 or previous_price_int <= 0:
+        return 0
+    return int(round((current_price_int - previous_price_int) / tick_int))
+
+
+def _perm_microstate_id(ask_sign: int, bid_sign: int) -> int:
+    """Encode (ask_sign, bid_sign) into stable microstate id [0, 8]."""
+    return int((ask_sign + 1) * 3 + (bid_sign + 1))
+
+
+def _perm_state5_code(k: int, ask_sign: int, bid_sign: int) -> int:
+    """Map signs + bucket location to 5-state directional permutation code."""
+    if k == 0:
+        return STATE5_MIXED
+    key = (ask_sign, bid_sign)
+    if k > 0:
+        return _ABOVE_STATE5_BY_SIGNS[key]
+    return _BELOW_STATE5_BY_SIGNS[key]
+
+
+def _annotate_permutation_labels(
+    grid: Dict[str, Any],
+    *,
+    ask_move_ticks: int,
+    bid_move_ticks: int,
+) -> None:
+    """Annotate each bucket row with permutation microstate + directional labels."""
+    ask_sign = _sign_from_ticks(ask_move_ticks)
+    bid_sign = _sign_from_ticks(bid_move_ticks)
+    micro_id = _perm_microstate_id(ask_sign, bid_sign)
+    chase_up_flag = int(ask_sign > 0 and bid_sign > 0)
+    chase_down_flag = int(ask_sign < 0 and bid_sign < 0)
+
+    grid["best_ask_move_ticks"] = ask_move_ticks
+    grid["best_bid_move_ticks"] = bid_move_ticks
+    grid["ask_reprice_sign"] = ask_sign
+    grid["bid_reprice_sign"] = bid_sign
+    grid["perm_microstate_id"] = micro_id
+    grid["chase_up_flag"] = chase_up_flag
+    grid["chase_down_flag"] = chase_down_flag
+
+    for bucket in grid["buckets"]:
+        k = int(bucket["k"])
+        bucket["best_ask_move_ticks"] = ask_move_ticks
+        bucket["best_bid_move_ticks"] = bid_move_ticks
+        bucket["ask_reprice_sign"] = ask_sign
+        bucket["bid_reprice_sign"] = bid_sign
+        bucket["perm_microstate_id"] = micro_id
+        bucket["perm_state5_code"] = _perm_state5_code(k, ask_sign, bid_sign)
+        bucket["chase_up_flag"] = chase_up_flag
+        bucket["chase_down_flag"] = chase_down_flag
+
+
+def _perm_runtime_params_from_config(config: VPRuntimeConfig) -> PermDerivativeRuntimeParams:
+    """Build validated runtime permutation-model params from runtime config."""
+    params = PermDerivativeRuntimeParams(
+        center_exclusion_radius=config.perm_center_exclusion_radius,
+        spatial_decay_power=config.perm_spatial_decay_power,
+        zscore_window_bins=config.perm_zscore_window_bins,
+        zscore_min_periods=config.perm_zscore_min_periods,
+        tanh_scale=config.perm_tanh_scale,
+        d1_weight=config.perm_d1_weight,
+        d2_weight=config.perm_d2_weight,
+        d3_weight=config.perm_d3_weight,
+        bull_pressure_weight=config.perm_bull_pressure_weight,
+        bull_vacuum_weight=config.perm_bull_vacuum_weight,
+        bear_pressure_weight=config.perm_bear_pressure_weight,
+        bear_vacuum_weight=config.perm_bear_vacuum_weight,
+        mixed_weight=config.perm_mixed_weight,
+        enable_weighted_blend=config.perm_enable_weighted_blend,
+    )
+    params.validate()
+    return params
+
+
+def _annotate_runtime_model(
+    grid: Dict[str, Any],
+    model_out: PermDerivativeRuntimeOutput,
+) -> None:
+    """Attach runtime model outputs to the emitted grid payload."""
+    grid["runtime_model_name"] = model_out.name
+    grid["runtime_model_score"] = model_out.score
+    grid["runtime_model_ready"] = model_out.ready
+    grid["runtime_model_sample_count"] = model_out.sample_count
+    grid["runtime_model_base"] = model_out.base
+    grid["runtime_model_d1"] = model_out.d1
+    grid["runtime_model_d2"] = model_out.d2
+    grid["runtime_model_d3"] = model_out.d3
+    grid["runtime_model_z1"] = model_out.z1
+    grid["runtime_model_z2"] = model_out.z2
+    grid["runtime_model_z3"] = model_out.z3
+    grid["runtime_model_bull_intensity"] = model_out.bull_intensity
+    grid["runtime_model_bear_intensity"] = model_out.bear_intensity
+    grid["runtime_model_mixed_intensity"] = model_out.mixed_intensity
+    grid["runtime_model_dominant_state5_code"] = model_out.dominant_state5_code
 
 
 class _ProducerLatencyWriter:
@@ -236,6 +388,17 @@ def _create_engine(config: VPRuntimeConfig) -> AbsoluteTickEngine:
         n_ticks=config.n_absolute_ticks,
         tick_int=tick_int,
         bucket_size_dollars=config.bucket_size_dollars,
+        tau_velocity=config.tau_velocity,
+        tau_acceleration=config.tau_acceleration,
+        tau_jerk=config.tau_jerk,
+        tau_rest_decay=config.tau_rest_decay,
+        c1_v_add=config.c1_v_add,
+        c2_v_rest_pos=config.c2_v_rest_pos,
+        c3_a_add=config.c3_a_add,
+        c4_v_pull=config.c4_v_pull,
+        c5_v_fill=config.c5_v_fill,
+        c6_v_rest_neg=config.c6_v_rest_neg,
+        c7_a_pull=config.c7_a_pull,
     )
 
 
@@ -367,13 +530,6 @@ def _build_bin_grid(
         vacuum=vacuum_full,
     )
 
-    projection_horizons = spectrum.projection_horizons_ms
-    projected = spectrum_out.projected_score_by_horizon
-    projection_specs = tuple(
-        (horizon_ms, f"proj_score_h{horizon_ms}", projected[horizon_ms])
-        for horizon_ms in projection_horizons
-    )
-
     # Compute spot and window center
     spot_int = engine.spot_ref_price_int
     center_idx = engine.spot_to_idx(spot_int) if spot_int > 0 else None
@@ -393,7 +549,7 @@ def _build_bin_grid(
             "best_ask_price_int": engine.best_ask_price_int,
             "book_valid": engine.book_valid,
             "buckets": [
-                _empty_bucket_row(k, projection_horizons)
+                _empty_bucket_row(k)
                 for k in range(-window_radius, window_radius + 1)
             ],
         }
@@ -418,18 +574,26 @@ def _build_bin_grid(
     pull_mass = full["pull_mass"]
     fill_mass = full["fill_mass"]
     rest_depth = full["rest_depth"]
+    bid_depth = full["bid_depth"]
+    ask_depth = full["ask_depth"]
     v_add = full["v_add"]
     v_pull = full["v_pull"]
     v_fill = full["v_fill"]
     v_rest_depth = full["v_rest_depth"]
+    v_bid_depth = full["v_bid_depth"]
+    v_ask_depth = full["v_ask_depth"]
     a_add = full["a_add"]
     a_pull = full["a_pull"]
     a_fill = full["a_fill"]
     a_rest_depth = full["a_rest_depth"]
+    a_bid_depth = full["a_bid_depth"]
+    a_ask_depth = full["a_ask_depth"]
     j_add = full["j_add"]
     j_pull = full["j_pull"]
     j_fill = full["j_fill"]
     j_rest_depth = full["j_rest_depth"]
+    j_bid_depth = full["j_bid_depth"]
+    j_ask_depth = full["j_ask_depth"]
     pressure_variant = full["pressure_variant"]
     vacuum_variant = full["vacuum_variant"]
     last_event_id = full["last_event_id"]
@@ -439,7 +603,7 @@ def _build_bin_grid(
     # Left padding (out-of-range ticks)
     for i in range(pad_left):
         k = -window_radius + i
-        buckets.append(_empty_bucket_row(k, projection_horizons))
+        buckets.append(_empty_bucket_row(k))
 
     # Actual data slice
     for abs_idx in range(arr_start, arr_end):
@@ -450,32 +614,38 @@ def _build_bin_grid(
             "pull_mass": float(pull_mass[abs_idx]),
             "fill_mass": float(fill_mass[abs_idx]),
             "rest_depth": float(rest_depth[abs_idx]),
+            "bid_depth": float(bid_depth[abs_idx]),
+            "ask_depth": float(ask_depth[abs_idx]),
             "v_add": float(v_add[abs_idx]),
             "v_pull": float(v_pull[abs_idx]),
             "v_fill": float(v_fill[abs_idx]),
             "v_rest_depth": float(v_rest_depth[abs_idx]),
+            "v_bid_depth": float(v_bid_depth[abs_idx]),
+            "v_ask_depth": float(v_ask_depth[abs_idx]),
             "a_add": float(a_add[abs_idx]),
             "a_pull": float(a_pull[abs_idx]),
             "a_fill": float(a_fill[abs_idx]),
             "a_rest_depth": float(a_rest_depth[abs_idx]),
+            "a_bid_depth": float(a_bid_depth[abs_idx]),
+            "a_ask_depth": float(a_ask_depth[abs_idx]),
             "j_add": float(j_add[abs_idx]),
             "j_pull": float(j_pull[abs_idx]),
             "j_fill": float(j_fill[abs_idx]),
             "j_rest_depth": float(j_rest_depth[abs_idx]),
+            "j_bid_depth": float(j_bid_depth[abs_idx]),
+            "j_ask_depth": float(j_ask_depth[abs_idx]),
             "pressure_variant": float(pressure_variant[abs_idx]),
             "vacuum_variant": float(vacuum_variant[abs_idx]),
             "last_event_id": int(last_event_id[abs_idx]),
             "spectrum_score": float(spectrum_score[abs_idx]),
             "spectrum_state_code": int(spectrum_state_code[abs_idx]),
         }
-        for _, key, projection_values in projection_specs:
-            row[key] = float(projection_values[abs_idx])
         buckets.append(row)
 
     # Right padding
     for i in range(pad_right):
         k = window_radius - pad_right + 1 + i
-        buckets.append(_empty_bucket_row(k, projection_horizons))
+        buckets.append(_empty_bucket_row(k))
 
     return {
         "ts_ns": bin_end_ns,
@@ -493,7 +663,7 @@ def _build_bin_grid(
     }
 
 
-def _empty_bucket_row(k: int, projection_horizons: tuple[int, ...]) -> Dict[str, Any]:
+def _empty_bucket_row(k: int) -> Dict[str, Any]:
     """Create a zero-valued bucket row for padding."""
     row: Dict[str, Any] = {
         "k": k,
@@ -501,17 +671,28 @@ def _empty_bucket_row(k: int, projection_horizons: tuple[int, ...]) -> Dict[str,
         "pull_mass": 0.0,
         "fill_mass": 0.0,
         "rest_depth": 0.0,
+        "bid_depth": 0.0,
+        "ask_depth": 0.0,
         "v_add": 0.0, "v_pull": 0.0, "v_fill": 0.0, "v_rest_depth": 0.0,
+        "v_bid_depth": 0.0, "v_ask_depth": 0.0,
         "a_add": 0.0, "a_pull": 0.0, "a_fill": 0.0, "a_rest_depth": 0.0,
+        "a_bid_depth": 0.0, "a_ask_depth": 0.0,
         "j_add": 0.0, "j_pull": 0.0, "j_fill": 0.0, "j_rest_depth": 0.0,
+        "j_bid_depth": 0.0, "j_ask_depth": 0.0,
         "pressure_variant": 0.0,
         "vacuum_variant": 0.0,
         "last_event_id": 0,
         "spectrum_score": 0.0,
         "spectrum_state_code": 0,
+        "best_ask_move_ticks": 0,
+        "best_bid_move_ticks": 0,
+        "ask_reprice_sign": 0,
+        "bid_reprice_sign": 0,
+        "perm_microstate_id": 4,
+        "perm_state5_code": STATE5_MIXED,
+        "chase_up_flag": 0,
+        "chase_down_flag": 0,
     }
-    for horizon_ms in projection_horizons:
-        row[f"proj_score_h{horizon_ms}"] = 0.0
     return row
 
 
@@ -556,6 +737,13 @@ def stream_events(
             damping_lambda=projection_damping_lambda,
         ),
     )
+    perm_runtime: PermDerivativeRuntime | None = None
+    if config.perm_runtime_enabled:
+        perm_runtime = PermDerivativeRuntime(
+            k_values=np.arange(-window_radius, window_radius + 1, dtype=np.int32),
+            cell_width_ms=config.cell_width_ms,
+            params=_perm_runtime_params_from_config(config),
+        )
 
     event_count = 0
     yielded_count = 0
@@ -568,6 +756,8 @@ def stream_events(
     bin_event_count = 0
     bin_first_ingest_wall_ns: int | None = None
     bin_last_ingest_wall_ns: int | None = None
+    prev_best_bid_price_int: int | None = None
+    prev_best_ask_price_int: int | None = None
 
     t_wall_start = time.monotonic()
 
@@ -622,6 +812,30 @@ def stream_events(
                 bin_event_count=bin_event_count,
                 window_radius=window_radius,
             )
+            ask_move_ticks = _best_move_ticks(
+                int(grid["best_ask_price_int"]),
+                prev_best_ask_price_int,
+                tick_int=engine.tick_int,
+            )
+            bid_move_ticks = _best_move_ticks(
+                int(grid["best_bid_price_int"]),
+                prev_best_bid_price_int,
+                tick_int=engine.tick_int,
+            )
+            _annotate_permutation_labels(
+                grid,
+                ask_move_ticks=ask_move_ticks,
+                bid_move_ticks=bid_move_ticks,
+            )
+            if perm_runtime is not None:
+                perm_state5 = np.asarray(
+                    [int(row["perm_state5_code"]) for row in grid["buckets"]],
+                    dtype=np.int8,
+                )
+                model_out = perm_runtime.update(perm_state5)
+                _annotate_runtime_model(grid, model_out)
+            prev_best_ask_price_int = int(grid["best_ask_price_int"])
+            prev_best_bid_price_int = int(grid["best_bid_price_int"])
             if capture_producer_timing:
                 grid[_PRODUCER_PERF_KEY] = {
                     "bin_first_ingest_wall_ns": bin_first_ingest_wall_ns,
@@ -666,6 +880,28 @@ def stream_events(
             bin_event_count=bin_event_count,
             window_radius=window_radius,
         )
+        ask_move_ticks = _best_move_ticks(
+            int(grid["best_ask_price_int"]),
+            prev_best_ask_price_int,
+            tick_int=engine.tick_int,
+        )
+        bid_move_ticks = _best_move_ticks(
+            int(grid["best_bid_price_int"]),
+            prev_best_bid_price_int,
+            tick_int=engine.tick_int,
+        )
+        _annotate_permutation_labels(
+            grid,
+            ask_move_ticks=ask_move_ticks,
+            bid_move_ticks=bid_move_ticks,
+        )
+        if perm_runtime is not None:
+            perm_state5 = np.asarray(
+                [int(row["perm_state5_code"]) for row in grid["buckets"]],
+                dtype=np.int8,
+            )
+            model_out = perm_runtime.update(perm_state5)
+            _annotate_runtime_model(grid, model_out)
         if capture_producer_timing:
             grid[_PRODUCER_PERF_KEY] = {
                 "bin_first_ingest_wall_ns": bin_first_ingest_wall_ns,

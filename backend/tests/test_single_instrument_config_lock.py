@@ -36,6 +36,17 @@ def _write_locked_config(path: Path, symbol: str = "MNQH6") -> None:
                 "contract_multiplier: 2.0",
                 "qty_unit: contracts",
                 "price_decimals: 2",
+                "tau_velocity: 2.0",
+                "tau_acceleration: 5.0",
+                "tau_jerk: 10.0",
+                "tau_rest_decay: 30.0",
+                "c1_v_add: 1.0",
+                "c2_v_rest_pos: 0.5",
+                "c3_a_add: 0.3",
+                "c4_v_pull: 1.0",
+                "c5_v_fill: 1.5",
+                "c6_v_rest_neg: 0.5",
+                "c7_a_pull: 0.3",
             ]
         )
     )

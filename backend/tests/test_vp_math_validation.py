@@ -562,3 +562,73 @@ def test_modify_price_change_touches_both_ticks() -> None:
     assert engine._rest_depth[idx_50] == 0.0
     assert engine._rest_depth[idx_55] == 10.0
     assert engine._orders[1].price_int == 55
+
+
+# ===================================================================
+# Group 9: Side-depth invariants
+# ===================================================================
+
+
+def test_side_depth_arrays_sum_to_rest_depth_and_derivatives() -> None:
+    """rest = bid+ask and derivative chains preserve additive invariants."""
+    engine = _engine_with_anchor(n_ticks=80)
+
+    engine.update(
+        ts_ns=2_000_000_000,
+        action="A",
+        side="B",
+        price_int=50,
+        size=5,
+        order_id=3,
+        flags=0,
+    )
+    engine.update(
+        ts_ns=3_000_000_000,
+        action="A",
+        side="A",
+        price_int=51,
+        size=7,
+        order_id=4,
+        flags=0,
+    )
+    engine.update(
+        ts_ns=4_000_000_000,
+        action="C",
+        side="B",
+        price_int=50,
+        size=0,
+        order_id=3,
+        flags=0,
+    )
+    engine.update(
+        ts_ns=5_000_000_000,
+        action="F",
+        side="A",
+        price_int=51,
+        size=3,
+        order_id=4,
+        flags=0,
+    )
+    engine.advance_time(6_000_000_000)
+
+    arrays = engine.grid_snapshot_arrays()
+    np.testing.assert_allclose(
+        arrays["rest_depth"],
+        arrays["bid_depth"] + arrays["ask_depth"],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        arrays["v_rest_depth"],
+        arrays["v_bid_depth"] + arrays["v_ask_depth"],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        arrays["a_rest_depth"],
+        arrays["a_bid_depth"] + arrays["a_ask_depth"],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        arrays["j_rest_depth"],
+        arrays["j_bid_depth"] + arrays["j_ask_depth"],
+        atol=1e-12,
+    )

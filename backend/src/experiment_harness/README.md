@@ -1,125 +1,146 @@
 # Experiment Harness
 
-Config-driven offline experiment system for VP research.
+Canonical runbook for offline evaluation and tuning of VP signals.
 
-This harness runs immutable/cached dataset experiments without changing the live runtime path. It supports:
-- Statistical and ML signal runs
-- Parameter sweeps and ablations
-- Grid-variant regeneration
-- MLflow tracking (canonical) with optional W&B mirroring
+This is the source of truth for:
+- running experiments from YAML
+- comparing outcomes
+- tracking with MLflow
+- promoting a winning configuration into the live frontend prediction path
 
-## Canonical entrypoint
+## Purpose
 
-Run from `backend/`:
+The harness evaluates signals on immutable datasets without changing live serving.
 
-```bash
-uv run python -m src.experiment_harness.cli --help
-```
+Entrypoint:
+- `backend/src/experiment_harness/cli.py`
 
-## Launch experiments
+Core runner:
+- `backend/src/experiment_harness/runner.py`
 
-### 1) List what is available
+Dataset resolution:
+- `backend/src/experiment_harness/dataset_registry.py`
+
+## Required Inputs
+
+Datasets must exist in one of:
+- `backend/lake/research/vp_immutable/<dataset_id>/`
+- `backend/lake/research/vp_harness/generated_grids/<dataset_id>/`
+
+Each dataset directory must contain:
+- `bins.parquet`
+- `grid_clean.parquet`
+
+Configs live in:
+- `backend/lake/research/vp_harness/configs/`
+
+## Core Commands
+
+Run from `backend/`.
+
+List signals and datasets:
 
 ```bash
 uv run python -m src.experiment_harness.cli list-signals
 uv run python -m src.experiment_harness.cli list-datasets
 ```
 
-### 2) Run one config
+Run one experiment config:
 
 ```bash
-uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/legacy/legacy_ads.yaml
+uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/smoke_perm_derivative.yaml
 ```
 
-### 3) Run full legacy suite (all historical agents)
+Compare best runs:
 
 ```bash
-uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/legacy/legacy_full_suite.yaml
+uv run python -m src.experiment_harness.cli compare --min-signals 5
 ```
 
-### 4) Compare best runs
+Optional online simulation:
 
 ```bash
-uv run python -m src.experiment_harness.cli compare --dataset-id mnqh6_20260206_0925_1025 --min-signals 5
+uv run python -m src.experiment_harness.cli online-sim --signal perm_derivative --dataset-id <dataset_id> --bin-budget-ms 100
 ```
 
-### 5) Optional online simulation
+## Current Production-Relevant Configs
+
+- `lake/research/vp_harness/configs/smoke_perm_derivative.yaml`
+- `lake/research/vp_harness/configs/tune_perm_derivative.yaml`
+- `lake/research/vp_harness/configs/tune_ads_pfp_svac_runtime.yaml`
+- `lake/research/vp_harness/configs/tune_ads_pfp_svac_rr_20_8.yaml`
+
+## Results and Tracking
+
+Local results database:
+- `backend/lake/research/vp_harness/results/runs_meta.parquet`
+- `backend/lake/research/vp_harness/results/runs.parquet`
+
+Tracking implementation:
+- `backend/src/experiment_harness/tracking.py`
+
+MLflow configuration is controlled per YAML config (`tracking` block).
+
+## Add or Tune a Signal
+
+1. Choose or create a YAML in `lake/research/vp_harness/configs/`.
+2. Set `datasets`, `signals`, and `eval`.
+3. Add sweep axes under `sweep.universal` and `sweep.per_signal.<signal_name>`.
+4. Set `tracking.experiment_name` and tags.
+5. Run via CLI.
+6. Rank with `compare`.
+
+Fail-fast contracts:
+- unknown sweep params are rejected
+- missing datasets/configs are rejected
+
+## Promote Harness Winner To Live Frontend Prediction Algorithm
+
+### A) Promote parameter set for current runtime model (no algorithm code change)
+
+Use when the winner is already represented by the live runtime model family.
+
+1. Take winning parameter values from harness run output.
+2. Update runtime defaults in `backend/src/vacuum_pressure/instrument.yaml`.
+3. Restart backend (`scripts/run_vacuum_pressure.py`) and frontend.
+4. Verify live stream/visual output.
+
+Files that enforce this runtime path:
+- `backend/src/vacuum_pressure/runtime_model.py`
+- `backend/src/vacuum_pressure/stream_pipeline.py`
+- `backend/src/vacuum_pressure/server.py`
+- `frontend/src/vacuum-pressure.ts`
+
+### B) Promote a different signal family as frontend prediction algorithm
+
+Use when the winner is not yet implemented in live serving.
+
+1. Implement incremental runtime scorer in `backend/src/vacuum_pressure/runtime_model.py`.
+2. Wire per-bin execution in `backend/src/vacuum_pressure/stream_pipeline.py`.
+3. Expose runtime config/update payloads in `backend/src/vacuum_pressure/server.py`.
+4. Update frontend ingestion/render mapping in `frontend/src/vacuum-pressure.ts`.
+5. Set defaults in `backend/src/vacuum_pressure/instrument.yaml`.
+6. Re-run backend tests and frontend typecheck before launch.
+
+## Verification
+
+Backend targeted checks:
 
 ```bash
-uv run python -m src.experiment_harness.cli online-sim --signal ads --dataset-id mnqh6_20260206_0925_1025 --bin-budget-ms 100
+cd backend
+uv run pytest tests/test_experiment_harness/test_perm_derivative_signal.py tests/test_experiment_harness/test_ads_pfp_svac_signal.py tests/test_experiment_harness/test_runner_core.py
 ```
 
-## Config locations
+Live-runtime integration checks:
 
-- General templates: `backend/lake/research/vp_harness/configs/`
-- Legacy-mapped runs: `backend/lake/research/vp_harness/configs/legacy/`
-
-Legacy-mapped configs:
-- `legacy_ads.yaml`
-- `legacy_spg.yaml`
-- `legacy_erd.yaml`
-- `legacy_pfp.yaml`
-- `legacy_jad.yaml`
-- `legacy_iirc.yaml`
-- `legacy_svm_sp.yaml`
-- `legacy_gbm_mf.yaml`
-- `legacy_knn_cl.yaml`
-- `legacy_lsvm_der.yaml`
-- `legacy_xgb_snap.yaml`
-- `legacy_pca_ad.yaml`
-- `legacy_msd.yaml`
-- `legacy_full_suite.yaml`
-
-## Update workflow (for LLMs)
-
-1. Duplicate the closest YAML config in `lake/research/vp_harness/configs/`.
-2. Change only config fields; do not hardcode experiment params in Python.
-3. Keep `datasets` pointed at immutable/gold dataset IDs unless explicitly running grid variants.
-4. Add sweep axes under `sweep.per_signal.<signal_name>`.
-5. Set `tracking.experiment_name` and tags for clear grouping.
-6. Run config via CLI and validate with `compare`.
-
-Fail-fast behavior:
-- Unknown signal sweep parameters raise an error.
-- Missing dataset/config files raise an error.
-
-## Reporting workflow (for LLMs)
-
-After a run, report:
-1. Config path and git commit SHA.
-2. Dataset IDs and signal list.
-3. Sweep axes changed.
-4. Top runs by TP rate and mean PnL (`compare` output).
-5. Run IDs for reproducibility.
-6. MLflow experiment name and tracking URI.
-
-## Tracking
-
-MLflow is the canonical store.
-
-Config block:
-
-```yaml
-tracking:
-  backend: mlflow
-  experiment_name: vp/legacy/ads
-  run_name_prefix: legacy_ads
-  tags:
-    stage: legacy
+```bash
+cd backend
+uv run pytest tests/test_runtime_perm_model.py tests/test_stream_pipeline_perf.py tests/test_runtime_config_overrides.py
 ```
 
-Optional W&B mirror:
+Frontend typecheck:
 
-```yaml
-tracking:
-  backend: mlflow
-  wandb_mirror: true
-  wandb_project: your-project
-  wandb_entity: your-entity
+```bash
+cd frontend
+npx tsc --noEmit
 ```
-
-## Notes on legacy parity
-
-- Statistical signals with distribution-driven thresholds (`spg`, `pfp`, `iirc`, `msd`) publish adaptive thresholds in metadata and the runner uses them automatically.
-- `erd` supports `variant: a|b` for direct ablation.
-- `msd` is implemented as the legacy results-compatible spatial-vacuum signal (`variant=weighted` matches legacy `results.json` behavior).

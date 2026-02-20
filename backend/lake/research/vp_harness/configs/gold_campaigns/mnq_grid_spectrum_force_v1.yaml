@@ -1,0 +1,46 @@
+name: mnq_grid_spectrum_force_v1
+base_capture:
+  product_type: future_mbo
+  symbol: MNQH6
+  dt: "2026-02-06"
+  capture_start_et: "09:25:00"
+  capture_end_et: "10:25:00"
+publish:
+  agents: [eda, projection, regime]
+sweep_axes:
+  cell_width_ms: [100, 200]
+  spectrum_tanh_scale: [3.0, 4.0]
+bundles:
+  - tau_velocity: 2.0
+    tau_acceleration: 5.0
+    tau_jerk: 10.0
+    tau_rest_decay: 30.0
+    c1_v_add: 1.0
+    c2_v_rest_pos: 0.5
+    c3_a_add: 0.3
+    c4_v_pull: 1.0
+    c5_v_fill: 1.5
+    c6_v_rest_neg: 0.5
+    c7_a_pull: 0.3
+  - tau_velocity: 1.6
+    tau_acceleration: 4.0
+    tau_jerk: 8.0
+    tau_rest_decay: 24.0
+    c1_v_add: 1.2
+    c2_v_rest_pos: 0.6
+    c3_a_add: 0.36
+    c4_v_pull: 1.2
+    c5_v_fill: 1.8
+    c6_v_rest_neg: 0.6
+    c7_a_pull: 0.36
+  - tau_velocity: 2.4
+    tau_acceleration: 6.0
+    tau_jerk: 12.0
+    tau_rest_decay: 36.0
+    c1_v_add: 0.8
+    c2_v_rest_pos: 0.4
+    c3_a_add: 0.24
+    c4_v_pull: 0.8
+    c5_v_fill: 1.2
+    c6_v_rest_neg: 0.4
+    c7_a_pull: 0.24

@@ -156,9 +156,7 @@ def test_publish_dataset_splits_and_freezes_base_data(tmp_path: Path) -> None:
     assert "proj_score_h250" not in clean_schema
     assert "proj_score_h500" not in clean_schema
     assert "spectrum_score" in clean_schema
-
-    projection_schema = pq.read_schema(experiment / "projection_seed.parquet").names
-    assert projection_schema == ["ts_ns", "bin_seq", "k", "proj_score_h250", "proj_score_h500"]
+    assert result["projection_columns_removed"] == ["proj_score_h250", "proj_score_h500"]
 
     for path in [
         immutable,
@@ -175,11 +173,9 @@ def test_publish_dataset_splits_and_freezes_base_data(tmp_path: Path) -> None:
     for agent in ("alpha", "beta"):
         workspace = experiment / "agents" / agent
         base_link = workspace / "data" / "base_immutable"
-        projection_copy = workspace / "data" / "projection_experiment.parquet"
         assert workspace.exists()
         assert base_link.is_symlink()
         assert base_link.resolve() == immutable.resolve()
-        assert projection_copy.exists()
 
 
 def test_add_agents_appends_new_workspaces(tmp_path: Path) -> None:

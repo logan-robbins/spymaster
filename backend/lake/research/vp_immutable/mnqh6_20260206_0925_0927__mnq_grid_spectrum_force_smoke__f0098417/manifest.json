@@ -1,0 +1,108 @@
+{
+  "dataset_id": "mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417",
+  "created_at_utc": "2026-02-19T18:39:50.440001+00:00",
+  "source_dir": "/private/tmp/vp_gold_campaigns/mnq_grid_spectrum_force_smoke/f0098417/capture",
+  "source_manifest": {
+    "product_type": "future_mbo",
+    "symbol": "MNQH6",
+    "dt": "2026-02-06",
+    "stream_start_time_hhmm": "09:25",
+    "capture_start_ns": 1770387900000000000,
+    "capture_end_ns": 1770388020000000000,
+    "projection_model": {
+      "use_cubic": false,
+      "cubic_scale": 0.16666666666666666,
+      "damping_lambda": 0.0
+    },
+    "config_version": "ad294ece0d14",
+    "cell_width_ms": 100,
+    "grid_radius_ticks": 50,
+    "n_absolute_ticks": 8192,
+    "projection_horizons_bins": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "projection_horizons_ms": [
+      100,
+      200,
+      300,
+      400
+    ],
+    "runtime_params": {
+      "tick_size": 0.25,
+      "bucket_size_dollars": 0.25,
+      "rel_tick_size": 0.25,
+      "grid_radius_ticks": 50,
+      "cell_width_ms": 100,
+      "n_absolute_ticks": 8192,
+      "spectrum_windows": [
+        5,
+        10,
+        20,
+        40
+      ],
+      "spectrum_rollup_weights": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spectrum_derivative_weights": [
+        0.55,
+        0.3,
+        0.15
+      ],
+      "spectrum_tanh_scale": 3.0,
+      "spectrum_threshold_neutral": 0.15,
+      "zscore_window_bins": 300,
+      "zscore_min_periods": 75,
+      "projection_horizons_bins": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "tau_velocity": 2.0,
+      "tau_acceleration": 5.0,
+      "tau_jerk": 10.0,
+      "tau_rest_decay": 30.0,
+      "c1_v_add": 1.0,
+      "c2_v_rest_pos": 0.5,
+      "c3_a_add": 0.3,
+      "c4_v_pull": 1.0,
+      "c5_v_fill": 1.5,
+      "c6_v_rest_neg": 0.5,
+      "c7_a_pull": 0.3
+    },
+    "rows": {
+      "bins": 1199,
+      "buckets": 121099
+    },
+    "first_bin_ts_ns": 1770387900100000000,
+    "last_bin_ts_ns": 1770388019900000000,
+    "elapsed_seconds": 120.0853963749978,
+    "output": {
+      "bins_parquet": "/private/tmp/vp_gold_campaigns/mnq_grid_spectrum_force_smoke/f0098417/capture/bins.parquet",
+      "buckets_parquet": "/private/tmp/vp_gold_campaigns/mnq_grid_spectrum_force_smoke/f0098417/capture/buckets.parquet",
+      "manifest_json": "/private/tmp/vp_gold_campaigns/mnq_grid_spectrum_force_smoke/f0098417/capture/manifest.json"
+    },
+    "created_at_utc": "2026-02-19T18:39:50.343502+00:00"
+  },
+  "rows": {
+    "bins": 1199,
+    "grid_clean": 121099
+  },
+  "projection_columns_removed": [
+    "proj_score_h100",
+    "proj_score_h200",
+    "proj_score_h300",
+    "proj_score_h400"
+  ],
+  "immutable_files": {
+    "bins_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417/bins.parquet",
+    "grid_clean_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417/grid_clean.parquet",
+    "checksums_json": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417/checksums.json"
+  }
+}

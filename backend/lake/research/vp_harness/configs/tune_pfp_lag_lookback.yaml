@@ -1,0 +1,51 @@
+name: tune_pfp_lag_lookback
+description: |
+  PFP tuning sweep focused on lead/lag timing sensitivity
+  via lag bins, EMA smoothing, and warmup calibration.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - pfp
+
+eval:
+  tp_ticks: 8
+  sl_ticks: 4
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20, 30]
+  per_signal:
+    pfp:
+      lag_bins: [3, 5, 8]
+      ema_alpha: [0.05, 0.1, 0.2]
+      warmup_bins: [200, 300]
+      inner_bid_cols:
+        - [47, 48, 49]
+      inner_ask_cols:
+        - [51, 52, 53]
+      outer_bid_cols:
+        - [38, 39, 40, 41, 42, 43, 44, 45]
+      outer_ask_cols:
+        - [55, 56, 57, 58, 59, 60, 61, 62]
+      add_weight: [0.6]
+      pull_weight: [0.4]
+      eps: [1.0e-12]
+
+parallel:
+  max_workers: 2
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/tuning/pfp_lag_lookback
+  run_name_prefix: tune_pfp_lag
+  tags:
+    stage: tuning
+    source: vp_harness
+    focus: lag_lookback

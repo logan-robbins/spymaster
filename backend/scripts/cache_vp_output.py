@@ -18,7 +18,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict
 
 import pandas as pd
 import pyarrow as pa
@@ -53,24 +53,40 @@ _BUCKET_FLOAT_FIELDS: tuple[str, ...] = (
     "pull_mass",
     "fill_mass",
     "rest_depth",
+    "bid_depth",
+    "ask_depth",
     "v_add",
     "v_pull",
     "v_fill",
     "v_rest_depth",
+    "v_bid_depth",
+    "v_ask_depth",
     "a_add",
     "a_pull",
     "a_fill",
     "a_rest_depth",
+    "a_bid_depth",
+    "a_ask_depth",
     "j_add",
     "j_pull",
     "j_fill",
     "j_rest_depth",
+    "j_bid_depth",
+    "j_ask_depth",
     "spectrum_score",
 )
 
 _BUCKET_INT_FIELDS: tuple[tuple[str, pa.DataType], ...] = (
     ("k", pa.int32()),
     ("spectrum_state_code", pa.int8()),
+    ("best_ask_move_ticks", pa.int32()),
+    ("best_bid_move_ticks", pa.int32()),
+    ("ask_reprice_sign", pa.int8()),
+    ("bid_reprice_sign", pa.int8()),
+    ("perm_microstate_id", pa.int8()),
+    ("perm_state5_code", pa.int8()),
+    ("chase_up_flag", pa.int8()),
+    ("chase_down_flag", pa.int8()),
     ("last_event_id", pa.int64()),
 )
 
@@ -118,14 +134,12 @@ def _bin_schema() -> pa.Schema:
     return pa.schema([pa.field(name, dtype) for name, dtype in _BIN_FIELDS])
 
 
-def _bucket_schema(projection_horizons_ms: Iterable[int]) -> pa.Schema:
+def _bucket_schema() -> pa.Schema:
     fields = [pa.field(name, dtype) for name, dtype in _BUCKET_PREFIX_FIELDS]
     for name, dtype in _BUCKET_INT_FIELDS:
         fields.append(pa.field(name, dtype))
     for name in _BUCKET_FLOAT_FIELDS:
         fields.append(pa.field(name, pa.float64()))
-    for horizon_ms in projection_horizons_ms:
-        fields.append(pa.field(f"proj_score_h{int(horizon_ms)}", pa.float64()))
     return pa.schema(fields)
 
 
@@ -145,7 +159,7 @@ def _grid_bin_row(grid: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _grid_bucket_rows(grid: Dict[str, Any], projection_horizons_ms: tuple[int, ...]) -> list[Dict[str, Any]]:
+def _grid_bucket_rows(grid: Dict[str, Any]) -> list[Dict[str, Any]]:
     prefix: Dict[str, Any] = {
         "ts_ns": int(grid["ts_ns"]),
         "bin_seq": int(grid["bin_seq"]),
@@ -166,9 +180,6 @@ def _grid_bucket_rows(grid: Dict[str, Any], projection_horizons_ms: tuple[int, .
             row[name] = int(bucket[name])
         for name in _BUCKET_FLOAT_FIELDS:
             row[name] = float(bucket[name])
-        for horizon_ms in projection_horizons_ms:
-            key = f"proj_score_h{horizon_ms}"
-            row[key] = float(bucket[key])
         rows.append(row)
     return rows
 
@@ -205,9 +216,8 @@ def capture_stream_output(
     buckets_path = output_dir / "buckets.parquet"
     manifest_path = output_dir / "manifest.json"
 
-    projection_horizons = tuple(int(x) for x in config.projection_horizons_ms)
     bins_schema = _bin_schema()
-    buckets_schema = _bucket_schema(projection_horizons)
+    buckets_schema = _bucket_schema()
 
     bins_buffer: list[Dict[str, Any]] = []
     buckets_buffer: list[Dict[str, Any]] = []
@@ -252,7 +262,7 @@ def capture_stream_output(
                 break
 
             bins_buffer.append(_grid_bin_row(grid))
-            bucket_rows = _grid_bucket_rows(grid, projection_horizons)
+            bucket_rows = _grid_bucket_rows(grid)
             buckets_buffer.extend(bucket_rows)
 
             n_bins += 1
@@ -303,8 +313,36 @@ def capture_stream_output(
         "cell_width_ms": config.cell_width_ms,
         "grid_radius_ticks": config.grid_radius_ticks,
         "n_absolute_ticks": config.n_absolute_ticks,
-        "projection_horizons_bins": [int(x) for x in config.projection_horizons_bins],
-        "projection_horizons_ms": list(projection_horizons),
+        "runtime_params": {
+            "tick_size": config.tick_size,
+            "bucket_size_dollars": config.bucket_size_dollars,
+            "rel_tick_size": config.rel_tick_size,
+            "grid_radius_ticks": config.grid_radius_ticks,
+            "cell_width_ms": config.cell_width_ms,
+            "n_absolute_ticks": config.n_absolute_ticks,
+            "spectrum_windows": [int(x) for x in config.spectrum_windows],
+            "spectrum_rollup_weights": [
+                float(x) for x in config.spectrum_rollup_weights
+            ],
+            "spectrum_derivative_weights": [
+                float(x) for x in config.spectrum_derivative_weights
+            ],
+            "spectrum_tanh_scale": config.spectrum_tanh_scale,
+            "spectrum_threshold_neutral": config.spectrum_threshold_neutral,
+            "zscore_window_bins": config.zscore_window_bins,
+            "zscore_min_periods": config.zscore_min_periods,
+            "tau_velocity": config.tau_velocity,
+            "tau_acceleration": config.tau_acceleration,
+            "tau_jerk": config.tau_jerk,
+            "tau_rest_decay": config.tau_rest_decay,
+            "c1_v_add": config.c1_v_add,
+            "c2_v_rest_pos": config.c2_v_rest_pos,
+            "c3_a_add": config.c3_a_add,
+            "c4_v_pull": config.c4_v_pull,
+            "c5_v_fill": config.c5_v_fill,
+            "c6_v_rest_neg": config.c6_v_rest_neg,
+            "c7_a_pull": config.c7_a_pull,
+        },
         "rows": {
             "bins": n_bins,
             "buckets": n_bucket_rows,

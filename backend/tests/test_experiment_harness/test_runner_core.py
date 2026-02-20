@@ -25,12 +25,14 @@ def test_signal_registry_loads_all_expected_signals() -> None:
     ensure_signals_loaded()
     expected = {
         "ads",
+        "ads_pfp_svac",
         "spg",
         "erd",
         "pfp",
         "jad",
         "iirc",
         "msd",
+        "perm_derivative",
         "svm_sp",
         "gbm_mf",
         "knn_cl",
@@ -46,13 +48,15 @@ def test_expand_grid_variant_specs_cartesian() -> None:
         cell_width_ms=[50, 100],
         c1_v_add=[0.8, 1.0],
         bucket_size_dollars=[2.5, 5.0],
+        tau_velocity=[1.5, 2.0],
     )
     specs = ExperimentRunner._expand_grid_variant_specs(cfg)
-    assert len(specs) == 8
+    assert len(specs) == 16
     for spec in specs:
         assert isinstance(spec.cell_width_ms, int)
         assert isinstance(spec.c1_v_add, float)
         assert isinstance(spec.bucket_size_dollars, float)
+        assert isinstance(spec.tau_velocity, float)
 
 
 def test_expand_signal_params_rejects_unknown_keys() -> None:

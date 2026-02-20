@@ -44,15 +44,18 @@ def _test_config() -> VPRuntimeConfig:
 
 
 def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
-    row: Dict[str, Any] = {
-        "k": k,
-        "spectrum_state_code": -1 if k < 0 else 1,
-        "last_event_id": event_id + k,
-    }
+    row: Dict[str, Any] = {}
+    for field_name, _dtype in cache_vp_output._BUCKET_INT_FIELDS:
+        if field_name == "k":
+            row[field_name] = k
+        elif field_name == "spectrum_state_code":
+            row[field_name] = -1 if k < 0 else 1
+        elif field_name == "last_event_id":
+            row[field_name] = event_id + k
+        else:
+            row[field_name] = 0
     for idx, field_name in enumerate(cache_vp_output._BUCKET_FLOAT_FIELDS):
         row[field_name] = base + float(idx + 1) / 100.0
-    row["proj_score_h100"] = base + 0.5
-    row["proj_score_h200"] = base + 0.75
     return row
 
 
@@ -137,15 +140,10 @@ def test_capture_stream_output_writes_windowed_tables(
     buckets = buckets_tbl.to_pydict()
     assert buckets["bin_seq"] == [1, 1, 2, 2]
     assert buckets["k"] == [-1, 0, -1, 0]
-    assert "proj_score_h100" in buckets
-    assert "proj_score_h200" in buckets
-    assert len(buckets["proj_score_h100"]) == 4
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["rows"]["bins"] == 2
     assert manifest["rows"]["buckets"] == 4
-    assert manifest["projection_horizons_bins"] == [1, 2]
-    assert manifest["projection_horizons_ms"] == [100, 200]
 
 
 def test_capture_stream_output_fails_when_window_has_no_bins(

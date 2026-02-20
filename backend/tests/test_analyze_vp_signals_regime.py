@@ -307,7 +307,7 @@ def test_stream_events_emits_fixed_bins_with_metadata(monkeypatch: pytest.Monkey
         assert int(g["bin_end_ns"]) - int(g["bin_start_ns"]) == expected_width_ns
 
 
-def test_stream_events_bucket_schema_and_projection_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_events_bucket_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _fake_iter_mbo_events,
@@ -324,14 +324,9 @@ def test_stream_events_bucket_schema_and_projection_fields(monkeypatch: pytest.M
     )
 
     expected_rows = 2 * config.grid_radius_ticks + 1
-    projection_keys = [f"proj_score_h{h}" for h in config.projection_horizons_ms]
-
     for g in grids:
         assert len(g["buckets"]) == expected_rows
         for b in g["buckets"]:
             assert np.isfinite(float(b["spectrum_score"]))
             assert -1.0 <= float(b["spectrum_score"]) <= 1.0
             assert int(b["spectrum_state_code"]) in (-1, 0, 1)
-            for key in projection_keys:
-                assert np.isfinite(float(b[key]))
-                assert -1.0 <= float(b[key]) <= 1.0

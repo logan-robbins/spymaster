@@ -234,6 +234,17 @@ class AbsoluteTickEngine:
         n_ticks: int = 500,
         tick_int: int = 250_000_000,
         bucket_size_dollars: float = 0.25,
+        tau_velocity: float = TAU_VELOCITY,
+        tau_acceleration: float = TAU_ACCELERATION,
+        tau_jerk: float = TAU_JERK,
+        tau_rest_decay: float = TAU_REST_DECAY,
+        c1_v_add: float = C1_V_ADD,
+        c2_v_rest_pos: float = C2_V_REST_POS,
+        c3_a_add: float = C3_A_ADD,
+        c4_v_pull: float = C4_V_PULL,
+        c5_v_fill: float = C5_V_FILL,
+        c6_v_rest_neg: float = C6_V_REST_NEG,
+        c7_a_pull: float = C7_A_PULL,
         *,
         anchor_tick_idx: int | None = None,
         auto_anchor_from_bbo: bool = True,
@@ -247,10 +258,40 @@ class AbsoluteTickEngine:
             raise ValueError(
                 f"bucket_size_dollars must be > 0, got {bucket_size_dollars}"
             )
+        for tau_name, tau_value in (
+            ("tau_velocity", tau_velocity),
+            ("tau_acceleration", tau_acceleration),
+            ("tau_jerk", tau_jerk),
+            ("tau_rest_decay", tau_rest_decay),
+        ):
+            if tau_value <= 0.0:
+                raise ValueError(f"{tau_name} must be > 0, got {tau_value}")
+        for coeff_name, coeff_value in (
+            ("c1_v_add", c1_v_add),
+            ("c2_v_rest_pos", c2_v_rest_pos),
+            ("c3_a_add", c3_a_add),
+            ("c4_v_pull", c4_v_pull),
+            ("c5_v_fill", c5_v_fill),
+            ("c6_v_rest_neg", c6_v_rest_neg),
+            ("c7_a_pull", c7_a_pull),
+        ):
+            if coeff_value < 0.0:
+                raise ValueError(f"{coeff_name} must be >= 0, got {coeff_value}")
 
         self.n_ticks: int = n_ticks
         self.tick_int: int = tick_int
         self.bucket_size_dollars: float = bucket_size_dollars
+        self.tau_velocity: float = float(tau_velocity)
+        self.tau_acceleration: float = float(tau_acceleration)
+        self.tau_jerk: float = float(tau_jerk)
+        self.tau_rest_decay: float = float(tau_rest_decay)
+        self.c1_v_add: float = float(c1_v_add)
+        self.c2_v_rest_pos: float = float(c2_v_rest_pos)
+        self.c3_a_add: float = float(c3_a_add)
+        self.c4_v_pull: float = float(c4_v_pull)
+        self.c5_v_fill: float = float(c5_v_fill)
+        self.c6_v_rest_neg: float = float(c6_v_rest_neg)
+        self.c7_a_pull: float = float(c7_a_pull)
         self._auto_anchor_from_bbo: bool = bool(auto_anchor_from_bbo)
         self._fail_on_out_of_range: bool = bool(fail_on_out_of_range)
 
@@ -271,21 +312,29 @@ class AbsoluteTickEngine:
         self._pull_mass = np.zeros(n_ticks, dtype=np.float64)
         self._fill_mass = np.zeros(n_ticks, dtype=np.float64)
         self._rest_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._bid_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._ask_depth = np.zeros(n_ticks, dtype=np.float64)
         # Velocity (1st derivative)
         self._v_add = np.zeros(n_ticks, dtype=np.float64)
         self._v_pull = np.zeros(n_ticks, dtype=np.float64)
         self._v_fill = np.zeros(n_ticks, dtype=np.float64)
         self._v_rest_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._v_bid_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._v_ask_depth = np.zeros(n_ticks, dtype=np.float64)
         # Acceleration (2nd derivative)
         self._a_add = np.zeros(n_ticks, dtype=np.float64)
         self._a_pull = np.zeros(n_ticks, dtype=np.float64)
         self._a_fill = np.zeros(n_ticks, dtype=np.float64)
         self._a_rest_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._a_bid_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._a_ask_depth = np.zeros(n_ticks, dtype=np.float64)
         # Jerk (3rd derivative)
         self._j_add = np.zeros(n_ticks, dtype=np.float64)
         self._j_pull = np.zeros(n_ticks, dtype=np.float64)
         self._j_fill = np.zeros(n_ticks, dtype=np.float64)
         self._j_rest_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._j_bid_depth = np.zeros(n_ticks, dtype=np.float64)
+        self._j_ask_depth = np.zeros(n_ticks, dtype=np.float64)
         # Force
         self._pressure_variant = np.zeros(n_ticks, dtype=np.float64)
         self._vacuum_variant = np.zeros(n_ticks, dtype=np.float64)
@@ -548,18 +597,26 @@ class AbsoluteTickEngine:
         self._pull_mass[:] = 0.0
         self._fill_mass[:] = 0.0
         self._rest_depth[:] = 0.0
+        self._bid_depth[:] = 0.0
+        self._ask_depth[:] = 0.0
         self._v_add[:] = 0.0
         self._v_pull[:] = 0.0
         self._v_fill[:] = 0.0
         self._v_rest_depth[:] = 0.0
+        self._v_bid_depth[:] = 0.0
+        self._v_ask_depth[:] = 0.0
         self._a_add[:] = 0.0
         self._a_pull[:] = 0.0
         self._a_fill[:] = 0.0
         self._a_rest_depth[:] = 0.0
+        self._a_bid_depth[:] = 0.0
+        self._a_ask_depth[:] = 0.0
         self._j_add[:] = 0.0
         self._j_pull[:] = 0.0
         self._j_fill[:] = 0.0
         self._j_rest_depth[:] = 0.0
+        self._j_bid_depth[:] = 0.0
+        self._j_ask_depth[:] = 0.0
         self._pressure_variant[:] = 0.0
         self._vacuum_variant[:] = 0.0
         self._last_ts_ns[:] = 0
@@ -727,17 +784,18 @@ class AbsoluteTickEngine:
             if last_ts > 0 and ts_ns > last_ts:
                 dt_s = (ts_ns - last_ts) / 1e9
 
-            # Previous rest_depth for derivative chain
-            prev_rest = float(self._rest_depth[idx])
+            # Previous side depths for derivative chains
+            prev_bid = float(self._bid_depth[idx])
+            prev_ask = float(self._ask_depth[idx])
 
-            # Update rest_depth from book (futures: 1 tick = 1 price level)
-            self._rest_depth[idx] = float(
-                self._depth_bid_arr[idx] + self._depth_ask_arr[idx]
-            )
+            # Update side depths from book (futures: 1 tick = 1 price level)
+            self._bid_depth[idx] = float(self._depth_bid_arr[idx])
+            self._ask_depth[idx] = float(self._depth_ask_arr[idx])
+            self._rest_depth[idx] = self._bid_depth[idx] + self._ask_depth[idx]
 
             # Decay and accumulate mass
             if dt_s > 0.0:
-                decay = math.exp(-dt_s / TAU_REST_DECAY)
+                decay = math.exp(-dt_s / self.tau_rest_decay)
                 self._add_mass[idx] = self._add_mass[idx] * decay + add_delta
                 self._pull_mass[idx] = self._pull_mass[idx] * decay + pull_delta
                 self._fill_mass[idx] = self._fill_mass[idx] * decay + fill_delta
@@ -753,6 +811,9 @@ class AbsoluteTickEngine:
                     float(self._v_add[idx]),
                     float(self._a_add[idx]),
                     float(self._j_add[idx]),
+                    tau_v=self.tau_velocity,
+                    tau_a=self.tau_acceleration,
+                    tau_j=self.tau_jerk,
                 )
                 self._v_add[idx] = v
                 self._a_add[idx] = a
@@ -763,6 +824,9 @@ class AbsoluteTickEngine:
                     float(self._v_pull[idx]),
                     float(self._a_pull[idx]),
                     float(self._j_pull[idx]),
+                    tau_v=self.tau_velocity,
+                    tau_a=self.tau_acceleration,
+                    tau_j=self.tau_jerk,
                 )
                 self._v_pull[idx] = v
                 self._a_pull[idx] = a
@@ -773,32 +837,60 @@ class AbsoluteTickEngine:
                     float(self._v_fill[idx]),
                     float(self._a_fill[idx]),
                     float(self._j_fill[idx]),
+                    tau_v=self.tau_velocity,
+                    tau_a=self.tau_acceleration,
+                    tau_j=self.tau_jerk,
                 )
                 self._v_fill[idx] = v
                 self._a_fill[idx] = a
                 self._j_fill[idx] = j
 
                 v, a, j = _update_derivative_chain(
-                    prev_rest, float(self._rest_depth[idx]), dt_s,
-                    float(self._v_rest_depth[idx]),
-                    float(self._a_rest_depth[idx]),
-                    float(self._j_rest_depth[idx]),
+                    prev_bid,
+                    float(self._bid_depth[idx]),
+                    dt_s,
+                    float(self._v_bid_depth[idx]),
+                    float(self._a_bid_depth[idx]),
+                    float(self._j_bid_depth[idx]),
+                    tau_v=self.tau_velocity,
+                    tau_a=self.tau_acceleration,
+                    tau_j=self.tau_jerk,
                 )
-                self._v_rest_depth[idx] = v
-                self._a_rest_depth[idx] = a
-                self._j_rest_depth[idx] = j
+                self._v_bid_depth[idx] = v
+                self._a_bid_depth[idx] = a
+                self._j_bid_depth[idx] = j
+
+                v, a, j = _update_derivative_chain(
+                    prev_ask,
+                    float(self._ask_depth[idx]),
+                    dt_s,
+                    float(self._v_ask_depth[idx]),
+                    float(self._a_ask_depth[idx]),
+                    float(self._j_ask_depth[idx]),
+                    tau_v=self.tau_velocity,
+                    tau_a=self.tau_acceleration,
+                    tau_j=self.tau_jerk,
+                )
+                self._v_ask_depth[idx] = v
+                self._a_ask_depth[idx] = a
+                self._j_ask_depth[idx] = j
+
+            # Invariant: rest_depth derivatives are exactly bid+ask derivatives.
+            self._v_rest_depth[idx] = self._v_bid_depth[idx] + self._v_ask_depth[idx]
+            self._a_rest_depth[idx] = self._a_bid_depth[idx] + self._a_ask_depth[idx]
+            self._j_rest_depth[idx] = self._j_bid_depth[idx] + self._j_ask_depth[idx]
 
             # Pressure / vacuum
             self._pressure_variant[idx] = (
-                C1_V_ADD * self._v_add[idx]
-                + C2_V_REST_POS * max(float(self._v_rest_depth[idx]), 0.0)
-                + C3_A_ADD * max(float(self._a_add[idx]), 0.0)
+                self.c1_v_add * self._v_add[idx]
+                + self.c2_v_rest_pos * max(float(self._v_rest_depth[idx]), 0.0)
+                + self.c3_a_add * max(float(self._a_add[idx]), 0.0)
             )
             self._vacuum_variant[idx] = (
-                C4_V_PULL * self._v_pull[idx]
-                + C5_V_FILL * self._v_fill[idx]
-                + C6_V_REST_NEG * max(-float(self._v_rest_depth[idx]), 0.0)
-                + C7_A_PULL * max(float(self._a_pull[idx]), 0.0)
+                self.c4_v_pull * self._v_pull[idx]
+                + self.c5_v_fill * self._v_fill[idx]
+                + self.c6_v_rest_neg * max(-float(self._v_rest_depth[idx]), 0.0)
+                + self.c7_a_pull * max(float(self._a_pull[idx]), 0.0)
             )
 
             # Metadata
@@ -826,15 +918,15 @@ class AbsoluteTickEngine:
             return
 
         # Decay mechanics mass with no new event delta.
-        rest_decay = np.exp(-dt_s / TAU_REST_DECAY)
+        rest_decay = np.exp(-dt_s / self.tau_rest_decay)
         self._add_mass[active_idx] *= rest_decay
         self._pull_mass[active_idx] *= rest_decay
         self._fill_mass[active_idx] *= rest_decay
 
         # Per-tick EMA factors for variable dt.
-        alpha_v = 1.0 - np.exp(-dt_s / TAU_VELOCITY)
-        alpha_a = 1.0 - np.exp(-dt_s / TAU_ACCELERATION)
-        alpha_j = 1.0 - np.exp(-dt_s / TAU_JERK)
+        alpha_v = 1.0 - np.exp(-dt_s / self.tau_velocity)
+        alpha_a = 1.0 - np.exp(-dt_s / self.tau_acceleration)
+        alpha_j = 1.0 - np.exp(-dt_s / self.tau_jerk)
         keep_v = 1.0 - alpha_v
         keep_a = 1.0 - alpha_a
         keep_j = 1.0 - alpha_j
@@ -862,7 +954,19 @@ class AbsoluteTickEngine:
         _decay_chain(self._v_add, self._a_add, self._j_add)
         _decay_chain(self._v_pull, self._a_pull, self._j_pull)
         _decay_chain(self._v_fill, self._a_fill, self._j_fill)
-        _decay_chain(self._v_rest_depth, self._a_rest_depth, self._j_rest_depth)
+        _decay_chain(self._v_bid_depth, self._a_bid_depth, self._j_bid_depth)
+        _decay_chain(self._v_ask_depth, self._a_ask_depth, self._j_ask_depth)
+
+        # Invariant: rest_depth derivatives are exactly bid+ask derivatives.
+        self._v_rest_depth[active_idx] = (
+            self._v_bid_depth[active_idx] + self._v_ask_depth[active_idx]
+        )
+        self._a_rest_depth[active_idx] = (
+            self._a_bid_depth[active_idx] + self._a_ask_depth[active_idx]
+        )
+        self._j_rest_depth[active_idx] = (
+            self._j_bid_depth[active_idx] + self._j_ask_depth[active_idx]
+        )
 
         # Recompute force fields from updated derivatives.
         v_add = self._v_add[active_idx]
@@ -873,15 +977,15 @@ class AbsoluteTickEngine:
         a_pull = self._a_pull[active_idx]
 
         pressure = (
-            C1_V_ADD * v_add
-            + C2_V_REST_POS * np.maximum(v_rest, 0.0)
-            + C3_A_ADD * np.maximum(a_add, 0.0)
+            self.c1_v_add * v_add
+            + self.c2_v_rest_pos * np.maximum(v_rest, 0.0)
+            + self.c3_a_add * np.maximum(a_add, 0.0)
         )
         vacuum = (
-            C4_V_PULL * v_pull
-            + C5_V_FILL * v_fill
-            + C6_V_REST_NEG * np.maximum(-v_rest, 0.0)
-            + C7_A_PULL * np.maximum(a_pull, 0.0)
+            self.c4_v_pull * v_pull
+            + self.c5_v_fill * v_fill
+            + self.c6_v_rest_neg * np.maximum(-v_rest, 0.0)
+            + self.c7_a_pull * np.maximum(a_pull, 0.0)
         )
         np.nan_to_num(pressure, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         np.nan_to_num(vacuum, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1018,7 +1122,9 @@ class AbsoluteTickEngine:
                         f"n_ticks={self.n_ticks}, tick_int={self.tick_int})."
                     )
 
-        self._rest_depth[:] = self._depth_bid_arr + self._depth_ask_arr
+        self._bid_depth[:] = self._depth_bid_arr.astype(np.float64)
+        self._ask_depth[:] = self._depth_ask_arr.astype(np.float64)
+        self._rest_depth[:] = self._bid_depth + self._ask_depth
 
     # ------------------------------------------------------------------
     # Lightweight book-only processing (pre-warmup fast-forward)
@@ -1229,18 +1335,26 @@ class AbsoluteTickEngine:
             "pull_mass": self._pull_mass,
             "fill_mass": self._fill_mass,
             "rest_depth": self._rest_depth,
+            "bid_depth": self._bid_depth,
+            "ask_depth": self._ask_depth,
             "v_add": self._v_add,
             "v_pull": self._v_pull,
             "v_fill": self._v_fill,
             "v_rest_depth": self._v_rest_depth,
+            "v_bid_depth": self._v_bid_depth,
+            "v_ask_depth": self._v_ask_depth,
             "a_add": self._a_add,
             "a_pull": self._a_pull,
             "a_fill": self._a_fill,
             "a_rest_depth": self._a_rest_depth,
+            "a_bid_depth": self._a_bid_depth,
+            "a_ask_depth": self._a_ask_depth,
             "j_add": self._j_add,
             "j_pull": self._j_pull,
             "j_fill": self._j_fill,
             "j_rest_depth": self._j_rest_depth,
+            "j_bid_depth": self._j_bid_depth,
+            "j_ask_depth": self._j_ask_depth,
             "pressure_variant": self._pressure_variant,
             "vacuum_variant": self._vacuum_variant,
             "last_event_id": self._last_event_id,

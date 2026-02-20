@@ -326,9 +326,11 @@ class ExperimentRunner:
         cooldown_bins: int = eval_config.get("cooldown_bins", 30)
         mid_price = dataset_cache["mid_price"]
         ts_ns = dataset_cache["ts_ns"]
+        signal_metadata: dict[str, Any] = {}
 
         if isinstance(signal_instance, MLSignal):
             result: MLSignalResult = signal_instance.compute(dataset_cache)
+            signal_metadata = result.metadata if isinstance(result.metadata, dict) else {}
             thresholds: list[float] = signal_instance.default_thresholds()
             results: list[dict[str, Any]] = engine.evaluate_ml_predictions(
                 predictions=result.predictions,
@@ -341,6 +343,9 @@ class ExperimentRunner:
             )
         elif isinstance(signal_instance, StatisticalSignal):
             result_stat: SignalResult = signal_instance.compute(dataset_cache)
+            signal_metadata = (
+                result_stat.metadata if isinstance(result_stat.metadata, dict) else {}
+            )
             thresholds = self._resolve_thresholds(
                 signal_instance.default_thresholds(),
                 result_stat.metadata,
@@ -369,6 +374,7 @@ class ExperimentRunner:
             "eval_max_hold_bins": eval_config.get("max_hold_bins", 1200),
             "elapsed_seconds": round(elapsed, 3),
         }
+        self._attach_signal_metadata(meta, signal_metadata)
 
         logger.info(
             "Signal '%s' on '%s': %d threshold results in %.2fs",
@@ -379,6 +385,35 @@ class ExperimentRunner:
         )
 
         return meta, results
+
+    @staticmethod
+    def _attach_signal_metadata(meta: dict[str, Any], signal_metadata: dict[str, Any]) -> None:
+        """Attach compact, tracking-safe signal metadata into run meta."""
+        if not signal_metadata:
+            return
+
+        state_dist = signal_metadata.get("perm_state5_distribution")
+        micro_dist = signal_metadata.get("perm_micro9_distribution")
+        transition = signal_metadata.get("perm_state5_transition_matrix")
+        labels = signal_metadata.get("perm_state5_labels")
+
+        if isinstance(state_dist, dict):
+            meta["perm_state5_distribution_json"] = json.dumps(
+                state_dist, sort_keys=True
+            )
+        if isinstance(micro_dist, dict):
+            meta["perm_micro9_distribution_json"] = json.dumps(
+                micro_dist, sort_keys=True
+            )
+        if isinstance(transition, list):
+            meta["perm_state5_transition_matrix_json"] = json.dumps(transition)
+        if isinstance(labels, list):
+            meta["perm_state5_labels_json"] = json.dumps(labels)
+        if (
+            "perm_state5_distribution_json" in meta
+            or "perm_micro9_distribution_json" in meta
+        ):
+            meta["perm_taxonomy_version"] = "state5_micro9_v1"
 
     def _expand_param_grid(
         self,
@@ -518,6 +553,10 @@ class ExperimentRunner:
             "c6_v_rest_neg",
             "c7_a_pull",
             "bucket_size_dollars",
+            "tau_velocity",
+            "tau_acceleration",
+            "tau_jerk",
+            "tau_rest_decay",
         )
 
         raw = deepcopy(spec.model_dump())

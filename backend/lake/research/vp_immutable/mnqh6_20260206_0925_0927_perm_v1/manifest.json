@@ -1,0 +1,85 @@
+{
+  "dataset_id": "mnqh6_20260206_0925_0927_perm_v1",
+  "created_at_utc": "2026-02-19T22:48:17.024436+00:00",
+  "source_dir": "/tmp/vp_cache_perm_smoke_20260206",
+  "source_manifest": {
+    "product_type": "future_mbo",
+    "symbol": "MNQH6",
+    "dt": "2026-02-06",
+    "stream_start_time_hhmm": "09:25",
+    "capture_start_ns": 1770387900000000000,
+    "capture_end_ns": 1770388020000000000,
+    "projection_model": {
+      "use_cubic": false,
+      "cubic_scale": 0.16666666666666666,
+      "damping_lambda": 0.0
+    },
+    "config_version": "ad294ece0d14",
+    "cell_width_ms": 100,
+    "grid_radius_ticks": 50,
+    "n_absolute_ticks": 8192,
+    "runtime_params": {
+      "tick_size": 0.25,
+      "bucket_size_dollars": 0.25,
+      "rel_tick_size": 0.25,
+      "grid_radius_ticks": 50,
+      "cell_width_ms": 100,
+      "n_absolute_ticks": 8192,
+      "spectrum_windows": [
+        5,
+        10,
+        20,
+        40
+      ],
+      "spectrum_rollup_weights": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spectrum_derivative_weights": [
+        0.55,
+        0.3,
+        0.15
+      ],
+      "spectrum_tanh_scale": 3.0,
+      "spectrum_threshold_neutral": 0.15,
+      "zscore_window_bins": 300,
+      "zscore_min_periods": 75,
+      "tau_velocity": 2.0,
+      "tau_acceleration": 5.0,
+      "tau_jerk": 10.0,
+      "tau_rest_decay": 30.0,
+      "c1_v_add": 1.0,
+      "c2_v_rest_pos": 0.5,
+      "c3_a_add": 0.3,
+      "c4_v_pull": 1.0,
+      "c5_v_fill": 1.5,
+      "c6_v_rest_neg": 0.5,
+      "c7_a_pull": 0.3
+    },
+    "rows": {
+      "bins": 1199,
+      "buckets": 121099
+    },
+    "first_bin_ts_ns": 1770387900100000000,
+    "last_bin_ts_ns": 1770388019900000000,
+    "elapsed_seconds": 121.60410100000445,
+    "output": {
+      "bins_parquet": "/tmp/vp_cache_perm_smoke_20260206/bins.parquet",
+      "buckets_parquet": "/tmp/vp_cache_perm_smoke_20260206/buckets.parquet",
+      "manifest_json": "/tmp/vp_cache_perm_smoke_20260206/manifest.json"
+    },
+    "created_at_utc": "2026-02-19T22:48:12.273885+00:00"
+  },
+  "rows": {
+    "bins": 1199,
+    "grid_clean": 121099
+  },
+  "projection_columns_removed": [],
+  "immutable_files": {
+    "bins_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927_perm_v1/bins.parquet",
+    "grid_clean_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927_perm_v1/grid_clean.parquet",
+    "checksums_json": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927_perm_v1/checksums.json"
+  }
+}

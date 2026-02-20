@@ -1,0 +1,47 @@
+name: tune_ads_pfp_svac_rr
+description: |
+  Risk/reward sensitivity sweep for frontend-runtime parity signal
+  (ads_pfp_svac) with signal params fixed at the current best setting.
+
+datasets:
+  - mnqh6_20260206_0925_1025
+
+signals:
+  - ads_pfp_svac
+
+eval:
+  tp_ticks: [8, 10, 12, 14]
+  sl_ticks: [4, 5, 6, 7]
+  max_hold_bins: 1200
+  warmup_bins: 300
+  tick_size: 0.25
+  min_signals: 5
+
+sweep:
+  universal:
+    cooldown_bins: [20]
+  per_signal:
+    ads_pfp_svac:
+      cell_width_ms: [100]
+      ads_slope_windows_ms:
+        - [1000, 2500, 5000]
+      ads_zscore_window_ms: [20000]
+      ads_warmup_ms: [20000]
+      pfp_lag_ms: [500]
+      pfp_ema_alpha: [0.05]
+      composite_weight_ads: [0.4]
+      composite_weight_pfp: [0.25]
+      composite_weight_svac: [0.3]
+
+parallel:
+  max_workers: 3
+  timeout_seconds: 7200
+
+tracking:
+  backend: mlflow
+  experiment_name: vp/tuning/ads_pfp_svac_rr
+  run_name_prefix: tune_ads_pfp_svac_rr
+  tags:
+    stage: tuning
+    source: frontend_runtime_parity
+    focus: risk_reward

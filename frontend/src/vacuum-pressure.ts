@@ -59,6 +59,29 @@ interface RuntimeConfig {
   config_version: string;
 }
 
+interface RuntimeModelConfig {
+  name: string;
+  enabled: boolean;
+}
+
+interface RuntimeModelUpdate {
+  name: string;
+  score: number;
+  ready: boolean;
+  sampleCount: number;
+  base: number;
+  d1: number;
+  d2: number;
+  d3: number;
+  z1: number;
+  z2: number;
+  z3: number;
+  bullIntensity: number;
+  bearIntensity: number;
+  mixedIntensity: number;
+  dominantState5Code: number;
+}
+
 /** Dense grid bucket row from event-driven mode (mode=event).
  *  Two-force model: pressure (depth building, always >= 0) and
  *  vacuum (depth draining, always >= 0).  resistance_variant removed. */
@@ -85,7 +108,6 @@ interface GridBucketRow {
   spectrum_score: number;
   spectrum_state_code: number;
   last_event_id: number;
-  [key: `proj_score_h${number}`]: number;
 }
 
 /** Parsed and validated URL query parameters. */
@@ -94,6 +116,8 @@ interface StreamParams {
   symbol: string;
   dt: string;
   start_time?: string;
+  projection_horizons_bins?: string;
+  projection_source?: 'backend' | 'frontend';
 }
 
 // --------------------------------------------------------- Layout constants
@@ -109,6 +133,9 @@ const SCROLL_MARGIN = 10;                    // rows from edge before auto-scrol
 
 let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
+let runtimeModelConfig: RuntimeModelConfig | null = null;
+let latestRuntimeModel: RuntimeModelUpdate | null = null;
+let projectionSource: 'backend' | 'frontend' = 'backend';
 
 // BBO state for overlay rendering
 let bestBidDollars = 0;
@@ -497,6 +524,16 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 /** Heatmap cell colour: single-channel green pressure gradient.
  *
  *  Encodes ONE signal: how much pressure (liquidity building) exists
@@ -730,10 +767,18 @@ function pushHeatmapColumnFromGrid(
   }
 
   // Update experiment engine for projection bands
+  let localComposite: CompositeSignal | null = null;
   if (experimentEngine) {
-    currentCompositeSignal = experimentEngine.update(grid);
-    compositeTrail[HMAP_HISTORY - 1] = currentCompositeSignal.composite;
-    warmupTrail[HMAP_HISTORY - 1] = currentCompositeSignal.warmupFraction;
+    localComposite = experimentEngine.update(grid);
+    currentCompositeSignal = localComposite;
+  }
+
+  if (projectionSource === 'backend' && latestRuntimeModel !== null) {
+    compositeTrail[HMAP_HISTORY - 1] = latestRuntimeModel.score;
+    warmupTrail[HMAP_HISTORY - 1] = latestRuntimeModel.ready ? 1 : 0;
+  } else if (localComposite !== null) {
+    compositeTrail[HMAP_HISTORY - 1] = localComposite.composite;
+    warmupTrail[HMAP_HISTORY - 1] = localComposite.warmupFraction;
   }
 }
 
@@ -936,9 +981,6 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   $('sig-rest-depth').style.color = '#aaa';
   $('sig-force-total').textContent = fmt(forceTotal, 1);
   $('sig-force-total').style.color = '#ddd';
-  $('sig-model-status').textContent = 'NOT ENABLED';
-  $('sig-model-status').style.color = '#888';
-
   $('regime-label').textContent = state;
   $('regime-label').style.color = stateTextColor;
   $('regime-lift-val').textContent = fmt(netEdge, 1);
@@ -948,6 +990,48 @@ function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
   $('bot-conviction').textContent = `${(conviction * 100).toFixed(0)}%`;
   $('bot-risk-flag').textContent = riskFlag;
   $('bot-risk-flag').style.color = riskColor;
+}
+
+function updateRuntimeModelPanel(): void {
+  const statusEl = $('sig-model-status');
+  const scoreEl = $('sig-model-score');
+  const detailEl = $('sig-model-detail');
+
+  if (!runtimeModelConfig || !runtimeModelConfig.enabled) {
+    statusEl.textContent = 'DISABLED';
+    statusEl.style.color = '#888';
+    scoreEl.textContent = '0.0';
+    scoreEl.style.color = '#888';
+    detailEl.textContent = 'runtime model disabled by config';
+    detailEl.style.color = '#777';
+    return;
+  }
+
+  if (!latestRuntimeModel) {
+    statusEl.textContent = `${runtimeModelConfig.name.toUpperCase()} WAIT`;
+    statusEl.style.color = '#ccaa22';
+    scoreEl.textContent = '0.0';
+    scoreEl.style.color = '#888';
+    detailEl.textContent = 'awaiting runtime model ticks';
+    detailEl.style.color = '#777';
+    return;
+  }
+
+  statusEl.textContent = latestRuntimeModel.ready
+    ? `${latestRuntimeModel.name.toUpperCase()} LIVE`
+    : `${latestRuntimeModel.name.toUpperCase()} WARM`;
+  statusEl.style.color = latestRuntimeModel.ready ? '#22cc66' : '#ccaa22';
+
+  scoreEl.textContent = fmt(latestRuntimeModel.score, 3);
+  scoreEl.style.color = signColour(latestRuntimeModel.score, 3.0);
+
+  const drift = currentCompositeSignal.composite - latestRuntimeModel.score;
+  detailEl.textContent =
+    `bull=${latestRuntimeModel.bullIntensity.toFixed(3)} ` +
+    `bear=${latestRuntimeModel.bearIntensity.toFixed(3)} ` +
+    `d1/z1=${latestRuntimeModel.d1.toFixed(3)}/${latestRuntimeModel.z1.toFixed(3)} ` +
+    `drift(frontend-backend)=${drift.toFixed(3)}`;
+  detailEl.style.color = '#888';
 }
 
 // ---------------------------------------------------------------- Rendering
@@ -1788,7 +1872,7 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
  * Apply a runtime config received from the server.
  * Updates the metadata display and hides the warning banner.
  */
-function applyRuntimeConfig(cfg: RuntimeConfig): void {
+function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig | null): void {
   if (cfg.grid_radius_ticks < 1) {
     streamContractError(
       'runtime_config',
@@ -1808,6 +1892,8 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
   experimentEngine = new ExperimentEngine({
     cellWidthMs: normalizedCfg.cell_width_ms,
   });
+  runtimeModelConfig = modelCfg;
+  latestRuntimeModel = null;
 
   runtimeConfig = normalizedCfg;
   configReceived = true;
@@ -1828,6 +1914,7 @@ function applyRuntimeConfig(cfg: RuntimeConfig): void {
     `tick=$${normalizedCfg.tick_size} decimals=${normalizedCfg.price_decimals} ` +
     `multiplier=${normalizedCfg.contract_multiplier} version=${normalizedCfg.config_version}`
   );
+  updateRuntimeModelPanel();
 }
 
 // -------------------------------------------------------- URL contract
@@ -1852,6 +1939,8 @@ function parseStreamParams(): StreamParams {
     symbol: params.get('symbol') || 'QQQ',
     dt: params.get('dt') || '2026-02-06',
     start_time: params.get('start_time') || undefined,
+    projection_horizons_bins: params.get('projection_horizons_bins') || undefined,
+    projection_source: params.get('projection_source') === 'frontend' ? 'frontend' : 'backend',
   };
 }
 
@@ -1894,6 +1983,8 @@ function resetStreamState(): void {
   currentSpotDollars = 0;
   runningMaxDepth = 100;
   configReceived = false;
+  runtimeModelConfig = null;
+  latestRuntimeModel = null;
   isEventMode = false;
   currentGrid = new Map();
   lastRenderedEventIdByRow.clear();
@@ -1934,6 +2025,12 @@ function resetStreamState(): void {
   $('sig-vp-state').style.color = '#ccaa22';
   $('sig-vp-state').style.background = '#2f3138';
   $('sig-state-note').textContent = 'Waiting for directional imbalance.';
+  $('sig-model-status').textContent = 'DISABLED';
+  $('sig-model-status').style.color = '#888';
+  $('sig-model-score').textContent = '0.0';
+  $('sig-model-score').style.color = '#888';
+  $('sig-model-detail').textContent = 'runtime model not initialized';
+  $('sig-model-detail').style.color = '#777';
 }
 
 function closeSocketForControl(reason: string): void {
@@ -1993,7 +2090,8 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, start_time } = streamParams;
+  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source } = streamParams;
+  projectionSource = projection_source ?? 'backend';
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
@@ -2002,9 +2100,10 @@ function connectWS(): void {
     `&dt=${encodeURIComponent(dt)}`;
   const wsParams = new URLSearchParams();
   if (start_time) wsParams.set('start_time', start_time);
+  if (projection_horizons_bins) wsParams.set('projection_horizons_bins', projection_horizons_bins);
   const url = wsParams.toString() ? `${urlBase}&${wsParams.toString()}` : urlBase;
 
-  console.log(`[VP] Connecting to: ${url}`);
+  console.log(`[VP] Connecting to: ${url} (projection_source=${projectionSource})`);
   const ws = new WebSocket(url);
   wsClient = ws;
 
@@ -2038,6 +2137,22 @@ function connectWS(): void {
               msg,
               'projection_horizons_ms',
             );
+            let modelCfg: RuntimeModelConfig | null = null;
+            const runtimeModelRaw = msg.runtime_model;
+            if (
+              runtimeModelRaw !== undefined &&
+              runtimeModelRaw !== null &&
+              typeof runtimeModelRaw === 'object' &&
+              !Array.isArray(runtimeModelRaw)
+            ) {
+              const runtimeModelObj = runtimeModelRaw as Record<string, unknown>;
+              const modelName = optionalString(runtimeModelObj.name);
+              const modelEnabled = optionalBoolean(runtimeModelObj.enabled);
+              if (modelName && modelEnabled !== undefined) {
+                modelCfg = { name: modelName, enabled: modelEnabled };
+              }
+            }
+
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -2061,7 +2176,7 @@ function connectWS(): void {
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
-            });
+            }, modelCfg);
             const cfgMode = optionalString(msg.mode);
             const cfgStage = optionalString(msg.deployment_stage);
             const cfgFormat = optionalString(msg.stream_format);
@@ -2099,6 +2214,58 @@ function connectWS(): void {
             const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
             const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
+            const runtimeModelName = optionalString(msg.runtime_model_name);
+            const runtimeModelScore = optionalNumber(msg.runtime_model_score);
+            const runtimeModelReady = optionalBoolean(msg.runtime_model_ready);
+            const runtimeModelSampleCount = optionalNumber(msg.runtime_model_sample_count);
+            const runtimeModelBase = optionalNumber(msg.runtime_model_base);
+            const runtimeModelD1 = optionalNumber(msg.runtime_model_d1);
+            const runtimeModelD2 = optionalNumber(msg.runtime_model_d2);
+            const runtimeModelD3 = optionalNumber(msg.runtime_model_d3);
+            const runtimeModelZ1 = optionalNumber(msg.runtime_model_z1);
+            const runtimeModelZ2 = optionalNumber(msg.runtime_model_z2);
+            const runtimeModelZ3 = optionalNumber(msg.runtime_model_z3);
+            const runtimeModelBullIntensity = optionalNumber(msg.runtime_model_bull_intensity);
+            const runtimeModelBearIntensity = optionalNumber(msg.runtime_model_bear_intensity);
+            const runtimeModelMixedIntensity = optionalNumber(msg.runtime_model_mixed_intensity);
+            const runtimeModelDominantState5 = optionalNumber(msg.runtime_model_dominant_state5_code);
+            if (
+              runtimeModelName &&
+              runtimeModelScore !== undefined &&
+              runtimeModelReady !== undefined &&
+              runtimeModelSampleCount !== undefined &&
+              runtimeModelBase !== undefined &&
+              runtimeModelD1 !== undefined &&
+              runtimeModelD2 !== undefined &&
+              runtimeModelD3 !== undefined &&
+              runtimeModelZ1 !== undefined &&
+              runtimeModelZ2 !== undefined &&
+              runtimeModelZ3 !== undefined &&
+              runtimeModelBullIntensity !== undefined &&
+              runtimeModelBearIntensity !== undefined &&
+              runtimeModelMixedIntensity !== undefined &&
+              runtimeModelDominantState5 !== undefined
+            ) {
+              latestRuntimeModel = {
+                name: runtimeModelName,
+                score: runtimeModelScore,
+                ready: runtimeModelReady,
+                sampleCount: Math.round(runtimeModelSampleCount),
+                base: runtimeModelBase,
+                d1: runtimeModelD1,
+                d2: runtimeModelD2,
+                d3: runtimeModelD3,
+                z1: runtimeModelZ1,
+                z2: runtimeModelZ2,
+                z3: runtimeModelZ3,
+                bullIntensity: runtimeModelBullIntensity,
+                bearIntensity: runtimeModelBearIntensity,
+                mixedIntensity: runtimeModelMixedIntensity,
+                dominantState5Code: Math.round(runtimeModelDominantState5),
+              };
+            } else {
+              latestRuntimeModel = null;
+            }
 
             // Convert integer prices to dollars using runtime price scale.
             // spot_ref_price_int is the canonical anchor for k-to-price mapping.
@@ -2157,17 +2324,12 @@ function connectWS(): void {
               spectrum_state_code: requireNumberField('grid', j, 'spectrum_state_code'),
               last_event_id: requireNumberField('grid', j, 'last_event_id'),
             };
-            if (runtimeConfig) {
-              for (const horizonMs of runtimeConfig.projection_horizons_ms) {
-                const key = `proj_score_h${horizonMs}`;
-                (parsed as unknown as Record<string, number>)[key] = requireNumberField('grid', j, key);
-              }
-            }
             gridMap.set(k, parsed);
           }
           currentGrid = gridMap;
           pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);
           updateSignalPanelFromGrid(gridMap);
+          updateRuntimeModelPanel();
         }
       } catch (e) {
         console.error('[VP] Message processing error:', e);

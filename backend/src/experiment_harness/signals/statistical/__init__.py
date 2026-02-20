@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from src.experiment_harness.signals.statistical import (  # noqa: F401
     ads,
+    ads_pfp_svac,
     erd,
     iirc,
     jad,
     msd,
+    perm_derivative,
     pfp,
     spg,
 )

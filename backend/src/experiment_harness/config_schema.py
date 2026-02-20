@@ -31,12 +31,13 @@ class GridVariantConfig(BaseModel):
     c7_a_pull: float | list[float] = 0.3
     bucket_size_dollars: float | list[float] | None = None
     spectrum_windows: list[int] | None = None
+    spectrum_rollup_weights: list[float] | None = None
     spectrum_derivative_weights: list[float] | None = None
     spectrum_tanh_scale: float | None = None
-    projection_horizons_bins: list[int] | None = None
-    tau_velocity: float | None = None
-    tau_acceleration: float | None = None
-    tau_jerk: float | None = None
+    tau_velocity: float | list[float] | None = None
+    tau_acceleration: float | list[float] | None = None
+    tau_jerk: float | list[float] | None = None
+    tau_rest_decay: float | list[float] | None = None
     product_type: str = "future_mbo"
     symbol: str = "MNQH6"
     dt: str = "2026-02-06"

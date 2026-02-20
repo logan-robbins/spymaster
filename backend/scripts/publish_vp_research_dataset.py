@@ -1,8 +1,8 @@
-"""Publish VP cache into immutable base-grid data + experiment workspaces.
+"""Publish VP cache into immutable clean-grid data + agent workspaces.
 
-This script enforces a two-tier contract:
-1) Immutable base data: bins + clean grid (projection columns removed)
-2) Experiment data: projection-only seed + per-agent writable workspaces
+This script enforces a clean data contract:
+1) Immutable base data: bins + clean grid (no projection score columns)
+2) Experiment metadata/workspaces: optional per-agent writable outputs
 
 Usage examples:
     uv run scripts/publish_vp_research_dataset.py publish \
@@ -21,11 +21,10 @@ import hashlib
 import json
 import os
 import shutil
-import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 import duckdb
 import pyarrow.parquet as pq
@@ -47,11 +46,8 @@ IMMUTABLE_GRID_NAME = "grid_clean.parquet"
 IMMUTABLE_MANIFEST_NAME = "manifest.json"
 IMMUTABLE_CHECKSUM_NAME = "checksums.json"
 
-EXPERIMENT_PROJECTION_NAME = "projection_seed.parquet"
 EXPERIMENT_MANIFEST_NAME = "manifest.json"
 AGENTS_DIRNAME = "agents"
-
-PROJECTION_KEY_COLUMNS = ("ts_ns", "bin_seq", "k")
 
 
 def _parse_agents(raw: str | None) -> list[str]:
@@ -135,52 +131,28 @@ def _resolve_dataset_dirs(
 
 def _projection_columns(buckets_path: Path) -> list[str]:
     schema = pq.read_schema(buckets_path)
-    cols = [name for name in schema.names if name.startswith(PROJ_PREFIX)]
-    if not cols:
-        raise ValueError(
-            f"No projection columns found in {buckets_path}. Expected prefix '{PROJ_PREFIX}'."
-        )
-    return cols
+    return [name for name in schema.names if name.startswith(PROJ_PREFIX)]
 
 
-def _validate_projection_key_columns(schema_cols: Iterable[str]) -> None:
-    cols = set(schema_cols)
-    missing = [col for col in PROJECTION_KEY_COLUMNS if col not in cols]
-    if missing:
-        raise ValueError(
-            "Missing required projection key columns in buckets parquet: "
-            + ", ".join(missing)
-        )
-
-
-def _materialize_split_tables(
+def _materialize_clean_grid_table(
     *,
     buckets_path: Path,
     clean_grid_path: Path,
-    projection_seed_path: Path,
     projection_cols: Sequence[str],
 ) -> None:
     schema = pq.read_schema(buckets_path)
     all_cols = list(schema.names)
-    _validate_projection_key_columns(all_cols)
 
     clean_cols = [col for col in all_cols if col not in set(projection_cols)]
-    proj_cols = list(PROJECTION_KEY_COLUMNS) + list(projection_cols)
 
     if not clean_cols:
         raise ValueError("Computed clean-grid column list is empty.")
-    if not proj_cols:
-        raise ValueError("Computed projection column list is empty.")
 
     con = duckdb.connect(database=":memory:")
     con.execute("PRAGMA threads=8")
     con.execute(
         f"COPY (SELECT {_quote_cols(clean_cols)} FROM read_parquet('{buckets_path}')) "
         f"TO '{clean_grid_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
-    )
-    con.execute(
-        f"COPY (SELECT {_quote_cols(proj_cols)} FROM read_parquet('{buckets_path}')) "
-        f"TO '{projection_seed_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
     )
     con.close()
 
@@ -194,12 +166,6 @@ def _create_agent_workspaces(
     created: list[Path] = []
     if not agents:
         return created
-
-    projection_seed = experiment_dataset_dir / EXPERIMENT_PROJECTION_NAME
-    if not projection_seed.exists():
-        raise FileNotFoundError(
-            f"Projection seed parquet is missing: {projection_seed}"
-        )
 
     agents_root = experiment_dataset_dir / AGENTS_DIRNAME
     agents_root.mkdir(parents=True, exist_ok=True)
@@ -217,8 +183,6 @@ def _create_agent_workspaces(
         base_link = data_dir / "base_immutable"
         base_link.symlink_to(immutable_dataset_dir.resolve(), target_is_directory=True)
 
-        # Each agent gets a writable copy for projection experimentation.
-        shutil.copy2(projection_seed, data_dir / "projection_experiment.parquet")
         created.append(workspace)
 
     return created
@@ -252,21 +216,18 @@ def publish_dataset(
     immutable_manifest = immutable_dataset_dir / IMMUTABLE_MANIFEST_NAME
     immutable_checksums = immutable_dataset_dir / IMMUTABLE_CHECKSUM_NAME
 
-    experiment_projection = experiment_dataset_dir / EXPERIMENT_PROJECTION_NAME
     experiment_manifest = experiment_dataset_dir / EXPERIMENT_MANIFEST_NAME
 
     try:
         shutil.copy2(bins_src, immutable_bins)
-        _materialize_split_tables(
+        _materialize_clean_grid_table(
             buckets_path=buckets_src,
             clean_grid_path=immutable_grid,
-            projection_seed_path=experiment_projection,
             projection_cols=projection_cols,
         )
 
         bins_rows = int(pq.read_metadata(immutable_bins).num_rows)
         grid_rows = int(pq.read_metadata(immutable_grid).num_rows)
-        projection_rows = int(pq.read_metadata(experiment_projection).num_rows)
 
         checksum_payload = {
             "bins_parquet_sha256": _sha256(immutable_bins),
@@ -304,13 +265,6 @@ def publish_dataset(
             "dataset_id": dataset_id,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "immutable_base_dir": str(immutable_dataset_dir),
-            "rows": {
-                "projection_seed": projection_rows,
-            },
-            "projection_columns": list(projection_cols),
-            "files": {
-                "projection_seed_parquet": str(experiment_projection),
-            },
             "agent_workspaces": [str(path) for path in created_workspaces],
         }
         _write_json(experiment_manifest, experiment_payload)
@@ -322,9 +276,8 @@ def publish_dataset(
             "rows": {
                 "bins": bins_rows,
                 "grid_clean": grid_rows,
-                "projection_seed": projection_rows,
             },
-            "projection_columns": list(projection_cols),
+            "projection_columns_removed": list(projection_cols),
             "agent_workspaces": [str(path) for path in created_workspaces],
         }
     except Exception:
@@ -403,13 +356,13 @@ def _cmd_add_agents(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Publish VP dataset into immutable base + projection experiment workspaces.",
+        description="Publish VP dataset into immutable clean grid + optional agent workspaces.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_publish = subparsers.add_parser(
         "publish",
-        help="Split source cache into immutable base grid and experiment projection dataset.",
+        help="Publish source cache into immutable clean grid dataset and experiment workspaces.",
     )
     p_publish.add_argument(
         "--source-dir",

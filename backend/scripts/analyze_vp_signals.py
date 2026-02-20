@@ -95,9 +95,8 @@ def _collect_bins(
     states: List[np.ndarray] = []
     pressures: List[np.ndarray] = []
     vacuums: List[np.ndarray] = []
-    projections: Dict[int, List[np.ndarray]] = {
-        int(h): [] for h in config.projection_horizons_ms
-    }
+    projections: Dict[int, List[np.ndarray]] = {}
+    projection_keys: Dict[int, str] | None = None
 
     for grid in stream_events(
         lake_root=lake_root,
@@ -128,8 +127,16 @@ def _collect_bins(
             pressures.append(np.array([float(b["pressure_variant"]) for b in buckets], dtype=np.float64))
             vacuums.append(np.array([float(b["vacuum_variant"]) for b in buckets], dtype=np.float64))
 
-        for horizon in projections:
-            key = f"proj_score_h{horizon}"
+        if projection_keys is None:
+            projection_keys = {}
+            sample_bucket = buckets[0]
+            for horizon in config.projection_horizons_ms:
+                key = f"proj_score_h{int(horizon)}"
+                if key in sample_bucket:
+                    projection_keys[int(horizon)] = key
+            projections = {h: [] for h in projection_keys}
+
+        for horizon, key in (projection_keys or {}).items():
             projections[horizon].append(
                 np.array([float(b[key]) for b in buckets], dtype=np.float64)
             )
@@ -489,6 +496,11 @@ def _run_projection_experiment_mode(args: argparse.Namespace) -> None:
             state_code=state_code,
             eval_mask=eval_mask,
         )
+        if regime_horizon_ms not in proj_by_h:
+            raise RuntimeError(
+                "Projection experiment mode requires proj_score_h* columns, but the "
+                "current stream schema no longer emits them."
+            )
         mean_hit_rate = _mean_projection_hit_rate(summary)
         primary_hit_rate = float(summary["projection"][str(regime_horizon_ms)]["hit_rate"])
         regime_metrics = _projection_regime_shift_metrics(
@@ -1128,11 +1140,14 @@ def main() -> None:
     )
 
     print("\nProjection sign hit-rates")
-    for horizon_ms in sorted(config.projection_horizons_ms):
-        m = summary["projection"][str(horizon_ms)]
-        hit = m["hit_rate"]
-        hit_str = f"{hit:.4f}" if np.isfinite(hit) else "nan"
-        print(f"  {horizon_ms:>5d}ms -> hit_rate={hit_str} n_pairs={int(m['n_pairs'])}")
+    if summary["projection"]:
+        for horizon_key in sorted(summary["projection"].keys(), key=lambda raw: int(raw)):
+            m = summary["projection"][horizon_key]
+            hit = m["hit_rate"]
+            hit_str = f"{hit:.4f}" if np.isfinite(hit) else "nan"
+            print(f"  {int(horizon_key):>5d}ms -> hit_rate={hit_str} n_pairs={int(m['n_pairs'])}")
+    else:
+        print("  unavailable (proj_score_h* columns are not emitted by current stream schema)")
 
     if args.json_output:
         out_payload = {

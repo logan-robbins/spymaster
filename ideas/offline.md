@@ -214,3 +214,18 @@ For composite at threshold 0.132, the **medium tier** hit **71.4% TP** (14 signa
 4. **Micro/small tiers always produce 0% TP** — the 8-tick TP target is unreachable in <4-tick or 4-8 tick moves. This suggests a possible gate: if we could estimate "expected move size" ahead of time, we could suppress fires during low-volatility periods.
 
 5. **Spatial vacuum deserves inclusion in the composite** — with 41.4% TP and the highest selectivity, the distance-weighted vacuum variant (variant_c) should be evaluated as a 4th composite component.
+
+
+---
+
+• I’m using the quant-grunt skill here because this is signal math parity and tuning. Next I’ll mirror the frontend ADS/PFP/SVac formulas exactly into one harness signal with tunable runtime
+  parameters, then run it on the gold dataset.
+
+• Updated Plan
+  └ Living task doc for adding live ADS+PFP+SVac composite into harness and running it.
+    □ 1. Discover frontend composite math and current harness signal interfaces/registry constraints.
+    □ 2. Implement a new harness statistical signal that matches frontend ADS+PFP+SVac with tunable parameters.
+    □ 3. Register the signal and add a harness config for tunable sweeps on the gold dataset.
+    □ 4. Verify locally (list-signals, targeted harness tests, and a real campaign run with MLflow).
+    □ 5. Update README.md with new runtime/harness commands and signal description.
+    □ 6. Report best run metrics and exact parameter settings from the campaign.

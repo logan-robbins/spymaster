@@ -123,6 +123,28 @@ class ExperimentTracker:
                     if metric in best_row and pd.notna(best_row[metric]):
                         mlflow.log_metric(metric, float(best_row[metric]))
 
+                state_dist = self._parse_json_dict(
+                    meta.get("perm_state5_distribution_json")
+                )
+                micro_dist = self._parse_json_dict(
+                    meta.get("perm_micro9_distribution_json")
+                )
+                transition = self._parse_json_value(
+                    meta.get("perm_state5_transition_matrix_json")
+                )
+                labels = self._parse_json_value(meta.get("perm_state5_labels_json"))
+
+                for code, count in state_dist.items():
+                    try:
+                        mlflow.log_metric(f"perm_state5_count_{code}", float(count))
+                    except (TypeError, ValueError):
+                        continue
+                for code, count in micro_dist.items():
+                    try:
+                        mlflow.log_metric(f"perm_micro9_count_{code}", float(count))
+                    except (TypeError, ValueError):
+                        continue
+
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp = Path(tmpdir)
                     (tmp / "meta.json").write_text(
@@ -138,6 +160,18 @@ class ExperimentTracker:
                             tmp / "results_by_threshold.parquet",
                             index=False,
                             engine="pyarrow",
+                        )
+                    if state_dist or micro_dist or transition is not None:
+                        diag = {
+                            "perm_taxonomy_version": meta.get("perm_taxonomy_version"),
+                            "state5_distribution": state_dist,
+                            "micro9_distribution": micro_dist,
+                            "state5_transition_matrix": transition,
+                            "state5_labels": labels,
+                        }
+                        (tmp / "permutation_diagnostics.json").write_text(
+                            json.dumps(diag, indent=2, default=str) + "\n",
+                            encoding="utf-8",
                         )
                     mlflow.log_artifacts(str(tmp), artifact_path="harness")
 
@@ -155,6 +189,26 @@ class ExperimentTracker:
                 signal_name,
                 dataset_id,
             )
+
+    @staticmethod
+    def _parse_json_value(raw: Any) -> Any | None:
+        if raw is None:
+            return None
+        if isinstance(raw, (dict, list)):
+            return raw
+        if not isinstance(raw, str):
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    @classmethod
+    def _parse_json_dict(cls, raw: Any) -> dict[str, Any]:
+        parsed = cls._parse_json_value(raw)
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
 
     def _mirror_wandb(
         self,

@@ -1,0 +1,18 @@
+{
+  "dataset_id": "mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417",
+  "created_at_utc": "2026-02-19T18:39:50.440361+00:00",
+  "immutable_base_dir": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_immutable/mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417",
+  "rows": {
+    "projection_seed": 121099
+  },
+  "projection_columns": [
+    "proj_score_h100",
+    "proj_score_h200",
+    "proj_score_h300",
+    "proj_score_h400"
+  ],
+  "files": {
+    "projection_seed_parquet": "/Users/logan.robbins/research/spymaster/backend/lake/research/vp_experiments/mnqh6_20260206_0925_0927__mnq_grid_spectrum_force_smoke__f0098417/projection_seed.parquet"
+  },
+  "agent_workspaces": []
+}

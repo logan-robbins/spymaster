@@ -11,7 +11,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Mapping, Tuple
 
 import yaml
 
@@ -23,6 +23,73 @@ PRICE_SCALE: float = 1e-9
 
 VALID_PRODUCT_TYPES: frozenset[str] = frozenset({"equity_mbo", "future_mbo"})
 """Product types supported by vacuum-pressure runtime."""
+
+# Derivative-chain defaults (seconds)
+DEFAULT_TAU_VELOCITY: float = 2.0
+DEFAULT_TAU_ACCELERATION: float = 5.0
+DEFAULT_TAU_JERK: float = 10.0
+DEFAULT_TAU_REST_DECAY: float = 30.0
+
+# Force-model defaults
+DEFAULT_C1_V_ADD: float = 1.0
+DEFAULT_C2_V_REST_POS: float = 0.5
+DEFAULT_C3_A_ADD: float = 0.3
+DEFAULT_C4_V_PULL: float = 1.0
+DEFAULT_C5_V_FILL: float = 1.5
+DEFAULT_C6_V_REST_NEG: float = 0.5
+DEFAULT_C7_A_PULL: float = 0.3
+
+# Permutation runtime model defaults (matching harness best row baseline)
+DEFAULT_PERM_RUNTIME_ENABLED: bool = True
+DEFAULT_PERM_CENTER_EXCLUSION_RADIUS: int = 0
+DEFAULT_PERM_SPATIAL_DECAY_POWER: float = 0.0
+DEFAULT_PERM_ZSCORE_WINDOW_BINS: int = 240
+DEFAULT_PERM_ZSCORE_MIN_PERIODS: int = 60
+DEFAULT_PERM_TANH_SCALE: float = 3.0
+DEFAULT_PERM_D1_WEIGHT: float = 1.0
+DEFAULT_PERM_D2_WEIGHT: float = 0.0
+DEFAULT_PERM_D3_WEIGHT: float = 0.0
+DEFAULT_PERM_BULL_PRESSURE_WEIGHT: float = 1.0
+DEFAULT_PERM_BULL_VACUUM_WEIGHT: float = 1.0
+DEFAULT_PERM_BEAR_PRESSURE_WEIGHT: float = 1.0
+DEFAULT_PERM_BEAR_VACUUM_WEIGHT: float = 1.0
+DEFAULT_PERM_MIXED_WEIGHT: float = 0.0
+DEFAULT_PERM_ENABLE_WEIGHTED_BLEND: bool = False
+
+_RUNTIME_REQUIRED_FIELDS: tuple[str, ...] = (
+    "product_type",
+    "symbol",
+    "symbol_root",
+    "price_scale",
+    "tick_size",
+    "bucket_size_dollars",
+    "rel_tick_size",
+    "grid_radius_ticks",
+    "cell_width_ms",
+    "n_absolute_ticks",
+    "spectrum_windows",
+    "spectrum_rollup_weights",
+    "spectrum_derivative_weights",
+    "spectrum_tanh_scale",
+    "spectrum_threshold_neutral",
+    "zscore_window_bins",
+    "zscore_min_periods",
+    "projection_horizons_bins",
+    "contract_multiplier",
+    "qty_unit",
+    "price_decimals",
+    "tau_velocity",
+    "tau_acceleration",
+    "tau_jerk",
+    "tau_rest_decay",
+    "c1_v_add",
+    "c2_v_rest_pos",
+    "c3_a_add",
+    "c4_v_pull",
+    "c5_v_fill",
+    "c6_v_rest_neg",
+    "c7_a_pull",
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +119,32 @@ class VPRuntimeConfig:
     qty_unit: str
     price_decimals: int
     config_version: str
+    tau_velocity: float = DEFAULT_TAU_VELOCITY
+    tau_acceleration: float = DEFAULT_TAU_ACCELERATION
+    tau_jerk: float = DEFAULT_TAU_JERK
+    tau_rest_decay: float = DEFAULT_TAU_REST_DECAY
+    c1_v_add: float = DEFAULT_C1_V_ADD
+    c2_v_rest_pos: float = DEFAULT_C2_V_REST_POS
+    c3_a_add: float = DEFAULT_C3_A_ADD
+    c4_v_pull: float = DEFAULT_C4_V_PULL
+    c5_v_fill: float = DEFAULT_C5_V_FILL
+    c6_v_rest_neg: float = DEFAULT_C6_V_REST_NEG
+    c7_a_pull: float = DEFAULT_C7_A_PULL
+    perm_runtime_enabled: bool = DEFAULT_PERM_RUNTIME_ENABLED
+    perm_center_exclusion_radius: int = DEFAULT_PERM_CENTER_EXCLUSION_RADIUS
+    perm_spatial_decay_power: float = DEFAULT_PERM_SPATIAL_DECAY_POWER
+    perm_zscore_window_bins: int = DEFAULT_PERM_ZSCORE_WINDOW_BINS
+    perm_zscore_min_periods: int = DEFAULT_PERM_ZSCORE_MIN_PERIODS
+    perm_tanh_scale: float = DEFAULT_PERM_TANH_SCALE
+    perm_d1_weight: float = DEFAULT_PERM_D1_WEIGHT
+    perm_d2_weight: float = DEFAULT_PERM_D2_WEIGHT
+    perm_d3_weight: float = DEFAULT_PERM_D3_WEIGHT
+    perm_bull_pressure_weight: float = DEFAULT_PERM_BULL_PRESSURE_WEIGHT
+    perm_bull_vacuum_weight: float = DEFAULT_PERM_BULL_VACUUM_WEIGHT
+    perm_bear_pressure_weight: float = DEFAULT_PERM_BEAR_PRESSURE_WEIGHT
+    perm_bear_vacuum_weight: float = DEFAULT_PERM_BEAR_VACUUM_WEIGHT
+    perm_mixed_weight: float = DEFAULT_PERM_MIXED_WEIGHT
+    perm_enable_weighted_blend: bool = DEFAULT_PERM_ENABLE_WEIGHTED_BLEND
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict for wire protocol."""
@@ -78,6 +171,32 @@ class VPRuntimeConfig:
             "contract_multiplier": self.contract_multiplier,
             "qty_unit": self.qty_unit,
             "price_decimals": self.price_decimals,
+            "tau_velocity": self.tau_velocity,
+            "tau_acceleration": self.tau_acceleration,
+            "tau_jerk": self.tau_jerk,
+            "tau_rest_decay": self.tau_rest_decay,
+            "c1_v_add": self.c1_v_add,
+            "c2_v_rest_pos": self.c2_v_rest_pos,
+            "c3_a_add": self.c3_a_add,
+            "c4_v_pull": self.c4_v_pull,
+            "c5_v_fill": self.c5_v_fill,
+            "c6_v_rest_neg": self.c6_v_rest_neg,
+            "c7_a_pull": self.c7_a_pull,
+            "perm_runtime_enabled": self.perm_runtime_enabled,
+            "perm_center_exclusion_radius": self.perm_center_exclusion_radius,
+            "perm_spatial_decay_power": self.perm_spatial_decay_power,
+            "perm_zscore_window_bins": self.perm_zscore_window_bins,
+            "perm_zscore_min_periods": self.perm_zscore_min_periods,
+            "perm_tanh_scale": self.perm_tanh_scale,
+            "perm_d1_weight": self.perm_d1_weight,
+            "perm_d2_weight": self.perm_d2_weight,
+            "perm_d3_weight": self.perm_d3_weight,
+            "perm_bull_pressure_weight": self.perm_bull_pressure_weight,
+            "perm_bull_vacuum_weight": self.perm_bull_vacuum_weight,
+            "perm_bear_pressure_weight": self.perm_bear_pressure_weight,
+            "perm_bear_vacuum_weight": self.perm_bear_vacuum_weight,
+            "perm_mixed_weight": self.perm_mixed_weight,
+            "perm_enable_weighted_blend": self.perm_enable_weighted_blend,
             "config_version": self.config_version,
         }
 
@@ -153,49 +272,29 @@ def _parse_float_sequence(raw: Any, field_name: str) -> Tuple[float, ...]:
     return tuple(out)
 
 
-def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
-    """Load single-instrument runtime config from YAML and validate it."""
-    if not path.exists():
-        raise FileNotFoundError(
-            "Single-instrument config is required but was not found.\n"
-            f"Expected: {path}\n"
-            f"Override with env: {LOCKED_INSTRUMENT_CONFIG_ENV}"
-        )
+def _parse_bool(raw: Any, field_name: str) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in {"1", "true", "yes", "y", "on"}:
+            return True
+        if token in {"0", "false", "no", "n", "off"}:
+            return False
+    raise ValueError(
+        f"'{field_name}' must be a boolean (true/false), got {raw!r}."
+    )
 
-    raw = yaml.safe_load(path.read_text())
-    if not isinstance(raw, dict):
-        raise ValueError(f"Invalid single-instrument config format at {path}.")
 
-    required_fields = [
-        "product_type",
-        "symbol",
-        "symbol_root",
-        "price_scale",
-        "tick_size",
-        "bucket_size_dollars",
-        "rel_tick_size",
-        "grid_radius_ticks",
-        "cell_width_ms",
-        "n_absolute_ticks",
-        "spectrum_windows",
-        "spectrum_rollup_weights",
-        "spectrum_derivative_weights",
-        "spectrum_tanh_scale",
-        "spectrum_threshold_neutral",
-        "zscore_window_bins",
-        "zscore_min_periods",
-        "projection_horizons_bins",
-        "contract_multiplier",
-        "qty_unit",
-        "price_decimals",
-    ]
-    missing = [f for f in required_fields if f not in raw]
+def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[str, Any]:
+    """Normalize and validate runtime fields from YAML/override payloads."""
+    missing = [f for f in _RUNTIME_REQUIRED_FIELDS if f not in raw]
     if missing:
         raise ValueError(
-            f"Single-instrument config missing required fields: {missing} (path={path})"
+            f"Single-instrument config missing required fields: {missing} (path={source})"
         )
 
-    fields = {
+    fields: Dict[str, Any] = {
         "product_type": str(raw["product_type"]).strip(),
         "symbol": str(raw["symbol"]).strip(),
         "symbol_root": str(raw["symbol_root"]).strip(),
@@ -205,7 +304,7 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         "rel_tick_size": float(raw["rel_tick_size"]),
         "grid_radius_ticks": int(raw["grid_radius_ticks"]),
         "cell_width_ms": int(raw["cell_width_ms"]),
-        "n_absolute_ticks": int(raw.get("n_absolute_ticks", 8192)),
+        "n_absolute_ticks": int(raw["n_absolute_ticks"]),
         "spectrum_windows": _parse_int_sequence(raw["spectrum_windows"], "spectrum_windows"),
         "spectrum_rollup_weights": _parse_float_sequence(
             raw["spectrum_rollup_weights"], "spectrum_rollup_weights"
@@ -223,32 +322,101 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         "contract_multiplier": float(raw["contract_multiplier"]),
         "qty_unit": str(raw["qty_unit"]).strip(),
         "price_decimals": int(raw["price_decimals"]),
+        "tau_velocity": float(raw["tau_velocity"]),
+        "tau_acceleration": float(raw["tau_acceleration"]),
+        "tau_jerk": float(raw["tau_jerk"]),
+        "tau_rest_decay": float(raw["tau_rest_decay"]),
+        "c1_v_add": float(raw["c1_v_add"]),
+        "c2_v_rest_pos": float(raw["c2_v_rest_pos"]),
+        "c3_a_add": float(raw["c3_a_add"]),
+        "c4_v_pull": float(raw["c4_v_pull"]),
+        "c5_v_fill": float(raw["c5_v_fill"]),
+        "c6_v_rest_neg": float(raw["c6_v_rest_neg"]),
+        "c7_a_pull": float(raw["c7_a_pull"]),
+        "perm_runtime_enabled": _parse_bool(
+            raw.get("perm_runtime_enabled", DEFAULT_PERM_RUNTIME_ENABLED),
+            "perm_runtime_enabled",
+        ),
+        "perm_center_exclusion_radius": int(
+            raw.get(
+                "perm_center_exclusion_radius",
+                DEFAULT_PERM_CENTER_EXCLUSION_RADIUS,
+            )
+        ),
+        "perm_spatial_decay_power": float(
+            raw.get("perm_spatial_decay_power", DEFAULT_PERM_SPATIAL_DECAY_POWER)
+        ),
+        "perm_zscore_window_bins": int(
+            raw.get("perm_zscore_window_bins", DEFAULT_PERM_ZSCORE_WINDOW_BINS)
+        ),
+        "perm_zscore_min_periods": int(
+            raw.get("perm_zscore_min_periods", DEFAULT_PERM_ZSCORE_MIN_PERIODS)
+        ),
+        "perm_tanh_scale": float(raw.get("perm_tanh_scale", DEFAULT_PERM_TANH_SCALE)),
+        "perm_d1_weight": float(raw.get("perm_d1_weight", DEFAULT_PERM_D1_WEIGHT)),
+        "perm_d2_weight": float(raw.get("perm_d2_weight", DEFAULT_PERM_D2_WEIGHT)),
+        "perm_d3_weight": float(raw.get("perm_d3_weight", DEFAULT_PERM_D3_WEIGHT)),
+        "perm_bull_pressure_weight": float(
+            raw.get(
+                "perm_bull_pressure_weight",
+                DEFAULT_PERM_BULL_PRESSURE_WEIGHT,
+            )
+        ),
+        "perm_bull_vacuum_weight": float(
+            raw.get(
+                "perm_bull_vacuum_weight",
+                DEFAULT_PERM_BULL_VACUUM_WEIGHT,
+            )
+        ),
+        "perm_bear_pressure_weight": float(
+            raw.get(
+                "perm_bear_pressure_weight",
+                DEFAULT_PERM_BEAR_PRESSURE_WEIGHT,
+            )
+        ),
+        "perm_bear_vacuum_weight": float(
+            raw.get(
+                "perm_bear_vacuum_weight",
+                DEFAULT_PERM_BEAR_VACUUM_WEIGHT,
+            )
+        ),
+        "perm_mixed_weight": float(raw.get("perm_mixed_weight", DEFAULT_PERM_MIXED_WEIGHT)),
+        "perm_enable_weighted_blend": _parse_bool(
+            raw.get(
+                "perm_enable_weighted_blend",
+                DEFAULT_PERM_ENABLE_WEIGHTED_BLEND,
+            ),
+            "perm_enable_weighted_blend",
+        ),
     }
+
     if fields["product_type"] not in VALID_PRODUCT_TYPES:
         raise ValueError(
-            f"Invalid product_type '{fields['product_type']}' in {path}. "
+            f"Invalid product_type '{fields['product_type']}' in {source}. "
             f"Must be one of: {sorted(VALID_PRODUCT_TYPES)}"
         )
     if not fields["symbol"]:
-        raise ValueError(f"'symbol' must be non-empty in {path}.")
+        raise ValueError(f"'symbol' must be non-empty in {source}.")
     if fields["tick_size"] <= 0.0:
-        raise ValueError(f"'tick_size' must be > 0 in {path}.")
+        raise ValueError(f"'tick_size' must be > 0 in {source}.")
     if fields["bucket_size_dollars"] <= 0.0:
-        raise ValueError(f"'bucket_size_dollars' must be > 0 in {path}.")
+        raise ValueError(f"'bucket_size_dollars' must be > 0 in {source}.")
     if fields["grid_radius_ticks"] < 1:
-        raise ValueError(f"'grid_radius_ticks' must be >= 1 in {path}.")
+        raise ValueError(f"'grid_radius_ticks' must be >= 1 in {source}.")
     if fields["cell_width_ms"] < 1:
-        raise ValueError(f"'cell_width_ms' must be >= 1 in {path}.")
+        raise ValueError(f"'cell_width_ms' must be >= 1 in {source}.")
     if fields["n_absolute_ticks"] < 3:
-        raise ValueError(f"'n_absolute_ticks' must be >= 3 in {path}.")
+        raise ValueError(f"'n_absolute_ticks' must be >= 3 in {source}.")
     if len(fields["spectrum_windows"]) != len(fields["spectrum_rollup_weights"]):
         raise ValueError(
             "spectrum_windows and spectrum_rollup_weights must have identical lengths."
         )
     if len(fields["spectrum_derivative_weights"]) != 3:
-        raise ValueError("spectrum_derivative_weights must contain exactly 3 weights (d1,d2,d3).")
+        raise ValueError(
+            "spectrum_derivative_weights must contain exactly 3 weights (d1,d2,d3)."
+        )
     if fields["spectrum_tanh_scale"] <= 0.0:
-        raise ValueError(f"'spectrum_tanh_scale' must be > 0 in {path}.")
+        raise ValueError(f"'spectrum_tanh_scale' must be > 0 in {source}.")
     if not (0.0 < fields["spectrum_threshold_neutral"] < 1.0):
         raise ValueError(
             f"'spectrum_threshold_neutral' must be in (0,1), got {fields['spectrum_threshold_neutral']}."
@@ -259,9 +427,65 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         raise ValueError("'zscore_min_periods' must be >= 2.")
     if fields["zscore_min_periods"] > fields["zscore_window_bins"]:
         raise ValueError("'zscore_min_periods' cannot exceed 'zscore_window_bins'.")
+
     projection_horizons_bins = fields["projection_horizons_bins"]
     if len(set(projection_horizons_bins)) != len(projection_horizons_bins):
         raise ValueError("'projection_horizons_bins' values must be unique.")
+
+    for tau_name in (
+        "tau_velocity",
+        "tau_acceleration",
+        "tau_jerk",
+        "tau_rest_decay",
+    ):
+        if fields[tau_name] <= 0.0:
+            raise ValueError(f"'{tau_name}' must be > 0 in {source}.")
+
+    for coeff_name in (
+        "c1_v_add",
+        "c2_v_rest_pos",
+        "c3_a_add",
+        "c4_v_pull",
+        "c5_v_fill",
+        "c6_v_rest_neg",
+        "c7_a_pull",
+    ):
+        if fields[coeff_name] < 0.0:
+            raise ValueError(f"'{coeff_name}' must be >= 0 in {source}.")
+
+    if fields["perm_center_exclusion_radius"] < 0:
+        raise ValueError("'perm_center_exclusion_radius' must be >= 0.")
+    if fields["perm_spatial_decay_power"] < 0.0:
+        raise ValueError("'perm_spatial_decay_power' must be >= 0.")
+    if fields["perm_zscore_window_bins"] < 2:
+        raise ValueError("'perm_zscore_window_bins' must be >= 2.")
+    if fields["perm_zscore_min_periods"] < 2:
+        raise ValueError("'perm_zscore_min_periods' must be >= 2.")
+    if fields["perm_zscore_min_periods"] > fields["perm_zscore_window_bins"]:
+        raise ValueError(
+            "'perm_zscore_min_periods' cannot exceed 'perm_zscore_window_bins'."
+        )
+    if fields["perm_tanh_scale"] <= 0.0:
+        raise ValueError("'perm_tanh_scale' must be > 0.")
+    for name in (
+        "perm_d1_weight",
+        "perm_d2_weight",
+        "perm_d3_weight",
+        "perm_bull_pressure_weight",
+        "perm_bull_vacuum_weight",
+        "perm_bear_pressure_weight",
+        "perm_bear_vacuum_weight",
+        "perm_mixed_weight",
+    ):
+        if fields[name] < 0.0:
+            raise ValueError(f"'{name}' must be >= 0.")
+    if (
+        abs(fields["perm_d1_weight"])
+        + abs(fields["perm_d2_weight"])
+        + abs(fields["perm_d3_weight"])
+        <= 0.0
+    ):
+        raise ValueError("At least one of perm_d1_weight/perm_d2_weight/perm_d3_weight must be > 0.")
 
     projection_horizons_ms = tuple(
         int(bin_count) * int(fields["cell_width_ms"])
@@ -273,8 +497,72 @@ def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
         )
     fields["projection_horizons_ms"] = projection_horizons_ms
 
+    return fields
+
+
+def _load_locked_instrument_config(path: Path) -> VPRuntimeConfig:
+    """Load single-instrument runtime config from YAML and validate it."""
+    if not path.exists():
+        raise FileNotFoundError(
+            "Single-instrument config is required but was not found.\n"
+            f"Expected: {path}\n"
+            f"Override with env: {LOCKED_INSTRUMENT_CONFIG_ENV}"
+        )
+
+    raw = yaml.safe_load(path.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"Invalid single-instrument config format at {path}.")
+
+    fields = _normalize_runtime_fields(raw, source=str(path))
     config_version = _compute_config_version(fields)
     return VPRuntimeConfig(**fields, config_version=config_version)
+
+
+def build_config_with_overrides(
+    base_cfg: VPRuntimeConfig,
+    overrides: Mapping[str, Any] | None,
+) -> VPRuntimeConfig:
+    """Build a new validated runtime config by applying overrides to a base config.
+
+    Unknown keys fail fast. Derived fields (``projection_horizons_ms``,
+    ``config_version``) are recomputed from the final values.
+    """
+    if not overrides:
+        return base_cfg
+
+    merged: dict[str, Any] = base_cfg.to_dict()
+    merged.pop("config_version", None)
+    merged.pop("projection_horizons_ms", None)
+
+    allowed = set(merged.keys())
+    unknown = sorted(k for k in overrides.keys() if k not in allowed)
+    if unknown:
+        raise ValueError(
+            "Unknown runtime override keys: "
+            f"{unknown}. Allowed keys: {sorted(allowed)}"
+        )
+
+    for key, value in overrides.items():
+        merged[key] = value
+
+    fields = _normalize_runtime_fields(merged, source="runtime_overrides")
+    config_version = _compute_config_version(fields)
+    return VPRuntimeConfig(**fields, config_version=config_version)
+
+
+def parse_projection_horizons_bins_override(raw: Any) -> Tuple[int, ...] | None:
+    """Parse optional projection horizon override into canonical bin tuple.
+
+    Accepts either:
+    - ``None`` / empty string -> no override
+    - comma-separated string (e.g. ``"1,2,4"``)
+    - iterable of ints
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str) and not raw.strip():
+        return None
+    return _parse_int_sequence(raw, "projection_horizons_bins")
 
 
 def resolve_config(
