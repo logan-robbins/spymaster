@@ -39,22 +39,22 @@ DEFAULT_C5_V_FILL: float = 1.5
 DEFAULT_C6_V_REST_NEG: float = 0.5
 DEFAULT_C7_A_PULL: float = 0.3
 
-# Permutation runtime model defaults (matching harness best row baseline)
-DEFAULT_PERM_RUNTIME_ENABLED: bool = True
-DEFAULT_PERM_CENTER_EXCLUSION_RADIUS: int = 0
-DEFAULT_PERM_SPATIAL_DECAY_POWER: float = 0.0
-DEFAULT_PERM_ZSCORE_WINDOW_BINS: int = 240
-DEFAULT_PERM_ZSCORE_MIN_PERIODS: int = 60
-DEFAULT_PERM_TANH_SCALE: float = 3.0
-DEFAULT_PERM_D1_WEIGHT: float = 1.0
-DEFAULT_PERM_D2_WEIGHT: float = 0.0
-DEFAULT_PERM_D3_WEIGHT: float = 0.0
-DEFAULT_PERM_BULL_PRESSURE_WEIGHT: float = 1.0
-DEFAULT_PERM_BULL_VACUUM_WEIGHT: float = 1.0
-DEFAULT_PERM_BEAR_PRESSURE_WEIGHT: float = 1.0
-DEFAULT_PERM_BEAR_VACUUM_WEIGHT: float = 1.0
-DEFAULT_PERM_MIXED_WEIGHT: float = 0.0
-DEFAULT_PERM_ENABLE_WEIGHTED_BLEND: bool = False
+# Derivative runtime model defaults (matching harness best row baseline)
+DEFAULT_STATE_MODEL_ENABLED: bool = True
+DEFAULT_STATE_MODEL_CENTER_EXCLUSION_RADIUS: int = 0
+DEFAULT_STATE_MODEL_SPATIAL_DECAY_POWER: float = 0.0
+DEFAULT_STATE_MODEL_ZSCORE_WINDOW_BINS: int = 240
+DEFAULT_STATE_MODEL_ZSCORE_MIN_PERIODS: int = 60
+DEFAULT_STATE_MODEL_TANH_SCALE: float = 3.0
+DEFAULT_STATE_MODEL_D1_WEIGHT: float = 1.0
+DEFAULT_STATE_MODEL_D2_WEIGHT: float = 0.0
+DEFAULT_STATE_MODEL_D3_WEIGHT: float = 0.0
+DEFAULT_STATE_MODEL_BULL_PRESSURE_WEIGHT: float = 1.0
+DEFAULT_STATE_MODEL_BULL_VACUUM_WEIGHT: float = 1.0
+DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT: float = 1.0
+DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT: float = 1.0
+DEFAULT_STATE_MODEL_MIXED_WEIGHT: float = 0.0
+DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND: bool = False
 
 _RUNTIME_REQUIRED_FIELDS: tuple[str, ...] = (
     "product_type",
@@ -67,13 +67,13 @@ _RUNTIME_REQUIRED_FIELDS: tuple[str, ...] = (
     "grid_radius_ticks",
     "cell_width_ms",
     "n_absolute_ticks",
-    "spectrum_windows",
-    "spectrum_rollup_weights",
-    "spectrum_derivative_weights",
-    "spectrum_tanh_scale",
-    "spectrum_threshold_neutral",
-    "zscore_window_bins",
-    "zscore_min_periods",
+    "flow_windows",
+    "flow_rollup_weights",
+    "flow_derivative_weights",
+    "flow_tanh_scale",
+    "flow_neutral_threshold",
+    "flow_zscore_window_bins",
+    "flow_zscore_min_periods",
     "projection_horizons_bins",
     "contract_multiplier",
     "qty_unit",
@@ -106,13 +106,13 @@ class VPRuntimeConfig:
     grid_radius_ticks: int
     cell_width_ms: int
     n_absolute_ticks: int
-    spectrum_windows: Tuple[int, ...]
-    spectrum_rollup_weights: Tuple[float, ...]
-    spectrum_derivative_weights: Tuple[float, ...]
-    spectrum_tanh_scale: float
-    spectrum_threshold_neutral: float
-    zscore_window_bins: int
-    zscore_min_periods: int
+    flow_windows: Tuple[int, ...]
+    flow_rollup_weights: Tuple[float, ...]
+    flow_derivative_weights: Tuple[float, ...]
+    flow_tanh_scale: float
+    flow_neutral_threshold: float
+    flow_zscore_window_bins: int
+    flow_zscore_min_periods: int
     projection_horizons_bins: Tuple[int, ...]
     projection_horizons_ms: Tuple[int, ...]
     contract_multiplier: float
@@ -130,21 +130,21 @@ class VPRuntimeConfig:
     c5_v_fill: float = DEFAULT_C5_V_FILL
     c6_v_rest_neg: float = DEFAULT_C6_V_REST_NEG
     c7_a_pull: float = DEFAULT_C7_A_PULL
-    perm_runtime_enabled: bool = DEFAULT_PERM_RUNTIME_ENABLED
-    perm_center_exclusion_radius: int = DEFAULT_PERM_CENTER_EXCLUSION_RADIUS
-    perm_spatial_decay_power: float = DEFAULT_PERM_SPATIAL_DECAY_POWER
-    perm_zscore_window_bins: int = DEFAULT_PERM_ZSCORE_WINDOW_BINS
-    perm_zscore_min_periods: int = DEFAULT_PERM_ZSCORE_MIN_PERIODS
-    perm_tanh_scale: float = DEFAULT_PERM_TANH_SCALE
-    perm_d1_weight: float = DEFAULT_PERM_D1_WEIGHT
-    perm_d2_weight: float = DEFAULT_PERM_D2_WEIGHT
-    perm_d3_weight: float = DEFAULT_PERM_D3_WEIGHT
-    perm_bull_pressure_weight: float = DEFAULT_PERM_BULL_PRESSURE_WEIGHT
-    perm_bull_vacuum_weight: float = DEFAULT_PERM_BULL_VACUUM_WEIGHT
-    perm_bear_pressure_weight: float = DEFAULT_PERM_BEAR_PRESSURE_WEIGHT
-    perm_bear_vacuum_weight: float = DEFAULT_PERM_BEAR_VACUUM_WEIGHT
-    perm_mixed_weight: float = DEFAULT_PERM_MIXED_WEIGHT
-    perm_enable_weighted_blend: bool = DEFAULT_PERM_ENABLE_WEIGHTED_BLEND
+    state_model_enabled: bool = DEFAULT_STATE_MODEL_ENABLED
+    state_model_center_exclusion_radius: int = DEFAULT_STATE_MODEL_CENTER_EXCLUSION_RADIUS
+    state_model_spatial_decay_power: float = DEFAULT_STATE_MODEL_SPATIAL_DECAY_POWER
+    state_model_zscore_window_bins: int = DEFAULT_STATE_MODEL_ZSCORE_WINDOW_BINS
+    state_model_zscore_min_periods: int = DEFAULT_STATE_MODEL_ZSCORE_MIN_PERIODS
+    state_model_tanh_scale: float = DEFAULT_STATE_MODEL_TANH_SCALE
+    state_model_d1_weight: float = DEFAULT_STATE_MODEL_D1_WEIGHT
+    state_model_d2_weight: float = DEFAULT_STATE_MODEL_D2_WEIGHT
+    state_model_d3_weight: float = DEFAULT_STATE_MODEL_D3_WEIGHT
+    state_model_bull_pressure_weight: float = DEFAULT_STATE_MODEL_BULL_PRESSURE_WEIGHT
+    state_model_bull_vacuum_weight: float = DEFAULT_STATE_MODEL_BULL_VACUUM_WEIGHT
+    state_model_bear_pressure_weight: float = DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT
+    state_model_bear_vacuum_weight: float = DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT
+    state_model_mixed_weight: float = DEFAULT_STATE_MODEL_MIXED_WEIGHT
+    state_model_enable_weighted_blend: bool = DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict for wire protocol."""
@@ -159,13 +159,13 @@ class VPRuntimeConfig:
             "grid_radius_ticks": self.grid_radius_ticks,
             "cell_width_ms": self.cell_width_ms,
             "n_absolute_ticks": self.n_absolute_ticks,
-            "spectrum_windows": list(self.spectrum_windows),
-            "spectrum_rollup_weights": list(self.spectrum_rollup_weights),
-            "spectrum_derivative_weights": list(self.spectrum_derivative_weights),
-            "spectrum_tanh_scale": self.spectrum_tanh_scale,
-            "spectrum_threshold_neutral": self.spectrum_threshold_neutral,
-            "zscore_window_bins": self.zscore_window_bins,
-            "zscore_min_periods": self.zscore_min_periods,
+            "flow_windows": list(self.flow_windows),
+            "flow_rollup_weights": list(self.flow_rollup_weights),
+            "flow_derivative_weights": list(self.flow_derivative_weights),
+            "flow_tanh_scale": self.flow_tanh_scale,
+            "flow_neutral_threshold": self.flow_neutral_threshold,
+            "flow_zscore_window_bins": self.flow_zscore_window_bins,
+            "flow_zscore_min_periods": self.flow_zscore_min_periods,
             "projection_horizons_bins": list(self.projection_horizons_bins),
             "projection_horizons_ms": list(self.projection_horizons_ms),
             "contract_multiplier": self.contract_multiplier,
@@ -182,21 +182,21 @@ class VPRuntimeConfig:
             "c5_v_fill": self.c5_v_fill,
             "c6_v_rest_neg": self.c6_v_rest_neg,
             "c7_a_pull": self.c7_a_pull,
-            "perm_runtime_enabled": self.perm_runtime_enabled,
-            "perm_center_exclusion_radius": self.perm_center_exclusion_radius,
-            "perm_spatial_decay_power": self.perm_spatial_decay_power,
-            "perm_zscore_window_bins": self.perm_zscore_window_bins,
-            "perm_zscore_min_periods": self.perm_zscore_min_periods,
-            "perm_tanh_scale": self.perm_tanh_scale,
-            "perm_d1_weight": self.perm_d1_weight,
-            "perm_d2_weight": self.perm_d2_weight,
-            "perm_d3_weight": self.perm_d3_weight,
-            "perm_bull_pressure_weight": self.perm_bull_pressure_weight,
-            "perm_bull_vacuum_weight": self.perm_bull_vacuum_weight,
-            "perm_bear_pressure_weight": self.perm_bear_pressure_weight,
-            "perm_bear_vacuum_weight": self.perm_bear_vacuum_weight,
-            "perm_mixed_weight": self.perm_mixed_weight,
-            "perm_enable_weighted_blend": self.perm_enable_weighted_blend,
+            "state_model_enabled": self.state_model_enabled,
+            "state_model_center_exclusion_radius": self.state_model_center_exclusion_radius,
+            "state_model_spatial_decay_power": self.state_model_spatial_decay_power,
+            "state_model_zscore_window_bins": self.state_model_zscore_window_bins,
+            "state_model_zscore_min_periods": self.state_model_zscore_min_periods,
+            "state_model_tanh_scale": self.state_model_tanh_scale,
+            "state_model_d1_weight": self.state_model_d1_weight,
+            "state_model_d2_weight": self.state_model_d2_weight,
+            "state_model_d3_weight": self.state_model_d3_weight,
+            "state_model_bull_pressure_weight": self.state_model_bull_pressure_weight,
+            "state_model_bull_vacuum_weight": self.state_model_bull_vacuum_weight,
+            "state_model_bear_pressure_weight": self.state_model_bear_pressure_weight,
+            "state_model_bear_vacuum_weight": self.state_model_bear_vacuum_weight,
+            "state_model_mixed_weight": self.state_model_mixed_weight,
+            "state_model_enable_weighted_blend": self.state_model_enable_weighted_blend,
             "config_version": self.config_version,
         }
 
@@ -305,17 +305,15 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
         "grid_radius_ticks": int(raw["grid_radius_ticks"]),
         "cell_width_ms": int(raw["cell_width_ms"]),
         "n_absolute_ticks": int(raw["n_absolute_ticks"]),
-        "spectrum_windows": _parse_int_sequence(raw["spectrum_windows"], "spectrum_windows"),
-        "spectrum_rollup_weights": _parse_float_sequence(
-            raw["spectrum_rollup_weights"], "spectrum_rollup_weights"
+        "flow_windows": _parse_int_sequence(raw["flow_windows"], "flow_windows"),
+        "flow_rollup_weights": _parse_float_sequence(
+            raw["flow_rollup_weights"], "flow_rollup_weights"
         ),
-        "spectrum_derivative_weights": _parse_float_sequence(
-            raw["spectrum_derivative_weights"], "spectrum_derivative_weights"
+        "flow_derivative_weights": _parse_float_sequence(
+            raw["flow_derivative_weights"], "flow_derivative_weights"
         ),
-        "spectrum_tanh_scale": float(raw["spectrum_tanh_scale"]),
-        "spectrum_threshold_neutral": float(raw["spectrum_threshold_neutral"]),
-        "zscore_window_bins": int(raw["zscore_window_bins"]),
-        "zscore_min_periods": int(raw["zscore_min_periods"]),
+        "flow_tanh_scale": float(raw["flow_tanh_scale"]),
+        "flow_neutral_threshold": float(raw["flow_neutral_threshold"]),
         "projection_horizons_bins": _parse_int_sequence(
             raw["projection_horizons_bins"], "projection_horizons_bins"
         ),
@@ -333,60 +331,66 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
         "c5_v_fill": float(raw["c5_v_fill"]),
         "c6_v_rest_neg": float(raw["c6_v_rest_neg"]),
         "c7_a_pull": float(raw["c7_a_pull"]),
-        "perm_runtime_enabled": _parse_bool(
-            raw.get("perm_runtime_enabled", DEFAULT_PERM_RUNTIME_ENABLED),
-            "perm_runtime_enabled",
+        "state_model_enabled": _parse_bool(
+            raw.get("state_model_enabled", DEFAULT_STATE_MODEL_ENABLED),
+            "state_model_enabled",
         ),
-        "perm_center_exclusion_radius": int(
+        "state_model_center_exclusion_radius": int(
             raw.get(
-                "perm_center_exclusion_radius",
-                DEFAULT_PERM_CENTER_EXCLUSION_RADIUS,
+                "state_model_center_exclusion_radius",
+                DEFAULT_STATE_MODEL_CENTER_EXCLUSION_RADIUS,
             )
         ),
-        "perm_spatial_decay_power": float(
-            raw.get("perm_spatial_decay_power", DEFAULT_PERM_SPATIAL_DECAY_POWER)
+        "state_model_spatial_decay_power": float(
+            raw.get("state_model_spatial_decay_power", DEFAULT_STATE_MODEL_SPATIAL_DECAY_POWER)
         ),
-        "perm_zscore_window_bins": int(
-            raw.get("perm_zscore_window_bins", DEFAULT_PERM_ZSCORE_WINDOW_BINS)
+        "flow_zscore_window_bins": int(
+            raw["flow_zscore_window_bins"]
         ),
-        "perm_zscore_min_periods": int(
-            raw.get("perm_zscore_min_periods", DEFAULT_PERM_ZSCORE_MIN_PERIODS)
+        "flow_zscore_min_periods": int(
+            raw["flow_zscore_min_periods"]
         ),
-        "perm_tanh_scale": float(raw.get("perm_tanh_scale", DEFAULT_PERM_TANH_SCALE)),
-        "perm_d1_weight": float(raw.get("perm_d1_weight", DEFAULT_PERM_D1_WEIGHT)),
-        "perm_d2_weight": float(raw.get("perm_d2_weight", DEFAULT_PERM_D2_WEIGHT)),
-        "perm_d3_weight": float(raw.get("perm_d3_weight", DEFAULT_PERM_D3_WEIGHT)),
-        "perm_bull_pressure_weight": float(
+        "state_model_zscore_window_bins": int(
+            raw.get("state_model_zscore_window_bins", DEFAULT_STATE_MODEL_ZSCORE_WINDOW_BINS)
+        ),
+        "state_model_zscore_min_periods": int(
+            raw.get("state_model_zscore_min_periods", DEFAULT_STATE_MODEL_ZSCORE_MIN_PERIODS)
+        ),
+        "state_model_tanh_scale": float(raw.get("state_model_tanh_scale", DEFAULT_STATE_MODEL_TANH_SCALE)),
+        "state_model_d1_weight": float(raw.get("state_model_d1_weight", DEFAULT_STATE_MODEL_D1_WEIGHT)),
+        "state_model_d2_weight": float(raw.get("state_model_d2_weight", DEFAULT_STATE_MODEL_D2_WEIGHT)),
+        "state_model_d3_weight": float(raw.get("state_model_d3_weight", DEFAULT_STATE_MODEL_D3_WEIGHT)),
+        "state_model_bull_pressure_weight": float(
             raw.get(
-                "perm_bull_pressure_weight",
-                DEFAULT_PERM_BULL_PRESSURE_WEIGHT,
+                "state_model_bull_pressure_weight",
+                DEFAULT_STATE_MODEL_BULL_PRESSURE_WEIGHT,
             )
         ),
-        "perm_bull_vacuum_weight": float(
+        "state_model_bull_vacuum_weight": float(
             raw.get(
-                "perm_bull_vacuum_weight",
-                DEFAULT_PERM_BULL_VACUUM_WEIGHT,
+                "state_model_bull_vacuum_weight",
+                DEFAULT_STATE_MODEL_BULL_VACUUM_WEIGHT,
             )
         ),
-        "perm_bear_pressure_weight": float(
+        "state_model_bear_pressure_weight": float(
             raw.get(
-                "perm_bear_pressure_weight",
-                DEFAULT_PERM_BEAR_PRESSURE_WEIGHT,
+                "state_model_bear_pressure_weight",
+                DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT,
             )
         ),
-        "perm_bear_vacuum_weight": float(
+        "state_model_bear_vacuum_weight": float(
             raw.get(
-                "perm_bear_vacuum_weight",
-                DEFAULT_PERM_BEAR_VACUUM_WEIGHT,
+                "state_model_bear_vacuum_weight",
+                DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT,
             )
         ),
-        "perm_mixed_weight": float(raw.get("perm_mixed_weight", DEFAULT_PERM_MIXED_WEIGHT)),
-        "perm_enable_weighted_blend": _parse_bool(
+        "state_model_mixed_weight": float(raw.get("state_model_mixed_weight", DEFAULT_STATE_MODEL_MIXED_WEIGHT)),
+        "state_model_enable_weighted_blend": _parse_bool(
             raw.get(
-                "perm_enable_weighted_blend",
-                DEFAULT_PERM_ENABLE_WEIGHTED_BLEND,
+                "state_model_enable_weighted_blend",
+                DEFAULT_STATE_MODEL_ENABLE_WEIGHTED_BLEND,
             ),
-            "perm_enable_weighted_blend",
+            "state_model_enable_weighted_blend",
         ),
     }
 
@@ -407,27 +411,20 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
         raise ValueError(f"'cell_width_ms' must be >= 1 in {source}.")
     if fields["n_absolute_ticks"] < 3:
         raise ValueError(f"'n_absolute_ticks' must be >= 3 in {source}.")
-    if len(fields["spectrum_windows"]) != len(fields["spectrum_rollup_weights"]):
+    if len(fields["flow_windows"]) != len(fields["flow_rollup_weights"]):
         raise ValueError(
-            "spectrum_windows and spectrum_rollup_weights must have identical lengths."
+            "flow_windows and flow_rollup_weights must have identical lengths."
         )
-    if len(fields["spectrum_derivative_weights"]) != 3:
+    if len(fields["flow_derivative_weights"]) != 3:
         raise ValueError(
-            "spectrum_derivative_weights must contain exactly 3 weights (d1,d2,d3)."
+            "flow_derivative_weights must contain exactly 3 weights (d1,d2,d3)."
         )
-    if fields["spectrum_tanh_scale"] <= 0.0:
-        raise ValueError(f"'spectrum_tanh_scale' must be > 0 in {source}.")
-    if not (0.0 < fields["spectrum_threshold_neutral"] < 1.0):
+    if fields["flow_tanh_scale"] <= 0.0:
+        raise ValueError(f"'flow_tanh_scale' must be > 0 in {source}.")
+    if not (0.0 < fields["flow_neutral_threshold"] < 1.0):
         raise ValueError(
-            f"'spectrum_threshold_neutral' must be in (0,1), got {fields['spectrum_threshold_neutral']}."
+            f"'flow_neutral_threshold' must be in (0,1), got {fields['flow_neutral_threshold']}."
         )
-    if fields["zscore_window_bins"] < 2:
-        raise ValueError("'zscore_window_bins' must be >= 2.")
-    if fields["zscore_min_periods"] < 2:
-        raise ValueError("'zscore_min_periods' must be >= 2.")
-    if fields["zscore_min_periods"] > fields["zscore_window_bins"]:
-        raise ValueError("'zscore_min_periods' cannot exceed 'zscore_window_bins'.")
-
     projection_horizons_bins = fields["projection_horizons_bins"]
     if len(set(projection_horizons_bins)) != len(projection_horizons_bins):
         raise ValueError("'projection_horizons_bins' values must be unique.")
@@ -453,39 +450,47 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
         if fields[coeff_name] < 0.0:
             raise ValueError(f"'{coeff_name}' must be >= 0 in {source}.")
 
-    if fields["perm_center_exclusion_radius"] < 0:
-        raise ValueError("'perm_center_exclusion_radius' must be >= 0.")
-    if fields["perm_spatial_decay_power"] < 0.0:
-        raise ValueError("'perm_spatial_decay_power' must be >= 0.")
-    if fields["perm_zscore_window_bins"] < 2:
-        raise ValueError("'perm_zscore_window_bins' must be >= 2.")
-    if fields["perm_zscore_min_periods"] < 2:
-        raise ValueError("'perm_zscore_min_periods' must be >= 2.")
-    if fields["perm_zscore_min_periods"] > fields["perm_zscore_window_bins"]:
+    if fields["state_model_center_exclusion_radius"] < 0:
+        raise ValueError("'state_model_center_exclusion_radius' must be >= 0.")
+    if fields["state_model_spatial_decay_power"] < 0.0:
+        raise ValueError("'state_model_spatial_decay_power' must be >= 0.")
+    if fields["flow_zscore_window_bins"] < 2:
+        raise ValueError("'flow_zscore_window_bins' must be >= 2.")
+    if fields["flow_zscore_min_periods"] < 2:
+        raise ValueError("'flow_zscore_min_periods' must be >= 2.")
+    if fields["flow_zscore_min_periods"] > fields["flow_zscore_window_bins"]:
         raise ValueError(
-            "'perm_zscore_min_periods' cannot exceed 'perm_zscore_window_bins'."
+            "'flow_zscore_min_periods' cannot exceed 'flow_zscore_window_bins'."
         )
-    if fields["perm_tanh_scale"] <= 0.0:
-        raise ValueError("'perm_tanh_scale' must be > 0.")
+    if fields["state_model_zscore_window_bins"] < 2:
+        raise ValueError("'state_model_zscore_window_bins' must be >= 2.")
+    if fields["state_model_zscore_min_periods"] < 2:
+        raise ValueError("'state_model_zscore_min_periods' must be >= 2.")
+    if fields["state_model_zscore_min_periods"] > fields["state_model_zscore_window_bins"]:
+        raise ValueError(
+            "'state_model_zscore_min_periods' cannot exceed 'state_model_zscore_window_bins'."
+        )
+    if fields["state_model_tanh_scale"] <= 0.0:
+        raise ValueError("'state_model_tanh_scale' must be > 0.")
     for name in (
-        "perm_d1_weight",
-        "perm_d2_weight",
-        "perm_d3_weight",
-        "perm_bull_pressure_weight",
-        "perm_bull_vacuum_weight",
-        "perm_bear_pressure_weight",
-        "perm_bear_vacuum_weight",
-        "perm_mixed_weight",
+        "state_model_d1_weight",
+        "state_model_d2_weight",
+        "state_model_d3_weight",
+        "state_model_bull_pressure_weight",
+        "state_model_bull_vacuum_weight",
+        "state_model_bear_pressure_weight",
+        "state_model_bear_vacuum_weight",
+        "state_model_mixed_weight",
     ):
         if fields[name] < 0.0:
             raise ValueError(f"'{name}' must be >= 0.")
     if (
-        abs(fields["perm_d1_weight"])
-        + abs(fields["perm_d2_weight"])
-        + abs(fields["perm_d3_weight"])
+        abs(fields["state_model_d1_weight"])
+        + abs(fields["state_model_d2_weight"])
+        + abs(fields["state_model_d3_weight"])
         <= 0.0
     ):
-        raise ValueError("At least one of perm_d1_weight/perm_d2_weight/perm_d3_weight must be > 0.")
+        raise ValueError("At least one of state_model_d1_weight/state_model_d2_weight/state_model_d3_weight must be > 0.")
 
     projection_horizons_ms = tuple(
         int(bin_count) * int(fields["cell_width_ms"])

@@ -101,94 +101,94 @@ def main() -> None:
         help="Exponential damping coefficient lambda for projection: proj *= exp(-lambda*h).",
     )
     parser.add_argument(
-        "--perm-runtime-enabled",
+        "--state-model-enabled",
         type=parse_optional_bool,
         default=None,
-        help="Override perm runtime enablement (true/false).",
+        help="Override runtime model enablement (true/false).",
     )
     parser.add_argument(
-        "--perm-center-exclusion-radius",
+        "--state-model-center-exclusion-radius",
         type=int,
         default=None,
-        help="Override center exclusion radius for perm runtime spatial weights.",
+        help="Override center exclusion radius for runtime model spatial weights.",
     )
     parser.add_argument(
-        "--perm-spatial-decay-power",
+        "--state-model-spatial-decay-power",
         type=float,
         default=None,
-        help="Override spatial decay power for perm runtime spatial weights.",
+        help="Override spatial decay power for runtime model spatial weights.",
     )
     parser.add_argument(
-        "--perm-zscore-window-bins",
+        "--state-model-zscore-window-bins",
         type=int,
         default=None,
-        help="Override rolling robust-z window for perm runtime.",
+        help="Override rolling robust-z window for runtime model.",
     )
     parser.add_argument(
-        "--perm-zscore-min-periods",
+        "--state-model-zscore-min-periods",
         type=int,
         default=None,
-        help="Override rolling robust-z min periods for perm runtime.",
+        help="Override rolling robust-z min periods for runtime model.",
     )
     parser.add_argument(
-        "--perm-tanh-scale",
+        "--state-model-tanh-scale",
         type=float,
         default=None,
-        help="Override tanh compression scale for perm runtime.",
+        help="Override tanh compression scale for runtime model.",
     )
     parser.add_argument(
-        "--perm-d1-weight",
+        "--state-model-d1-weight",
         type=float,
         default=None,
-        help="Override d1 derivative blend weight for perm runtime.",
+        help="Override d1 derivative blend weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-d2-weight",
+        "--state-model-d2-weight",
         type=float,
         default=None,
-        help="Override d2 derivative blend weight for perm runtime.",
+        help="Override d2 derivative blend weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-d3-weight",
+        "--state-model-d3-weight",
         type=float,
         default=None,
-        help="Override d3 derivative blend weight for perm runtime.",
+        help="Override d3 derivative blend weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-bull-pressure-weight",
+        "--state-model-bull-pressure-weight",
         type=float,
         default=None,
-        help="Override bull-pressure intensity weight for perm runtime.",
+        help="Override bull-pressure intensity weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-bull-vacuum-weight",
+        "--state-model-bull-vacuum-weight",
         type=float,
         default=None,
-        help="Override bull-vacuum intensity weight for perm runtime.",
+        help="Override bull-vacuum intensity weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-bear-pressure-weight",
+        "--state-model-bear-pressure-weight",
         type=float,
         default=None,
-        help="Override bear-pressure intensity weight for perm runtime.",
+        help="Override bear-pressure intensity weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-bear-vacuum-weight",
+        "--state-model-bear-vacuum-weight",
         type=float,
         default=None,
-        help="Override bear-vacuum intensity weight for perm runtime.",
+        help="Override bear-vacuum intensity weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-mixed-weight",
+        "--state-model-mixed-weight",
         type=float,
         default=None,
-        help="Override mixed-state damping weight for perm runtime.",
+        help="Override mixed-state damping weight for runtime model.",
     )
     parser.add_argument(
-        "--perm-enable-weighted-blend",
+        "--state-model-enable-weighted-blend",
         type=parse_optional_bool,
         default=None,
-        help="Override weighted blend toggle for perm runtime (true/false).",
+        help="Override weighted blend toggle for runtime model (true/false).",
     )
     args = parser.parse_args()
 
@@ -257,21 +257,21 @@ def main() -> None:
                 ),
                 "projection_cubic_scale": args.projection_cubic_scale,
                 "projection_damping_lambda": args.projection_damping_lambda,
-                "perm_runtime_enabled": args.perm_runtime_enabled,
-                "perm_center_exclusion_radius": args.perm_center_exclusion_radius,
-                "perm_spatial_decay_power": args.perm_spatial_decay_power,
-                "perm_zscore_window_bins": args.perm_zscore_window_bins,
-                "perm_zscore_min_periods": args.perm_zscore_min_periods,
-                "perm_tanh_scale": args.perm_tanh_scale,
-                "perm_d1_weight": args.perm_d1_weight,
-                "perm_d2_weight": args.perm_d2_weight,
-                "perm_d3_weight": args.perm_d3_weight,
-                "perm_bull_pressure_weight": args.perm_bull_pressure_weight,
-                "perm_bull_vacuum_weight": args.perm_bull_vacuum_weight,
-                "perm_bear_pressure_weight": args.perm_bear_pressure_weight,
-                "perm_bear_vacuum_weight": args.perm_bear_vacuum_weight,
-                "perm_mixed_weight": args.perm_mixed_weight,
-                "perm_enable_weighted_blend": args.perm_enable_weighted_blend,
+                "state_model_enabled": args.state_model_enabled,
+                "state_model_center_exclusion_radius": args.state_model_center_exclusion_radius,
+                "state_model_spatial_decay_power": args.state_model_spatial_decay_power,
+                "state_model_zscore_window_bins": args.state_model_zscore_window_bins,
+                "state_model_zscore_min_periods": args.state_model_zscore_min_periods,
+                "state_model_tanh_scale": args.state_model_tanh_scale,
+                "state_model_d1_weight": args.state_model_d1_weight,
+                "state_model_d2_weight": args.state_model_d2_weight,
+                "state_model_d3_weight": args.state_model_d3_weight,
+                "state_model_bull_pressure_weight": args.state_model_bull_pressure_weight,
+                "state_model_bull_vacuum_weight": args.state_model_bull_vacuum_weight,
+                "state_model_bear_pressure_weight": args.state_model_bear_pressure_weight,
+                "state_model_bear_vacuum_weight": args.state_model_bear_vacuum_weight,
+                "state_model_mixed_weight": args.state_model_mixed_weight,
+                "state_model_enable_weighted_blend": args.state_model_enable_weighted_blend,
             },
             indent=2,
         )
@@ -301,37 +301,37 @@ def main() -> None:
         qs_parts.append(f"start_time={args.start_time}")
     if args.projection_horizons_bins:
         qs_parts.append(f"projection_horizons_bins={args.projection_horizons_bins}")
-    if args.perm_runtime_enabled is not None:
-        qs_parts.append(f"perm_runtime_enabled={str(args.perm_runtime_enabled).lower()}")
-    if args.perm_center_exclusion_radius is not None:
-        qs_parts.append(f"perm_center_exclusion_radius={args.perm_center_exclusion_radius}")
-    if args.perm_spatial_decay_power is not None:
-        qs_parts.append(f"perm_spatial_decay_power={args.perm_spatial_decay_power}")
-    if args.perm_zscore_window_bins is not None:
-        qs_parts.append(f"perm_zscore_window_bins={args.perm_zscore_window_bins}")
-    if args.perm_zscore_min_periods is not None:
-        qs_parts.append(f"perm_zscore_min_periods={args.perm_zscore_min_periods}")
-    if args.perm_tanh_scale is not None:
-        qs_parts.append(f"perm_tanh_scale={args.perm_tanh_scale}")
-    if args.perm_d1_weight is not None:
-        qs_parts.append(f"perm_d1_weight={args.perm_d1_weight}")
-    if args.perm_d2_weight is not None:
-        qs_parts.append(f"perm_d2_weight={args.perm_d2_weight}")
-    if args.perm_d3_weight is not None:
-        qs_parts.append(f"perm_d3_weight={args.perm_d3_weight}")
-    if args.perm_bull_pressure_weight is not None:
-        qs_parts.append(f"perm_bull_pressure_weight={args.perm_bull_pressure_weight}")
-    if args.perm_bull_vacuum_weight is not None:
-        qs_parts.append(f"perm_bull_vacuum_weight={args.perm_bull_vacuum_weight}")
-    if args.perm_bear_pressure_weight is not None:
-        qs_parts.append(f"perm_bear_pressure_weight={args.perm_bear_pressure_weight}")
-    if args.perm_bear_vacuum_weight is not None:
-        qs_parts.append(f"perm_bear_vacuum_weight={args.perm_bear_vacuum_weight}")
-    if args.perm_mixed_weight is not None:
-        qs_parts.append(f"perm_mixed_weight={args.perm_mixed_weight}")
-    if args.perm_enable_weighted_blend is not None:
+    if args.state_model_enabled is not None:
+        qs_parts.append(f"state_model_enabled={str(args.state_model_enabled).lower()}")
+    if args.state_model_center_exclusion_radius is not None:
+        qs_parts.append(f"state_model_center_exclusion_radius={args.state_model_center_exclusion_radius}")
+    if args.state_model_spatial_decay_power is not None:
+        qs_parts.append(f"state_model_spatial_decay_power={args.state_model_spatial_decay_power}")
+    if args.state_model_zscore_window_bins is not None:
+        qs_parts.append(f"state_model_zscore_window_bins={args.state_model_zscore_window_bins}")
+    if args.state_model_zscore_min_periods is not None:
+        qs_parts.append(f"state_model_zscore_min_periods={args.state_model_zscore_min_periods}")
+    if args.state_model_tanh_scale is not None:
+        qs_parts.append(f"state_model_tanh_scale={args.state_model_tanh_scale}")
+    if args.state_model_d1_weight is not None:
+        qs_parts.append(f"state_model_d1_weight={args.state_model_d1_weight}")
+    if args.state_model_d2_weight is not None:
+        qs_parts.append(f"state_model_d2_weight={args.state_model_d2_weight}")
+    if args.state_model_d3_weight is not None:
+        qs_parts.append(f"state_model_d3_weight={args.state_model_d3_weight}")
+    if args.state_model_bull_pressure_weight is not None:
+        qs_parts.append(f"state_model_bull_pressure_weight={args.state_model_bull_pressure_weight}")
+    if args.state_model_bull_vacuum_weight is not None:
+        qs_parts.append(f"state_model_bull_vacuum_weight={args.state_model_bull_vacuum_weight}")
+    if args.state_model_bear_pressure_weight is not None:
+        qs_parts.append(f"state_model_bear_pressure_weight={args.state_model_bear_pressure_weight}")
+    if args.state_model_bear_vacuum_weight is not None:
+        qs_parts.append(f"state_model_bear_vacuum_weight={args.state_model_bear_vacuum_weight}")
+    if args.state_model_mixed_weight is not None:
+        qs_parts.append(f"state_model_mixed_weight={args.state_model_mixed_weight}")
+    if args.state_model_enable_weighted_blend is not None:
         qs_parts.append(
-            f"perm_enable_weighted_blend={str(args.perm_enable_weighted_blend).lower()}"
+            f"state_model_enable_weighted_blend={str(args.state_model_enable_weighted_blend).lower()}"
         )
     qs = "&".join(qs_parts)
 

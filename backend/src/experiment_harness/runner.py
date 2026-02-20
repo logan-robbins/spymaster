@@ -392,28 +392,28 @@ class ExperimentRunner:
         if not signal_metadata:
             return
 
-        state_dist = signal_metadata.get("perm_state5_distribution")
-        micro_dist = signal_metadata.get("perm_micro9_distribution")
-        transition = signal_metadata.get("perm_state5_transition_matrix")
-        labels = signal_metadata.get("perm_state5_labels")
+        state_dist = signal_metadata.get("state5_distribution")
+        micro_dist = signal_metadata.get("micro9_distribution")
+        transition = signal_metadata.get("state5_transition_matrix")
+        labels = signal_metadata.get("state5_labels")
 
         if isinstance(state_dist, dict):
-            meta["perm_state5_distribution_json"] = json.dumps(
+            meta["state5_distribution_json"] = json.dumps(
                 state_dist, sort_keys=True
             )
         if isinstance(micro_dist, dict):
-            meta["perm_micro9_distribution_json"] = json.dumps(
+            meta["micro9_distribution_json"] = json.dumps(
                 micro_dist, sort_keys=True
             )
         if isinstance(transition, list):
-            meta["perm_state5_transition_matrix_json"] = json.dumps(transition)
+            meta["state5_transition_matrix_json"] = json.dumps(transition)
         if isinstance(labels, list):
-            meta["perm_state5_labels_json"] = json.dumps(labels)
+            meta["state5_labels_json"] = json.dumps(labels)
         if (
-            "perm_state5_distribution_json" in meta
-            or "perm_micro9_distribution_json" in meta
+            "state5_distribution_json" in meta
+            or "micro9_distribution_json" in meta
         ):
-            meta["perm_taxonomy_version"] = "state5_micro9_v1"
+            meta["taxonomy_version"] = "state5_micro9_v1"
 
     def _expand_param_grid(
         self,

@@ -7,7 +7,7 @@ from raw 101-tick profiles rather than hand-engineering features.
 Feature vector per bin (163 features total):
     1. pressure_variant center window (k=-25..+25) = 51
     2. vacuum_variant center window = 51
-    3. spectrum_score center window = 51
+    3. flow_score center window = 51
     4. Mid-price return rolling mean/std at [50, 200, 600] = 6
     5. Total pressure/vacuum by side (bid/ask) = 4
 
@@ -103,7 +103,7 @@ class XGBSnapSignal(MLSignal):
     @property
     def required_columns(self) -> list[str]:
         """Grid columns this signal needs from the dataset."""
-        return ["pressure_variant", "vacuum_variant", "spectrum_score"]
+        return ["pressure_variant", "vacuum_variant", "flow_score"]
 
     def default_thresholds(self) -> list[float]:
         """Default probability thresholds for P(up)."""
@@ -133,7 +133,7 @@ class XGBSnapSignal(MLSignal):
         features: list[np.ndarray] = []
 
         # 1. Center-window spatial profiles (51 each, 153 total)
-        for col in ("pressure_variant", "vacuum_variant", "spectrum_score"):
+        for col in ("pressure_variant", "vacuum_variant", "flow_score"):
             features.append(grids[col][:, self.center_window])
 
         # 2. Mid-price return rolling stats (6 features)

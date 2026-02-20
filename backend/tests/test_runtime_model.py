@@ -10,33 +10,33 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from src.vacuum_pressure.runtime_model import (  # noqa: E402
-    PermDerivativeRuntime,
-    PermDerivativeRuntimeParams,
+    DerivativeRuntime,
+    DerivativeRuntimeParams,
 )
 
 
-def test_perm_runtime_zero_mixed_is_stable() -> None:
-    runtime = PermDerivativeRuntime(
+def test_runtime_zero_mixed_is_stable() -> None:
+    runtime = DerivativeRuntime(
         k_values=np.arange(-2, 3, dtype=np.int32),
         cell_width_ms=100,
-        params=PermDerivativeRuntimeParams(
+        params=DerivativeRuntimeParams(
             zscore_window_bins=8,
             zscore_min_periods=2,
         ),
     )
     out = runtime.update(np.zeros(5, dtype=np.int8))
-    assert out.name == "perm_derivative"
+    assert out.name == "derivative"
     assert out.score == pytest.approx(0.0)
     assert out.base == pytest.approx(0.0)
     assert out.ready is False
     assert out.sample_count == 1
 
 
-def test_perm_runtime_detects_bullish_regime_shift() -> None:
-    runtime = PermDerivativeRuntime(
+def test_runtime_detects_bullish_regime_shift() -> None:
+    runtime = DerivativeRuntime(
         k_values=np.arange(-3, 4, dtype=np.int32),
         cell_width_ms=100,
-        params=PermDerivativeRuntimeParams(
+        params=DerivativeRuntimeParams(
             zscore_window_bins=6,
             zscore_min_periods=2,
             d1_weight=1.0,
@@ -60,12 +60,12 @@ def test_perm_runtime_detects_bullish_regime_shift() -> None:
     assert out.bull_intensity > out.bear_intensity
 
 
-def test_perm_runtime_rejects_invalid_params() -> None:
-    with pytest.raises(ValueError, match="perm_zscore_min_periods cannot exceed"):
-        PermDerivativeRuntime(
+def test_runtime_rejects_invalid_params() -> None:
+    with pytest.raises(ValueError, match="zscore_min_periods cannot exceed"):
+        DerivativeRuntime(
             k_values=np.arange(-2, 3, dtype=np.int32),
             cell_width_ms=100,
-            params=PermDerivativeRuntimeParams(
+            params=DerivativeRuntimeParams(
                 zscore_window_bins=10,
                 zscore_min_periods=12,
             ),

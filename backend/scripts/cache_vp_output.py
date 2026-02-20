@@ -73,18 +73,18 @@ _BUCKET_FLOAT_FIELDS: tuple[str, ...] = (
     "j_rest_depth",
     "j_bid_depth",
     "j_ask_depth",
-    "spectrum_score",
+    "flow_score",
 )
 
 _BUCKET_INT_FIELDS: tuple[tuple[str, pa.DataType], ...] = (
     ("k", pa.int32()),
-    ("spectrum_state_code", pa.int8()),
+    ("flow_state_code", pa.int8()),
     ("best_ask_move_ticks", pa.int32()),
     ("best_bid_move_ticks", pa.int32()),
     ("ask_reprice_sign", pa.int8()),
     ("bid_reprice_sign", pa.int8()),
-    ("perm_microstate_id", pa.int8()),
-    ("perm_state5_code", pa.int8()),
+    ("microstate_id", pa.int8()),
+    ("state5_code", pa.int8()),
     ("chase_up_flag", pa.int8()),
     ("chase_down_flag", pa.int8()),
     ("last_event_id", pa.int64()),
@@ -320,17 +320,19 @@ def capture_stream_output(
             "grid_radius_ticks": config.grid_radius_ticks,
             "cell_width_ms": config.cell_width_ms,
             "n_absolute_ticks": config.n_absolute_ticks,
-            "spectrum_windows": [int(x) for x in config.spectrum_windows],
-            "spectrum_rollup_weights": [
-                float(x) for x in config.spectrum_rollup_weights
+            "flow_windows": [int(x) for x in config.flow_windows],
+            "flow_rollup_weights": [
+                float(x) for x in config.flow_rollup_weights
             ],
-            "spectrum_derivative_weights": [
-                float(x) for x in config.spectrum_derivative_weights
+            "flow_derivative_weights": [
+                float(x) for x in config.flow_derivative_weights
             ],
-            "spectrum_tanh_scale": config.spectrum_tanh_scale,
-            "spectrum_threshold_neutral": config.spectrum_threshold_neutral,
-            "zscore_window_bins": config.zscore_window_bins,
-            "zscore_min_periods": config.zscore_min_periods,
+            "flow_tanh_scale": config.flow_tanh_scale,
+            "flow_neutral_threshold": config.flow_neutral_threshold,
+            "flow_zscore_window_bins": config.flow_zscore_window_bins,
+            "flow_zscore_min_periods": config.flow_zscore_min_periods,
+            "state_model_zscore_window_bins": config.state_model_zscore_window_bins,
+            "state_model_zscore_min_periods": config.state_model_zscore_min_periods,
             "tau_velocity": config.tau_velocity,
             "tau_acceleration": config.tau_acceleration,
             "tau_jerk": config.tau_jerk,

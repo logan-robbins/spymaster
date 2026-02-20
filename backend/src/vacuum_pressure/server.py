@@ -5,9 +5,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlencode
 
+import pandas as pd
 import pyarrow as pa
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import (
@@ -16,6 +18,7 @@ from .config import (
     parse_projection_horizons_bins_override,
     resolve_config,
 )
+from .serving_config import ServingSpec
 from .stream_pipeline import ProducerLatencyConfig, async_stream_events  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -52,14 +55,18 @@ _BASE_GRID_FIELDS: List[tuple[str, pa.DataType]] = [
     ("j_rest_depth", pa.float64()),
     ("j_bid_depth", pa.float64()),
     ("j_ask_depth", pa.float64()),
-    ("spectrum_score", pa.float64()),
-    ("spectrum_state_code", pa.int8()),
+    ("composite", pa.float64()),
+    ("composite_d1", pa.float64()),
+    ("composite_d2", pa.float64()),
+    ("composite_d3", pa.float64()),
+    ("flow_score", pa.float64()),
+    ("flow_state_code", pa.int8()),
     ("best_ask_move_ticks", pa.int32()),
     ("best_bid_move_ticks", pa.int32()),
     ("ask_reprice_sign", pa.int8()),
     ("bid_reprice_sign", pa.int8()),
-    ("perm_microstate_id", pa.int8()),
-    ("perm_state5_code", pa.int8()),
+    ("microstate_id", pa.int8()),
+    ("state5_code", pa.int8()),
     ("chase_up_flag", pa.int8()),
     ("chase_down_flag", pa.int8()),
     ("last_event_id", pa.int64()),
@@ -76,6 +83,28 @@ def _grid_to_arrow_ipc(grid_dict: Dict[str, Any], schema: pa.Schema) -> bytes:
     with pa.ipc.new_stream(sink, schema) as writer:
         writer.write_batch(record_batch)
     return sink.getvalue().to_pybytes()
+
+
+def _safe_float(v: Any) -> float | None:
+    """Convert to float, returning None for NaN/None."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if pd.isna(f) else f
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_int(v: Any) -> int | None:
+    """Convert to int, returning None for NaN/None."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if pd.isna(f) else int(f)
+    except (ValueError, TypeError):
+        return None
 
 
 def _et_hhmm_to_utc_ns(dt: str, hhmm: str) -> int:
@@ -137,6 +166,214 @@ def create_app(
     async def health() -> dict:
         return {"status": "ok", "service": "vacuum-pressure"}
 
+    # ---- Experiment Browser REST API ----
+
+    _manifest_cache: dict[str, dict[str, Any]] = {}
+
+    def _load_manifest(dataset_id: str) -> dict[str, Any] | None:
+        """Load and cache manifest.json for a dataset from vp_immutable."""
+        if dataset_id in _manifest_cache:
+            return _manifest_cache[dataset_id]
+        manifest_path = lake_root / "research" / "vp_immutable" / dataset_id / "manifest.json"
+        if not manifest_path.exists():
+            return None
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        _manifest_cache[dataset_id] = manifest
+        return manifest
+
+    _SIGNAL_PARAM_TO_WS: dict[str, str] = {
+        "zscore_window_bins": "state_model_zscore_window_bins",
+        "zscore_min_periods": "state_model_zscore_min_periods",
+        "tanh_scale": "state_model_tanh_scale",
+        "d1_weight": "state_model_d1_weight",
+        "d2_weight": "state_model_d2_weight",
+        "d3_weight": "state_model_d3_weight",
+        "center_exclusion_radius": "state_model_center_exclusion_radius",
+        "spatial_decay_power": "state_model_spatial_decay_power",
+        "bull_pressure_weight": "state_model_bull_pressure_weight",
+        "bull_vacuum_weight": "state_model_bull_vacuum_weight",
+        "bear_pressure_weight": "state_model_bear_pressure_weight",
+        "bear_vacuum_weight": "state_model_bear_vacuum_weight",
+        "mixed_weight": "state_model_mixed_weight",
+        "enable_weighted_blend": "state_model_enable_weighted_blend",
+    }
+
+    def _build_streaming_url(
+        dataset_id: str,
+        signal_name: str,
+        signal_params: dict[str, Any],
+    ) -> tuple[str | None, bool]:
+        """Build a vacuum-pressure.html URL from run metadata.
+
+        Returns (streaming_url, can_stream). Only derivative signals
+        map to the state-model query params.
+        """
+        if signal_name != "derivative":
+            return None, False
+
+        manifest = _load_manifest(dataset_id)
+        if manifest is None:
+            return None, False
+
+        src = manifest.get("source_manifest", {})
+        product_type = src.get("product_type", "future_mbo")
+        symbol = src.get("symbol", "")
+        dt = src.get("dt", "")
+        start_et = src.get("capture_start_et", src.get("stream_start_time_hhmm", ""))
+        if ":" not in start_et and len(start_et) == 4:
+            start_et = f"{start_et[:2]}:{start_et[2:]}"
+        elif ":" in start_et and len(start_et) > 5:
+            start_et = start_et[:5]
+
+        params: dict[str, Any] = {
+            "product_type": product_type,
+            "symbol": symbol,
+            "dt": dt,
+            "start_time": start_et,
+        }
+
+        for harness_key, ws_key in _SIGNAL_PARAM_TO_WS.items():
+            if harness_key in signal_params:
+                params[ws_key] = signal_params[harness_key]
+
+        return f"/vacuum-pressure.html?{urlencode(params)}", True
+
+    def _results_db():
+        from ..experiment_harness.results_db import ResultsDB
+        return ResultsDB(lake_root / "research" / "vp_harness" / "results")
+
+    @app.get("/v1/experiments/runs")
+    async def experiment_runs(
+        signal: str | None = Query(None),
+        dataset_id: str | None = Query(None),
+        sort: str = Query("tp_rate"),
+        min_signals: int = Query(5),
+        top_n: int = Query(50),
+    ) -> dict:
+        """Return ranked experiment results with streaming URLs."""
+        db = _results_db()
+        best_df = db.query_best(signal=signal, dataset_id=dataset_id, min_signals=min_signals)
+
+        if best_df.empty:
+            return {"runs": [], "filters": {"signals": [], "datasets": []}}
+
+        meta_df = db.query_runs()
+
+        signal_params_col = "signal_params_json"
+        if signal_params_col in meta_df.columns:
+            params_lookup = dict(
+                zip(meta_df["run_id"], meta_df[signal_params_col], strict=False)
+            )
+        else:
+            params_lookup = {}
+
+        if sort in best_df.columns:
+            ascending = sort not in ("tp_rate", "mean_pnl_ticks", "events_per_hour", "n_signals")
+            best_df = best_df.sort_values(sort, ascending=ascending)
+
+        best_df = best_df.head(top_n)
+
+        runs = []
+        for _, row in best_df.iterrows():
+            run_id = row.get("run_id", "")
+            sig_name = row.get("signal_name", "")
+            raw_params = params_lookup.get(run_id, "{}")
+            try:
+                sig_params = json.loads(raw_params) if isinstance(raw_params, str) else raw_params
+            except (json.JSONDecodeError, TypeError):
+                sig_params = {}
+
+            ds_id = row.get("dataset_id", "")
+            streaming_url, can_stream = _build_streaming_url(ds_id, sig_name, sig_params)
+
+            runs.append({
+                "run_id": run_id,
+                "signal_name": sig_name,
+                "dataset_id": ds_id,
+                "experiment_name": row.get("experiment_name", ""),
+                "signal_params_json": raw_params if isinstance(raw_params, str) else json.dumps(raw_params),
+                "threshold": _safe_float(row.get("threshold")),
+                "cooldown_bins": _safe_int(row.get("cooldown_bins")),
+                "tp_rate": _safe_float(row.get("tp_rate")),
+                "sl_rate": _safe_float(row.get("sl_rate")),
+                "timeout_rate": _safe_float(row.get("timeout_rate")),
+                "n_signals": _safe_int(row.get("n_signals")),
+                "mean_pnl_ticks": _safe_float(row.get("mean_pnl_ticks")),
+                "events_per_hour": _safe_float(row.get("events_per_hour")),
+                "eval_tp_ticks": _safe_int(row.get("eval_tp_ticks")),
+                "eval_sl_ticks": _safe_int(row.get("eval_sl_ticks")),
+                "timestamp_utc": str(meta_df.loc[meta_df["run_id"] == run_id, "timestamp_utc"].values[0])
+                if "timestamp_utc" in meta_df.columns and run_id in meta_df["run_id"].values
+                else "",
+                "streaming_url": streaming_url,
+                "can_stream": can_stream,
+            })
+
+        all_meta = db.query_runs()
+        all_signals = sorted(all_meta["signal_name"].unique().tolist()) if "signal_name" in all_meta.columns else []
+        all_datasets = sorted(all_meta["dataset_id"].unique().tolist()) if "dataset_id" in all_meta.columns else []
+
+        return {
+            "runs": runs,
+            "filters": {
+                "signals": all_signals,
+                "datasets": all_datasets,
+            },
+        }
+
+    @app.get("/v1/experiments/runs/{run_id}/detail")
+    async def experiment_run_detail(run_id: str) -> dict:
+        """Return full detail for one experiment run."""
+        db = _results_db()
+        meta_df = db.query_runs(run_id=run_id)
+        if meta_df.empty:
+            return {"error": f"Run {run_id} not found"}
+
+        meta_row = meta_df.iloc[0].to_dict()
+        for k, v in meta_row.items():
+            if isinstance(v, float) and pd.isna(v):
+                meta_row[k] = None
+
+        raw_params = meta_row.get("signal_params_json", "{}")
+        try:
+            sig_params = json.loads(raw_params) if isinstance(raw_params, str) else raw_params
+        except (json.JSONDecodeError, TypeError):
+            sig_params = {}
+
+        runs_path = lake_root / "research" / "vp_harness" / "results" / "runs.parquet"
+        threshold_results = []
+        if runs_path.exists():
+            runs_df = pd.read_parquet(runs_path)
+            run_rows = runs_df[runs_df["run_id"] == run_id]
+            for _, r in run_rows.iterrows():
+                row_dict = {}
+                for c in r.index:
+                    val = r[c]
+                    if isinstance(val, float) and pd.isna(val):
+                        row_dict[c] = None
+                    elif hasattr(val, "item"):
+                        row_dict[c] = val.item()
+                    else:
+                        row_dict[c] = val
+                threshold_results.append(row_dict)
+
+        ds_id = meta_row.get("dataset_id", "")
+        sig_name = meta_row.get("signal_name", "")
+        streaming_url, can_stream = _build_streaming_url(ds_id, sig_name, sig_params)
+
+        meta_row["signal_params"] = sig_params
+        for k, v in meta_row.items():
+            if hasattr(v, "item"):
+                meta_row[k] = v.item()
+
+        return {
+            "meta": meta_row,
+            "threshold_results": threshold_results,
+            "streaming_url": streaming_url,
+            "can_stream": can_stream,
+        }
+
     @app.websocket("/v1/vacuum-pressure/stream")
     async def vacuum_pressure_stream(
         websocket: WebSocket,
@@ -144,22 +381,23 @@ def create_app(
         symbol: str = "MNQH6",
         dt: str = "2026-02-06",
         start_time: str | None = None,
+        serving: str | None = None,
         projection_horizons_bins: str | None = None,
-        perm_runtime_enabled: bool | None = None,
-        perm_center_exclusion_radius: int | None = None,
-        perm_spatial_decay_power: float | None = None,
-        perm_zscore_window_bins: int | None = None,
-        perm_zscore_min_periods: int | None = None,
-        perm_tanh_scale: float | None = None,
-        perm_d1_weight: float | None = None,
-        perm_d2_weight: float | None = None,
-        perm_d3_weight: float | None = None,
-        perm_bull_pressure_weight: float | None = None,
-        perm_bull_vacuum_weight: float | None = None,
-        perm_bear_pressure_weight: float | None = None,
-        perm_bear_vacuum_weight: float | None = None,
-        perm_mixed_weight: float | None = None,
-        perm_enable_weighted_blend: bool | None = None,
+        state_model_enabled: bool | None = None,
+        state_model_center_exclusion_radius: int | None = None,
+        state_model_spatial_decay_power: float | None = None,
+        state_model_zscore_window_bins: int | None = None,
+        state_model_zscore_min_periods: int | None = None,
+        state_model_tanh_scale: float | None = None,
+        state_model_d1_weight: float | None = None,
+        state_model_d2_weight: float | None = None,
+        state_model_d3_weight: float | None = None,
+        state_model_bull_pressure_weight: float | None = None,
+        state_model_bull_vacuum_weight: float | None = None,
+        state_model_bear_pressure_weight: float | None = None,
+        state_model_bear_vacuum_weight: float | None = None,
+        state_model_mixed_weight: float | None = None,
+        state_model_enable_weighted_blend: bool | None = None,
     ) -> None:
         """Stream fixed-bin dense-grid updates from the canonical event engine."""
         await websocket.accept()
@@ -178,39 +416,54 @@ def create_app(
                         "projection_horizons_bins": list(request_projection_horizons_bins),
                     },
                 )
-            perm_overrides: dict[str, Any] = {}
-            if perm_runtime_enabled is not None:
-                perm_overrides["perm_runtime_enabled"] = perm_runtime_enabled
-            if perm_center_exclusion_radius is not None:
-                perm_overrides["perm_center_exclusion_radius"] = perm_center_exclusion_radius
-            if perm_spatial_decay_power is not None:
-                perm_overrides["perm_spatial_decay_power"] = perm_spatial_decay_power
-            if perm_zscore_window_bins is not None:
-                perm_overrides["perm_zscore_window_bins"] = perm_zscore_window_bins
-            if perm_zscore_min_periods is not None:
-                perm_overrides["perm_zscore_min_periods"] = perm_zscore_min_periods
-            if perm_tanh_scale is not None:
-                perm_overrides["perm_tanh_scale"] = perm_tanh_scale
-            if perm_d1_weight is not None:
-                perm_overrides["perm_d1_weight"] = perm_d1_weight
-            if perm_d2_weight is not None:
-                perm_overrides["perm_d2_weight"] = perm_d2_weight
-            if perm_d3_weight is not None:
-                perm_overrides["perm_d3_weight"] = perm_d3_weight
-            if perm_bull_pressure_weight is not None:
-                perm_overrides["perm_bull_pressure_weight"] = perm_bull_pressure_weight
-            if perm_bull_vacuum_weight is not None:
-                perm_overrides["perm_bull_vacuum_weight"] = perm_bull_vacuum_weight
-            if perm_bear_pressure_weight is not None:
-                perm_overrides["perm_bear_pressure_weight"] = perm_bear_pressure_weight
-            if perm_bear_vacuum_weight is not None:
-                perm_overrides["perm_bear_vacuum_weight"] = perm_bear_vacuum_weight
-            if perm_mixed_weight is not None:
-                perm_overrides["perm_mixed_weight"] = perm_mixed_weight
-            if perm_enable_weighted_blend is not None:
-                perm_overrides["perm_enable_weighted_blend"] = perm_enable_weighted_blend
-            if perm_overrides:
-                config = build_config_with_overrides(config, perm_overrides)
+
+            # --- Serving spec overrides (applied before explicit URL params) ---
+            serving_spec: ServingSpec | None = None
+            if serving is not None:
+                serving_spec = ServingSpec.load_by_name(serving, lake_root)
+                serving_overrides = serving_spec.to_runtime_overrides()
+                if serving_overrides:
+                    config = build_config_with_overrides(config, serving_overrides)
+                logger.info(
+                    "VP serving spec loaded: name=%s pipeline=%s",
+                    serving_spec.name,
+                    serving_spec.pipeline,
+                )
+
+            # --- Explicit URL params (take precedence over serving) ---
+            overrides: dict[str, Any] = {}
+            if state_model_enabled is not None:
+                overrides["state_model_enabled"] = state_model_enabled
+            if state_model_center_exclusion_radius is not None:
+                overrides["state_model_center_exclusion_radius"] = state_model_center_exclusion_radius
+            if state_model_spatial_decay_power is not None:
+                overrides["state_model_spatial_decay_power"] = state_model_spatial_decay_power
+            if state_model_zscore_window_bins is not None:
+                overrides["state_model_zscore_window_bins"] = state_model_zscore_window_bins
+            if state_model_zscore_min_periods is not None:
+                overrides["state_model_zscore_min_periods"] = state_model_zscore_min_periods
+            if state_model_tanh_scale is not None:
+                overrides["state_model_tanh_scale"] = state_model_tanh_scale
+            if state_model_d1_weight is not None:
+                overrides["state_model_d1_weight"] = state_model_d1_weight
+            if state_model_d2_weight is not None:
+                overrides["state_model_d2_weight"] = state_model_d2_weight
+            if state_model_d3_weight is not None:
+                overrides["state_model_d3_weight"] = state_model_d3_weight
+            if state_model_bull_pressure_weight is not None:
+                overrides["state_model_bull_pressure_weight"] = state_model_bull_pressure_weight
+            if state_model_bull_vacuum_weight is not None:
+                overrides["state_model_bull_vacuum_weight"] = state_model_bull_vacuum_weight
+            if state_model_bear_pressure_weight is not None:
+                overrides["state_model_bear_pressure_weight"] = state_model_bear_pressure_weight
+            if state_model_bear_vacuum_weight is not None:
+                overrides["state_model_bear_vacuum_weight"] = state_model_bear_vacuum_weight
+            if state_model_mixed_weight is not None:
+                overrides["state_model_mixed_weight"] = state_model_mixed_weight
+            if state_model_enable_weighted_blend is not None:
+                overrides["state_model_enable_weighted_blend"] = state_model_enable_weighted_blend
+            if overrides:
+                config = build_config_with_overrides(config, overrides)
             schema = _grid_schema(config)
             producer_latency_cfg = None
             if perf_latency_jsonl is not None:
@@ -240,7 +493,7 @@ def create_app(
             return
 
         logger.info(
-            "VP fixed-bin stream connected: product_type=%s symbol=%s dt=%s start_time=%s radius=%d cell_width_ms=%d projection_horizons_bins=%s perm_runtime_enabled=%s cfg=%s",
+            "VP fixed-bin stream connected: product_type=%s symbol=%s dt=%s start_time=%s radius=%d cell_width_ms=%d projection_horizons_bins=%s state_model_enabled=%s cfg=%s",
             config.product_type,
             config.symbol,
             dt,
@@ -248,7 +501,7 @@ def create_app(
             config.grid_radius_ticks,
             config.cell_width_ms,
             list(config.projection_horizons_bins),
-            config.perm_runtime_enabled,
+            config.state_model_enabled,
             config.config_version,
         )
         if producer_latency_cfg is not None:
@@ -271,6 +524,7 @@ def create_app(
             projection_use_cubic=projection_use_cubic,
             projection_cubic_scale=projection_cubic_scale,
             projection_damping_lambda=projection_damping_lambda,
+            serving_spec=serving_spec,
         )
 
     return app
@@ -287,31 +541,32 @@ async def _stream_live_dense_grid(
     projection_use_cubic: bool = False,
     projection_cubic_scale: float = 1.0 / 6.0,
     projection_damping_lambda: float = 0.0,
+    serving_spec: ServingSpec | None = None,
 ) -> None:
     """Send fixed-bin dense-grid updates over websocket."""
     grid_count = 0
 
     try:
-        await websocket.send_text(json.dumps({
+        runtime_config_payload: dict[str, Any] = {
             "type": "runtime_config",
             **config.to_dict(),
-            "runtime_model": {
-                "name": "perm_derivative",
-                "enabled": config.perm_runtime_enabled,
-                "center_exclusion_radius": config.perm_center_exclusion_radius,
-                "spatial_decay_power": config.perm_spatial_decay_power,
-                "zscore_window_bins": config.perm_zscore_window_bins,
-                "zscore_min_periods": config.perm_zscore_min_periods,
-                "tanh_scale": config.perm_tanh_scale,
-                "d1_weight": config.perm_d1_weight,
-                "d2_weight": config.perm_d2_weight,
-                "d3_weight": config.perm_d3_weight,
-                "bull_pressure_weight": config.perm_bull_pressure_weight,
-                "bull_vacuum_weight": config.perm_bull_vacuum_weight,
-                "bear_pressure_weight": config.perm_bear_pressure_weight,
-                "bear_vacuum_weight": config.perm_bear_vacuum_weight,
-                "mixed_weight": config.perm_mixed_weight,
-                "enable_weighted_blend": config.perm_enable_weighted_blend,
+            "state_model": {
+                "name": "derivative",
+                "enabled": config.state_model_enabled,
+                "center_exclusion_radius": config.state_model_center_exclusion_radius,
+                "spatial_decay_power": config.state_model_spatial_decay_power,
+                "zscore_window_bins": config.state_model_zscore_window_bins,
+                "zscore_min_periods": config.state_model_zscore_min_periods,
+                "tanh_scale": config.state_model_tanh_scale,
+                "d1_weight": config.state_model_d1_weight,
+                "d2_weight": config.state_model_d2_weight,
+                "d3_weight": config.state_model_d3_weight,
+                "bull_pressure_weight": config.state_model_bull_pressure_weight,
+                "bull_vacuum_weight": config.state_model_bull_vacuum_weight,
+                "bear_pressure_weight": config.state_model_bear_pressure_weight,
+                "bear_vacuum_weight": config.state_model_bear_vacuum_weight,
+                "mixed_weight": config.state_model_mixed_weight,
+                "enable_weighted_blend": config.state_model_enable_weighted_blend,
             },
             "projection_model": {
                 "use_cubic": projection_use_cubic,
@@ -323,7 +578,10 @@ async def _stream_live_dense_grid(
             "stream_format": "dense_grid",
             "grid_schema_fields": [f.name for f in schema],
             "grid_rows": 2 * config.grid_radius_ticks + 1,
-        }))
+        }
+        if serving_spec is not None:
+            runtime_config_payload["serving"] = serving_spec.to_runtime_config_json()
+        await websocket.send_text(json.dumps(runtime_config_payload))
 
         async for grid in async_stream_events(
             lake_root=lake_root,
@@ -350,21 +608,21 @@ async def _stream_live_dense_grid(
                 "best_bid_price_int": str(grid["best_bid_price_int"]),
                 "best_ask_price_int": str(grid["best_ask_price_int"]),
                 "book_valid": grid["book_valid"],
-                "runtime_model_name": grid.get("runtime_model_name"),
-                "runtime_model_score": grid.get("runtime_model_score"),
-                "runtime_model_ready": grid.get("runtime_model_ready"),
-                "runtime_model_sample_count": grid.get("runtime_model_sample_count"),
-                "runtime_model_base": grid.get("runtime_model_base"),
-                "runtime_model_d1": grid.get("runtime_model_d1"),
-                "runtime_model_d2": grid.get("runtime_model_d2"),
-                "runtime_model_d3": grid.get("runtime_model_d3"),
-                "runtime_model_z1": grid.get("runtime_model_z1"),
-                "runtime_model_z2": grid.get("runtime_model_z2"),
-                "runtime_model_z3": grid.get("runtime_model_z3"),
-                "runtime_model_bull_intensity": grid.get("runtime_model_bull_intensity"),
-                "runtime_model_bear_intensity": grid.get("runtime_model_bear_intensity"),
-                "runtime_model_mixed_intensity": grid.get("runtime_model_mixed_intensity"),
-                "runtime_model_dominant_state5_code": grid.get("runtime_model_dominant_state5_code"),
+                "state_model_name": grid.get("state_model_name"),
+                "state_model_score": grid.get("state_model_score"),
+                "state_model_ready": grid.get("state_model_ready"),
+                "state_model_sample_count": grid.get("state_model_sample_count"),
+                "state_model_base": grid.get("state_model_base"),
+                "state_model_d1": grid.get("state_model_d1"),
+                "state_model_d2": grid.get("state_model_d2"),
+                "state_model_d3": grid.get("state_model_d3"),
+                "state_model_z1": grid.get("state_model_z1"),
+                "state_model_z2": grid.get("state_model_z2"),
+                "state_model_z3": grid.get("state_model_z3"),
+                "state_model_bull_intensity": grid.get("state_model_bull_intensity"),
+                "state_model_bear_intensity": grid.get("state_model_bear_intensity"),
+                "state_model_mixed_intensity": grid.get("state_model_mixed_intensity"),
+                "state_model_dominant_state5_code": grid.get("state_model_dominant_state5_code"),
             }))
             await websocket.send_bytes(_grid_to_arrow_ipc(grid, schema))
 

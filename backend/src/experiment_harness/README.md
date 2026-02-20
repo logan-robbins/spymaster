@@ -1,146 +1,147 @@
 # Experiment Harness
 
-Canonical runbook for offline evaluation and tuning of VP signals.
+Offline evaluation and tuning of VP signals on immutable datasets.
 
-This is the source of truth for:
-- running experiments from YAML
-- comparing outcomes
-- tracking with MLflow
-- promoting a winning configuration into the live frontend prediction path
+## Entry Point
 
-## Purpose
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli --help
+```
 
-The harness evaluates signals on immutable datasets without changing live serving.
+CLI commands: `generate`, `run`, `compare`, `promote`, `list-signals`, `list-datasets`, `online-sim`.
 
-Entrypoint:
-- `backend/src/experiment_harness/cli.py`
+## Config Architecture
 
-Core runner:
-- `backend/src/experiment_harness/runner.py`
+Three-layer YAML config chain. Each layer references the one below by name.
 
-Dataset resolution:
-- `backend/src/experiment_harness/dataset_registry.py`
+```
+ExperimentSpec  ->  ServingSpec  ->  PipelineSpec
+```
 
-## Required Inputs
+- ExperimentSpec: sweep axes, TP/SL eval params, cooldown, tracking. References a ServingSpec by name.
+- ServingSpec: scoring params (z-score window, tanh scale, derivative weights), signal name + params, projection config. References a PipelineSpec by name.
+- PipelineSpec: capture window (symbol, date, start/end time), engine params (cell_width_ms, flow windows, tau constants). Deterministic `dataset_id()` from content hash.
 
-Datasets must exist in one of:
-- `backend/lake/research/vp_immutable/<dataset_id>/`
-- `backend/lake/research/vp_harness/generated_grids/<dataset_id>/`
+Config YAML locations:
+- `lake/research/vp_harness/configs/pipelines/` — PipelineSpec YAMLs
+- `lake/research/vp_harness/configs/serving/` — ServingSpec YAMLs
+- `lake/research/vp_harness/configs/experiments/` — ExperimentSpec YAMLs
 
-Each dataset directory must contain:
-- `bins.parquet`
-- `grid_clean.parquet`
+Config models:
+- `src/vacuum_pressure/pipeline_config.py` — PipelineSpec
+- `src/vacuum_pressure/serving_config.py` — ServingSpec
+- `src/vacuum_pressure/experiment_config.py` — ExperimentSpec
+- `src/vacuum_pressure/scoring.py` — SpectrumScorer (single implementation for server + harness)
 
-Configs live in:
-- `backend/lake/research/vp_harness/configs/`
+## Commands
 
-## Core Commands
+All run from `backend/`.
 
-Run from `backend/`.
+### Generate dataset
 
-List signals and datasets:
+```bash
+uv run python -m src.experiment_harness.cli generate <pipeline_spec.yaml>
+```
+
+Streams .dbn events through the VP engine, writes to `lake/research/vp_immutable/<dataset_id>/`. Idempotent: skips if output exists.
+
+Output files per dataset: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`.
+
+### Run experiment
+
+```bash
+uv run python -m src.experiment_harness.cli run <experiment_spec.yaml>
+```
+
+Resolves ExperimentSpec -> ServingSpec -> PipelineSpec. Auto-generates dataset if missing. Expands sweep axes (scoring params x signal params x cooldown values). Evaluates each combination with TP/SL. Persists results to `lake/research/vp_harness/results/`.
+
+### Compare results
+
+```bash
+uv run python -m src.experiment_harness.cli compare --min-signals 5
+uv run python -m src.experiment_harness.cli compare --signal <name> --sort tp_rate
+```
+
+Options: `--signal`, `--dataset-id`, `--sort {tp_rate,mean_pnl_ticks,events_per_hour}`, `--min-signals`.
+
+### Promote winner
+
+```bash
+uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run-id <winner_run_id>
+```
+
+Extracts winning params from ResultsDB, writes a new ServingSpec YAML to `configs/serving/`. Prints runtime overrides for `instrument.yaml` and serving URL.
+
+### List signals and datasets
 
 ```bash
 uv run python -m src.experiment_harness.cli list-signals
 uv run python -m src.experiment_harness.cli list-datasets
 ```
 
-Run one experiment config:
+### Online simulation
 
 ```bash
-uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/smoke_perm_derivative.yaml
+uv run python -m src.experiment_harness.cli online-sim \
+  --signal <name> --dataset-id <id> --bin-budget-ms 100
 ```
 
-Compare best runs:
+Measures per-bin latency of a signal against a budget constraint.
 
-```bash
-uv run python -m src.experiment_harness.cli compare --min-signals 5
-```
+## Signals
 
-Optional online simulation:
+Signal implementations live in `src/experiment_harness/signals/`:
+- `signals/statistical/` — statistical signals
+- `signals/ml/` — ML signals
+- `signals/base.py` — `StatisticalSignal` and `MLSignal` base classes
 
-```bash
-uv run python -m src.experiment_harness.cli online-sim --signal perm_derivative --dataset-id <dataset_id> --bin-budget-ms 100
-```
+Use `list-signals` to see the current registered set.
 
-## Current Production-Relevant Configs
+## Scoring Invariant
 
-- `lake/research/vp_harness/configs/smoke_perm_derivative.yaml`
-- `lake/research/vp_harness/configs/tune_perm_derivative.yaml`
-- `lake/research/vp_harness/configs/tune_ads_pfp_svac_runtime.yaml`
-- `lake/research/vp_harness/configs/tune_ads_pfp_svac_rr_20_8.yaml`
+`src/vacuum_pressure/scoring.py` contains `SpectrumScorer` — the single scoring implementation used by both the live server and the harness. Zero train/serve skew.
 
-## Results and Tracking
+- Incremental API: `update(d1, d2, d3) -> (score, state_code)` per cell (`state_code` is persisted as `flow_state_code`)
+- Batch API: `score_dataset(grid_df, scoring_config) -> DataFrame with flow_score/flow_state_code`
 
-Local results database:
-- `backend/lake/research/vp_harness/results/runs_meta.parquet`
-- `backend/lake/research/vp_harness/results/runs.parquet`
+Both APIs produce identical outputs for identical inputs.
 
-Tracking implementation:
-- `backend/src/experiment_harness/tracking.py`
+## Key Modules
 
-MLflow configuration is controlled per YAML config (`tracking` block).
+- `src/experiment_harness/cli.py` — Click CLI entry point
+- `src/experiment_harness/runner.py` — ExperimentRunner: sweep expansion, signal evaluation, result persistence
+- `src/experiment_harness/config_schema.py` — internal `ExperimentConfig` flat schema (not user-facing, produced by `ExperimentSpec.to_harness_config()`)
+- `src/experiment_harness/results_db.py` — `ResultsDB`: parquet-backed run storage, `query_runs()`, `query_best()`
+- `src/experiment_harness/dataset_registry.py` — `DatasetRegistry`: discovers datasets under `vp_immutable/`
+- `src/experiment_harness/eval_engine.py` — TP/SL evaluation engine
+- `src/experiment_harness/tracking.py` — MLflow tracking integration
+- `src/experiment_harness/online_simulator.py` — per-bin latency simulation
 
-## Add or Tune a Signal
+## Results Store
 
-1. Choose or create a YAML in `lake/research/vp_harness/configs/`.
-2. Set `datasets`, `signals`, and `eval`.
-3. Add sweep axes under `sweep.universal` and `sweep.per_signal.<signal_name>`.
-4. Set `tracking.experiment_name` and tags.
-5. Run via CLI.
-6. Rank with `compare`.
+- `lake/research/vp_harness/results/` — `runs_meta.parquet` (run-level metadata) and `runs.parquet` (per-threshold results: tp_rate, n_signals, mean_pnl_ticks, events_per_hour)
 
-Fail-fast contracts:
-- unknown sweep params are rejected
-- missing datasets/configs are rejected
+## Promotion Flow
 
-## Promote Harness Winner To Live Frontend Prediction Algorithm
+1. `compare` to find best run_id
+2. `promote` writes ServingSpec YAML to `configs/serving/`
+3. Update `instrument.yaml` with printed runtime overrides
+4. Restart backend
+5. Stream: `?serving=<promoted_name>` in WebSocket URL
 
-### A) Promote parameter set for current runtime model (no algorithm code change)
+## Tracking
 
-Use when the winner is already represented by the live runtime model family.
-
-1. Take winning parameter values from harness run output.
-2. Update runtime defaults in `backend/src/vacuum_pressure/instrument.yaml`.
-3. Restart backend (`scripts/run_vacuum_pressure.py`) and frontend.
-4. Verify live stream/visual output.
-
-Files that enforce this runtime path:
-- `backend/src/vacuum_pressure/runtime_model.py`
-- `backend/src/vacuum_pressure/stream_pipeline.py`
-- `backend/src/vacuum_pressure/server.py`
-- `frontend/src/vacuum-pressure.ts`
-
-### B) Promote a different signal family as frontend prediction algorithm
-
-Use when the winner is not yet implemented in live serving.
-
-1. Implement incremental runtime scorer in `backend/src/vacuum_pressure/runtime_model.py`.
-2. Wire per-bin execution in `backend/src/vacuum_pressure/stream_pipeline.py`.
-3. Expose runtime config/update payloads in `backend/src/vacuum_pressure/server.py`.
-4. Update frontend ingestion/render mapping in `frontend/src/vacuum-pressure.ts`.
-5. Set defaults in `backend/src/vacuum_pressure/instrument.yaml`.
-6. Re-run backend tests and frontend typecheck before launch.
+MLflow tracking configured per ExperimentSpec YAML (`tracking` block).
 
 ## Verification
 
-Backend targeted checks:
-
 ```bash
 cd backend
-uv run pytest tests/test_experiment_harness/test_perm_derivative_signal.py tests/test_experiment_harness/test_ads_pfp_svac_signal.py tests/test_experiment_harness/test_runner_core.py
-```
 
-Live-runtime integration checks:
+# Harness tests
+uv run pytest tests/test_experiment_harness/
 
-```bash
-cd backend
-uv run pytest tests/test_runtime_perm_model.py tests/test_stream_pipeline_perf.py tests/test_runtime_config_overrides.py
-```
-
-Frontend typecheck:
-
-```bash
-cd frontend
-npx tsc --noEmit
+# All backend tests
+uv run pytest tests/
 ```

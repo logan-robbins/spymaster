@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VP Experiment Browser</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      color: #ccc;
+      overflow-x: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* -- Top bar -- */
+    #top-bar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: rgba(15, 15, 25, 0.95);
+      border-bottom: 1px solid rgba(100, 100, 150, 0.25);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    #top-bar .title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #00ffaa;
+      white-space: nowrap;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .filter-group label {
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .filter-group select, .filter-group input {
+      background: #1a1a24;
+      color: #ccc;
+      border: 1px solid rgba(100, 100, 150, 0.3);
+      border-radius: 3px;
+      padding: 3px 8px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+    }
+    .filter-group select:focus, .filter-group input:focus {
+      border-color: #00ffaa;
+    }
+    .filter-group input[type="number"] {
+      width: 50px;
+    }
+    #status-text {
+      margin-left: auto;
+      color: #888;
+      font-size: 10px;
+    }
+
+    /* -- Main area -- */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* -- Table panel (left) -- */
+    #table-panel {
+      flex: 1;
+      overflow: auto;
+      padding: 0;
+    }
+    #runs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    #runs-table thead {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    #runs-table th {
+      background: #12121c;
+      color: #888;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 9px;
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid rgba(100, 100, 150, 0.25);
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+    #runs-table th:hover {
+      color: #00ffaa;
+    }
+    #runs-table th.sorted-asc::after { content: ' \u25B2'; color: #00ffaa; }
+    #runs-table th.sorted-desc::after { content: ' \u25BC'; color: #00ffaa; }
+    #runs-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(100, 100, 150, 0.1);
+      white-space: nowrap;
+    }
+    #runs-table tr {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    #runs-table tbody tr:hover {
+      background: rgba(0, 255, 170, 0.05);
+    }
+    #runs-table tbody tr.selected {
+      background: rgba(0, 255, 170, 0.1);
+      border-left: 3px solid #00ffaa;
+    }
+    .tp-high { color: #00ff88; font-weight: 600; }
+    .tp-mid { color: #ccaa22; }
+    .tp-low { color: #ff4444; }
+    .can-stream { color: #00ffaa; }
+    .no-stream { color: #555; }
+
+    /* -- Detail panel (right) -- */
+    #detail-panel {
+      width: 380px;
+      flex-shrink: 0;
+      background: rgba(15, 15, 25, 0.95);
+      border-left: 1px solid rgba(100, 100, 150, 0.25);
+      overflow-y: auto;
+      padding: 16px;
+      display: none;
+    }
+    #detail-panel.visible { display: block; }
+    #detail-panel h3 {
+      color: #00ffaa;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .detail-section {
+      margin-bottom: 16px;
+    }
+    .detail-section h4 {
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .detail-kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 2px 8px;
+      font-size: 11px;
+    }
+    .detail-kv .key { color: #888; }
+    .detail-kv .val { color: #ddd; }
+
+    .param-json {
+      background: #0d0d14;
+      border: 1px solid rgba(100, 100, 150, 0.2);
+      border-radius: 3px;
+      padding: 8px;
+      font-size: 10px;
+      color: #aaa;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* -- Threshold results mini-table -- */
+    .threshold-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin-top: 4px;
+    }
+    .threshold-table th {
+      background: #0d0d14;
+      color: #888;
+      font-size: 9px;
+      padding: 4px 6px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .threshold-table td {
+      padding: 3px 6px;
+      border-bottom: 1px solid rgba(100, 100, 150, 0.08);
+    }
+
+    /* -- Launch button -- */
+    .btn-launch {
+      display: inline-block;
+      padding: 8px 20px;
+      background: #00cc88;
+      color: #000;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 8px;
+    }
+    .btn-launch:hover { background: #00ffaa; }
+    .btn-launch:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    .btn-launch:disabled:hover { background: #333; }
+    .btn-launch-note {
+      font-size: 9px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    /* -- Empty state -- */
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #555;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="top-bar">
+      <span class="title">VP EXPERIMENT BROWSER</span>
+
+      <div class="filter-group">
+        <label>Signal</label>
+        <select id="filter-signal"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Dataset</label>
+        <select id="filter-dataset"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Sort</label>
+        <select id="filter-sort">
+          <option value="tp_rate">TP %</option>
+          <option value="mean_pnl_ticks">PnL/tick</option>
+          <option value="events_per_hour">Evt/hr</option>
+          <option value="n_signals">N Signals</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Min Signals</label>
+        <input type="number" id="filter-min-signals" value="5" min="1">
+      </div>
+
+      <span id="status-text">Loading...</span>
+    </div>
+
+    <div id="main">
+      <div id="table-panel">
+        <table id="runs-table">
+          <thead>
+            <tr>
+              <th data-col="rank">#</th>
+              <th data-col="signal_name">Signal</th>
+              <th data-col="dataset_id">Dataset</th>
+              <th data-col="tp_rate">TP %</th>
+              <th data-col="sl_rate">SL %</th>
+              <th data-col="n_signals">N</th>
+              <th data-col="mean_pnl_ticks">PnL/tick</th>
+              <th data-col="events_per_hour">Evt/hr</th>
+              <th data-col="eval_tp_ticks">TP ticks</th>
+              <th data-col="eval_sl_ticks">SL ticks</th>
+              <th data-col="threshold">Threshold</th>
+              <th data-col="cooldown_bins">Cooldown</th>
+              <th data-col="can_stream">Stream</th>
+            </tr>
+          </thead>
+          <tbody id="runs-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="detail-panel">
+        <h3 id="detail-title">Run Detail</h3>
+
+        <div class="detail-section">
+          <h4>Metrics (Best Threshold)</h4>
+          <div id="detail-metrics" class="detail-kv"></div>
+        </div>
+
+        <div class="detail-section">
+          <h4>Signal Parameters</h4>
+          <div id="detail-params" class="param-json"></div>
+        </div>
+
+        <div class="detail-section">
+          <h4>Threshold Sweep</h4>
+          <div id="detail-thresholds"></div>
+        </div>
+
+        <div class="detail-section">
+          <button id="btn-launch" class="btn-launch" disabled>Launch Stream</button>
+          <div id="launch-note" class="btn-launch-note"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/experiments.ts"></script>
+</body>
+</html>

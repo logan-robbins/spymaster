@@ -11,8 +11,8 @@ import { RollingRobustZScore } from './experiment-math';
 
 export interface ERDBucketLike {
   k: number;
-  spectrum_state_code: number;
-  spectrum_score: number;
+  flow_state_code: number;
+  flow_score: number;
 }
 
 const ZSCORE_WINDOW = 100;
@@ -43,7 +43,7 @@ export class ERDSignal {
     let totalFull = 0, totalAbove = 0, totalBelow = 0;
 
     for (const [k, row] of grid) {
-      const sc = row.spectrum_state_code;
+      const sc = row.flow_state_code;
       totalFull++;
       if (sc === 1) nPFull++;
       else if (sc === -1) nVFull++;

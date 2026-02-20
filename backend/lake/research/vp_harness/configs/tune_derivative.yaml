@@ -1,11 +1,11 @@
-name: tune_perm_derivative
-description: Permutation-derivative state signal sweep on immutable gold dataset.
+name: tune_derivative
+description: Derivative state signal sweep on immutable gold dataset.
 
 datasets:
   - mnqh6_20260206_0925_0927_perm_v1
 
 signals:
-  - perm_derivative
+  - derivative
 
 eval:
   tp_ticks: 8
@@ -19,7 +19,7 @@ sweep:
   universal:
     cooldown_bins: [20, 30]
   per_signal:
-    perm_derivative:
+    derivative:
       zscore_window_bins: [120, 240, 360]
       zscore_min_periods: [30, 60]
       d1_weight: [1.0]
@@ -34,8 +34,8 @@ parallel:
 
 tracking:
   backend: mlflow
-  experiment_name: vp/tune_perm_derivative
-  run_name_prefix: perm
+  experiment_name: vp/tune_derivative
+  run_name_prefix: derivative
   tags:
     stage: tune
     source: vp_harness

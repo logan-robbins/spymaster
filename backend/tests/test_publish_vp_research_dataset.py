@@ -63,7 +63,7 @@ def _write_source_dataset(tmp_path: Path) -> Path:
             "best_ask_price_int": 100_001,
             "book_valid": True,
             "k": -1,
-            "spectrum_state_code": -1,
+            "flow_state_code": -1,
             "last_event_id": 101,
             "pressure_variant": 1.0,
             "vacuum_variant": 2.0,
@@ -83,7 +83,7 @@ def _write_source_dataset(tmp_path: Path) -> Path:
             "j_pull": 16.0,
             "j_fill": 17.0,
             "j_rest_depth": 18.0,
-            "spectrum_score": -0.2,
+            "flow_score": -0.2,
             "proj_score_h250": -0.1,
             "proj_score_h500": -0.05,
         },
@@ -100,7 +100,7 @@ def _write_source_dataset(tmp_path: Path) -> Path:
             "best_ask_price_int": 100_001,
             "book_valid": True,
             "k": 0,
-            "spectrum_state_code": 0,
+            "flow_state_code": 0,
             "last_event_id": 102,
             "pressure_variant": 2.0,
             "vacuum_variant": 1.0,
@@ -120,7 +120,7 @@ def _write_source_dataset(tmp_path: Path) -> Path:
             "j_pull": 16.0,
             "j_fill": 17.0,
             "j_rest_depth": 18.0,
-            "spectrum_score": 0.1,
+            "flow_score": 0.1,
             "proj_score_h250": 0.2,
             "proj_score_h500": 0.3,
         },
@@ -155,7 +155,7 @@ def test_publish_dataset_splits_and_freezes_base_data(tmp_path: Path) -> None:
     clean_schema = pq.read_schema(immutable / "grid_clean.parquet").names
     assert "proj_score_h250" not in clean_schema
     assert "proj_score_h500" not in clean_schema
-    assert "spectrum_score" in clean_schema
+    assert "flow_score" in clean_schema
     assert result["projection_columns_removed"] == ["proj_score_h250", "proj_score_h500"]
 
     for path in [

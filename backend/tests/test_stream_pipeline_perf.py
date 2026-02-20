@@ -33,13 +33,13 @@ def _test_config() -> VPRuntimeConfig:
         grid_radius_ticks=2,
         cell_width_ms=100,
         n_absolute_ticks=32,
-        spectrum_windows=(2, 4),
-        spectrum_rollup_weights=(1.0, 1.0),
-        spectrum_derivative_weights=(0.55, 0.30, 0.15),
-        spectrum_tanh_scale=3.0,
-        spectrum_threshold_neutral=0.15,
-        zscore_window_bins=8,
-        zscore_min_periods=2,
+        flow_windows=(2, 4),
+        flow_rollup_weights=(1.0, 1.0),
+        flow_derivative_weights=(0.55, 0.30, 0.15),
+        flow_tanh_scale=3.0,
+        flow_neutral_threshold=0.15,
+        flow_zscore_window_bins=8,
+        flow_zscore_min_periods=2,
         projection_horizons_bins=(1,),
         projection_horizons_ms=(100,),
         contract_multiplier=1.0,
@@ -225,18 +225,18 @@ def test_stream_events_emits_permutation_labels_for_upward_chase(
     second = grids[1]
     assert int(second["ask_reprice_sign"]) == 1
     assert int(second["bid_reprice_sign"]) == 1
-    assert int(second["perm_microstate_id"]) == 8
+    assert int(second["microstate_id"]) == 8
     assert int(second["chase_up_flag"]) == 1
-    assert second["runtime_model_name"] == "perm_derivative"
-    assert isinstance(second["runtime_model_score"], float)
-    assert isinstance(second["runtime_model_ready"], bool)
-    assert isinstance(second["runtime_model_sample_count"], int)
-    assert isinstance(second["runtime_model_dominant_state5_code"], int)
+    assert second["state_model_name"] == "derivative"
+    assert isinstance(second["state_model_score"], float)
+    assert isinstance(second["state_model_ready"], bool)
+    assert isinstance(second["state_model_sample_count"], int)
+    assert isinstance(second["state_model_dominant_state5_code"], int)
 
     above = _bucket_by_k(second, 1)
     below = _bucket_by_k(second, -1)
-    assert int(above["perm_state5_code"]) == 2  # bullish vacuum above spot
-    assert int(below["perm_state5_code"]) == 1  # bullish pressure below spot
+    assert int(above["state5_code"]) == 2  # bullish vacuum above spot
+    assert int(below["state5_code"]) == 1  # bullish pressure below spot
 
 
 def test_async_stream_events_writes_latency_jsonl_and_hides_internal_metadata(
@@ -299,7 +299,7 @@ def test_stream_events_can_disable_runtime_model(
         "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_gap()),
     )
-    config = build_config_with_overrides(_test_config(), {"perm_runtime_enabled": False})
+    config = build_config_with_overrides(_test_config(), {"state_model_enabled": False})
     grids = list(
         stream_events(
             lake_root=Path("/tmp"),
@@ -309,4 +309,4 @@ def test_stream_events_can_disable_runtime_model(
         )
     )
     assert len(grids) == 3
-    assert "runtime_model_name" not in grids[0]
+    assert "state_model_name" not in grids[0]

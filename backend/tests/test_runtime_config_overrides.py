@@ -27,13 +27,13 @@ def _base_config() -> VPRuntimeConfig:
         grid_radius_ticks=50,
         cell_width_ms=100,
         n_absolute_ticks=8192,
-        spectrum_windows=(5, 10, 20, 40),
-        spectrum_rollup_weights=(1.0, 1.0, 1.0, 1.0),
-        spectrum_derivative_weights=(0.55, 0.30, 0.15),
-        spectrum_tanh_scale=3.0,
-        spectrum_threshold_neutral=0.15,
-        zscore_window_bins=300,
-        zscore_min_periods=75,
+        flow_windows=(5, 10, 20, 40),
+        flow_rollup_weights=(1.0, 1.0, 1.0, 1.0),
+        flow_derivative_weights=(0.55, 0.30, 0.15),
+        flow_tanh_scale=3.0,
+        flow_neutral_threshold=0.15,
+        flow_zscore_window_bins=300,
+        flow_zscore_min_periods=75,
         projection_horizons_bins=(1, 2, 3, 4),
         projection_horizons_ms=(100, 200, 300, 400),
         contract_multiplier=2.0,
@@ -106,35 +106,35 @@ def test_parse_projection_horizons_bins_override_rejects_invalid() -> None:
         parse_projection_horizons_bins_override("1,0,2")
 
 
-def test_build_config_with_overrides_accepts_perm_runtime_params() -> None:
+def test_build_config_with_overrides_accepts_state_model_params() -> None:
     base = _base_config()
     updated = build_config_with_overrides(
         base,
         {
-            "perm_runtime_enabled": False,
-            "perm_zscore_window_bins": 120,
-            "perm_zscore_min_periods": 30,
-            "perm_d1_weight": 0.7,
-            "perm_d2_weight": 0.2,
-            "perm_d3_weight": 0.1,
+            "state_model_enabled": False,
+            "state_model_zscore_window_bins": 120,
+            "state_model_zscore_min_periods": 30,
+            "state_model_d1_weight": 0.7,
+            "state_model_d2_weight": 0.2,
+            "state_model_d3_weight": 0.1,
         },
     )
-    assert updated.perm_runtime_enabled is False
-    assert updated.perm_zscore_window_bins == 120
-    assert updated.perm_zscore_min_periods == 30
-    assert updated.perm_d1_weight == pytest.approx(0.7)
-    assert updated.perm_d2_weight == pytest.approx(0.2)
-    assert updated.perm_d3_weight == pytest.approx(0.1)
+    assert updated.state_model_enabled is False
+    assert updated.state_model_zscore_window_bins == 120
+    assert updated.state_model_zscore_min_periods == 30
+    assert updated.state_model_d1_weight == pytest.approx(0.7)
+    assert updated.state_model_d2_weight == pytest.approx(0.2)
+    assert updated.state_model_d3_weight == pytest.approx(0.1)
 
 
-def test_build_config_with_overrides_rejects_invalid_perm_weights() -> None:
+def test_build_config_with_overrides_rejects_invalid_runtime_weights() -> None:
     base = _base_config()
-    with pytest.raises(ValueError, match="At least one of perm_d1_weight"):
+    with pytest.raises(ValueError, match="At least one of state_model_d1_weight"):
         build_config_with_overrides(
             base,
             {
-                "perm_d1_weight": 0.0,
-                "perm_d2_weight": 0.0,
-                "perm_d3_weight": 0.0,
+                "state_model_d1_weight": 0.0,
+                "state_model_d2_weight": 0.0,
+                "state_model_d3_weight": 0.0,
             },
         )

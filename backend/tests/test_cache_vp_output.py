@@ -27,13 +27,13 @@ def _test_config() -> VPRuntimeConfig:
         grid_radius_ticks=1,
         cell_width_ms=100,
         n_absolute_ticks=16,
-        spectrum_windows=(2, 4),
-        spectrum_rollup_weights=(1.0, 1.0),
-        spectrum_derivative_weights=(0.55, 0.30, 0.15),
-        spectrum_tanh_scale=3.0,
-        spectrum_threshold_neutral=0.15,
-        zscore_window_bins=8,
-        zscore_min_periods=2,
+        flow_windows=(2, 4),
+        flow_rollup_weights=(1.0, 1.0),
+        flow_derivative_weights=(0.55, 0.30, 0.15),
+        flow_tanh_scale=3.0,
+        flow_neutral_threshold=0.15,
+        flow_zscore_window_bins=8,
+        flow_zscore_min_periods=2,
         projection_horizons_bins=(1, 2),
         projection_horizons_ms=(100, 200),
         contract_multiplier=1.0,
@@ -48,7 +48,7 @@ def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
     for field_name, _dtype in cache_vp_output._BUCKET_INT_FIELDS:
         if field_name == "k":
             row[field_name] = k
-        elif field_name == "spectrum_state_code":
+        elif field_name == "flow_state_code":
             row[field_name] = -1 if k < 0 else 1
         elif field_name == "last_event_id":
             row[field_name] = event_id + k

@@ -9,8 +9,8 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.experiment_harness.signals.statistical.perm_derivative import (  # noqa: E402
-    PermDerivativeSignal,
+from src.experiment_harness.signals.statistical.derivative import (  # noqa: E402
+    DerivativeSignal,
 )
 
 
@@ -20,21 +20,21 @@ def _dataset_from_state_code(state_code: int, n_bins: int = 64) -> dict[str, np.
     return {
         "n_bins": n_bins,
         "k_values": np.arange(-50, 51, dtype=np.int32),
-        "perm_state5_code": state_grid,
-        "perm_microstate_id": micro_grid,
+        "state5_code": state_grid,
+        "microstate_id": micro_grid,
     }
 
 
-def test_perm_derivative_rejects_invalid_grid_shape() -> None:
-    signal = PermDerivativeSignal(zscore_window_bins=8, zscore_min_periods=2)
+def test_derivative_rejects_invalid_grid_shape() -> None:
+    signal = DerivativeSignal(zscore_window_bins=8, zscore_min_periods=2)
     dataset = _dataset_from_state_code(0, n_bins=32)
-    dataset["perm_state5_code"] = np.zeros((32, 99), dtype=np.float64)
+    dataset["state5_code"] = np.zeros((32, 99), dtype=np.float64)
     with pytest.raises(ValueError, match="must have 101 columns"):
         signal.compute(dataset)
 
 
-def test_perm_derivative_zero_state_is_stable() -> None:
-    signal = PermDerivativeSignal(
+def test_derivative_zero_state_is_stable() -> None:
+    signal = DerivativeSignal(
         zscore_window_bins=8,
         zscore_min_periods=2,
         d1_weight=1.0,
@@ -44,12 +44,12 @@ def test_perm_derivative_zero_state_is_stable() -> None:
     result = signal.compute(_dataset_from_state_code(0))
     assert result.signal.shape == (64,)
     assert np.allclose(result.signal, 0.0)
-    assert "perm_state5_distribution" in result.metadata
-    assert "perm_micro9_distribution" in result.metadata
-    assert "perm_state5_transition_matrix" in result.metadata
+    assert "state5_distribution" in result.metadata
+    assert "micro9_distribution" in result.metadata
+    assert "state5_transition_matrix" in result.metadata
 
 
-def test_perm_derivative_detects_regime_shift_direction() -> None:
+def test_derivative_detects_regime_shift_direction() -> None:
     n_bins = 64
     state = np.zeros((n_bins, 101), dtype=np.float64)
     # First half mixed, second half bullish (above spot vacuum, below spot pressure).
@@ -61,10 +61,10 @@ def test_perm_derivative_detects_regime_shift_direction() -> None:
     dataset = {
         "n_bins": n_bins,
         "k_values": np.arange(-50, 51, dtype=np.int32),
-        "perm_state5_code": state,
-        "perm_microstate_id": np.full((n_bins, 101), 8.0, dtype=np.float64),
+        "state5_code": state,
+        "microstate_id": np.full((n_bins, 101), 8.0, dtype=np.float64),
     }
-    signal = PermDerivativeSignal(
+    signal = DerivativeSignal(
         zscore_window_bins=12,
         zscore_min_periods=4,
         d1_weight=1.0,

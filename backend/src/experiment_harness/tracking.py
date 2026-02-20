@@ -124,24 +124,24 @@ class ExperimentTracker:
                         mlflow.log_metric(metric, float(best_row[metric]))
 
                 state_dist = self._parse_json_dict(
-                    meta.get("perm_state5_distribution_json")
+                    meta.get("state5_distribution_json")
                 )
                 micro_dist = self._parse_json_dict(
-                    meta.get("perm_micro9_distribution_json")
+                    meta.get("micro9_distribution_json")
                 )
                 transition = self._parse_json_value(
-                    meta.get("perm_state5_transition_matrix_json")
+                    meta.get("state5_transition_matrix_json")
                 )
-                labels = self._parse_json_value(meta.get("perm_state5_labels_json"))
+                labels = self._parse_json_value(meta.get("state5_labels_json"))
 
                 for code, count in state_dist.items():
                     try:
-                        mlflow.log_metric(f"perm_state5_count_{code}", float(count))
+                        mlflow.log_metric(f"state5_count_{code}", float(count))
                     except (TypeError, ValueError):
                         continue
                 for code, count in micro_dist.items():
                     try:
-                        mlflow.log_metric(f"perm_micro9_count_{code}", float(count))
+                        mlflow.log_metric(f"micro9_count_{code}", float(count))
                     except (TypeError, ValueError):
                         continue
 
@@ -163,7 +163,7 @@ class ExperimentTracker:
                         )
                     if state_dist or micro_dist or transition is not None:
                         diag = {
-                            "perm_taxonomy_version": meta.get("perm_taxonomy_version"),
+                            "taxonomy_version": meta.get("taxonomy_version"),
                             "state5_distribution": state_dist,
                             "micro9_distribution": micro_dist,
                             "state5_transition_matrix": transition,

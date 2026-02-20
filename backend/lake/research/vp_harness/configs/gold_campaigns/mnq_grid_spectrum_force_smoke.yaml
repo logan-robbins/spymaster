@@ -9,7 +9,7 @@ publish:
   agents: []
 sweep_axes:
   cell_width_ms: [100]
-  spectrum_tanh_scale: [3.0]
+  flow_tanh_scale: [3.0]
 bundles:
   - tau_velocity: 2.0
     tau_acceleration: 5.0

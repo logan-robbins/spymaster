@@ -30,10 +30,10 @@ class GridVariantConfig(BaseModel):
     c6_v_rest_neg: float | list[float] = 0.5
     c7_a_pull: float | list[float] = 0.3
     bucket_size_dollars: float | list[float] | None = None
-    spectrum_windows: list[int] | None = None
-    spectrum_rollup_weights: list[float] | None = None
-    spectrum_derivative_weights: list[float] | None = None
-    spectrum_tanh_scale: float | None = None
+    flow_windows: list[int] | None = None
+    flow_rollup_weights: list[float] | None = None
+    flow_derivative_weights: list[float] | None = None
+    flow_tanh_scale: float | None = None
     tau_velocity: float | list[float] | None = None
     tau_acceleration: float | list[float] | None = None
     tau_jerk: float | list[float] | None = None

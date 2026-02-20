@@ -13,7 +13,7 @@ from src.experiment_harness.signals.statistical import (  # noqa: F401
     iirc,
     jad,
     msd,
-    perm_derivative,
+    derivative,
     pfp,
     spg,
 )

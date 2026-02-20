@@ -118,8 +118,8 @@ def _collect_bins(
         ts_bins.append(ts_ns)
         mid_prices.append(float(grid["mid_price"]))
 
-        score_row = np.array([float(b["spectrum_score"]) for b in buckets], dtype=np.float64)
-        state_row = np.array([int(b["spectrum_state_code"]) for b in buckets], dtype=np.int8)
+        score_row = np.array([float(b["flow_score"]) for b in buckets], dtype=np.float64)
+        state_row = np.array([int(b["flow_state_code"]) for b in buckets], dtype=np.int8)
         scores.append(score_row)
         states.append(state_row)
 

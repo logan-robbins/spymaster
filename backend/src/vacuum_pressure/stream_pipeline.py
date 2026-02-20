@@ -24,9 +24,9 @@ from .config import VPRuntimeConfig
 from .event_engine import AbsoluteTickEngine
 from .replay_source import _resolve_dbn_path, iter_mbo_events
 from .runtime_model import (
-    PermDerivativeRuntime,
-    PermDerivativeRuntimeOutput,
-    PermDerivativeRuntimeParams,
+    DerivativeRuntime,
+    DerivativeRuntimeOutput,
+    DerivativeRuntimeParams,
 )
 from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
@@ -112,12 +112,12 @@ def _best_move_ticks(
     return int(round((current_price_int - previous_price_int) / tick_int))
 
 
-def _perm_microstate_id(ask_sign: int, bid_sign: int) -> int:
+def _microstate_id(ask_sign: int, bid_sign: int) -> int:
     """Encode (ask_sign, bid_sign) into stable microstate id [0, 8]."""
     return int((ask_sign + 1) * 3 + (bid_sign + 1))
 
 
-def _perm_state5_code(k: int, ask_sign: int, bid_sign: int) -> int:
+def _state5_code(k: int, ask_sign: int, bid_sign: int) -> int:
     """Map signs + bucket location to 5-state directional permutation code."""
     if k == 0:
         return STATE5_MIXED
@@ -136,7 +136,7 @@ def _annotate_permutation_labels(
     """Annotate each bucket row with permutation microstate + directional labels."""
     ask_sign = _sign_from_ticks(ask_move_ticks)
     bid_sign = _sign_from_ticks(bid_move_ticks)
-    micro_id = _perm_microstate_id(ask_sign, bid_sign)
+    micro_id = _microstate_id(ask_sign, bid_sign)
     chase_up_flag = int(ask_sign > 0 and bid_sign > 0)
     chase_down_flag = int(ask_sign < 0 and bid_sign < 0)
 
@@ -144,7 +144,7 @@ def _annotate_permutation_labels(
     grid["best_bid_move_ticks"] = bid_move_ticks
     grid["ask_reprice_sign"] = ask_sign
     grid["bid_reprice_sign"] = bid_sign
-    grid["perm_microstate_id"] = micro_id
+    grid["microstate_id"] = micro_id
     grid["chase_up_flag"] = chase_up_flag
     grid["chase_down_flag"] = chase_down_flag
 
@@ -154,54 +154,54 @@ def _annotate_permutation_labels(
         bucket["best_bid_move_ticks"] = bid_move_ticks
         bucket["ask_reprice_sign"] = ask_sign
         bucket["bid_reprice_sign"] = bid_sign
-        bucket["perm_microstate_id"] = micro_id
-        bucket["perm_state5_code"] = _perm_state5_code(k, ask_sign, bid_sign)
+        bucket["microstate_id"] = micro_id
+        bucket["state5_code"] = _state5_code(k, ask_sign, bid_sign)
         bucket["chase_up_flag"] = chase_up_flag
         bucket["chase_down_flag"] = chase_down_flag
 
 
-def _perm_runtime_params_from_config(config: VPRuntimeConfig) -> PermDerivativeRuntimeParams:
-    """Build validated runtime permutation-model params from runtime config."""
-    params = PermDerivativeRuntimeParams(
-        center_exclusion_radius=config.perm_center_exclusion_radius,
-        spatial_decay_power=config.perm_spatial_decay_power,
-        zscore_window_bins=config.perm_zscore_window_bins,
-        zscore_min_periods=config.perm_zscore_min_periods,
-        tanh_scale=config.perm_tanh_scale,
-        d1_weight=config.perm_d1_weight,
-        d2_weight=config.perm_d2_weight,
-        d3_weight=config.perm_d3_weight,
-        bull_pressure_weight=config.perm_bull_pressure_weight,
-        bull_vacuum_weight=config.perm_bull_vacuum_weight,
-        bear_pressure_weight=config.perm_bear_pressure_weight,
-        bear_vacuum_weight=config.perm_bear_vacuum_weight,
-        mixed_weight=config.perm_mixed_weight,
-        enable_weighted_blend=config.perm_enable_weighted_blend,
+def _state_model_params_from_config(config: VPRuntimeConfig) -> DerivativeRuntimeParams:
+    """Build validated state-model params from runtime config."""
+    params = DerivativeRuntimeParams(
+        center_exclusion_radius=config.state_model_center_exclusion_radius,
+        spatial_decay_power=config.state_model_spatial_decay_power,
+        zscore_window_bins=config.state_model_zscore_window_bins,
+        zscore_min_periods=config.state_model_zscore_min_periods,
+        tanh_scale=config.state_model_tanh_scale,
+        d1_weight=config.state_model_d1_weight,
+        d2_weight=config.state_model_d2_weight,
+        d3_weight=config.state_model_d3_weight,
+        bull_pressure_weight=config.state_model_bull_pressure_weight,
+        bull_vacuum_weight=config.state_model_bull_vacuum_weight,
+        bear_pressure_weight=config.state_model_bear_pressure_weight,
+        bear_vacuum_weight=config.state_model_bear_vacuum_weight,
+        mixed_weight=config.state_model_mixed_weight,
+        enable_weighted_blend=config.state_model_enable_weighted_blend,
     )
     params.validate()
     return params
 
 
-def _annotate_runtime_model(
+def _annotate_state_model(
     grid: Dict[str, Any],
-    model_out: PermDerivativeRuntimeOutput,
+    model_out: DerivativeRuntimeOutput,
 ) -> None:
     """Attach runtime model outputs to the emitted grid payload."""
-    grid["runtime_model_name"] = model_out.name
-    grid["runtime_model_score"] = model_out.score
-    grid["runtime_model_ready"] = model_out.ready
-    grid["runtime_model_sample_count"] = model_out.sample_count
-    grid["runtime_model_base"] = model_out.base
-    grid["runtime_model_d1"] = model_out.d1
-    grid["runtime_model_d2"] = model_out.d2
-    grid["runtime_model_d3"] = model_out.d3
-    grid["runtime_model_z1"] = model_out.z1
-    grid["runtime_model_z2"] = model_out.z2
-    grid["runtime_model_z3"] = model_out.z3
-    grid["runtime_model_bull_intensity"] = model_out.bull_intensity
-    grid["runtime_model_bear_intensity"] = model_out.bear_intensity
-    grid["runtime_model_mixed_intensity"] = model_out.mixed_intensity
-    grid["runtime_model_dominant_state5_code"] = model_out.dominant_state5_code
+    grid["state_model_name"] = model_out.name
+    grid["state_model_score"] = model_out.score
+    grid["state_model_ready"] = model_out.ready
+    grid["state_model_sample_count"] = model_out.sample_count
+    grid["state_model_base"] = model_out.base
+    grid["state_model_d1"] = model_out.d1
+    grid["state_model_d2"] = model_out.d2
+    grid["state_model_d3"] = model_out.d3
+    grid["state_model_z1"] = model_out.z1
+    grid["state_model_z2"] = model_out.z2
+    grid["state_model_z3"] = model_out.z3
+    grid["state_model_bull_intensity"] = model_out.bull_intensity
+    grid["state_model_bear_intensity"] = model_out.bear_intensity
+    grid["state_model_mixed_intensity"] = model_out.mixed_intensity
+    grid["state_model_dominant_state5_code"] = model_out.dominant_state5_code
 
 
 class _ProducerLatencyWriter:
@@ -597,8 +597,12 @@ def _build_bin_grid(
     pressure_variant = full["pressure_variant"]
     vacuum_variant = full["vacuum_variant"]
     last_event_id = full["last_event_id"]
-    spectrum_score = spectrum_out.score
-    spectrum_state_code = spectrum_out.state_code
+    flow_score = spectrum_out.score
+    flow_state_code = spectrum_out.state_code
+    composite = spectrum_out.composite
+    composite_d1 = spectrum_out.composite_d1
+    composite_d2 = spectrum_out.composite_d2
+    composite_d3 = spectrum_out.composite_d3
 
     # Left padding (out-of-range ticks)
     for i in range(pad_left):
@@ -637,8 +641,12 @@ def _build_bin_grid(
             "pressure_variant": float(pressure_variant[abs_idx]),
             "vacuum_variant": float(vacuum_variant[abs_idx]),
             "last_event_id": int(last_event_id[abs_idx]),
-            "spectrum_score": float(spectrum_score[abs_idx]),
-            "spectrum_state_code": int(spectrum_state_code[abs_idx]),
+            "composite": float(composite[abs_idx]),
+            "composite_d1": float(composite_d1[abs_idx]),
+            "composite_d2": float(composite_d2[abs_idx]),
+            "composite_d3": float(composite_d3[abs_idx]),
+            "flow_score": float(flow_score[abs_idx]),
+            "flow_state_code": int(flow_state_code[abs_idx]),
         }
         buckets.append(row)
 
@@ -682,14 +690,18 @@ def _empty_bucket_row(k: int) -> Dict[str, Any]:
         "pressure_variant": 0.0,
         "vacuum_variant": 0.0,
         "last_event_id": 0,
-        "spectrum_score": 0.0,
-        "spectrum_state_code": 0,
+        "composite": 0.0,
+        "composite_d1": 0.0,
+        "composite_d2": 0.0,
+        "composite_d3": 0.0,
+        "flow_score": 0.0,
+        "flow_state_code": 0,
         "best_ask_move_ticks": 0,
         "best_bid_move_ticks": 0,
         "ask_reprice_sign": 0,
         "bid_reprice_sign": 0,
-        "perm_microstate_id": 4,
-        "perm_state5_code": STATE5_MIXED,
+        "microstate_id": 4,
+        "state5_code": STATE5_MIXED,
         "chase_up_flag": 0,
         "chase_down_flag": 0,
     }
@@ -722,13 +734,13 @@ def stream_events(
     # Spectrum operates on ALL N_TICKS absolute ticks
     spectrum = IndependentCellSpectrum(
         n_cells=config.n_absolute_ticks,
-        windows=config.spectrum_windows,
-        rollup_weights=config.spectrum_rollup_weights,
-        derivative_weights=config.spectrum_derivative_weights,
-        tanh_scale=config.spectrum_tanh_scale,
-        neutral_threshold=config.spectrum_threshold_neutral,
-        zscore_window_bins=config.zscore_window_bins,
-        zscore_min_periods=config.zscore_min_periods,
+        windows=config.flow_windows,
+        rollup_weights=config.flow_rollup_weights,
+        derivative_weights=config.flow_derivative_weights,
+        tanh_scale=config.flow_tanh_scale,
+        neutral_threshold=config.flow_neutral_threshold,
+        zscore_window_bins=config.flow_zscore_window_bins,
+        zscore_min_periods=config.flow_zscore_min_periods,
         projection_horizons_ms=config.projection_horizons_ms,
         default_dt_s=float(config.cell_width_ms) / 1000.0,
         projection_model=ProjectionModelConfig(
@@ -737,12 +749,12 @@ def stream_events(
             damping_lambda=projection_damping_lambda,
         ),
     )
-    perm_runtime: PermDerivativeRuntime | None = None
-    if config.perm_runtime_enabled:
-        perm_runtime = PermDerivativeRuntime(
+    state_model: DerivativeRuntime | None = None
+    if config.state_model_enabled:
+        state_model = DerivativeRuntime(
             k_values=np.arange(-window_radius, window_radius + 1, dtype=np.int32),
             cell_width_ms=config.cell_width_ms,
-            params=_perm_runtime_params_from_config(config),
+            params=_state_model_params_from_config(config),
         )
 
     event_count = 0
@@ -827,13 +839,13 @@ def stream_events(
                 ask_move_ticks=ask_move_ticks,
                 bid_move_ticks=bid_move_ticks,
             )
-            if perm_runtime is not None:
-                perm_state5 = np.asarray(
-                    [int(row["perm_state5_code"]) for row in grid["buckets"]],
+            if state_model is not None:
+                state5_series = np.asarray(
+                    [int(row["state5_code"]) for row in grid["buckets"]],
                     dtype=np.int8,
                 )
-                model_out = perm_runtime.update(perm_state5)
-                _annotate_runtime_model(grid, model_out)
+                model_out = state_model.update(state5_series)
+                _annotate_state_model(grid, model_out)
             prev_best_ask_price_int = int(grid["best_ask_price_int"])
             prev_best_bid_price_int = int(grid["best_bid_price_int"])
             if capture_producer_timing:
@@ -895,13 +907,13 @@ def stream_events(
             ask_move_ticks=ask_move_ticks,
             bid_move_ticks=bid_move_ticks,
         )
-        if perm_runtime is not None:
-            perm_state5 = np.asarray(
-                [int(row["perm_state5_code"]) for row in grid["buckets"]],
+        if state_model is not None:
+            state5_series = np.asarray(
+                [int(row["state5_code"]) for row in grid["buckets"]],
                 dtype=np.int8,
             )
-            model_out = perm_runtime.update(perm_state5)
-            _annotate_runtime_model(grid, model_out)
+            model_out = state_model.update(state5_series)
+            _annotate_state_model(grid, model_out)
         if capture_producer_timing:
             grid[_PRODUCER_PERF_KEY] = {
                 "bin_first_ingest_wall_ns": bin_first_ingest_wall_ns,

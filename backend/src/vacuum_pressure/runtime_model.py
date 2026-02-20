@@ -1,7 +1,7 @@
 """Incremental runtime models for live vacuum-pressure streaming.
 
-This module currently implements the permutation-derivative scorer used by the
-evaluation harness (`perm_derivative`) in an online O(n_ticks) per-bin form.
+This module currently implements the derivative scorer used by the
+evaluation harness (`derivative`) in an online O(n_ticks) per-bin form.
 """
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ _STATE5_CODES: tuple[int, ...] = (-2, -1, 0, 1, 2)
 
 
 @dataclass(frozen=True)
-class PermDerivativeRuntimeParams:
-    """Config for the incremental permutation-derivative runtime scorer."""
+class DerivativeRuntimeParams:
+    """Config for the incremental derivative runtime scorer."""
 
     center_exclusion_radius: int = 0
     spatial_decay_power: float = 0.0
@@ -39,50 +39,50 @@ class PermDerivativeRuntimeParams:
         """Fail fast on invalid runtime model parameters."""
         if self.center_exclusion_radius < 0:
             raise ValueError(
-                "perm_center_exclusion_radius must be >= 0, "
+                "center_exclusion_radius must be >= 0, "
                 f"got {self.center_exclusion_radius}"
             )
         if self.spatial_decay_power < 0.0:
             raise ValueError(
-                "perm_spatial_decay_power must be >= 0, "
+                "spatial_decay_power must be >= 0, "
                 f"got {self.spatial_decay_power}"
             )
         if self.zscore_window_bins < 2:
             raise ValueError(
-                "perm_zscore_window_bins must be >= 2, "
+                "zscore_window_bins must be >= 2, "
                 f"got {self.zscore_window_bins}"
             )
         if self.zscore_min_periods < 2:
             raise ValueError(
-                "perm_zscore_min_periods must be >= 2, "
+                "zscore_min_periods must be >= 2, "
                 f"got {self.zscore_min_periods}"
             )
         if self.zscore_min_periods > self.zscore_window_bins:
             raise ValueError(
-                "perm_zscore_min_periods cannot exceed perm_zscore_window_bins"
+                "zscore_min_periods cannot exceed zscore_window_bins"
             )
         if self.tanh_scale <= 0.0:
             raise ValueError(
-                f"perm_tanh_scale must be > 0, got {self.tanh_scale}"
+                f"tanh_scale must be > 0, got {self.tanh_scale}"
             )
         for name, value in (
-            ("perm_d1_weight", self.d1_weight),
-            ("perm_d2_weight", self.d2_weight),
-            ("perm_d3_weight", self.d3_weight),
-            ("perm_bull_pressure_weight", self.bull_pressure_weight),
-            ("perm_bull_vacuum_weight", self.bull_vacuum_weight),
-            ("perm_bear_pressure_weight", self.bear_pressure_weight),
-            ("perm_bear_vacuum_weight", self.bear_vacuum_weight),
-            ("perm_mixed_weight", self.mixed_weight),
+            ("d1_weight", self.d1_weight),
+            ("d2_weight", self.d2_weight),
+            ("d3_weight", self.d3_weight),
+            ("bull_pressure_weight", self.bull_pressure_weight),
+            ("bull_vacuum_weight", self.bull_vacuum_weight),
+            ("bear_pressure_weight", self.bear_pressure_weight),
+            ("bear_vacuum_weight", self.bear_vacuum_weight),
+            ("mixed_weight", self.mixed_weight),
         ):
             if value < 0.0:
                 raise ValueError(f"{name} must be >= 0, got {value}")
         if abs(self.d1_weight) + abs(self.d2_weight) + abs(self.d3_weight) <= 0.0:
-            raise ValueError("At least one perm derivative weight must be > 0")
+            raise ValueError("At least one derivative weight must be > 0")
 
 
 @dataclass(frozen=True)
-class PermDerivativeRuntimeOutput:
+class DerivativeRuntimeOutput:
     """Single-bin runtime model output emitted with stream updates."""
 
     name: str
@@ -123,7 +123,7 @@ def _normalized_spatial_weights(
     total = float(w.sum())
     if total <= 0.0:
         raise ValueError(
-            "Permutation spatial weights collapsed to zero. "
+            "Spatial weights collapsed to zero. "
             "Reduce center_exclusion_radius or spatial_decay_power."
         )
     return w / total
@@ -150,15 +150,15 @@ def _robust_or_global_z_from_history(
     return float(arr[-1] / std)
 
 
-class PermDerivativeRuntime:
-    """Incremental online variant of the harness `perm_derivative` signal."""
+class DerivativeRuntime:
+    """Incremental online variant of the harness `derivative` signal."""
 
     def __init__(
         self,
         *,
         k_values: Iterable[int],
         cell_width_ms: int,
-        params: PermDerivativeRuntimeParams,
+        params: DerivativeRuntimeParams,
     ) -> None:
         if cell_width_ms <= 0:
             raise ValueError(f"cell_width_ms must be > 0, got {cell_width_ms}")
@@ -187,7 +187,7 @@ class PermDerivativeRuntime:
         self._d3_hist: deque[float] = deque(maxlen=maxlen)
 
     @property
-    def params(self) -> PermDerivativeRuntimeParams:
+    def params(self) -> DerivativeRuntimeParams:
         return self._params
 
     @property
@@ -205,14 +205,14 @@ class PermDerivativeRuntime:
             ready = ready and (len(self._d3_hist) >= min_periods)
         return ready
 
-    def update(self, perm_state5_code: np.ndarray) -> PermDerivativeRuntimeOutput:
+    def update(self, state5_code: np.ndarray) -> DerivativeRuntimeOutput:
         """Advance runtime signal by one bin of state5 labels."""
-        s = np.asarray(perm_state5_code, dtype=np.int8)
+        s = np.asarray(state5_code, dtype=np.int8)
         if s.ndim != 1:
-            raise ValueError(f"perm_state5_code must be 1D, got shape={s.shape}")
+            raise ValueError(f"state5_code must be 1D, got shape={s.shape}")
         if s.shape[0] != self._weights.shape[0]:
             raise ValueError(
-                "perm_state5_code length must match runtime k-axis length "
+                "state5_code length must match runtime k-axis length "
                 f"({self._weights.shape[0]}), got {s.shape[0]}"
             )
 
@@ -290,8 +290,8 @@ class PermDerivativeRuntime:
         self._prev_d2 = d2
         self._sample_count += 1
 
-        return PermDerivativeRuntimeOutput(
-            name="perm_derivative",
+        return DerivativeRuntimeOutput(
+            name="derivative",
             score=score,
             ready=self._ready(),
             sample_count=self._sample_count,
@@ -307,4 +307,3 @@ class PermDerivativeRuntime:
             mixed_intensity=float(i_mixed),
             dominant_state5_code=dominant_state5_code,
         )
-

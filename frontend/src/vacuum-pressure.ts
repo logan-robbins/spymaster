@@ -13,9 +13,9 @@
  *   - Bottom bar:   composite direction + derivative readings
  *
  * Colour encoding for heatmap cells:
- *   spectrum_score > 0 -> cyan-green   (pressure side)
- *   spectrum_score < 0 -> red-magenta  (vacuum side)
- *   spectrum_score ~ 0 -> near-black   (neutral side)
+ *   flow_score > 0 -> cyan-green   (pressure side)
+ *   flow_score < 0 -> red-magenta  (vacuum side)
+ *   flow_score ~ 0 -> near-black   (neutral side)
  *
  * Zoom & Pan:
  *   Mouse wheel on heatmap zooms (Shift=horiz, plain=vert, Ctrl/Cmd=both).
@@ -44,13 +44,13 @@ interface RuntimeConfig {
   rel_tick_size: number;
   grid_radius_ticks: number;
   cell_width_ms: number;
-  spectrum_windows: number[];
-  spectrum_rollup_weights: number[];
-  spectrum_derivative_weights: number[];
-  spectrum_tanh_scale: number;
-  spectrum_threshold_neutral: number;
-  zscore_window_bins: number;
-  zscore_min_periods: number;
+  flow_windows: number[];
+  flow_rollup_weights: number[];
+  flow_derivative_weights: number[];
+  flow_tanh_scale: number;
+  flow_neutral_threshold: number;
+  flow_zscore_window_bins: number;
+  flow_zscore_min_periods: number;
   projection_horizons_bins: number[];
   projection_horizons_ms: number[];
   contract_multiplier: number;
@@ -105,8 +105,12 @@ interface GridBucketRow {
   j_pull: number;
   j_fill: number;
   j_rest_depth: number;
-  spectrum_score: number;
-  spectrum_state_code: number;
+  composite: number;
+  composite_d1: number;
+  composite_d2: number;
+  composite_d3: number;
+  flow_score: number;
+  flow_state_code: number;
   last_event_id: number;
 }
 
@@ -116,8 +120,26 @@ interface StreamParams {
   symbol: string;
   dt: string;
   start_time?: string;
+  serving?: string;
   projection_horizons_bins?: string;
   projection_source?: 'backend' | 'frontend';
+  dev_scoring?: boolean;
+  // Runtime model overrides (forwarded to WebSocket query params)
+  state_model_enabled?: string;
+  state_model_center_exclusion_radius?: string;
+  state_model_spatial_decay_power?: string;
+  state_model_zscore_window_bins?: string;
+  state_model_zscore_min_periods?: string;
+  state_model_tanh_scale?: string;
+  state_model_d1_weight?: string;
+  state_model_d2_weight?: string;
+  state_model_d3_weight?: string;
+  state_model_bull_pressure_weight?: string;
+  state_model_bull_vacuum_weight?: string;
+  state_model_bear_pressure_weight?: string;
+  state_model_bear_vacuum_weight?: string;
+  state_model_mixed_weight?: string;
+  state_model_enable_weighted_blend?: string;
 }
 
 // --------------------------------------------------------- Layout constants
@@ -136,6 +158,7 @@ let configReceived = false;
 let runtimeModelConfig: RuntimeModelConfig | null = null;
 let latestRuntimeModel: RuntimeModelUpdate | null = null;
 let projectionSource: 'backend' | 'frontend' = 'backend';
+let devScoringEnabled = false;
 
 // BBO state for overlay rendering
 let bestBidDollars = 0;
@@ -199,7 +222,7 @@ let isEventMode = false;
 let currentGrid: Map<number, GridBucketRow> = new Map();
 /** Per-bucket last_event_id tracker for persistence (keyed by heatmap row). */
 const lastRenderedEventIdByRow: Map<number, number> = new Map();
-/** Running max for |spectrum_score| adaptive normalization. */
+/** Running max for |flow_score| adaptive normalization. */
 let runningMaxSpectrum = 10;
 
 function resetHeatmapBuffers(gridRadiusTicks: number): void {
@@ -539,7 +562,7 @@ function optionalBoolean(value: unknown): boolean | undefined {
  *  Encodes ONE signal: how much pressure (liquidity building) exists
  *  at this bucket right now.
  *
- *  Pressure (spectrum_score > 0): dark emerald → bright green
+ *  Pressure (flow_score > 0): dark emerald → bright green
  *  Vacuum/neutral (score ≤ 0):   black (absence of pressure IS the signal)
  *  rest_depth gates a faint grey floor so resting-but-neutral depth is
  *  distinguishable from truly empty levels.
@@ -552,9 +575,9 @@ function heatmapRGB(
   const pressureT = Math.pow(scoreN, 0.7);
 
   if (pressureT > 0.05) {
-    // Pressure path: green intensity driven primarily by spectrum_score.
+    // Pressure path: green intensity driven primarily by flow_score.
     // Rest depth adds only a subtle base glow so cells with strong
-    // spectrum_score but low depth aren't invisible.
+    // flow_score but low depth aren't invisible.
     const lum = 0.10 + depthN * 0.15 + pressureT * 0.75;
     return [
       Math.round((0.02 + pressureT * 0.06) * 255 * lum),
@@ -735,7 +758,7 @@ function pushHeatmapColumnFromGrid(
   let maxSpectrumAbs = 0;
   let maxRestD = 0;
   for (const bucket_row of grid.values()) {
-    const spectrumAbs = Math.abs(bucket_row.spectrum_score);
+    const spectrumAbs = Math.abs(bucket_row.flow_score);
     if (spectrumAbs > maxSpectrumAbs) maxSpectrumAbs = spectrumAbs;
     if (bucket_row.rest_depth > maxRestD) maxRestD = bucket_row.rest_depth;
   }
@@ -761,7 +784,7 @@ function pushHeatmapColumnFromGrid(
     }
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
-    const [r, g, b] = heatmapRGB(bucketData.rest_depth, bucketData.spectrum_score, runningMaxDepth);
+    const [r, g, b] = heatmapRGB(bucketData.rest_depth, bucketData.flow_score, runningMaxDepth);
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
@@ -1707,7 +1730,7 @@ function renderProfile(canvas: HTMLCanvasElement): void {
       if (row < vpY - 1 || row > vpY + srcH + 1) continue;
       const y = (row - vpY) * rowH;
       const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
-      const pressureT = Math.max(0, Math.min(1, b.spectrum_score));
+      const pressureT = Math.max(0, Math.min(1, b.flow_score));
 
       if (pressureT > 0.01) {
         // Pressure: green intensity proportional to score
@@ -1889,9 +1912,14 @@ function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig | n
     normalizedCfg.projection_horizons_bins,
     normalizedCfg.cell_width_ms,
   );
-  experimentEngine = new ExperimentEngine({
-    cellWidthMs: normalizedCfg.cell_width_ms,
-  });
+  if (devScoringEnabled) {
+    experimentEngine = new ExperimentEngine({
+      cellWidthMs: normalizedCfg.cell_width_ms,
+    });
+    console.warn('[VP] DEV: client-side scoring enabled -- may differ from server');
+  } else {
+    experimentEngine = null;
+  }
   runtimeModelConfig = modelCfg;
   latestRuntimeModel = null;
 
@@ -1934,14 +1962,32 @@ function parseStreamParams(): StreamParams {
     $warningBanner.style.background = '#660000';
   }
 
-  return {
+  const runtimeKeys = [
+    'state_model_enabled', 'state_model_center_exclusion_radius', 'state_model_spatial_decay_power',
+    'state_model_zscore_window_bins', 'state_model_zscore_min_periods', 'state_model_tanh_scale',
+    'state_model_d1_weight', 'state_model_d2_weight', 'state_model_d3_weight',
+    'state_model_bull_pressure_weight', 'state_model_bull_vacuum_weight',
+    'state_model_bear_pressure_weight', 'state_model_bear_vacuum_weight',
+    'state_model_mixed_weight', 'state_model_enable_weighted_blend',
+  ] as const;
+
+  const result: StreamParams = {
     product_type: product_type || 'equity_mbo',
     symbol: params.get('symbol') || 'QQQ',
     dt: params.get('dt') || '2026-02-06',
     start_time: params.get('start_time') || undefined,
+    serving: params.get('serving') || undefined,
     projection_horizons_bins: params.get('projection_horizons_bins') || undefined,
     projection_source: params.get('projection_source') === 'frontend' ? 'frontend' : 'backend',
+    dev_scoring: params.get('dev_scoring') === 'true',
   };
+
+  for (const key of runtimeKeys) {
+    const val = params.get(key);
+    if (val !== null) (result as unknown as Record<string, unknown>)[key] = val;
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------- WebSocket
@@ -2090,8 +2136,9 @@ function connectWS(): void {
   if (!streamParams) {
     streamParams = parseStreamParams();
   }
-  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source } = streamParams;
+  const { product_type, symbol, dt, start_time, projection_horizons_bins, projection_source, dev_scoring } = streamParams;
   projectionSource = projection_source ?? 'backend';
+  devScoringEnabled = dev_scoring ?? false;
 
   const urlBase =
     `ws://localhost:${WS_PORT}/v1/vacuum-pressure/stream` +
@@ -2100,7 +2147,23 @@ function connectWS(): void {
     `&dt=${encodeURIComponent(dt)}`;
   const wsParams = new URLSearchParams();
   if (start_time) wsParams.set('start_time', start_time);
+  if (streamParams.serving) wsParams.set('serving', streamParams.serving);
   if (projection_horizons_bins) wsParams.set('projection_horizons_bins', projection_horizons_bins);
+
+  // Forward runtime-model overrides from URL to WebSocket
+  const runtimeKeys = [
+    'state_model_enabled', 'state_model_center_exclusion_radius', 'state_model_spatial_decay_power',
+    'state_model_zscore_window_bins', 'state_model_zscore_min_periods', 'state_model_tanh_scale',
+    'state_model_d1_weight', 'state_model_d2_weight', 'state_model_d3_weight',
+    'state_model_bull_pressure_weight', 'state_model_bull_vacuum_weight',
+    'state_model_bear_pressure_weight', 'state_model_bear_vacuum_weight',
+    'state_model_mixed_weight', 'state_model_enable_weighted_blend',
+  ] as const;
+  for (const key of runtimeKeys) {
+    const val = (streamParams as unknown as Record<string, unknown>)[key];
+    if (val !== undefined && val !== null) wsParams.set(key, String(val));
+  }
+
   const url = wsParams.toString() ? `${urlBase}&${wsParams.toString()}` : urlBase;
 
   console.log(`[VP] Connecting to: ${url} (projection_source=${projectionSource})`);
@@ -2138,7 +2201,7 @@ function connectWS(): void {
               'projection_horizons_ms',
             );
             let modelCfg: RuntimeModelConfig | null = null;
-            const runtimeModelRaw = msg.runtime_model;
+            const runtimeModelRaw = msg.state_model;
             if (
               runtimeModelRaw !== undefined &&
               runtimeModelRaw !== null &&
@@ -2163,13 +2226,13 @@ function connectWS(): void {
               rel_tick_size: requireNumberField('runtime_config', msg, 'rel_tick_size'),
               grid_radius_ticks: requireNumberField('runtime_config', msg, 'grid_radius_ticks'),
               cell_width_ms: cellWidthMs,
-              spectrum_windows: requireNumberArrayField('runtime_config', msg, 'spectrum_windows'),
-              spectrum_rollup_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_rollup_weights'),
-              spectrum_derivative_weights: requireNumberArrayField('runtime_config', msg, 'spectrum_derivative_weights'),
-              spectrum_tanh_scale: requireNumberField('runtime_config', msg, 'spectrum_tanh_scale'),
-              spectrum_threshold_neutral: requireNumberField('runtime_config', msg, 'spectrum_threshold_neutral'),
-              zscore_window_bins: requireNumberField('runtime_config', msg, 'zscore_window_bins'),
-              zscore_min_periods: requireNumberField('runtime_config', msg, 'zscore_min_periods'),
+              flow_windows: requireNumberArrayField('runtime_config', msg, 'flow_windows'),
+              flow_rollup_weights: requireNumberArrayField('runtime_config', msg, 'flow_rollup_weights'),
+              flow_derivative_weights: requireNumberArrayField('runtime_config', msg, 'flow_derivative_weights'),
+              flow_tanh_scale: requireNumberField('runtime_config', msg, 'flow_tanh_scale'),
+              flow_neutral_threshold: requireNumberField('runtime_config', msg, 'flow_neutral_threshold'),
+              flow_zscore_window_bins: requireNumberField('runtime_config', msg, 'flow_zscore_window_bins'),
+              flow_zscore_min_periods: requireNumberField('runtime_config', msg, 'flow_zscore_min_periods'),
               projection_horizons_bins: projectionHorizonBins,
               projection_horizons_ms: projectionHorizonMs,
               contract_multiplier: requireNumberField('runtime_config', msg, 'contract_multiplier'),
@@ -2214,21 +2277,21 @@ function connectWS(): void {
             const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
             const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
-            const runtimeModelName = optionalString(msg.runtime_model_name);
-            const runtimeModelScore = optionalNumber(msg.runtime_model_score);
-            const runtimeModelReady = optionalBoolean(msg.runtime_model_ready);
-            const runtimeModelSampleCount = optionalNumber(msg.runtime_model_sample_count);
-            const runtimeModelBase = optionalNumber(msg.runtime_model_base);
-            const runtimeModelD1 = optionalNumber(msg.runtime_model_d1);
-            const runtimeModelD2 = optionalNumber(msg.runtime_model_d2);
-            const runtimeModelD3 = optionalNumber(msg.runtime_model_d3);
-            const runtimeModelZ1 = optionalNumber(msg.runtime_model_z1);
-            const runtimeModelZ2 = optionalNumber(msg.runtime_model_z2);
-            const runtimeModelZ3 = optionalNumber(msg.runtime_model_z3);
-            const runtimeModelBullIntensity = optionalNumber(msg.runtime_model_bull_intensity);
-            const runtimeModelBearIntensity = optionalNumber(msg.runtime_model_bear_intensity);
-            const runtimeModelMixedIntensity = optionalNumber(msg.runtime_model_mixed_intensity);
-            const runtimeModelDominantState5 = optionalNumber(msg.runtime_model_dominant_state5_code);
+            const runtimeModelName = optionalString(msg.state_model_name);
+            const runtimeModelScore = optionalNumber(msg.state_model_score);
+            const runtimeModelReady = optionalBoolean(msg.state_model_ready);
+            const runtimeModelSampleCount = optionalNumber(msg.state_model_sample_count);
+            const runtimeModelBase = optionalNumber(msg.state_model_base);
+            const runtimeModelD1 = optionalNumber(msg.state_model_d1);
+            const runtimeModelD2 = optionalNumber(msg.state_model_d2);
+            const runtimeModelD3 = optionalNumber(msg.state_model_d3);
+            const runtimeModelZ1 = optionalNumber(msg.state_model_z1);
+            const runtimeModelZ2 = optionalNumber(msg.state_model_z2);
+            const runtimeModelZ3 = optionalNumber(msg.state_model_z3);
+            const runtimeModelBullIntensity = optionalNumber(msg.state_model_bull_intensity);
+            const runtimeModelBearIntensity = optionalNumber(msg.state_model_bear_intensity);
+            const runtimeModelMixedIntensity = optionalNumber(msg.state_model_mixed_intensity);
+            const runtimeModelDominantState5 = optionalNumber(msg.state_model_dominant_state5_code);
             if (
               runtimeModelName &&
               runtimeModelScore !== undefined &&
@@ -2320,8 +2383,12 @@ function connectWS(): void {
               j_pull: requireNumberField('grid', j, 'j_pull'),
               j_fill: requireNumberField('grid', j, 'j_fill'),
               j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
-              spectrum_score: requireNumberField('grid', j, 'spectrum_score'),
-              spectrum_state_code: requireNumberField('grid', j, 'spectrum_state_code'),
+              composite: requireNumberField('grid', j, 'composite'),
+              composite_d1: requireNumberField('grid', j, 'composite_d1'),
+              composite_d2: requireNumberField('grid', j, 'composite_d2'),
+              composite_d3: requireNumberField('grid', j, 'composite_d3'),
+              flow_score: requireNumberField('grid', j, 'flow_score'),
+              flow_state_code: requireNumberField('grid', j, 'flow_state_code'),
               last_event_id: requireNumberField('grid', j, 'last_event_id'),
             };
             gridMap.set(k, parsed);

@@ -32,7 +32,7 @@ def test_signal_registry_loads_all_expected_signals() -> None:
         "jad",
         "iirc",
         "msd",
-        "perm_derivative",
+        "derivative",
         "svm_sp",
         "gbm_mf",
         "knn_cl",

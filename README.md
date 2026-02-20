@@ -1,91 +1,43 @@
 # Spymaster
 
-Canonical runbook for the live MNQ vacuum-pressure system and its experiment harness.
+Futures-only vacuum-pressure system: live streaming server, experiment harness, and frontend visualization.
 
-This document is intentionally operational:
-- how to check data
-- how to start backend/frontend
-- how serving works
-- where immutable datasets and results live
-- how to promote a harness configuration into the frontend prediction algorithm
+## Instrument Lock
 
-## Scope
+Single instrument defined in `backend/src/vacuum_pressure/instrument.yaml` (currently MNQH6). All runtime defaults live here.
 
-Product focus is futures only.
+## Config Architecture
 
-Primary runtime instrument is locked by:
-- `backend/src/vacuum_pressure/instrument.yaml`
+Three-layer pydantic v2 config hierarchy. Each layer references the one below it by name.
 
-Runtime config loading and validation:
-- `backend/src/vacuum_pressure/config.py`
+```
+ExperimentSpec  ->  ServingSpec  ->  PipelineSpec
+(sweep/eval)        (scoring/signal)   (grid/features)
+```
 
-## System Map
+Config models:
+- `backend/src/vacuum_pressure/pipeline_config.py` — PipelineSpec: raw .dbn replay to grid of engineered features (no scoring)
+- `backend/src/vacuum_pressure/serving_config.py` — ServingSpec: references a PipelineSpec + scoring + signal + projection params
+- `backend/src/vacuum_pressure/experiment_config.py` — ExperimentSpec: references a ServingSpec + sweep axes + TP/SL eval + tracking
+- `backend/src/vacuum_pressure/scoring.py` — SpectrumScorer: single Python implementation used by both server and harness (zero train/serve skew)
 
-Live serving path:
-1. `backend/scripts/run_vacuum_pressure.py`
-2. `backend/src/vacuum_pressure/server.py`
-3. `backend/src/vacuum_pressure/stream_pipeline.py`
-4. `backend/src/vacuum_pressure/event_engine.py`
-5. `backend/src/vacuum_pressure/runtime_model.py`
+Runtime config loading and validation: `backend/src/vacuum_pressure/config.py`
 
-Frontend path:
-1. `frontend/src/vacuum-pressure.ts`
-2. `frontend/vacuum-pressure.html`
-
-Offline experiment path:
-1. `backend/src/experiment_harness/cli.py`
-2. `backend/src/experiment_harness/runner.py`
-3. `backend/src/experiment_harness/signals/`
-
-## Data Locations
-
-Raw replay input (`.dbn`):
-- `backend/lake/raw/source=databento/product_type=future_mbo/symbol=<root>/table=market_by_order_dbn/`
-
-Immutable experiment datasets:
-- `backend/lake/research/vp_immutable/<dataset_id>/`
-- Files per dataset: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`
-
-Harness results store:
-- `backend/lake/research/vp_harness/results/`
-- `runs_meta.parquet` and `runs.parquet`
-
-Harness configs:
-- `backend/lake/research/vp_harness/configs/`
-
-Gold dataset campaigns:
-- `backend/lake/research/vp_harness/configs/gold_campaigns/`
-- `backend/scripts/build_gold_dataset_campaign.py`
+Config YAMLs on disk:
+- `backend/lake/research/vp_harness/configs/pipelines/` — PipelineSpec YAMLs (capture window + engine params)
+- `backend/lake/research/vp_harness/configs/serving/` — ServingSpec YAMLs (scoring + signal + projection params)
+- `backend/lake/research/vp_harness/configs/experiments/` — ExperimentSpec YAMLs (sweep axes + TP/SL eval + tracking)
+- `backend/lake/research/vp_harness/configs/gold_campaigns/` — batch dataset generation campaigns
 
 ## Environment
 
-Backend:
-- Python 3.12
-- `uv`
-
-Frontend:
-- Node + npm
-
-Install once:
-
 ```bash
+# Install (once)
 cd backend && uv sync
 cd frontend && npm ci
 ```
 
-## Check Inputs Before Starting
-
-Confirm raw futures replay files exist:
-
-```bash
-find backend/lake/raw/source=databento/product_type=future_mbo -maxdepth 3 -type d -name 'table=market_by_order_dbn'
-```
-
-Confirm at least one immutable dataset exists:
-
-```bash
-find backend/lake/research/vp_immutable -maxdepth 2 -type f -name bins.parquet
-```
+Backend: Python 3.12, `uv` exclusively. Frontend: Node + npm, Vite dev server on port 5174.
 
 ## Start Backend
 
@@ -100,11 +52,13 @@ nohup uv run scripts/run_vacuum_pressure.py \
   --start-time 09:25 > /tmp/vp_backend.log 2>&1 &
 ```
 
-Health check:
+Health check: `curl -s http://localhost:8002/health`
 
-```bash
-curl -s http://localhost:8002/health
-```
+State model overrides (pass to the run script):
+- `--state-model-zscore-window-bins`, `--state-model-zscore-min-periods`
+- `--state-model-d1-weight`, `--state-model-d2-weight`, `--state-model-d3-weight`
+
+Full flag list: `cd backend && uv run scripts/run_vacuum_pressure.py --help`
 
 ## Start Frontend
 
@@ -114,160 +68,149 @@ cd frontend
 nohup npm run dev > /tmp/vp_frontend.log 2>&1 &
 ```
 
-Open:
+Pages (Vite multi-page, port 5174):
+- `http://localhost:5174/vacuum-pressure.html` — live streaming visualization
+- `http://localhost:5174/experiments.html` — experiment browser (requires backend on :8002)
 
-```text
-http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25
+## WebSocket Streaming
+
+Endpoint:
+
 ```
-
-## Serving Contract
-
-WebSocket endpoint:
-
-```text
 ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25
 ```
 
-Runtime schema authority:
-- Config object and validation: `backend/src/vacuum_pressure/config.py`
-- Arrow grid schema and websocket frames: `backend/src/vacuum_pressure/server.py`
-- Frontend parser/contract enforcement: `frontend/src/vacuum-pressure.ts`
+With a promoted serving config:
 
-Message shape:
-- text frame: `runtime_config`
-- text frame per bin: `grid_update`
-- binary frame per bin: Arrow IPC for dense grid rows
-
-## Runtime Model Used For Frontend Predictions
-
-Current frontend projection bands use backend runtime model output by default.
-
-Implementation and wiring:
-- Model math: `backend/src/vacuum_pressure/runtime_model.py`
-- Per-bin model execution: `backend/src/vacuum_pressure/stream_pipeline.py`
-- Stream emission (`runtime_model` + `runtime_model_*`): `backend/src/vacuum_pressure/server.py`
-- Frontend consumption and rendering: `frontend/src/vacuum-pressure.ts`
-
-Frontend projection source switch:
-- backend (default): `projection_source=backend`
-- local shadow path: `projection_source=frontend`
-
-Example:
-
-```text
-http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&projection_source=backend
+```
+ws://localhost:8002/v1/vacuum-pressure/stream?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&serving=<serving_name>
 ```
 
-## Tune Runtime Model At Launch Time
+`?serving=name` loads ServingSpec YAML from `configs/serving/`, applies scoring/signal/projection params, streams server-computed `flow_score`/`flow_state_code`. Explicit state-model URL params override serving config values.
 
-Use CLI overrides for quick tests:
+Message frames:
+- text: `runtime_config` JSON (includes `serving` block when active)
+- text per bin: `grid_update` JSON
+- binary per bin: Arrow IPC dense grid rows
+
+Frontend URL query params:
+- `product_type`, `symbol`, `dt`, `start_time` — required instrument params
+- `serving=<name>` — load ServingSpec for server-side scoring
+- state-model override params (`state_model_enabled`, `state_model_d1_weight`, etc.) — forwarded to WebSocket
+- `projection_source=backend|frontend` — projection band source (default: backend)
+- `dev_scoring=true` — enable client-side ADS/PFP/SVac composite (dev only, disabled by default)
+
+## Experiment Workflow
+
+All commands run from `backend/`.
+
+### 1. Generate dataset (from PipelineSpec)
 
 ```bash
-cd backend
-uv run scripts/run_vacuum_pressure.py --help
+uv run python -m src.experiment_harness.cli generate <pipeline_spec.yaml>
 ```
 
-Most-used runtime model overrides:
-- `--perm-zscore-window-bins`
-- `--perm-zscore-min-periods`
-- `--perm-d1-weight`
-- `--perm-d2-weight`
-- `--perm-d3-weight`
+Idempotent: skips if hash-addressed output exists under `lake/research/vp_immutable/`.
 
-Permanent defaults should be kept in:
-- `backend/src/vacuum_pressure/instrument.yaml`
-
-## Generate / Refresh Gold Datasets
-
-Campaign-driven generation:
+### 2. Run experiment (from ExperimentSpec)
 
 ```bash
-cd backend
-uv run scripts/build_gold_dataset_campaign.py --config lake/research/vp_harness/configs/gold_campaigns/<campaign>.yaml
+uv run python -m src.experiment_harness.cli run <experiment_spec.yaml>
 ```
 
-Published immutable datasets are written under:
-- `backend/lake/research/vp_immutable/`
+Auto-generates the referenced pipeline's dataset if missing. Resolves ExperimentSpec -> ServingSpec -> PipelineSpec. Expands sweep axes, evaluates TP/SL, persists results.
 
-## Run Experiment Harness
-
-List available assets:
+### 3. Compare results
 
 ```bash
-cd backend
-uv run python -m src.experiment_harness.cli list-signals
-uv run python -m src.experiment_harness.cli list-datasets
-```
-
-Run one config:
-
-```bash
-cd backend
-uv run python -m src.experiment_harness.cli run lake/research/vp_harness/configs/smoke_perm_derivative.yaml
-```
-
-Compare best runs:
-
-```bash
-cd backend
 uv run python -m src.experiment_harness.cli compare --min-signals 5
 ```
 
-Harness operating guide:
-- `backend/src/experiment_harness/README.md`
-
-## Promote Harness Configuration To Frontend Prediction Algorithm
-
-### Parameter promotion (no algorithm code change)
-
-Use this when the selected harness winner is the same runtime model family already served.
-
-1. Select winning run and params from harness output / MLflow.
-2. Update runtime defaults in `backend/src/vacuum_pressure/instrument.yaml`.
-3. Restart backend and frontend.
-4. Verify frontend is using backend projection source and model is live.
-
-### Algorithm promotion (new model family)
-
-Use this when the selected harness winner is a different signal family.
-
-1. Implement incremental runtime scorer in `backend/src/vacuum_pressure/runtime_model.py`.
-2. Wire scorer execution and per-bin attachment in `backend/src/vacuum_pressure/stream_pipeline.py`.
-3. Expose runtime config + per-bin outputs in `backend/src/vacuum_pressure/server.py`.
-4. Update frontend ingest/render mapping in `frontend/src/vacuum-pressure.ts`.
-5. Set defaults in `backend/src/vacuum_pressure/instrument.yaml`.
-6. Re-run backend tests + frontend typecheck.
-
-## MLflow
-
-Harness tracking is configured in YAML (`tracking` block).
-
-Key implementation:
-- `backend/src/experiment_harness/tracking.py`
-
-## Verification Commands
-
-Backend targeted tests:
+### 4. Promote winner to ServingSpec
 
 ```bash
-cd backend
-uv run pytest tests/test_runtime_perm_model.py tests/test_stream_pipeline_perf.py tests/test_runtime_config_overrides.py
+uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run-id <winner_run_id>
 ```
 
-Frontend typecheck:
+Writes a new ServingSpec YAML to `configs/serving/`. Prints runtime overrides and serving URL.
+
+### 5. Stream with promoted config
+
+```
+http://localhost:5174/vacuum-pressure.html?product_type=future_mbo&symbol=MNQH6&dt=2026-02-06&start_time=09:25&serving=<promoted_name>
+```
+
+### Other CLI commands
 
 ```bash
+uv run python -m src.experiment_harness.cli list-signals
+uv run python -m src.experiment_harness.cli list-datasets
+uv run python -m src.experiment_harness.cli online-sim --signal <name> --dataset-id <id> --bin-budget-ms 100
+```
+
+Harness internals: `backend/src/experiment_harness/README.md`
+
+## Experiment Browser
+
+REST API endpoints (served by VP server on :8002):
+- `GET /v1/experiments/runs?signal=&dataset_id=&sort=tp_rate&min_signals=5&top_n=50`
+- `GET /v1/experiments/runs/{run_id}/detail`
+
+Streaming URL is constructed from `manifest.json` instrument metadata + signal params mapped to state-model WebSocket query params.
+
+## Data Locations
+
+Raw replay input:
+- `backend/lake/raw/source=databento/product_type=future_mbo/symbol=<root>/table=market_by_order_dbn/` — .dbn files per symbol
+
+Immutable experiment datasets:
+- `backend/lake/research/vp_immutable/<dataset_id>/` — per dataset: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`
+
+Harness results:
+- `backend/lake/research/vp_harness/results/` — `runs_meta.parquet` and `runs.parquet`
+
+## System Map
+
+Live serving:
+1. `backend/scripts/run_vacuum_pressure.py` — CLI entry, starts FastAPI
+2. `backend/src/vacuum_pressure/server.py` — WebSocket + REST endpoints, Arrow IPC framing
+3. `backend/src/vacuum_pressure/stream_pipeline.py` — per-bin event processing, grid emission
+4. `backend/src/vacuum_pressure/event_engine.py` — tick-level order book engine
+5. `backend/src/vacuum_pressure/spectrum.py` — multi-window flow computation (module name retained)
+6. `backend/src/vacuum_pressure/scoring.py` — z-score + tanh blend + state classification
+7. `backend/src/vacuum_pressure/runtime_model.py` — incremental state-model scoring on `state5_code`
+
+Frontend:
+1. `frontend/src/vacuum-pressure.ts` — streaming visualization, Arrow IPC parsing, projection rendering
+2. `frontend/src/experiments.ts` — experiment browser table, filters, detail panel, launch logic
+3. `frontend/src/experiment-engine.ts` — client-side ADS/PFP/SVac composite (dev mode only)
+
+Offline experiment:
+1. `backend/src/experiment_harness/cli.py` — Click CLI (generate, run, compare, promote, list-signals, list-datasets, online-sim)
+2. `backend/src/experiment_harness/runner.py` — sweep expansion, signal evaluation, result persistence
+3. `backend/src/experiment_harness/config_schema.py` — internal runner schema (not user-facing, produced by ExperimentSpec.to_harness_config())
+4. `backend/src/experiment_harness/signals/` — signal implementations (`statistical/` and `ml/` subdirs)
+5. `backend/src/experiment_harness/results_db.py` — parquet-backed run storage and query
+6. `backend/src/experiment_harness/tracking.py` — MLflow tracking integration
+
+## Verification
+
+```bash
+# Backend tests (from backend/)
+cd backend
+uv run pytest tests/
+
+# Frontend typecheck (from frontend/)
 cd frontend
 npx tsc --noEmit
 ```
 
-## Canonical Files To Read First
+## Check Data Before Starting
 
-- `backend/src/vacuum_pressure/instrument.yaml`
-- `backend/src/vacuum_pressure/config.py`
-- `backend/src/vacuum_pressure/runtime_model.py`
-- `backend/src/vacuum_pressure/stream_pipeline.py`
-- `backend/src/vacuum_pressure/server.py`
-- `frontend/src/vacuum-pressure.ts`
-- `backend/src/experiment_harness/README.md`
-- `backend/lake/research/vp_harness/configs/`
+```bash
+# Raw .dbn replay files
+find backend/lake/raw/source=databento/product_type=future_mbo -maxdepth 3 -type d -name 'table=market_by_order_dbn'
+
+# Immutable datasets
+find backend/lake/research/vp_immutable -maxdepth 2 -type f -name bins.parquet
+```

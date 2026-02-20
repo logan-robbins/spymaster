@@ -1,0 +1,18 @@
+name: mnq_60m_baseline
+pipeline_code_version: "1.0"
+
+capture:
+  product_type: future_mbo
+  symbol: MNQH6
+  dt: "2026-02-06"
+  start_time: "09:25"
+  end_time: "10:25"
+
+pipeline:
+  cell_width_ms: 100
+  flow_windows: [5, 10, 20, 40]
+  flow_rollup_weights: [1.0, 1.0, 1.0, 1.0]
+  tau_velocity: 2.0
+  tau_acceleration: 5.0
+  tau_jerk: 10.0
+  tau_rest_decay: 30.0

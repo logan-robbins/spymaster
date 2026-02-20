@@ -50,14 +50,14 @@ _GRID_SCALAR_COLS: list[str] = [
     "j_ask_depth",
     "pressure_variant",
     "vacuum_variant",
-    "spectrum_score",
-    "spectrum_state_code",
+    "flow_score",
+    "flow_state_code",
     "best_ask_move_ticks",
     "best_bid_move_ticks",
     "ask_reprice_sign",
     "bid_reprice_sign",
-    "perm_microstate_id",
-    "perm_state5_code",
+    "microstate_id",
+    "state5_code",
     "chase_up_flag",
     "chase_down_flag",
 ]
@@ -166,10 +166,10 @@ class GridGenerator:
             "c6_v_rest_neg",
             "c7_a_pull",
             "bucket_size_dollars",
-            "spectrum_windows",
-            "spectrum_rollup_weights",
-            "spectrum_derivative_weights",
-            "spectrum_tanh_scale",
+            "flow_windows",
+            "flow_rollup_weights",
+            "flow_derivative_weights",
+            "flow_tanh_scale",
             "tau_velocity",
             "tau_acceleration",
             "tau_jerk",
@@ -203,30 +203,30 @@ class GridGenerator:
             )
 
         # Spectrum window overrides with stable rollup behavior.
-        spectrum_windows = (
-            list(spec.spectrum_windows)
-            if spec.spectrum_windows is not None
-            else list(base_cfg.spectrum_windows)
+        flow_windows = (
+            list(spec.flow_windows)
+            if spec.flow_windows is not None
+            else list(base_cfg.flow_windows)
         )
-        if spec.spectrum_rollup_weights is not None:
-            spectrum_rollup_weights = list(spec.spectrum_rollup_weights)
-        elif spec.spectrum_windows is not None:
-            if len(spectrum_windows) == len(base_cfg.spectrum_rollup_weights):
-                spectrum_rollup_weights = list(base_cfg.spectrum_rollup_weights)
+        if spec.flow_rollup_weights is not None:
+            flow_rollup_weights = list(spec.flow_rollup_weights)
+        elif spec.flow_windows is not None:
+            if len(flow_windows) == len(base_cfg.flow_rollup_weights):
+                flow_rollup_weights = list(base_cfg.flow_rollup_weights)
             else:
-                spectrum_rollup_weights = [1.0 for _ in spectrum_windows]
+                flow_rollup_weights = [1.0 for _ in flow_windows]
         else:
-            spectrum_rollup_weights = list(base_cfg.spectrum_rollup_weights)
+            flow_rollup_weights = list(base_cfg.flow_rollup_weights)
 
-        spectrum_derivative_weights = (
-            list(spec.spectrum_derivative_weights)
-            if spec.spectrum_derivative_weights is not None
-            else list(base_cfg.spectrum_derivative_weights)
+        flow_derivative_weights = (
+            list(spec.flow_derivative_weights)
+            if spec.flow_derivative_weights is not None
+            else list(base_cfg.flow_derivative_weights)
         )
-        spectrum_tanh_scale = (
-            float(spec.spectrum_tanh_scale)
-            if spec.spectrum_tanh_scale is not None
-            else float(base_cfg.spectrum_tanh_scale)
+        flow_tanh_scale = (
+            float(spec.flow_tanh_scale)
+            if spec.flow_tanh_scale is not None
+            else float(base_cfg.flow_tanh_scale)
         )
 
         def _optional_scalar(
@@ -247,10 +247,10 @@ class GridGenerator:
                 if bucket_size_dollars is not None
                 else base_cfg.bucket_size_dollars
             ),
-            "spectrum_windows": spectrum_windows,
-            "spectrum_rollup_weights": spectrum_rollup_weights,
-            "spectrum_derivative_weights": spectrum_derivative_weights,
-            "spectrum_tanh_scale": spectrum_tanh_scale,
+            "flow_windows": flow_windows,
+            "flow_rollup_weights": flow_rollup_weights,
+            "flow_derivative_weights": flow_derivative_weights,
+            "flow_tanh_scale": flow_tanh_scale,
             "tau_velocity": _optional_scalar(
                 spec.tau_velocity,
                 "tau_velocity",
@@ -385,10 +385,10 @@ class GridGenerator:
                 "tau_acceleration": spec.tau_acceleration,
                 "tau_jerk": spec.tau_jerk,
                 "tau_rest_decay": spec.tau_rest_decay,
-                "spectrum_windows": spec.spectrum_windows,
-                "spectrum_rollup_weights": spec.spectrum_rollup_weights,
-                "spectrum_derivative_weights": spec.spectrum_derivative_weights,
-                "spectrum_tanh_scale": spec.spectrum_tanh_scale,
+                "flow_windows": spec.flow_windows,
+                "flow_rollup_weights": spec.flow_rollup_weights,
+                "flow_derivative_weights": spec.flow_derivative_weights,
+                "flow_tanh_scale": spec.flow_tanh_scale,
             },
             "files": [
                 "bins.parquet",

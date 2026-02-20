@@ -44,8 +44,8 @@ export interface ExperimentBucketRow {
   v_add: number;
   v_fill: number;
   v_pull: number;
-  spectrum_state_code: number;
-  spectrum_score: number;
+  flow_state_code: number;
+  flow_score: number;
   vacuum_variant: number;
 }
 

@@ -1,11 +1,11 @@
-name: smoke_perm_derivative
-description: Smoke test for permutation-derivative signal + MLflow logging.
+name: smoke_derivative
+description: Smoke test for derivative signal + MLflow logging.
 
 datasets:
   - mnqh6_20260206_0925_0927_perm_v1
 
 signals:
-  - perm_derivative
+  - derivative
 
 eval:
   tp_ticks: 8
@@ -19,7 +19,7 @@ sweep:
   universal:
     cooldown_bins: [30]
   per_signal:
-    perm_derivative:
+    derivative:
       zscore_window_bins: [240]
       zscore_min_periods: [60]
       d1_weight: [1.0]
@@ -32,7 +32,7 @@ parallel:
 
 tracking:
   backend: mlflow
-  experiment_name: vp/smoke_perm_derivative
+  experiment_name: vp/smoke_derivative
   run_name_prefix: smoke
   tags:
     stage: smoke

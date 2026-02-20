@@ -10,6 +10,9 @@ from typing import Dict, Sequence
 
 import numpy as np
 
+from .scoring import SpectrumScorer
+from .serving_config import ScoringConfig
+
 _EPS = 1e-12
 
 
@@ -20,6 +23,10 @@ class SpectrumOutput:
     score: np.ndarray
     state_code: np.ndarray
     projected_score_by_horizon: Dict[int, np.ndarray]
+    composite: np.ndarray
+    composite_d1: np.ndarray
+    composite_d2: np.ndarray
+    composite_d3: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -115,31 +122,25 @@ class IndependentCellSpectrum:
         self._default_dt_s = float(default_dt_s)
         self._projection_model = projection_model
 
-        max_hist = int(max(self._windows.max(), self._zscore_window_bins, 3))
+        max_hist = int(max(self._windows.max(), 3))
         self._hist_capacity = max_hist
         self._composite_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
-        self._d1_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
-        self._d2_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
-        self._d3_ring = np.zeros((max_hist, n_cells), dtype=np.float64)
         self._composite_write_idx = 0
-        self._d1_write_idx = 0
-        self._d2_write_idx = 0
-        self._d3_write_idx = 0
         self._composite_count = 0
-        self._d1_count = 0
-        self._d2_count = 0
-        self._d3_count = 0
         self._rolling_sum_by_window = np.zeros((self._windows.size, n_cells), dtype=np.float64)
-        self._zscore_scratch = np.empty(
-            (self._zscore_window_bins, n_cells), dtype=np.float64
-        )
-        self._zscore_abs_scratch = np.empty(
-            (self._zscore_window_bins, n_cells), dtype=np.float64
-        )
-        self._zscore_d1 = np.zeros(n_cells, dtype=np.float64)
-        self._zscore_d2 = np.zeros(n_cells, dtype=np.float64)
-        self._zscore_d3 = np.zeros(n_cells, dtype=np.float64)
         self._zeros = np.zeros(n_cells, dtype=np.float64)
+
+        # Delegate scoring to the canonical SpectrumScorer (single source of truth).
+        self._scorer = SpectrumScorer(
+            ScoringConfig(
+                zscore_window_bins=zscore_window_bins,
+                zscore_min_periods=zscore_min_periods,
+                derivative_weights=list(deriv_w),
+                tanh_scale=tanh_scale,
+                threshold_neutral=neutral_threshold,
+            ),
+            n_cells=n_cells,
+        )
 
         self._prev_ts_ns: int | None = None
         self._prev_rolled: np.ndarray | None = None
@@ -176,72 +177,6 @@ class IndependentCellSpectrum:
         self._composite_write_idx = (write_idx + 1) % self._hist_capacity
         if self._composite_count < self._hist_capacity:
             self._composite_count += 1
-
-    def _append_ring(
-        self,
-        ring: np.ndarray,
-        write_idx: int,
-        count: int,
-        x: np.ndarray,
-    ) -> tuple[int, int]:
-        """Append one vector to an arbitrary history ring."""
-        ring[write_idx] = x
-        write_idx = (write_idx + 1) % self._hist_capacity
-        if count < self._hist_capacity:
-            count += 1
-        return write_idx, count
-
-    def _copy_tail(
-        self,
-        ring: np.ndarray,
-        write_idx: int,
-        count: int,
-        window: int,
-    ) -> np.ndarray:
-        """Copy newest `window` rows from ring into scratch as contiguous history."""
-        n = min(window, count)
-        if n <= 0:
-            return self._zscore_scratch[:0]
-
-        start = (write_idx - n) % self._hist_capacity
-        if start + n <= self._hist_capacity:
-            self._zscore_scratch[:n] = ring[start:start + n]
-        else:
-            first = self._hist_capacity - start
-            self._zscore_scratch[:first] = ring[start:]
-            self._zscore_scratch[first:n] = ring[: n - first]
-        return self._zscore_scratch[:n]
-
-    def _robust_z_last(
-        self,
-        ring: np.ndarray,
-        write_idx: int,
-        count: int,
-        x: np.ndarray,
-        out: np.ndarray,
-    ) -> np.ndarray:
-        if count < self._zscore_min_periods:
-            out.fill(0.0)
-            return out
-
-        hist = self._copy_tail(
-            ring=ring,
-            write_idx=write_idx,
-            count=count,
-            window=self._zscore_window_bins,
-        )
-
-        med = np.median(hist, axis=0)
-        work = self._zscore_abs_scratch[: hist.shape[0]]
-        np.subtract(hist, med, out=work)
-        np.abs(work, out=work)
-        mad = np.median(work, axis=0)
-        scale = 1.4826 * mad
-        valid = scale > 1e-9
-
-        out.fill(0.0)
-        out[valid] = (x[valid] - med[valid]) / scale[valid]
-        return out
 
     def _project_score_horizon(
         self,
@@ -312,58 +247,8 @@ class IndependentCellSpectrum:
         else:
             d3 = (d2 - self._prev_d2) / dt_s
 
-        self._d1_write_idx, self._d1_count = self._append_ring(
-            ring=self._d1_ring,
-            write_idx=self._d1_write_idx,
-            count=self._d1_count,
-            x=d1,
-        )
-        self._d2_write_idx, self._d2_count = self._append_ring(
-            ring=self._d2_ring,
-            write_idx=self._d2_write_idx,
-            count=self._d2_count,
-            x=d2,
-        )
-        self._d3_write_idx, self._d3_count = self._append_ring(
-            ring=self._d3_ring,
-            write_idx=self._d3_write_idx,
-            count=self._d3_count,
-            x=d3,
-        )
-
-        z1 = self._robust_z_last(
-            self._d1_ring,
-            self._d1_write_idx,
-            self._d1_count,
-            d1,
-            self._zscore_d1,
-        )
-        z2 = self._robust_z_last(
-            self._d2_ring,
-            self._d2_write_idx,
-            self._d2_count,
-            d2,
-            self._zscore_d2,
-        )
-        z3 = self._robust_z_last(
-            self._d3_ring,
-            self._d3_write_idx,
-            self._d3_count,
-            d3,
-            self._zscore_d3,
-        )
-
-        score = (
-            self._deriv_weights[0] * np.tanh(z1 * self._inv_tanh_scale)
-            + self._deriv_weights[1] * np.tanh(z2 * self._inv_tanh_scale)
-            + self._deriv_weights[2] * np.tanh(z3 * self._inv_tanh_scale)
-        )
-        np.clip(score, -1.0, 1.0, out=score)
-        np.nan_to_num(score, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
-
-        state_code = np.zeros(self._n_cells, dtype=np.int8)
-        state_code[score >= self._neutral_threshold] = 1
-        state_code[score <= -self._neutral_threshold] = -1
+        # Delegate scoring to SpectrumScorer (single source of truth).
+        score, state_code = self._scorer.update(d1, d2, d3)
 
         if self._prev_score is None:
             score_d1 = np.zeros(self._n_cells, dtype=np.float64)
@@ -402,4 +287,8 @@ class IndependentCellSpectrum:
             score=score,
             state_code=state_code,
             projected_score_by_horizon=projected,
+            composite=rolled,
+            composite_d1=d1,
+            composite_d2=d2,
+            composite_d3=d3,
         )

@@ -75,7 +75,7 @@ def _normalized_spatial_weights(
     return w / total
 
 
-class PermDerivativeSignal(StatisticalSignal):
+class DerivativeSignal(StatisticalSignal):
     """Directional signal from microstructure permutation-state derivatives."""
 
     def __init__(
@@ -149,23 +149,23 @@ class PermDerivativeSignal(StatisticalSignal):
 
     @property
     def name(self) -> str:
-        return "perm_derivative"
+        return "derivative"
 
     @property
     def required_columns(self) -> list[str]:
-        return ["perm_state5_code", "perm_microstate_id"]
+        return ["state5_code", "microstate_id"]
 
     def default_thresholds(self) -> list[float]:
         return [0.03, 0.05, 0.08, 0.10, 0.15, 0.20]
 
     def compute(self, dataset: dict[str, Any]) -> SignalResult:
-        state5 = dataset["perm_state5_code"]
-        micro9 = dataset["perm_microstate_id"]
+        state5 = dataset["state5_code"]
+        micro9 = dataset["microstate_id"]
         n_bins = int(dataset["n_bins"])
         k_values = np.asarray(dataset["k_values"], dtype=np.int32)
 
-        _validate_grid_shape(state5, "perm_state5_code")
-        _validate_grid_shape(micro9, "perm_microstate_id")
+        _validate_grid_shape(state5, "state5_code")
+        _validate_grid_shape(micro9, "microstate_id")
         if n_bins <= 0:
             raise ValueError(f"n_bins must be > 0, got {n_bins}")
 
@@ -244,13 +244,13 @@ class PermDerivativeSignal(StatisticalSignal):
             transition[src, dst] += 1
 
         metadata: dict[str, Any] = {
-            "perm_state5_distribution": state_dist,
-            "perm_micro9_distribution": micro_dist,
-            "perm_state5_transition_matrix": transition.tolist(),
-            "perm_state5_labels": [str(x) for x in STATE5_CODES],
+            "state5_distribution": state_dist,
+            "micro9_distribution": micro_dist,
+            "state5_transition_matrix": transition.tolist(),
+            "state5_labels": [str(x) for x in STATE5_CODES],
             "derivative_weight_sum": norm,
         }
         return SignalResult(signal=score, metadata=metadata)
 
 
-register_signal("perm_derivative", PermDerivativeSignal)
+register_signal("derivative", DerivativeSignal)

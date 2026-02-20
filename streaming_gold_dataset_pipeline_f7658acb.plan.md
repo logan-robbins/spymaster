@@ -4,46 +4,58 @@ overview: "Three config layers with clean splits between data engineering, featu
 todos:
   - id: pipeline-config-schema
     content: Create pipeline_config.py with PipelineSpec pydantic model (capture + pipeline sections). Pipeline params include engine coefficients + spectrum smoothing windows. Excludes z-score/scoring/projection. Loader, VPRuntimeConfig resolver, deterministic dataset_id hash (includes pipeline_code_version).
-    status: pending
+    status: done
   - id: serving-config-schema
     content: Create serving_config.py with ServingSpec pydantic model. Single-point scoring (zscore, derivative weights, tanh_scale, threshold), signal (name, params, weights), projection (horizons, cubic, damping). References a pipeline by name. No sweep axes, no eval, no tracking. This is what the server loads for live scoring and what cli promote produces.
-    status: pending
+    status: done
   - id: experiment-config-schema
     content: Create experiment_config.py with ExperimentSpec pydantic model. References a serving config as defaults. Adds eval (TP/SL/cooldown), sweep axes (over scoring + signal + projection params), parallel, tracking. resolve_serving() loads the ServingSpec. to_harness_config() translates for the runner.
-    status: pending
+    status: done
   - id: refactor-spectrum
     content: "Split IndependentCellSpectrum into pipeline phase and scoring phase. Pipeline phase: composite + d1/d2/d3 (stays in stream_pipeline). Scoring phase: z-score + blend + state_code (new scoring.py module, used by BOTH server stream_pipeline and harness runner -- single Python implementation, zero skew). Update grid output: ADD composite/composite_d1/d2/d3, KEEP spectrum_score/state_code (now server-computed from scoring.py)."
-    status: pending
+    status: done
   - id: scoring-module
     content: "Create backend/src/vacuum_pressure/scoring.py with SpectrumScorer class. Incremental API: update(d1, d2, d3) -> (score, state_code) per cell. Ring-buffer z-score + tanh blend + threshold. Batch API: score_dataset(grid_df, scoring_config) -> adds spectrum_score/state_code columns. Both APIs produce identical outputs for identical inputs. Parameterized by ServingSpec.scoring."
-    status: pending
+    status: done
   - id: cli-generate
     content: Add 'generate' subcommand to cli.py that takes a PipelineSpec YAML, runs stream_events with its config (no scoring/projection), captures to vp_immutable/{dataset_id}/ (idempotent by hash).
-    status: pending
-  - id: cli-run-unified
+    status: done
+  - id: cli-run-experiment-spec
     content: Extend cli.py 'run' to accept an ExperimentSpec YAML -- auto-generates dataset via referenced pipeline if missing, applies scoring via scoring.py batch API (same code as server), expands sweeps, evaluates.
-    status: pending
+    status: done
   - id: cli-promote
     content: "Add 'promote' subcommand to cli.py. Takes ExperimentSpec YAML + run-id from MLflow/results. Extracts winning point params from sweep results. Writes a ServingSpec YAML to configs/serving/. Prints the serving URL and instrument.yaml diff."
-    status: pending
+    status: done
   - id: server-params
     content: "Add pipeline and serving query params to server.py WebSocket endpoint. ?pipeline=name streams raw features only. ?serving=name loads ServingSpec, runs scoring.py SpectrumScorer server-side, streams features + scored outputs. Arrow IPC includes both raw features and scored columns."
-    status: pending
+    status: done
   - id: update-arrow-schema
     content: "Update Arrow IPC schema in server.py: ADD composite/composite_d1/composite_d2/composite_d3. KEEP spectrum_score/spectrum_state_code (now computed by scoring.py server-side when serving config is active). Add signal_score when signal is active."
-    status: pending
+    status: done
   - id: frontend-render-only
     content: "Update vacuum-pressure.ts to consume server-computed spectrum_score + state_code + signal_score from Arrow IPC. Parse serving config from runtime_config for display labeling. Remove client-side scoring computation from the default path. experiment-engine.ts becomes optional dev-mode overlay only."
-    status: pending
+    status: done
   - id: equivalence-tests
     content: "Create tests/test_scoring_equivalence.py. Golden test vectors: known composite d1/d2/d3 sequences -> known scores. Test 1: SpectrumScorer incremental vs batch API on same input -> identical outputs. Test 2: server stream_events with serving config vs harness score_dataset on same .dbn -> identical spectrum_score per (bin, k). Test 3: warmup behavior -- first zscore_window_bins produce identical results in both paths."
-    status: pending
+    status: done
   - id: first-configs
     content: Write first PipelineSpec YAML (mnq_60m_baseline), first ServingSpec YAML (ads_pfp_svac_baseline), and first ExperimentSpec YAML (ads_pfp_svac_sweep_rr20) referencing them.
-    status: pending
+    status: done
   - id: update-readme
     content: Update README.md with three-config workflow, promote flow, and serving URL patterns.
-    status: pending
+    status: done
+  - id: experiment-browser-rest-api
+    content: Add GET /v1/experiments/runs and /v1/experiments/runs/{run_id}/detail REST endpoints to server.py. Uses ResultsDB to serve ranked results as JSON. Computes streaming URLs by mapping signal_params to perm_* WebSocket query params. Reads manifest.json for authoritative instrument metadata.
+    status: done
+  - id: experiment-browser-perm-forwarding
+    content: Extend StreamParams interface and parseStreamParams()/connectWS() in vacuum-pressure.ts to read and forward all perm_* URL params to the WebSocket connection.
+    status: done
+  - id: experiment-browser-frontend
+    content: Create experiments.html + experiments.ts — dark-themed table UI for browsing ranked experiment results. Filter by signal/dataset, sort by TP%/PnL/Evt-hr, click to see detail+params, "Launch Stream" button opens vacuum-pressure.html with that run's config.
+    status: done
+  - id: experiment-browser-vite
+    content: Add experiments.html as multi-page entry to vite.config.ts rollupOptions.
+    status: done
 isProject: false
 ---
 
@@ -604,3 +616,34 @@ open "http://localhost:5174/vacuum-pressure.html?...&serving=ads_pfp_svac_sweep_
 **Bug fix in feature computation code**:
 
 - Fix the code, bump `pipeline_code_version` in all affected pipeline YAMLs → `generate` (invalidates old hash, regenerates) → re-run experiments
+
+## Experiment Browser
+
+Visual UI for browsing harness results and launching the streaming frontend with any experiment's parameters.
+
+### Architecture
+
+- **Backend**: Two REST endpoints on the existing FastAPI server (`server.py`)
+  - `GET /v1/experiments/runs` — ranked results with streaming URLs
+  - `GET /v1/experiments/runs/{run_id}/detail` — full threshold sweep for one run
+- **Frontend**: `experiments.html` + `experiments.ts` (same Vite dev server, same dark theme)
+- **Bridge**: `vacuum-pressure.ts` extended to read/forward `perm_*` URL params to WebSocket
+
+### Streaming URL Construction
+
+For `perm_derivative` runs, the server reads `manifest.json` from `vp_immutable/{dataset_id}/` for instrument metadata (product_type, symbol, dt, start_time) and maps `signal_params_json` keys to WebSocket `perm_*` query params. Non-perm_derivative signals are shown in the table but cannot be streamed (Launch disabled).
+
+### Files
+
+- **Modified**: `backend/src/vacuum_pressure/server.py` — REST endpoints + URL builder
+- **Modified**: `frontend/src/vacuum-pressure.ts` — StreamParams + connectWS perm_* forwarding
+- **Modified**: `frontend/vite.config.ts` — multi-page entry
+- **Created**: `frontend/experiments.html` — experiment browser page
+- **Created**: `frontend/src/experiments.ts` — table, filters, detail panel, launch
+
+### Usage
+
+```bash
+# Open experiment browser (backend must be running on :8002)
+open http://localhost:5174/experiments.html
+```

@@ -25,7 +25,7 @@ def _base_campaign() -> campaign.CampaignConfig:
         publish=campaign.PublishConfig(agents=("eda", "projection")),
         sweep_axes={
             "cell_width_ms": [100, 200],
-            "spectrum_tanh_scale": [3.0, 4.0],
+            "flow_tanh_scale": [3.0, 4.0],
         },
         bundles=(
             {"c1_v_add": 1.0, "tau_velocity": 2.0},
@@ -47,13 +47,13 @@ def _base_runtime_config() -> VPRuntimeConfig:
         grid_radius_ticks=50,
         cell_width_ms=100,
         n_absolute_ticks=8192,
-        spectrum_windows=(5, 10, 20, 40),
-        spectrum_rollup_weights=(1.0, 1.0, 1.0, 1.0),
-        spectrum_derivative_weights=(0.55, 0.30, 0.15),
-        spectrum_tanh_scale=3.0,
-        spectrum_threshold_neutral=0.15,
-        zscore_window_bins=300,
-        zscore_min_periods=75,
+        flow_windows=(5, 10, 20, 40),
+        flow_rollup_weights=(1.0, 1.0, 1.0, 1.0),
+        flow_derivative_weights=(0.55, 0.30, 0.15),
+        flow_tanh_scale=3.0,
+        flow_neutral_threshold=0.15,
+        flow_zscore_window_bins=300,
+        flow_zscore_min_periods=75,
         projection_horizons_bins=(1, 2, 3, 4),
         projection_horizons_ms=(100, 200, 300, 400),
         contract_multiplier=2.0,
@@ -70,8 +70,8 @@ def test_expand_variants_cartesian_with_bundles() -> None:
 
 def test_variant_hash_is_deterministic_for_equivalent_mapping() -> None:
     cfg = _base_campaign()
-    v1 = {"cell_width_ms": 100, "spectrum_tanh_scale": 3.0, "c1_v_add": 1.0}
-    v2 = {"c1_v_add": 1.0, "spectrum_tanh_scale": 3.0, "cell_width_ms": 100}
+    v1 = {"cell_width_ms": 100, "flow_tanh_scale": 3.0, "c1_v_add": 1.0}
+    v2 = {"c1_v_add": 1.0, "flow_tanh_scale": 3.0, "cell_width_ms": 100}
 
     h1 = campaign._variant_hash(campaign=cfg, variant=v1)
     h2 = campaign._variant_hash(campaign=cfg, variant=v2)

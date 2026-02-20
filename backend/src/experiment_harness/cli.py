@@ -1,29 +1,30 @@
 """Click CLI for the VP experiment harness.
 
-Provides commands for running experiments, comparing results, importing
-legacy data, and listing available signals and datasets.
+Provides commands for running experiments, comparing results, generating
+immutable datasets, promoting experiment winners, and listing available
+signals and datasets.
 
 Entry point::
 
-    uv run python -m src.experiment_harness.cli run path/to/config.yaml
+    uv run python -m src.experiment_harness.cli run path/to/experiment_spec.yaml
     uv run python -m src.experiment_harness.cli compare --signal ads
     uv run python -m src.experiment_harness.cli list-signals
     uv run python -m src.experiment_harness.cli list-datasets
-    uv run python -m src.experiment_harness.cli import-legacy
+    uv run python -m src.experiment_harness.cli generate path/to/pipeline_spec.yaml
+    uv run python -m src.experiment_harness.cli promote path/to/experiment_spec.yaml --run-id abc12345
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
 import click
 
-from .config_schema import ExperimentConfig
 from .dataset_registry import DatasetRegistry
-from .grid_generator import GridGenerator
-from .online_simulator import OnlineSimulator
 from .results_db import ResultsDB
 from .runner import ExperimentRunner
 from .signals import SIGNAL_REGISTRY, ensure_signals_loaded
@@ -34,9 +35,6 @@ logger = logging.getLogger(__name__)
 # cli.py is at backend/src/experiment_harness/cli.py
 # parents[0] = experiment_harness/, [1] = src/, [2] = backend/
 _DEFAULT_LAKE_ROOT: Path = Path(__file__).resolve().parents[2] / "lake"
-
-# Legacy experiment base path
-_LEGACY_EXPERIMENTS_DIR: str = "research/vp_experiments"
 
 
 def _resolve_lake_root(lake_root_arg: str | None) -> Path:
@@ -73,6 +71,122 @@ def _setup_logging() -> None:
     )
 
 
+def _sha256_file(p: Path) -> str:
+    """Compute SHA-256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
+    """Generate an immutable dataset from a resolved PipelineSpec.
+
+    Streams events through the VP engine, writes bins.parquet,
+    grid_clean.parquet, manifest.json, and checksums.json.
+    Idempotent: returns immediately if the dataset already exists.
+
+    Args:
+        lake_root: Root path of the data lake.
+        pipeline_spec: Validated PipelineSpec instance.
+
+    Returns:
+        The deterministic dataset_id string.
+    """
+    import pandas as pd
+
+    from ..vacuum_pressure.stream_pipeline import stream_events
+
+    dataset_id: str = pipeline_spec.dataset_id()
+    output_dir: Path = lake_root / "research" / "vp_immutable" / dataset_id
+    bins_path: Path = output_dir / "bins.parquet"
+
+    if bins_path.exists():
+        click.echo(f"Dataset exists: {dataset_id}")
+        return dataset_id
+
+    config = pipeline_spec.resolve_runtime_config()
+
+    end_time_et = pd.Timestamp(
+        f"{pipeline_spec.capture.dt} {pipeline_spec.capture.end_time}:00",
+        tz="America/New_York",
+    ).tz_convert("UTC")
+    end_time_ns: int = int(end_time_et.value)
+
+    click.echo("Streaming events...")
+    t_start: float = time.monotonic()
+
+    all_bucket_rows: list[dict[str, Any]] = []
+    n_bins: int = 0
+
+    for bin_grid in stream_events(
+        lake_root=lake_root,
+        config=config,
+        dt=pipeline_spec.capture.dt,
+        start_time=pipeline_spec.capture.start_time,
+    ):
+        ts_ns: int = int(bin_grid["ts_ns"])
+        if ts_ns > end_time_ns:
+            break
+
+        bin_seq: int = int(bin_grid["bin_seq"])
+        n_bins += 1
+
+        for bucket in bin_grid["buckets"]:
+            bucket["bin_seq"] = bin_seq
+            all_bucket_rows.append(bucket)
+
+    elapsed: float = time.monotonic() - t_start
+    click.echo(f"Collected {n_bins} bins ({len(all_bucket_rows)} rows) in {elapsed:.2f}s")
+
+    if not all_bucket_rows:
+        raise click.ClickException(
+            "No bins emitted. Check date/time window and data availability."
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df: pd.DataFrame = pd.DataFrame(all_bucket_rows)
+    df.to_parquet(bins_path, index=False)
+    click.echo(f"  bins.parquet: {len(df)} rows")
+
+    numeric_cols: list[str] = [
+        c for c in df.columns
+        if c not in ("k", "bin_seq") and df[c].dtype.kind in ("f", "i")
+    ]
+    mask = df[numeric_cols].abs().sum(axis=1) > 0
+    df_clean: pd.DataFrame = df[mask].reset_index(drop=True)
+    grid_clean_path: Path = output_dir / "grid_clean.parquet"
+    df_clean.to_parquet(grid_clean_path, index=False)
+    click.echo(f"  grid_clean.parquet: {len(df_clean)} rows")
+
+    manifest: dict[str, Any] = {
+        "pipeline_spec_name": pipeline_spec.name,
+        "dataset_id": dataset_id,
+        "symbol": pipeline_spec.capture.symbol,
+        "dt": pipeline_spec.capture.dt,
+        "start_time": pipeline_spec.capture.start_time,
+        "end_time": pipeline_spec.capture.end_time,
+        "cell_width_ms": config.cell_width_ms,
+        "n_bins": n_bins,
+        "code_version": pipeline_spec.pipeline_code_version,
+    }
+    manifest_path: Path = output_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=False))
+    click.echo("  manifest.json written")
+
+    checksums: dict[str, str] = {
+        "bins.parquet": _sha256_file(bins_path),
+        "grid_clean.parquet": _sha256_file(grid_clean_path),
+    }
+    checksums_path: Path = output_dir / "checksums.json"
+    checksums_path.write_text(json.dumps(checksums, indent=2))
+    click.echo("  checksums.json written")
+
+    click.echo(f"Dataset generated: {dataset_id}")
+    return dataset_id
+
+
 @click.group()
 def cli() -> None:
     """VP Experiment Harness -- signal evaluation and comparison."""
@@ -88,19 +202,34 @@ def cli() -> None:
     help="Override lake root directory. Default: backend/lake/",
 )
 def run(config_path: str, lake_root: str | None) -> None:
-    """Run an experiment from a YAML config file.
+    """Run an experiment from an ExperimentSpec YAML.
 
-    Loads CONFIG_PATH, expands the parameter grid, evaluates all
-    signal/dataset/param combinations, and persists results to the
-    ResultsDB under lake/research/vp_harness/results/.
+    Resolves serving -> pipeline, auto-generates the dataset if missing,
+    expands sweep axes, evaluates, and persists results.
     """
-    resolved_lake: Path = _resolve_lake_root(lake_root)
-    config: ExperimentConfig = ExperimentConfig.from_yaml(Path(config_path))
+    from ..vacuum_pressure.experiment_config import ExperimentSpec
 
-    click.echo(f"Experiment: {config.name}")
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    spec: ExperimentSpec = ExperimentSpec.from_yaml(Path(config_path))
+
+    click.echo(f"Experiment: {spec.name}")
+    click.echo(f"Serving:    {spec.serving}")
+    click.echo(f"Lake root:  {resolved_lake}")
+    click.echo()
+
+    serving_spec = spec.resolve_serving(resolved_lake)
+    pipeline_spec = serving_spec.resolve_pipeline(resolved_lake)
+    _generate_dataset(resolved_lake, pipeline_spec)
+
+    harness_dict: dict[str, Any] = spec.to_harness_config(resolved_lake)
+
+    # ExperimentConfig is the internal runner schema — not user-facing.
+    from .config_schema import ExperimentConfig
+
+    config: ExperimentConfig = ExperimentConfig.model_validate(harness_dict)
+
     click.echo(f"Datasets:   {config.datasets}")
     click.echo(f"Signals:    {config.signals}")
-    click.echo(f"Lake root:  {resolved_lake}")
     click.echo()
 
     runner = ExperimentRunner(resolved_lake)
@@ -110,31 +239,6 @@ def run(config_path: str, lake_root: str | None) -> None:
     click.echo(f"Completed {len(run_ids)} runs.")
     for rid in run_ids:
         click.echo(f"  {rid}")
-
-
-@cli.command("generate-grid")
-@click.argument("config_path", type=click.Path(exists=True))
-@click.option(
-    "--lake-root",
-    default=None,
-    type=str,
-    help="Override lake root directory. Default: backend/lake/",
-)
-def generate_grid(config_path: str, lake_root: str | None) -> None:
-    """Generate grid variants from a config's grid_variant block."""
-    resolved_lake: Path = _resolve_lake_root(lake_root)
-    config: ExperimentConfig = ExperimentConfig.from_yaml(Path(config_path))
-    if config.grid_variant is None:
-        raise click.BadParameter(
-            f"Config '{config_path}' does not include a grid_variant block."
-        )
-
-    specs = ExperimentRunner._expand_grid_variant_specs(config.grid_variant)
-    generator = GridGenerator(resolved_lake)
-    click.echo(f"Generating {len(specs)} variant(s) at {resolved_lake} ...")
-    for idx, spec in enumerate(specs, start=1):
-        variant_id = generator.generate(spec)
-        click.echo(f"  [{idx}/{len(specs)}] {variant_id}")
 
 
 @cli.command()
@@ -181,11 +285,9 @@ def compare(
         click.echo("No results found matching filters.")
         return
 
-    # Sort by chosen column
     if sort in best.columns:
         best = best.sort_values(sort, ascending=False).reset_index(drop=True)
 
-    # Display as formatted table
     click.echo(
         f"{'Rank':<5} {'Signal':<22} {'Dataset':<32} "
         f"{'TP%':<8} {'N':<7} {'PnL':<9} {'Thr':<8} {'Evt/hr':<10}"
@@ -206,77 +308,6 @@ def compare(
             f"{tp_rate * 100:>5.1f}%  {n_sig:<7} {mean_pnl:>+7.2f}  "
             f"{threshold:<8.3f} {evt_hr:>8.1f}"
         )
-
-
-@cli.command("import-legacy")
-@click.option(
-    "--lake-root",
-    default=None,
-    type=str,
-    help="Override lake root directory.",
-)
-def import_legacy(lake_root: str | None) -> None:
-    """Import legacy results.json files from Round 1+2 experiments.
-
-    Scans vp_experiments/*/agents/*/outputs/results.json, converts each
-    file to the ResultsDB append format, and persists them.
-    """
-    resolved_lake: Path = _resolve_lake_root(lake_root)
-    results_db = ResultsDB(resolved_lake / "research" / "vp_harness" / "results")
-
-    legacy_root: Path = resolved_lake / _LEGACY_EXPERIMENTS_DIR
-    if not legacy_root.exists():
-        click.echo(f"Legacy experiments directory not found: {legacy_root}")
-        return
-
-    results_files: list[Path] = sorted(legacy_root.glob("**/agents/*/outputs/results.json"))
-    if not results_files:
-        click.echo("No legacy results.json files found.")
-        return
-
-    click.echo(f"Found {len(results_files)} legacy result files.")
-    imported_count: int = 0
-
-    for results_path in results_files:
-        try:
-            raw: dict[str, Any] = json.loads(results_path.read_text())
-
-            experiment_name: str = raw.get("experiment_name", "unknown")
-            agent_name: str = raw.get("agent_name", "unknown")
-            dataset_id: str = raw.get("dataset_id", "unknown")
-            params: dict[str, Any] = raw.get("params", {})
-
-            threshold_results: list[dict[str, Any]] = raw.get(
-                "results_by_threshold", []
-            )
-            if not threshold_results:
-                logger.warning(
-                    "No threshold results in %s, skipping", results_path
-                )
-                continue
-
-            meta: dict[str, Any] = {
-                "experiment_name": f"legacy_{experiment_name}",
-                "dataset_id": dataset_id,
-                "signal_name": agent_name,
-                "signal_params_json": json.dumps(params, sort_keys=True, default=str),
-                "grid_variant_id": "immutable",
-                "eval_tp_ticks": 8,
-                "eval_sl_ticks": 4,
-                "eval_max_hold_bins": 1200,
-                "elapsed_seconds": 0.0,
-                "config_hash": "legacy_import",
-            }
-
-            run_id: str = results_db.append_run(meta, threshold_results)
-            imported_count += 1
-            click.echo(f"  Imported {agent_name} -> run_id={run_id}")
-
-        except (json.JSONDecodeError, KeyError) as exc:
-            logger.error("Failed to parse %s: %s", results_path, exc)
-            continue
-
-    click.echo(f"Imported {imported_count} legacy runs.")
 
 
 @cli.command("online-sim")
@@ -308,6 +339,8 @@ def online_sim(
     lake_root: str | None,
 ) -> None:
     """Run online simulation for one signal/dataset combo."""
+    from .online_simulator import OnlineSimulator
+
     resolved_lake: Path = _resolve_lake_root(lake_root)
     try:
         params: dict[str, Any] = json.loads(signal_params_json)
@@ -346,7 +379,6 @@ def list_signals() -> None:
 
     for name in sorted(SIGNAL_REGISTRY.keys()):
         cls = SIGNAL_REGISTRY[name]
-        # Determine type from base classes
         from .signals.base import MLSignal, StatisticalSignal
 
         if issubclass(cls, MLSignal):
@@ -379,6 +411,107 @@ def list_datasets(lake_root: str | None) -> None:
     click.echo(f"Found {len(datasets)} datasets:")
     for ds_id in datasets:
         click.echo(f"  {ds_id}")
+
+
+@cli.command()
+@click.argument("config_path", type=click.Path(exists=True))
+@click.option(
+    "--lake-root",
+    default=None,
+    type=str,
+    help="Override lake root directory. Default: backend/lake/",
+)
+def generate(config_path: str, lake_root: str | None) -> None:
+    """Generate an immutable VP dataset from a PipelineSpec YAML.
+
+    Loads CONFIG_PATH as a PipelineSpec, resolves runtime config, streams
+    events through the VP engine, and writes to vp_immutable/{dataset_id}/.
+    """
+    from ..vacuum_pressure.pipeline_config import PipelineSpec
+
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    spec: PipelineSpec = PipelineSpec.from_yaml(Path(config_path))
+
+    click.echo(f"Pipeline:   {spec.name}")
+    click.echo(f"Dataset ID: {spec.dataset_id()}")
+    click.echo(f"Symbol:     {spec.capture.symbol}")
+    click.echo(f"Date:       {spec.capture.dt}")
+    click.echo(f"Window:     {spec.capture.start_time} - {spec.capture.end_time}")
+    click.echo()
+
+    _generate_dataset(resolved_lake, spec)
+
+
+@cli.command()
+@click.argument("config_path", type=click.Path(exists=True))
+@click.option(
+    "--run-id",
+    required=True,
+    type=str,
+    help="Run ID from experiment results to promote.",
+)
+@click.option(
+    "--lake-root",
+    default=None,
+    type=str,
+    help="Override lake root directory. Default: backend/lake/",
+)
+@click.option(
+    "--output",
+    default=None,
+    type=str,
+    help="Override output path for the promoted ServingSpec YAML.",
+)
+def promote(
+    config_path: str,
+    run_id: str,
+    lake_root: str | None,
+    output: str | None,
+) -> None:
+    """Promote a winning experiment run to a ServingSpec YAML.
+
+    Loads CONFIG_PATH as an ExperimentSpec, extracts the winning parameters
+    from RUN_ID, and writes a new ServingSpec YAML ready for serving.
+    """
+    from ..vacuum_pressure.experiment_config import ExperimentSpec
+    from ..vacuum_pressure.serving_config import ServingSpec
+
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    spec: ExperimentSpec = ExperimentSpec.from_yaml(Path(config_path))
+
+    results_db_root: Path = resolved_lake / "research" / "vp_harness" / "results"
+
+    click.echo(f"Experiment: {spec.name}")
+    click.echo(f"Run ID:     {run_id}")
+    click.echo()
+
+    promoted: ServingSpec = spec.extract_winning_serving(
+        run_id=run_id,
+        results_db_root=results_db_root,
+        lake_root=resolved_lake,
+    )
+
+    if output is not None:
+        output_path: Path = Path(output).resolve()
+    else:
+        output_path = ServingSpec.configs_dir(resolved_lake) / f"{promoted.name}.yaml"
+
+    promoted.to_yaml(output_path)
+
+    click.echo(f"Promoted:   {promoted.name}")
+    click.echo(f"Output:     {output_path}")
+    click.echo()
+
+    overrides: dict[str, Any] = promoted.to_runtime_overrides()
+    click.echo("Runtime overrides:")
+    for key, value in sorted(overrides.items()):
+        click.echo(f"  {key}: {value}")
+
+    click.echo()
+    click.echo(
+        f"Streaming URL pattern: "
+        f"ws://localhost:8000/ws/vp?serving={promoted.name}"
+    )
 
 
 if __name__ == "__main__":

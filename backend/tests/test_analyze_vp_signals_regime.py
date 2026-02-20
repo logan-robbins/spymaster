@@ -30,13 +30,13 @@ def _test_config() -> VPRuntimeConfig:
         grid_radius_ticks=2,
         cell_width_ms=100,
         n_absolute_ticks=20,
-        spectrum_windows=(2, 4),
-        spectrum_rollup_weights=(1.0, 1.0),
-        spectrum_derivative_weights=(0.55, 0.30, 0.15),
-        spectrum_tanh_scale=3.0,
-        spectrum_threshold_neutral=0.15,
-        zscore_window_bins=8,
-        zscore_min_periods=2,
+        flow_windows=(2, 4),
+        flow_rollup_weights=(1.0, 1.0),
+        flow_derivative_weights=(0.55, 0.30, 0.15),
+        flow_tanh_scale=3.0,
+        flow_neutral_threshold=0.15,
+        flow_zscore_window_bins=8,
+        flow_zscore_min_periods=2,
         projection_horizons_bins=(1, 2),
         projection_horizons_ms=(100, 200),
         contract_multiplier=1.0,
@@ -327,6 +327,6 @@ def test_stream_events_bucket_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     for g in grids:
         assert len(g["buckets"]) == expected_rows
         for b in g["buckets"]:
-            assert np.isfinite(float(b["spectrum_score"]))
-            assert -1.0 <= float(b["spectrum_score"]) <= 1.0
-            assert int(b["spectrum_state_code"]) in (-1, 0, 1)
+            assert np.isfinite(float(b["flow_score"]))
+            assert -1.0 <= float(b["flow_score"]) <= 1.0
+            assert int(b["flow_state_code"]) in (-1, 0, 1)

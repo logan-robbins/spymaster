@@ -123,7 +123,7 @@ class ERDSignal(StatisticalSignal):
     @property
     def required_columns(self) -> list[str]:
         """Grid columns required by this signal."""
-        return ["spectrum_state_code", "spectrum_score"]
+        return ["flow_state_code", "flow_score"]
 
     def default_thresholds(self) -> list[float]:
         """Default threshold grid for sweep evaluation."""
@@ -137,16 +137,16 @@ class ERDSignal(StatisticalSignal):
         metadata for secondary evaluation.
 
         Args:
-            dataset: Dict with keys ``spectrum_state_code`` and
-                ``spectrum_score`` as (n_bins, 101) arrays, plus
+            dataset: Dict with keys ``flow_state_code`` and
+                ``flow_score`` as (n_bins, 101) arrays, plus
                 ``n_bins`` (int).
 
         Returns:
             SignalResult with the variant A signal and metadata containing
             variant B signal, entropy statistics, and diagnostic info.
         """
-        state_code: np.ndarray = dataset["spectrum_state_code"]
-        score: np.ndarray = dataset["spectrum_score"]
+        state_code: np.ndarray = dataset["flow_state_code"]
+        score: np.ndarray = dataset["flow_score"]
         n_bins: int = dataset["n_bins"]
 
         # Step 1: Cast state_code to int8 (harness returns float64)

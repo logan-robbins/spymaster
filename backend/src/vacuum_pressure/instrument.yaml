@@ -8,13 +8,13 @@ rel_tick_size: 0.25
 grid_radius_ticks: 50
 cell_width_ms: 100
 n_absolute_ticks: 8192
-spectrum_windows: [5, 10, 20, 40]
-spectrum_rollup_weights: [1.0, 1.0, 1.0, 1.0]
-spectrum_derivative_weights: [0.55, 0.30, 0.15]
-spectrum_tanh_scale: 3.0
-spectrum_threshold_neutral: 0.15
-zscore_window_bins: 300
-zscore_min_periods: 75
+flow_windows: [5, 10, 20, 40]
+flow_rollup_weights: [1.0, 1.0, 1.0, 1.0]
+flow_derivative_weights: [0.55, 0.30, 0.15]
+flow_tanh_scale: 3.0
+flow_neutral_threshold: 0.15
+flow_zscore_window_bins: 300
+flow_zscore_min_periods: 75
 projection_horizons_bins: [1, 2, 3, 4]
 contract_multiplier: 2.0
 qty_unit: contracts
@@ -30,18 +30,18 @@ c4_v_pull: 1.0
 c5_v_fill: 1.5
 c6_v_rest_neg: 0.5
 c7_a_pull: 0.3
-perm_runtime_enabled: true
-perm_center_exclusion_radius: 0
-perm_spatial_decay_power: 0.0
-perm_zscore_window_bins: 240
-perm_zscore_min_periods: 60
-perm_tanh_scale: 3.0
-perm_d1_weight: 1.0
-perm_d2_weight: 0.0
-perm_d3_weight: 0.0
-perm_bull_pressure_weight: 1.0
-perm_bull_vacuum_weight: 1.0
-perm_bear_pressure_weight: 1.0
-perm_bear_vacuum_weight: 1.0
-perm_mixed_weight: 0.0
-perm_enable_weighted_blend: false
+state_model_enabled: true
+state_model_center_exclusion_radius: 0
+state_model_spatial_decay_power: 0.0
+state_model_zscore_window_bins: 240
+state_model_zscore_min_periods: 60
+state_model_tanh_scale: 3.0
+state_model_d1_weight: 1.0
+state_model_d2_weight: 0.0
+state_model_d3_weight: 0.0
+state_model_bull_pressure_weight: 1.0
+state_model_bull_vacuum_weight: 1.0
+state_model_bear_pressure_weight: 1.0
+state_model_bear_vacuum_weight: 1.0
+state_model_mixed_weight: 0.0
+state_model_enable_weighted_blend: false
