@@ -7,13 +7,14 @@ Runtime contract:
 """
 from __future__ import annotations
 
-import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
 import yaml
+
+from ..vp_shared.hashing import stable_short_hash
 
 LOCKED_INSTRUMENT_CONFIG_ENV = "VP_INSTRUMENT_CONFIG_PATH"
 """Optional override path for the single-instrument config YAML."""
@@ -207,14 +208,7 @@ class VPRuntimeConfig:
 
 def _compute_config_version(fields: Dict[str, Any]) -> str:
     """Compute short deterministic hash of config fields."""
-    stable: Dict[str, Any] = {}
-    for key, value in fields.items():
-        if isinstance(value, tuple):
-            stable[key] = list(value)
-        else:
-            stable[key] = value
-    raw = "|".join(f"{k}={v}" for k, v in sorted(stable.items()))
-    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+    return stable_short_hash(fields, length=12)
 
 
 def _default_locked_config_path() -> Path:

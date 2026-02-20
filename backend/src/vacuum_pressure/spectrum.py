@@ -10,6 +10,11 @@ from typing import Dict, Sequence
 
 import numpy as np
 
+from ..vp_shared.zscore import (
+    sanitize_unit_interval_array,
+    validate_positive_weight_vector,
+    validate_zscore_tanh_params,
+)
 from .scoring import SpectrumScorer
 from .serving_config import ScoringConfig
 
@@ -57,18 +62,12 @@ class IndependentCellSpectrum:
     ) -> None:
         if n_cells < 1:
             raise ValueError(f"n_cells must be >= 1, got {n_cells}")
-        if tanh_scale <= 0.0:
-            raise ValueError(f"tanh_scale must be > 0, got {tanh_scale}")
-        if not (0.0 < neutral_threshold < 1.0):
-            raise ValueError(
-                f"neutral_threshold must be in (0,1), got {neutral_threshold}"
-            )
-        if zscore_window_bins < 2:
-            raise ValueError("zscore_window_bins must be >= 2")
-        if zscore_min_periods < 2:
-            raise ValueError("zscore_min_periods must be >= 2")
-        if zscore_min_periods > zscore_window_bins:
-            raise ValueError("zscore_min_periods cannot exceed zscore_window_bins")
+        validate_zscore_tanh_params(
+            zscore_window_bins=zscore_window_bins,
+            zscore_min_periods=zscore_min_periods,
+            tanh_scale=tanh_scale,
+            threshold_neutral=neutral_threshold,
+        )
         if default_dt_s <= 0.0:
             raise ValueError(f"default_dt_s must be > 0, got {default_dt_s}")
         if projection_model is None:
@@ -88,19 +87,17 @@ class IndependentCellSpectrum:
         if np.any(win <= 0):
             raise ValueError("windows values must be > 0")
 
-        roll_w = np.asarray(list(rollup_weights), dtype=np.float64)
-        if roll_w.ndim != 1 or roll_w.size != win.size:
-            raise ValueError("rollup_weights must have the same length as windows")
-        if np.any(roll_w <= 0.0):
-            raise ValueError("rollup_weights values must be > 0")
-        roll_w = roll_w / float(roll_w.sum())
+        roll_w = validate_positive_weight_vector(
+            list(rollup_weights),
+            expected_size=int(win.size),
+            field_name="rollup_weights",
+        )
 
-        deriv_w = np.asarray(list(derivative_weights), dtype=np.float64)
-        if deriv_w.ndim != 1 or deriv_w.size != 3:
-            raise ValueError("derivative_weights must contain exactly 3 values")
-        if np.any(deriv_w <= 0.0):
-            raise ValueError("derivative_weights values must be > 0")
-        deriv_w = deriv_w / float(deriv_w.sum())
+        deriv_w = validate_positive_weight_vector(
+            list(derivative_weights),
+            expected_size=3,
+            field_name="derivative_weights",
+        )
 
         horizons = np.asarray(list(projection_horizons_ms), dtype=np.int32)
         if horizons.ndim != 1 or horizons.size == 0:
@@ -113,8 +110,6 @@ class IndependentCellSpectrum:
         self._windows_py = tuple(int(x) for x in win.tolist())
         self._rollup_weights = roll_w
         self._deriv_weights = deriv_w
-        self._tanh_scale = float(tanh_scale)
-        self._inv_tanh_scale = 1.0 / self._tanh_scale
         self._neutral_threshold = float(neutral_threshold)
         self._zscore_window_bins = int(zscore_window_bins)
         self._zscore_min_periods = int(zscore_min_periods)
@@ -193,9 +188,7 @@ class IndependentCellSpectrum:
             )
         if self._projection_model.damping_lambda > 0.0:
             proj = proj * np.exp(-self._projection_model.damping_lambda * horizon_s)
-        np.clip(proj, -1.0, 1.0, out=proj)
-        np.nan_to_num(proj, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
-        return proj
+        return sanitize_unit_interval_array(proj)
 
     def update(
         self,

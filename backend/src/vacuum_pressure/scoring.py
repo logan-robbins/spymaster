@@ -21,13 +21,18 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from ..vp_shared.zscore import (
+    robust_z_current_vectorized,
+    sanitize_unit_interval_array,
+    validate_positive_weight_vector,
+    validate_zscore_tanh_params,
+    weighted_tanh_blend,
+)
+
 if TYPE_CHECKING:
     from .serving_config import ScoringConfig
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-# MAD-to-sigma conversion constant for Gaussian distributions.
-_MAD_TO_SIGMA: float = 1.4826
 
 # Minimum scale threshold below which z-score is clamped to zero.
 _SCALE_EPS: float = 1e-9
@@ -55,7 +60,7 @@ class SpectrumScorer:
     __slots__ = (
         "_n_cells",
         "_weights",
-        "_inv_tanh_scale",
+        "_tanh_scale",
         "_threshold_neutral",
         "_window",
         "_min_periods",
@@ -76,35 +81,21 @@ class SpectrumScorer:
         tanh_scale: float = config.tanh_scale
         threshold: float = config.threshold_neutral
 
-        if window < 2:
-            raise ValueError(f"zscore_window_bins must be >= 2, got {window}")
-        if min_periods < 2:
-            raise ValueError(f"zscore_min_periods must be >= 2, got {min_periods}")
-        if min_periods > window:
-            raise ValueError(
-                f"zscore_min_periods ({min_periods}) cannot exceed "
-                f"zscore_window_bins ({window})"
-            )
-        if tanh_scale <= 0.0:
-            raise ValueError(f"tanh_scale must be > 0, got {tanh_scale}")
-        if not (0.0 < threshold < 1.0):
-            raise ValueError(f"threshold_neutral must be in (0, 1), got {threshold}")
-
-        # Normalize derivative weights to sum=1.
-        raw_w = np.asarray(config.derivative_weights, dtype=np.float64)
-        if raw_w.ndim != 1 or raw_w.size != 3:
-            raise ValueError(
-                f"derivative_weights must contain exactly 3 values, "
-                f"got shape {raw_w.shape}"
-            )
-        if np.any(raw_w <= 0.0):
-            raise ValueError("derivative_weights values must be > 0")
-        w_sum: float = float(raw_w.sum())
-        weights: np.ndarray = raw_w / w_sum
+        validate_zscore_tanh_params(
+            zscore_window_bins=window,
+            zscore_min_periods=min_periods,
+            tanh_scale=tanh_scale,
+            threshold_neutral=threshold,
+        )
+        weights = validate_positive_weight_vector(
+            config.derivative_weights,
+            expected_size=3,
+            field_name="derivative_weights",
+        )
 
         self._n_cells: int = n_cells
         self._weights: np.ndarray = weights
-        self._inv_tanh_scale: float = 1.0 / tanh_scale
+        self._tanh_scale: float = tanh_scale
         self._threshold_neutral: float = threshold
         self._window: int = window
         self._min_periods: int = min_periods
@@ -184,13 +175,19 @@ class SpectrumScorer:
             )
 
         # Step 2: Weighted tanh blend.
-        score: np.ndarray = (
-            self._weights[0] * np.tanh(self._z_out[0] * self._inv_tanh_scale)
-            + self._weights[1] * np.tanh(self._z_out[1] * self._inv_tanh_scale)
-            + self._weights[2] * np.tanh(self._z_out[2] * self._inv_tanh_scale)
+        score = np.asarray(
+            weighted_tanh_blend(
+                self._z_out[0],
+                self._z_out[1],
+                self._z_out[2],
+                d1_weight=float(self._weights[0]),
+                d2_weight=float(self._weights[1]),
+                d3_weight=float(self._weights[2]),
+                tanh_scale=self._tanh_scale,
+            ),
+            dtype=np.float64,
         )
-        np.clip(score, -1.0, 1.0, out=score)
-        np.nan_to_num(score, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+        sanitize_unit_interval_array(score)
 
         # Step 3: Discretize to state code.
         state_code: np.ndarray = np.zeros(n, dtype=np.int8)
@@ -243,19 +240,14 @@ class SpectrumScorer:
             hist[:first] = ring[start:]
             hist[first:n_valid] = ring[: n_valid - first]
 
-        # Median and MAD computation.
-        med: np.ndarray = np.median(hist, axis=0)
         work: np.ndarray = self._abs_scratch[:n_valid]
-        np.subtract(hist, med, out=work)
-        np.abs(work, out=work)
-        mad: np.ndarray = np.median(work, axis=0)
-        scale: np.ndarray = _MAD_TO_SIGMA * mad
-
-        # Z-score with epsilon guard.
-        valid_mask: np.ndarray = scale > _SCALE_EPS
-        out.fill(0.0)
-        out[valid_mask] = (current[valid_mask] - med[valid_mask]) / scale[valid_mask]
-        return out
+        return robust_z_current_vectorized(
+            hist,
+            current,
+            scale_eps=_SCALE_EPS,
+            out=out,
+            work=work,
+        )
 
 
 def score_dataset(

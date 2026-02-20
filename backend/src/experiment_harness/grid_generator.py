@@ -8,7 +8,6 @@ with ``bins.parquet``, ``grid_clean.parquet``, and ``manifest.json``.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
@@ -16,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from src.vp_shared.hashing import stable_short_hash
 
 from .config_schema import GridVariantConfig
 from .dataset_registry import DatasetRegistry
@@ -185,8 +186,7 @@ class GridGenerator:
             else:
                 param_dict[field_name] = val
 
-        raw = "|".join(f"{k}={v}" for k, v in sorted(param_dict.items()))
-        return hashlib.sha256(raw.encode()).hexdigest()[:12]
+        return stable_short_hash(param_dict, length=12)
 
     def _build_runtime_config(self, spec: GridVariantConfig) -> Any:
         """Construct a VPRuntimeConfig directly from spec + locked defaults."""

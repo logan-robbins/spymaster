@@ -7,13 +7,22 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import math
 from typing import Iterable
 
 import numpy as np
 
-
-_STATE5_CODES: tuple[int, ...] = (-2, -1, 0, 1, 2)
+from ..vp_shared.derivative_core import (
+    STATE5_CODES,
+    compute_state5_intensities,
+    derivative_base_from_intensities,
+    normalized_spatial_weights,
+    validate_derivative_parameter_set,
+)
+from ..vp_shared.zscore import (
+    robust_or_global_z_latest,
+    sanitize_unit_interval_scalar,
+    weighted_tanh_blend,
+)
 
 
 @dataclass(frozen=True)
@@ -37,48 +46,21 @@ class DerivativeRuntimeParams:
 
     def validate(self) -> None:
         """Fail fast on invalid runtime model parameters."""
-        if self.center_exclusion_radius < 0:
-            raise ValueError(
-                "center_exclusion_radius must be >= 0, "
-                f"got {self.center_exclusion_radius}"
-            )
-        if self.spatial_decay_power < 0.0:
-            raise ValueError(
-                "spatial_decay_power must be >= 0, "
-                f"got {self.spatial_decay_power}"
-            )
-        if self.zscore_window_bins < 2:
-            raise ValueError(
-                "zscore_window_bins must be >= 2, "
-                f"got {self.zscore_window_bins}"
-            )
-        if self.zscore_min_periods < 2:
-            raise ValueError(
-                "zscore_min_periods must be >= 2, "
-                f"got {self.zscore_min_periods}"
-            )
-        if self.zscore_min_periods > self.zscore_window_bins:
-            raise ValueError(
-                "zscore_min_periods cannot exceed zscore_window_bins"
-            )
-        if self.tanh_scale <= 0.0:
-            raise ValueError(
-                f"tanh_scale must be > 0, got {self.tanh_scale}"
-            )
-        for name, value in (
-            ("d1_weight", self.d1_weight),
-            ("d2_weight", self.d2_weight),
-            ("d3_weight", self.d3_weight),
-            ("bull_pressure_weight", self.bull_pressure_weight),
-            ("bull_vacuum_weight", self.bull_vacuum_weight),
-            ("bear_pressure_weight", self.bear_pressure_weight),
-            ("bear_vacuum_weight", self.bear_vacuum_weight),
-            ("mixed_weight", self.mixed_weight),
-        ):
-            if value < 0.0:
-                raise ValueError(f"{name} must be >= 0, got {value}")
-        if abs(self.d1_weight) + abs(self.d2_weight) + abs(self.d3_weight) <= 0.0:
-            raise ValueError("At least one derivative weight must be > 0")
+        validate_derivative_parameter_set(
+            center_exclusion_radius=self.center_exclusion_radius,
+            spatial_decay_power=self.spatial_decay_power,
+            zscore_window_bins=self.zscore_window_bins,
+            zscore_min_periods=self.zscore_min_periods,
+            tanh_scale=self.tanh_scale,
+            d1_weight=self.d1_weight,
+            d2_weight=self.d2_weight,
+            d3_weight=self.d3_weight,
+            bull_pressure_weight=self.bull_pressure_weight,
+            bull_vacuum_weight=self.bull_vacuum_weight,
+            bear_pressure_weight=self.bear_pressure_weight,
+            bear_vacuum_weight=self.bear_vacuum_weight,
+            mixed_weight=self.mixed_weight,
+        )
 
 
 @dataclass(frozen=True)
@@ -102,54 +84,6 @@ class DerivativeRuntimeOutput:
     dominant_state5_code: int
 
 
-def _normalized_spatial_weights(
-    k_values: np.ndarray,
-    *,
-    center_exclusion_radius: int,
-    spatial_decay_power: float,
-) -> np.ndarray:
-    if k_values.ndim != 1:
-        raise ValueError(f"k_values must be 1D, got shape={k_values.shape}")
-
-    w = np.ones(k_values.shape[0], dtype=np.float64)
-    if center_exclusion_radius > 0:
-        w[np.abs(k_values) <= center_exclusion_radius] = 0.0
-
-    if spatial_decay_power > 0.0:
-        dist = np.abs(k_values).astype(np.float64)
-        dist[dist < 1.0] = 1.0
-        w *= 1.0 / np.power(dist, spatial_decay_power)
-
-    total = float(w.sum())
-    if total <= 0.0:
-        raise ValueError(
-            "Spatial weights collapsed to zero. "
-            "Reduce center_exclusion_radius or spatial_decay_power."
-        )
-    return w / total
-
-
-def _robust_or_global_z_from_history(
-    values: deque[float],
-    *,
-    min_periods: int,
-) -> float:
-    if len(values) < min_periods:
-        return 0.0
-
-    arr = np.asarray(values, dtype=np.float64)
-    med = float(np.median(arr))
-    mad = float(np.median(np.abs(arr - med)))
-    scale = 1.4826 * mad
-    if scale > 1e-12:
-        return float((arr[-1] - med) / scale)
-
-    std = float(np.std(arr))
-    if std <= 1e-12:
-        return 0.0
-    return float(arr[-1] / std)
-
-
 class DerivativeRuntime:
     """Incremental online variant of the harness `derivative` signal."""
 
@@ -170,7 +104,7 @@ class DerivativeRuntime:
 
         self._params = params
         self._dt_s = float(cell_width_ms) / 1000.0
-        self._weights = _normalized_spatial_weights(
+        self._weights = normalized_spatial_weights(
             k_arr,
             center_exclusion_radius=params.center_exclusion_radius,
             spatial_decay_power=params.spatial_decay_power,
@@ -216,28 +150,22 @@ class DerivativeRuntime:
                 f"({self._weights.shape[0]}), got {s.shape[0]}"
             )
 
-        i_bear_vac = float(((s == -2).astype(np.float64)) @ self._weights)
-        i_bear_press = float(((s == -1).astype(np.float64)) @ self._weights)
-        i_mixed = float(((s == 0).astype(np.float64)) @ self._weights)
-        i_bull_press = float(((s == 1).astype(np.float64)) @ self._weights)
-        i_bull_vac = float(((s == 2).astype(np.float64)) @ self._weights)
-
-        bull = (
-            self._params.bull_pressure_weight * i_bull_press
-            + self._params.bull_vacuum_weight * i_bull_vac
+        i_bear_vac, i_bear_press, i_mixed, i_bull_press, i_bull_vac = (
+            compute_state5_intensities(s, self._weights)
         )
-        bear = (
-            self._params.bear_pressure_weight * i_bear_press
-            + self._params.bear_vacuum_weight * i_bear_vac
+        bull, bear, base = derivative_base_from_intensities(
+            i_bear_vac=float(i_bear_vac),
+            i_bear_press=float(i_bear_press),
+            i_mixed=float(i_mixed),
+            i_bull_press=float(i_bull_press),
+            i_bull_vac=float(i_bull_vac),
+            bull_pressure_weight=self._params.bull_pressure_weight,
+            bull_vacuum_weight=self._params.bull_vacuum_weight,
+            bear_pressure_weight=self._params.bear_pressure_weight,
+            bear_vacuum_weight=self._params.bear_vacuum_weight,
+            mixed_weight=self._params.mixed_weight,
+            enable_weighted_blend=self._params.enable_weighted_blend,
         )
-        net = bull - bear
-
-        if self._params.enable_weighted_blend:
-            mixed_damp = 1.0 - self._params.mixed_weight * i_mixed
-            mixed_damp = float(np.clip(mixed_damp, 0.0, 1.0))
-            base = net * mixed_damp
-        else:
-            base = net
 
         if self._sample_count == 0:
             d1 = 0.0
@@ -252,38 +180,41 @@ class DerivativeRuntime:
         self._d2_hist.append(float(d2))
         self._d3_hist.append(float(d3))
 
-        z1 = _robust_or_global_z_from_history(
+        z1 = robust_or_global_z_latest(
             self._d1_hist,
             min_periods=self._params.zscore_min_periods,
         )
-        z2 = _robust_or_global_z_from_history(
+        z2 = robust_or_global_z_latest(
             self._d2_hist,
             min_periods=self._params.zscore_min_periods,
         )
-        z3 = _robust_or_global_z_from_history(
+        z3 = robust_or_global_z_latest(
             self._d3_hist,
             min_periods=self._params.zscore_min_periods,
         )
 
-        score = (
-            self._params.d1_weight * math.tanh(z1 / self._params.tanh_scale)
-            + self._params.d2_weight * math.tanh(z2 / self._params.tanh_scale)
-            + self._params.d3_weight * math.tanh(z3 / self._params.tanh_scale)
+        score_raw = weighted_tanh_blend(
+            z1,
+            z2,
+            z3,
+            d1_weight=self._params.d1_weight,
+            d2_weight=self._params.d2_weight,
+            d3_weight=self._params.d3_weight,
+            tanh_scale=self._params.tanh_scale,
         )
-        norm = (
-            abs(self._params.d1_weight)
-            + abs(self._params.d2_weight)
-            + abs(self._params.d3_weight)
-        )
-        if norm > 0.0:
-            score = score / norm
-        score = float(np.clip(np.nan_to_num(score, nan=0.0, posinf=1.0, neginf=-1.0), -1.0, 1.0))
+        score = sanitize_unit_interval_scalar(float(score_raw))
 
         intensities = np.asarray(
-            [i_bear_vac, i_bear_press, i_mixed, i_bull_press, i_bull_vac],
+            [
+                float(i_bear_vac),
+                float(i_bear_press),
+                float(i_mixed),
+                float(i_bull_press),
+                float(i_bull_vac),
+            ],
             dtype=np.float64,
         )
-        dominant_state5_code = int(_STATE5_CODES[int(np.argmax(intensities))])
+        dominant_state5_code = int(STATE5_CODES[int(np.argmax(intensities))])
 
         self._prev_base = base
         self._prev_d1 = d1

@@ -17,6 +17,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from ..vp_shared.yaml_io import load_yaml_mapping
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 
@@ -134,15 +136,13 @@ class ServingSpec(BaseModel):
             yaml.YAMLError: If the file is not valid YAML.
             pydantic.ValidationError: If the content fails model validation.
         """
-        if not path.exists():
-            raise FileNotFoundError(f"ServingSpec YAML not found: {path}")
-
-        raw: dict[str, Any] = yaml.safe_load(path.read_text())
-        if not isinstance(raw, dict):
-            raise ValueError(
-                f"Expected a YAML mapping at top level, got {type(raw).__name__}: {path}"
-            )
-
+        raw = load_yaml_mapping(
+            Path(path),
+            not_found_message="ServingSpec YAML not found: {path}",
+            non_mapping_message=(
+                "Expected a YAML mapping at top level, got {kind}: {path}"
+            ),
+        )
         logger.debug("Loading ServingSpec from %s", path)
         return cls.model_validate(raw)
 

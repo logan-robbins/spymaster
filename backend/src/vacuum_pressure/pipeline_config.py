@@ -19,9 +19,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, field_validator, model_validator
 
+from ..vp_shared.yaml_io import load_yaml_mapping
 from .config import VPRuntimeConfig, build_config_with_overrides, resolve_config
 
 logger = logging.getLogger(__name__)
@@ -199,12 +199,12 @@ class PipelineSpec(BaseModel):
             ValueError: If the YAML content is not a valid mapping.
             pydantic.ValidationError: If fields fail validation.
         """
-        path = Path(path).resolve()
-        if not path.exists():
-            raise FileNotFoundError(f"PipelineSpec YAML not found: {path}")
-        raw = yaml.safe_load(path.read_text())
-        if not isinstance(raw, dict):
-            raise ValueError(f"PipelineSpec YAML must be a mapping, got {type(raw).__name__}: {path}")
+        raw = load_yaml_mapping(
+            Path(path),
+            not_found_message="PipelineSpec YAML not found: {path}",
+            non_mapping_message="PipelineSpec YAML must be a mapping, got {kind}: {path}",
+            resolve_path=True,
+        )
         return cls.model_validate(raw)
 
     @classmethod

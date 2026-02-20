@@ -9,12 +9,22 @@ from typing import Any
 
 import numpy as np
 
-from src.experiment_harness.eval_engine import robust_zscore
 from src.experiment_harness.signals import register_signal
 from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
+from src.vp_shared.derivative_core import (
+    STATE5_CODES,
+    compute_state5_intensities,
+    derivative_base_from_intensities,
+    normalized_spatial_weights,
+    validate_derivative_parameter_set,
+)
+from src.vp_shared.zscore import (
+    robust_or_global_z_series,
+    sanitize_unit_interval_array,
+    weighted_tanh_blend,
+)
 
 N_TICKS = 101
-STATE5_CODES = (-2, -1, 0, 1, 2)
 
 
 def _validate_grid_shape(arr: np.ndarray, name: str) -> None:
@@ -31,48 +41,6 @@ def _time_derivative(x: np.ndarray, dt_s: float) -> np.ndarray:
     if x.size >= 2:
         out[1:] = (x[1:] - x[:-1]) / dt_s
     return out
-
-
-def _robust_or_global_z(
-    x: np.ndarray,
-    *,
-    window: int,
-    min_periods: int,
-) -> np.ndarray:
-    z = robust_zscore(x, window=window, min_periods=min_periods)
-    if float(np.max(np.abs(z))) > 0.0:
-        return z
-    scale = float(np.std(x))
-    if scale <= 1e-12:
-        return z
-    return x / scale
-
-
-def _normalized_spatial_weights(
-    k_values: np.ndarray,
-    *,
-    center_exclusion_radius: int,
-    spatial_decay_power: float,
-) -> np.ndarray:
-    if k_values.shape != (N_TICKS,):
-        raise ValueError(f"k_values must have shape ({N_TICKS},), got {k_values.shape}")
-
-    w = np.ones(N_TICKS, dtype=np.float64)
-    if center_exclusion_radius > 0:
-        w[np.abs(k_values) <= center_exclusion_radius] = 0.0
-
-    if spatial_decay_power > 0.0:
-        dist = np.abs(k_values).astype(np.float64)
-        dist[dist < 1.0] = 1.0
-        w *= 1.0 / np.power(dist, spatial_decay_power)
-
-    total = float(w.sum())
-    if total <= 0.0:
-        raise ValueError(
-            "Spatial weights collapsed to zero. Reduce center_exclusion_radius "
-            "or spatial_decay_power."
-        )
-    return w / total
 
 
 class DerivativeSignal(StatisticalSignal):
@@ -98,38 +66,21 @@ class DerivativeSignal(StatisticalSignal):
     ) -> None:
         if cell_width_ms <= 0:
             raise ValueError(f"cell_width_ms must be > 0, got {cell_width_ms}")
-        if center_exclusion_radius < 0:
-            raise ValueError(
-                f"center_exclusion_radius must be >= 0, got {center_exclusion_radius}"
-            )
-        if spatial_decay_power < 0.0:
-            raise ValueError(
-                f"spatial_decay_power must be >= 0, got {spatial_decay_power}"
-            )
-        if zscore_window_bins < 2:
-            raise ValueError(f"zscore_window_bins must be >= 2, got {zscore_window_bins}")
-        if zscore_min_periods < 2:
-            raise ValueError(f"zscore_min_periods must be >= 2, got {zscore_min_periods}")
-        if zscore_min_periods > zscore_window_bins:
-            raise ValueError("zscore_min_periods cannot exceed zscore_window_bins")
-        if tanh_scale <= 0.0:
-            raise ValueError(f"tanh_scale must be > 0, got {tanh_scale}")
-
-        for name, value in (
-            ("d1_weight", d1_weight),
-            ("d2_weight", d2_weight),
-            ("d3_weight", d3_weight),
-            ("bull_pressure_weight", bull_pressure_weight),
-            ("bull_vacuum_weight", bull_vacuum_weight),
-            ("bear_pressure_weight", bear_pressure_weight),
-            ("bear_vacuum_weight", bear_vacuum_weight),
-            ("mixed_weight", mixed_weight),
-        ):
-            if value < 0.0:
-                raise ValueError(f"{name} must be >= 0, got {value}")
-
-        if abs(d1_weight) + abs(d2_weight) + abs(d3_weight) <= 0.0:
-            raise ValueError("At least one derivative weight must be > 0")
+        validate_derivative_parameter_set(
+            center_exclusion_radius=center_exclusion_radius,
+            spatial_decay_power=spatial_decay_power,
+            zscore_window_bins=zscore_window_bins,
+            zscore_min_periods=zscore_min_periods,
+            tanh_scale=tanh_scale,
+            d1_weight=d1_weight,
+            d2_weight=d2_weight,
+            d3_weight=d3_weight,
+            bull_pressure_weight=bull_pressure_weight,
+            bull_vacuum_weight=bull_vacuum_weight,
+            bear_pressure_weight=bear_pressure_weight,
+            bear_vacuum_weight=bear_vacuum_weight,
+            mixed_weight=mixed_weight,
+        )
 
         self.cell_width_ms = int(cell_width_ms)
         self.center_exclusion_radius = int(center_exclusion_radius)
@@ -169,61 +120,65 @@ class DerivativeSignal(StatisticalSignal):
         if n_bins <= 0:
             raise ValueError(f"n_bins must be > 0, got {n_bins}")
 
-        weights = _normalized_spatial_weights(
+        weights = normalized_spatial_weights(
             k_values,
             center_exclusion_radius=self.center_exclusion_radius,
             spatial_decay_power=self.spatial_decay_power,
+            expected_len=N_TICKS,
         )
 
-        s = np.rint(state5).astype(np.int8)
-        i_bear_vac = (s == -2).astype(np.float64) @ weights
-        i_bear_press = (s == -1).astype(np.float64) @ weights
-        i_mixed = (s == 0).astype(np.float64) @ weights
-        i_bull_press = (s == 1).astype(np.float64) @ weights
-        i_bull_vac = (s == 2).astype(np.float64) @ weights
-
-        bull = self.bull_pressure_weight * i_bull_press + self.bull_vacuum_weight * i_bull_vac
-        bear = self.bear_pressure_weight * i_bear_press + self.bear_vacuum_weight * i_bear_vac
-        net = bull - bear
-
-        if self.enable_weighted_blend:
-            mixed_damp = 1.0 - self.mixed_weight * i_mixed
-            mixed_damp = np.clip(mixed_damp, 0.0, 1.0)
-            base = net * mixed_damp
-        else:
-            base = net
+        i_bear_vac, i_bear_press, i_mixed, i_bull_press, i_bull_vac = (
+            compute_state5_intensities(state5, weights)
+        )
+        bull, bear, base = derivative_base_from_intensities(
+            i_bear_vac=i_bear_vac,
+            i_bear_press=i_bear_press,
+            i_mixed=i_mixed,
+            i_bull_press=i_bull_press,
+            i_bull_vac=i_bull_vac,
+            bull_pressure_weight=self.bull_pressure_weight,
+            bull_vacuum_weight=self.bull_vacuum_weight,
+            bear_pressure_weight=self.bear_pressure_weight,
+            bear_vacuum_weight=self.bear_vacuum_weight,
+            mixed_weight=self.mixed_weight,
+            enable_weighted_blend=self.enable_weighted_blend,
+        )
 
         dt_s = float(self.cell_width_ms) / 1000.0
         d1 = _time_derivative(base, dt_s)
         d2 = _time_derivative(d1, dt_s)
         d3 = _time_derivative(d2, dt_s)
 
-        z1 = _robust_or_global_z(
+        z1 = robust_or_global_z_series(
             d1,
             window=self.zscore_window_bins,
             min_periods=self.zscore_min_periods,
         )
-        z2 = _robust_or_global_z(
+        z2 = robust_or_global_z_series(
             d2,
             window=self.zscore_window_bins,
             min_periods=self.zscore_min_periods,
         )
-        z3 = _robust_or_global_z(
+        z3 = robust_or_global_z_series(
             d3,
             window=self.zscore_window_bins,
             min_periods=self.zscore_min_periods,
         )
 
-        score = (
-            self.d1_weight * np.tanh(z1 / self.tanh_scale)
-            + self.d2_weight * np.tanh(z2 / self.tanh_scale)
-            + self.d3_weight * np.tanh(z3 / self.tanh_scale)
+        score = np.asarray(
+            weighted_tanh_blend(
+                z1,
+                z2,
+                z3,
+                d1_weight=self.d1_weight,
+                d2_weight=self.d2_weight,
+                d3_weight=self.d3_weight,
+                tanh_scale=self.tanh_scale,
+            ),
+            dtype=np.float64,
         )
         norm = abs(self.d1_weight) + abs(self.d2_weight) + abs(self.d3_weight)
-        if norm > 0.0:
-            score = score / norm
-        np.nan_to_num(score, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
-        np.clip(score, -1.0, 1.0, out=score)
+        sanitize_unit_interval_array(score)
 
         center_col = N_TICKS // 2
         micro_ids = np.clip(np.rint(micro9[:, center_col]).astype(np.int32), 0, 8)

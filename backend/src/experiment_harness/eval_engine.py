@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.vp_shared.zscore import robust_zscore_rolling_1d
+
 from .dataset_registry import DatasetRegistry
 
 logger = logging.getLogger(__name__)
@@ -82,24 +84,12 @@ def robust_zscore(
         Array of same length. Returns 0.0 for bins with fewer than
         ``min_periods`` observations or near-zero MAD.
     """
-    n: int = len(arr)
-    result: np.ndarray = np.zeros(n, dtype=np.float64)
-
-    for i in range(n):
-        start: int = max(0, i - window + 1)
-        seg: np.ndarray = arr[start : i + 1]
-        if len(seg) < min_periods:
-            result[i] = 0.0
-            continue
-        med: float = float(np.median(seg))
-        mad: float = float(np.median(np.abs(seg - med)))
-        scale: float = 1.4826 * mad
-        if scale < 1e-12:
-            result[i] = 0.0
-        else:
-            result[i] = (arr[i] - med) / scale
-
-    return result
+    return robust_zscore_rolling_1d(
+        arr,
+        window=window,
+        min_periods=min_periods,
+        scale_eps=1e-12,
+    )
 
 
 class EvalEngine:

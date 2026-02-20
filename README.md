@@ -20,6 +20,7 @@ Config models:
 - `backend/src/vacuum_pressure/serving_config.py` — ServingSpec: references a PipelineSpec + scoring + signal + projection params
 - `backend/src/vacuum_pressure/experiment_config.py` — ExperimentSpec: references a ServingSpec + sweep axes + TP/SL eval + tracking
 - `backend/src/vacuum_pressure/scoring.py` — SpectrumScorer: single Python implementation used by both server and harness (zero train/serve skew)
+- `backend/src/vp_shared/` — canonical shared core for deterministic hashing, YAML model loading, robust z-score primitives, and derivative state-model math used by both `experiment_harness` and `vacuum_pressure`
 
 Runtime config loading and validation: `backend/src/vacuum_pressure/config.py`
 
@@ -188,6 +189,7 @@ Live serving:
 5. `backend/src/vacuum_pressure/spectrum.py` — multi-window flow computation (module name retained)
 6. `backend/src/vacuum_pressure/scoring.py` — z-score + tanh blend + state classification
 7. `backend/src/vacuum_pressure/runtime_model.py` — incremental state-model scoring on `state5_code`
+8. `backend/src/vp_shared/` — shared train/serve primitives consumed by items 3, 6, 7 and by offline harness signals/config loaders
 
 Frontend:
 1. `frontend/src/vacuum-pressure.ts` — streaming visualization, Arrow IPC parsing, projection rendering
@@ -198,7 +200,7 @@ Offline experiment:
 1. `backend/src/experiment_harness/cli.py` — Click CLI (generate, run, compare, promote, list-signals, list-datasets, online-sim)
 2. `backend/src/experiment_harness/runner.py` — sweep expansion, signal evaluation, result persistence
 3. `backend/src/experiment_harness/config_schema.py` — internal runner schema (not user-facing, produced by ExperimentSpec.to_harness_config())
-4. `backend/src/experiment_harness/signals/` — signal implementations (`statistical/` and `ml/` subdirs)
+4. `backend/src/experiment_harness/signals/` — signal implementations (`statistical/` and `ml/` subdirs), with `statistical/derivative.py` sharing canonical runtime math via `src/vp_shared`
 5. `backend/src/experiment_harness/results_db.py` — parquet-backed run storage and query
 6. `backend/src/experiment_harness/tracking.py` — MLflow tracking integration
 
@@ -209,10 +211,20 @@ Offline experiment:
 cd backend
 uv run pytest tests/
 
+# Focused train/serve parity checks
+uv run pytest \
+  tests/test_derivative_train_serve_parity.py \
+  tests/test_scoring_equivalence.py
+
 # Frontend typecheck (from frontend/)
 cd frontend
 npx tsc --noEmit
 ```
+
+## Architecture Review Notes
+
+- Current deep-dive findings and the PhD-grade robust-standardization migration plan are documented in `ANALYSIS.md`.
+- The target direction is a single canonical online/offline implementation for robust standardization with strict fail-fast parity and latency gates.
 
 ## Check Data Before Starting
 

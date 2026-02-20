@@ -19,8 +19,9 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, field_validator
+
+from ..vp_shared.yaml_io import load_yaml_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -404,17 +405,14 @@ class ExperimentSpec(BaseModel):
             yaml.YAMLError: If the file contains invalid YAML.
             pydantic.ValidationError: If the parsed data fails schema validation.
         """
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f"Experiment config not found: {path}")
-
-        logger.info("Loading experiment spec from %s", path)
-        with open(path, "r") as fh:
-            raw: dict[str, Any] = yaml.safe_load(fh)
-
-        if raw is None:
-            raise ValueError(f"Experiment config file is empty: {path}")
-
+        raw = load_yaml_mapping(
+            Path(path),
+            not_found_message="Experiment config not found: {path}",
+            empty_message="Experiment config file is empty: {path}",
+            non_mapping_message="Experiment config must be a mapping, got {kind}: {path}",
+            logger=logger,
+            log_message="Loading experiment spec from %s",
+        )
         return cls.model_validate(raw)
 
     @classmethod
