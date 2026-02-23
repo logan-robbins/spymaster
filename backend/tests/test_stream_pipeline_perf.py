@@ -232,11 +232,6 @@ def test_stream_events_emits_permutation_labels_for_upward_chase(
     assert int(second["bid_reprice_sign"]) == 1
     assert int(second["microstate_id"]) == 8
     assert int(second["chase_up_flag"]) == 1
-    assert second["state_model_name"] == "derivative"
-    assert isinstance(second["state_model_score"], float)
-    assert isinstance(second["state_model_ready"], bool)
-    assert isinstance(second["state_model_sample_count"], int)
-    assert isinstance(second["state_model_dominant_state5_code"], int)
 
     above = _bucket_by_k(second, 1)
     below = _bucket_by_k(second, -1)

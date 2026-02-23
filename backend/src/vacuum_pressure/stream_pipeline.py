@@ -23,11 +23,6 @@ from ..data_eng.config import PRICE_SCALE
 from .config import VPRuntimeConfig
 from .event_engine import AbsoluteTickEngine
 from .replay_source import _resolve_dbn_path, iter_mbo_events
-from .runtime_model import (
-    DerivativeRuntime,
-    DerivativeRuntimeOutput,
-    DerivativeRuntimeParams,
-)
 from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 logger = logging.getLogger(__name__)
@@ -97,11 +92,9 @@ _GRID_FLOAT_COLS: tuple[str, ...] = (
     "composite_d1",
     "composite_d2",
     "composite_d3",
-    "flow_score",
 )
 
 _GRID_INT_COL_DTYPES: dict[str, Any] = {
-    "flow_state_code": np.int8,
     "best_ask_move_ticks": np.int32,
     "best_bid_move_ticks": np.int32,
     "ask_reprice_sign": np.int8,
@@ -214,49 +207,6 @@ def _annotate_permutation_labels(
     cols["chase_down_flag"].fill(chase_down_flag)
 
     return state5_series
-
-
-def _state_model_params_from_config(config: VPRuntimeConfig) -> DerivativeRuntimeParams:
-    """Build validated state-model params from runtime config."""
-    params = DerivativeRuntimeParams(
-        center_exclusion_radius=config.state_model_center_exclusion_radius,
-        spatial_decay_power=config.state_model_spatial_decay_power,
-        zscore_window_bins=config.state_model_zscore_window_bins,
-        zscore_min_periods=config.state_model_zscore_min_periods,
-        tanh_scale=config.state_model_tanh_scale,
-        d1_weight=config.state_model_d1_weight,
-        d2_weight=config.state_model_d2_weight,
-        d3_weight=config.state_model_d3_weight,
-        bull_pressure_weight=config.state_model_bull_pressure_weight,
-        bull_vacuum_weight=config.state_model_bull_vacuum_weight,
-        bear_pressure_weight=config.state_model_bear_pressure_weight,
-        bear_vacuum_weight=config.state_model_bear_vacuum_weight,
-        mixed_weight=config.state_model_mixed_weight,
-    )
-    params.validate()
-    return params
-
-
-def _annotate_state_model(
-    grid: Dict[str, Any],
-    model_out: DerivativeRuntimeOutput,
-) -> None:
-    """Attach runtime model outputs to the emitted grid payload."""
-    grid["state_model_name"] = model_out.name
-    grid["state_model_score"] = model_out.score
-    grid["state_model_ready"] = model_out.ready
-    grid["state_model_sample_count"] = model_out.sample_count
-    grid["state_model_base"] = model_out.base
-    grid["state_model_d1"] = model_out.d1
-    grid["state_model_d2"] = model_out.d2
-    grid["state_model_d3"] = model_out.d3
-    grid["state_model_z1"] = model_out.z1
-    grid["state_model_z2"] = model_out.z2
-    grid["state_model_z3"] = model_out.z3
-    grid["state_model_bull_intensity"] = model_out.bull_intensity
-    grid["state_model_bear_intensity"] = model_out.bear_intensity
-    grid["state_model_mixed_intensity"] = model_out.mixed_intensity
-    grid["state_model_dominant_state5_code"] = model_out.dominant_state5_code
 
 
 class _ProducerLatencyWriter:
@@ -653,10 +603,6 @@ def _build_bin_grid(
         grid_cols["composite_d1"][dst_slice] = spectrum_out.composite_d1[src_slice]
         grid_cols["composite_d2"][dst_slice] = spectrum_out.composite_d2[src_slice]
         grid_cols["composite_d3"][dst_slice] = spectrum_out.composite_d3[src_slice]
-        grid_cols["flow_score"][dst_slice] = spectrum_out.score[src_slice]
-        grid_cols["flow_state_code"][dst_slice] = np.asarray(
-            spectrum_out.state_code[src_slice], dtype=np.int8
-        )
         grid_cols["last_event_id"][dst_slice] = np.asarray(
             full["last_event_id"][src_slice], dtype=np.int64
         )
@@ -718,12 +664,6 @@ def stream_events(
             damping_lambda=projection_damping_lambda,
         ),
     )
-    state_model = DerivativeRuntime(
-        k_values=np.arange(-window_radius, window_radius + 1, dtype=np.int32),
-        cell_width_ms=config.cell_width_ms,
-        params=_state_model_params_from_config(config),
-    )
-
     event_count = 0
     yielded_count = 0
     warmup_count = 0
@@ -801,13 +741,11 @@ def stream_events(
                 prev_best_bid_price_int,
                 tick_int=engine.tick_int,
             )
-            state5_series = _annotate_permutation_labels(
+            _annotate_permutation_labels(
                 grid,
                 ask_move_ticks=ask_move_ticks,
                 bid_move_ticks=bid_move_ticks,
             )
-            model_out = state_model.update(state5_series)
-            _annotate_state_model(grid, model_out)
             prev_best_ask_price_int = int(grid["best_ask_price_int"])
             prev_best_bid_price_int = int(grid["best_bid_price_int"])
             if capture_producer_timing:
@@ -864,14 +802,11 @@ def stream_events(
             prev_best_bid_price_int,
             tick_int=engine.tick_int,
         )
-        state5_series = _annotate_permutation_labels(
+        _annotate_permutation_labels(
             grid,
             ask_move_ticks=ask_move_ticks,
             bid_move_ticks=bid_move_ticks,
         )
-        if state_model is not None:
-            model_out = state_model.update(state5_series)
-            _annotate_state_model(grid, model_out)
         if capture_producer_timing:
             grid[_PRODUCER_PERF_KEY] = {
                 "bin_first_ingest_wall_ns": bin_first_ingest_wall_ns,

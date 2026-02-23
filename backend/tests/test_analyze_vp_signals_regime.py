@@ -327,8 +327,7 @@ def test_stream_events_bucket_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     for g in grids:
         cols = g["grid_cols"]
         assert len(cols["k"]) == expected_rows
-        flow_score = np.asarray(cols["flow_score"], dtype=np.float64)
-        flow_state = np.asarray(cols["flow_state_code"], dtype=np.int8)
-        assert np.all(np.isfinite(flow_score))
-        assert np.all((-1.0 <= flow_score) & (flow_score <= 1.0))
-        assert np.all(np.isin(flow_state, np.array([-1, 0, 1], dtype=np.int8)))
+        assert "flow_score" not in cols
+        assert "flow_state_code" not in cols
+        composite_d1 = np.asarray(cols["composite_d1"], dtype=np.float64)
+        assert np.all(np.isfinite(composite_d1))

@@ -75,8 +75,6 @@ def test_grid_to_arrow_ipc_serializes_expected_rows() -> None:
             "composite_d1": [0.0, 0.0],
             "composite_d2": [0.0, 0.0],
             "composite_d3": [0.0, 0.0],
-            "flow_score": [-0.25, 0.5],
-            "flow_state_code": [-1, 1],
             "best_ask_move_ticks": [1, 1],
             "best_bid_move_ticks": [1, 1],
             "ask_reprice_sign": [1, 1],
@@ -95,5 +93,4 @@ def test_grid_to_arrow_ipc_serializes_expected_rows() -> None:
     assert table.schema.equals(schema)
     assert table.num_rows == 2
     assert table["k"].to_pylist() == [-1, 0]
-    assert table["flow_state_code"].to_pylist() == [-1, 1]
     assert table["last_event_id"].to_pylist() == [101, 102]
