@@ -1567,57 +1567,52 @@ function renderProjectionBands(
       const nHorizons = projectionHorizons.length;
       if (nHorizons === 0) return;
       const colWidth = zoneWidth / nHorizons;
-
-      for (let hi = 0; hi < nHorizons; hi++) {
-        const horizon = projectionHorizons[hi];
-        // Band center: spot shifted by amplified composite × spreadTicks
-        // Bullish (positive) → lower row number (higher price)
-        const bandCenterRow = lastSpot - scaledSignal * horizon.spreadTicks;
-        const bandTopRow = bandCenterRow - BAND_HALF_WIDTH_ROWS;
-        const bandBotRow = bandCenterRow + BAND_HALF_WIDTH_ROWS;
-
-        const xLeft = dataWidth + colWidth * hi;
-        const xRight = dataWidth + colWidth * (hi + 1);
-        const yCenter = rowToY(bandCenterRow);
-        const yTop = rowToY(bandTopRow);
-        const yBot = rowToY(bandBotRow);
-
-        // Filled band
-        const alpha = horizon.alpha * lastWarmup;
-        ctx.fillStyle = `rgba(120, 40, 180, ${alpha * 0.4})`;
-        ctx.fillRect(xLeft + 1, yTop, xRight - xLeft - 2, yBot - yTop);
-
-        // Band edges
-        ctx.strokeStyle = `rgba(140, 60, 200, ${alpha * 0.7})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(xLeft + 1, yTop);
-        ctx.lineTo(xRight - 1, yTop);
-        ctx.moveTo(xLeft + 1, yBot);
-        ctx.lineTo(xRight - 1, yBot);
-        ctx.stroke();
-
-        // Center line
-        ctx.strokeStyle = `rgba(180, 100, 255, ${alpha * 0.9})`;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(xLeft + 1, yCenter);
-        ctx.lineTo(xRight - 1, yCenter);
-        ctx.stroke();
-      }
-
-      // Connect spot to first horizon band center
-      const firstBandCenter = lastSpot - scaledSignal * projectionHorizons[0].spreadTicks;
       const spotY = rowToY(lastSpot);
-      const firstY = rowToY(firstBandCenter);
-      ctx.strokeStyle = 'rgba(180, 100, 255, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 4]);
+
+      // Build one projected point per horizon (right edge of each column)
+      const pts = projectionHorizons.map((horizon, hi) => {
+        const x = dataWidth + colWidth * (hi + 1);
+        const centerRow = lastSpot - scaledSignal * horizon.spreadTicks;
+        return {
+          x,
+          yCenter: rowToY(centerRow),
+          yTop: rowToY(centerRow - BAND_HALF_WIDTH_ROWS),
+          yBot: rowToY(centerRow + BAND_HALF_WIDTH_ROWS),
+          alpha: horizon.alpha * lastWarmup,
+        };
+      });
+
+      // Filled envelope — same subtle fill as historical bands
+      ctx.fillStyle = `rgba(130, 50, 200, ${pts[0].alpha * 0.18})`;
       ctx.beginPath();
       ctx.moveTo(dataWidth, spotY);
-      ctx.lineTo(dataWidth + zoneWidth / projectionHorizons.length * 0.5, firstY);
+      for (const pt of pts) ctx.lineTo(pt.x, pt.yTop);
+      for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].x, pts[i].yBot);
+      ctx.lineTo(dataWidth, spotY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Top edge line
+      ctx.strokeStyle = `rgba(160, 80, 220, ${pts[0].alpha * 0.45})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(dataWidth, spotY);
+      for (const pt of pts) ctx.lineTo(pt.x, pt.yTop);
       ctx.stroke();
-      ctx.setLineDash([]);
+
+      // Bottom edge line
+      ctx.beginPath();
+      ctx.moveTo(dataWidth, spotY);
+      for (const pt of pts) ctx.lineTo(pt.x, pt.yBot);
+      ctx.stroke();
+
+      // Center line (brightest) — continuous from spot through all horizons
+      ctx.strokeStyle = `rgba(180, 100, 255, ${pts[0].alpha * 0.9})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(dataWidth, spotY);
+      for (const pt of pts) ctx.lineTo(pt.x, pt.yCenter);
+      ctx.stroke();
     }
   }
 
