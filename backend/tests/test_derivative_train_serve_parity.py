@@ -9,7 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from src.experiment_harness.signals.statistical.derivative import DerivativeSignal
-from src.vacuum_pressure.runtime_model import DerivativeRuntime, DerivativeRuntimeParams
+from src.models.vacuum_pressure.runtime_model import DerivativeRuntime, DerivativeRuntimeParams
 
 
 def test_derivative_batch_runtime_score_parity() -> None:

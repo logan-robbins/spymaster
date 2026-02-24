@@ -1,0 +1,71 @@
+name: derivative_baseline
+description: Baseline serving config for derivative signal on MNQ
+pipeline: mnq_60m_baseline
+
+scoring:
+  zscore_window_bins: 300
+  zscore_min_periods: 75
+  derivative_weights: [0.55, 0.30, 0.15]
+  tanh_scale: 3.0
+  threshold_neutral: 0.15
+
+signal:
+  name: derivative
+  params:
+    zscore_window_bins: 240
+    zscore_min_periods: 60
+    d1_weight: 1.0
+    d2_weight: 0.0
+    d3_weight: 0.0
+  weights:
+    bull_pressure: 1.0
+    bull_vacuum: 1.0
+    bear_pressure: 1.0
+    bear_vacuum: 1.0
+
+projection:
+  horizons_ms: [250, 500, 1000, 2500]
+  use_cubic: false
+  damping_lambda: 0.0
+
+stream_schema:
+  - { name: k, dtype: int32, role: index }
+  - { name: pressure_variant, dtype: float64, role: feature }
+  - { name: vacuum_variant, dtype: float64, role: feature }
+  - { name: add_mass, dtype: float64, role: feature }
+  - { name: pull_mass, dtype: float64, role: feature }
+  - { name: fill_mass, dtype: float64, role: feature }
+  - { name: rest_depth, dtype: float64, role: feature }
+  - { name: bid_depth, dtype: float64, role: feature }
+  - { name: ask_depth, dtype: float64, role: feature }
+  - { name: v_add, dtype: float64, role: feature }
+  - { name: v_pull, dtype: float64, role: feature }
+  - { name: v_fill, dtype: float64, role: feature }
+  - { name: v_rest_depth, dtype: float64, role: feature }
+  - { name: v_bid_depth, dtype: float64, role: feature }
+  - { name: v_ask_depth, dtype: float64, role: feature }
+  - { name: a_add, dtype: float64, role: feature }
+  - { name: a_pull, dtype: float64, role: feature }
+  - { name: a_fill, dtype: float64, role: feature }
+  - { name: a_rest_depth, dtype: float64, role: feature }
+  - { name: a_bid_depth, dtype: float64, role: feature }
+  - { name: a_ask_depth, dtype: float64, role: feature }
+  - { name: j_add, dtype: float64, role: feature }
+  - { name: j_pull, dtype: float64, role: feature }
+  - { name: j_fill, dtype: float64, role: feature }
+  - { name: j_rest_depth, dtype: float64, role: feature }
+  - { name: j_bid_depth, dtype: float64, role: feature }
+  - { name: j_ask_depth, dtype: float64, role: feature }
+  - { name: composite, dtype: float64, role: score }
+  - { name: composite_d1, dtype: float64, role: score }
+  - { name: composite_d2, dtype: float64, role: score }
+  - { name: composite_d3, dtype: float64, role: score }
+  - { name: best_ask_move_ticks, dtype: int32, role: metadata }
+  - { name: best_bid_move_ticks, dtype: int32, role: metadata }
+  - { name: ask_reprice_sign, dtype: int8, role: metadata }
+  - { name: bid_reprice_sign, dtype: int8, role: metadata }
+  - { name: microstate_id, dtype: int8, role: metadata }
+  - { name: state5_code, dtype: int8, role: metadata }
+  - { name: chase_up_flag, dtype: int8, role: metadata }
+  - { name: chase_down_flag, dtype: int8, role: metadata }
+  - { name: last_event_id, dtype: int64, role: metadata }

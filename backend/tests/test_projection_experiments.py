@@ -8,8 +8,8 @@ import numpy as np
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-import scripts.analyze_vp_signals as analyze_vp_signals
-from src.vacuum_pressure.spectrum import IndependentCellSpectrum, ProjectionModelConfig
+import scripts.analyze_signals as analyze_vp_signals
+from src.models.vacuum_pressure.spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 
 def _kernel(projection_model: ProjectionModelConfig) -> IndependentCellSpectrum:

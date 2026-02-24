@@ -1,8 +1,8 @@
 """Dataset registry for resolving experiment dataset IDs to file paths.
 
 Searches two locations in priority order:
-1. ``vp_immutable/{id}/`` -- curated baseline datasets (read-only).
-2. ``vp_harness/generated_grids/{id}/`` -- grids regenerated from raw .dbn with
+1. ``datasets/{id}/`` -- curated baseline datasets (read-only).
+2. ``harness/generated_grids/{id}/`` -- grids regenerated from raw .dbn with
    non-default grid variant parameters.
 """
 from __future__ import annotations
@@ -32,8 +32,8 @@ class DatasetPaths:
 class DatasetRegistry:
     """Registry that resolves dataset IDs to their on-disk file paths.
 
-    Searches ``{lake_root}/research/vp_immutable/{id}/`` first, then
-    ``{lake_root}/research/vp_harness/generated_grids/{id}/``.
+    Searches ``{lake_root}/research/datasets/{id}/`` first, then
+    ``{lake_root}/research/harness/generated_grids/{id}/``.
 
     Args:
         lake_root: Root path of the data lake (e.g. ``backend/lake``).
@@ -41,8 +41,8 @@ class DatasetRegistry:
 
     def __init__(self, lake_root: Path) -> None:
         self._lake_root = Path(lake_root)
-        self._immutable_root = self._lake_root / "research" / "vp_immutable"
-        self._generated_root = self._lake_root / "research" / "vp_harness" / "generated_grids"
+        self._immutable_root = self._lake_root / "research" / "datasets"
+        self._generated_root = self._lake_root / "research" / "harness" / "generated_grids"
 
     def resolve(self, dataset_id: str) -> DatasetPaths:
         """Resolve a dataset ID to its file paths.

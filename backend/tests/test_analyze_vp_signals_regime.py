@@ -10,16 +10,16 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.event_engine import AbsoluteTickEngine
-from src.vacuum_pressure.spectrum import IndependentCellSpectrum
-from src.vacuum_pressure.stream_pipeline import stream_events
+from src.qmachina.config import RuntimeConfig
+from src.models.vacuum_pressure.event_engine import AbsoluteTickEngine
+from src.models.vacuum_pressure.spectrum import IndependentCellSpectrum
+from src.models.vacuum_pressure.stream_pipeline import stream_events
 
 MBOEvent = Tuple[int, str, str, int, int, int, int]
 
 
-def _test_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -284,7 +284,7 @@ def test_independent_cell_spectrum_state_mapping_consistent() -> None:
 
 def test_stream_events_emits_fixed_bins_with_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _fake_iter_mbo_events,
     )
 
@@ -309,7 +309,7 @@ def test_stream_events_emits_fixed_bins_with_metadata(monkeypatch: pytest.Monkey
 
 def test_stream_events_bucket_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _fake_iter_mbo_events,
     )
 

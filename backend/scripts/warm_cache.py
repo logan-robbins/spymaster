@@ -50,8 +50,8 @@ def main() -> None:
 
     lake_root = backend_root / "lake"
 
-    from src.vacuum_pressure.config import resolve_config
-    from src.vacuum_pressure.stream_pipeline import (
+    from src.qmachina.config import resolve_config
+    from src.models.vacuum_pressure.stream_pipeline import (
         _compute_time_boundaries,
         _create_engine,
         ensure_book_cache,

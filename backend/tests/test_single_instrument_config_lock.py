@@ -8,7 +8,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import LOCKED_INSTRUMENT_CONFIG_ENV, resolve_config
+from src.qmachina.config import LOCKED_INSTRUMENT_CONFIG_ENV, resolve_config
 
 
 def _write_locked_config(path: Path, symbol: str = "MNQH6") -> None:

@@ -3,7 +3,7 @@
 Each unique parameter set produces a deterministic variant_id (SHA256 of all
 relevant params -> 12-char hex).
 
-Output is stored in ``lake/research/vp_harness/generated_grids/{variant_id}/``
+Output is stored in ``lake/research/harness/generated_grids/{variant_id}/``
 with ``bins.parquet``, ``grid_clean.parquet``, and ``manifest.json``.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.vp_shared.hashing import stable_short_hash
+from src.shared.hashing import stable_short_hash
 
 from .config_schema import GridVariantConfig
 from .dataset_registry import DatasetRegistry
@@ -65,10 +65,10 @@ _GRID_SCALAR_COLS: list[str] = [
 def _import_stream_pipeline() -> Any:
     """Lazily import stream_pipeline to avoid hard dependency at module load."""
     try:
-        import src.vacuum_pressure.stream_pipeline as sp  # type: ignore[import-untyped]
+        import src.models.vacuum_pressure.stream_pipeline as sp  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
-            "Cannot import vacuum_pressure.stream_pipeline. "
+            "Cannot import models.vacuum_pressure.stream_pipeline. "
             "Grid generation requires the full VP runtime to be installed."
         ) from exc
     return sp
@@ -77,10 +77,10 @@ def _import_stream_pipeline() -> Any:
 def _import_vp_config() -> Any:
     """Lazily import VP config module."""
     try:
-        import src.vacuum_pressure.config as vp_config  # type: ignore[import-untyped]
+        import src.qmachina.config as vp_config  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
-            "Cannot import vacuum_pressure.config. "
+            "Cannot import qmachina.config. "
             "Grid generation requires the full VP runtime to be installed."
         ) from exc
     return vp_config
@@ -102,7 +102,7 @@ class GridGenerator:
 
     def __init__(self, lake_root: Path) -> None:
         self.lake_root = Path(lake_root)
-        self.output_root = self.lake_root / "research" / "vp_harness" / "generated_grids"
+        self.output_root = self.lake_root / "research" / "harness" / "generated_grids"
 
     def generate(self, spec: GridVariantConfig) -> str:
         """Generate a grid variant from spec. Returns the variant_id."""
@@ -192,7 +192,7 @@ class GridGenerator:
         return stable_short_hash(param_dict, length=12)
 
     def _build_runtime_config(self, spec: GridVariantConfig) -> Any:
-        """Construct a VPRuntimeConfig directly from spec + locked defaults."""
+        """Construct a RuntimeConfig directly from spec + locked defaults."""
         vp_config_mod = _import_vp_config()
 
         locked_path = vp_config_mod._resolve_locked_config_path()

@@ -8,7 +8,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.serving_config import (
+from src.qmachina.serving_config import (
     ProjectionConfig,
     ScoringConfig,
     ServingSpec,

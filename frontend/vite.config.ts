@@ -7,7 +7,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        'vacuum-pressure': 'vacuum-pressure.html',
+        'vp-stream': 'vp-stream.html',
         'experiments': 'experiments.html',
       },
     },

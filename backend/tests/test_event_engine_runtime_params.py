@@ -8,7 +8,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.event_engine import AbsoluteTickEngine
+from src.models.vacuum_pressure.event_engine import AbsoluteTickEngine
 
 
 def _primed_engine(**kwargs: float) -> AbsoluteTickEngine:

@@ -15,7 +15,7 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.event_engine import (
+from src.models.vacuum_pressure.event_engine import (
     AbsoluteTickEngine,
     TAU_ACCELERATION,
     TAU_JERK,
@@ -25,7 +25,7 @@ from src.vacuum_pressure.event_engine import (
     _update_derivative_chain,
     _update_derivative_chain_from_delta,
 )
-from src.vacuum_pressure.spectrum import IndependentCellSpectrum
+from src.models.vacuum_pressure.spectrum import IndependentCellSpectrum
 
 
 # ---------------------------------------------------------------------------

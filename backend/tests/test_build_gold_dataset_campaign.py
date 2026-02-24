@@ -9,7 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 import scripts.build_gold_dataset_campaign as campaign
-from src.vacuum_pressure.config import VPRuntimeConfig
+from src.qmachina.config import RuntimeConfig
 
 
 def _base_campaign() -> campaign.CampaignConfig:
@@ -35,8 +35,8 @@ def _base_campaign() -> campaign.CampaignConfig:
     )
 
 
-def _base_runtime_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _base_runtime_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="MNQH6",
         symbol_root="MNQ",

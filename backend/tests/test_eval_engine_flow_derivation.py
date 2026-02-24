@@ -20,7 +20,7 @@ def _write_dataset(
     *,
     include_support: bool,
 ) -> None:
-    dataset_dir = root / "research" / "vp_immutable" / dataset_id
+    dataset_dir = root / "research" / "datasets" / dataset_id
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     n_bins = 3

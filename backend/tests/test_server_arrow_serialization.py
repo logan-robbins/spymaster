@@ -8,12 +8,12 @@ import pyarrow as pa
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.stream_contract import grid_schema, grid_to_arrow_ipc
+from src.qmachina.config import RuntimeConfig
+from src.qmachina.stream_contract import grid_schema, grid_to_arrow_ipc
 
 
-def _test_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -41,7 +41,7 @@ def _test_config() -> VPRuntimeConfig:
 
 
 def test_grid_to_arrow_ipc_serializes_expected_rows() -> None:
-    schema = grid_schema(_test_config())
+    schema = grid_schema()
     grid = {
         "grid_cols": {
             "k": [-1, 0],

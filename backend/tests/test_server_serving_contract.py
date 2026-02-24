@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.app import create_app
-from src.vacuum_pressure.serving_config import (
+from src.qmachina.app import create_app
+from src.qmachina.serving_config import (
     PublishedServingSource,
     PublishedServingSpec,
 )
-from src.vacuum_pressure.serving_registry import ServingRegistry
+from src.qmachina.serving_registry import ServingRegistry
 
 
 def _promote_minimal_spec(
@@ -50,7 +50,7 @@ def test_stream_rejects_non_serving_query_params(tmp_path: Path) -> None:
     client = TestClient(app)
 
     with client.websocket_connect(
-        "/v1/vacuum-pressure/stream?serving=vp_main&product_type=future_mbo"
+        "/v1/stream?serving=vp_main&product_type=future_mbo"
     ) as ws:
         payload = json.loads(ws.receive_text())
         assert payload["type"] == "error"
@@ -61,7 +61,7 @@ def test_stream_rejects_unknown_serving_selector(tmp_path: Path) -> None:
     app = create_app(lake_root=tmp_path)
     client = TestClient(app)
 
-    with client.websocket_connect("/v1/vacuum-pressure/stream?serving=does_not_exist") as ws:
+    with client.websocket_connect("/v1/stream?serving=does_not_exist") as ws:
         payload = json.loads(ws.receive_text())
         assert payload["type"] == "error"
         assert "Unknown serving selector" in payload["message"]
@@ -80,7 +80,7 @@ def test_stream_rejects_published_serving_with_missing_runtime_identity(
     client = TestClient(app)
 
     with client.websocket_connect(
-        "/v1/vacuum-pressure/stream?serving=vp_missing_identity"
+        "/v1/stream?serving=vp_missing_identity"
     ) as ws:
         payload = json.loads(ws.receive_text())
         assert payload["type"] == "error"
@@ -103,7 +103,7 @@ def test_stream_rejects_published_serving_with_missing_stream_context(
     client = TestClient(app)
 
     with client.websocket_connect(
-        "/v1/vacuum-pressure/stream?serving=vp_missing_stream_dt"
+        "/v1/stream?serving=vp_missing_stream_dt"
     ) as ws:
         payload = json.loads(ws.receive_text())
         assert payload["type"] == "error"

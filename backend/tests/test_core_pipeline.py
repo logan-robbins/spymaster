@@ -10,14 +10,14 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.core_pipeline import stream_core_events
+from src.qmachina.config import RuntimeConfig
+from src.models.vacuum_pressure.core_pipeline import stream_core_events
 
 MBOEvent = Tuple[int, str, str, int, int, int, int]
 
 
-def _test_config(n_absolute_ticks: int = 20) -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config(n_absolute_ticks: int = 20) -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -92,7 +92,7 @@ def test_stream_core_events_emits_full_grid_without_radius_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.core_pipeline.iter_mbo_events",
         _iter_for(_events_core_only_bids()),
     )
 
@@ -131,7 +131,7 @@ def test_stream_core_events_fail_fast_on_out_of_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.core_pipeline.iter_mbo_events",
         _iter_for(_events_out_of_range()),
     )
 
@@ -153,12 +153,12 @@ def test_stream_core_events_default_tolerant_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.core_pipeline.iter_mbo_events",
         _iter_for(_events_out_of_range()),
     )
 
     config = _test_config(n_absolute_ticks=20)
-    with caplog.at_level("WARNING", logger="src.vacuum_pressure.event_engine"):
+    with caplog.at_level("WARNING", logger="src.models.vacuum_pressure.event_engine"):
         grids = list(
             stream_core_events(
                 lake_root=Path("/tmp"),
@@ -176,11 +176,11 @@ def test_stream_core_events_soft_reanchors_once_after_event_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.core_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.core_pipeline.iter_mbo_events",
         _iter_for(_events_soft_reanchor_event_gate()),
     )
     monkeypatch.setattr(
-        "src.vacuum_pressure.core_pipeline._SOFT_REANCHOR_AFTER_EVENT_COUNT",
+        "src.models.vacuum_pressure.core_pipeline._SOFT_REANCHOR_AFTER_EVENT_COUNT",
         5,
     )
 

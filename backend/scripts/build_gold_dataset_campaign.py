@@ -30,17 +30,17 @@ import yaml
 backend_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(backend_root))
 
-from scripts.cache_vp_output import (  # noqa: E402
+from scripts.cache_output import (  # noqa: E402
     _parse_et_timestamp_ns,
     _stream_start_hhmm,
     capture_stream_output,
 )
-from scripts.publish_vp_research_dataset import (  # noqa: E402
+from scripts.publish_dataset import (  # noqa: E402
     DEFAULT_RESEARCH_ROOT,
     publish_dataset,
 )
-from src.vacuum_pressure.config import (  # noqa: E402
-    VPRuntimeConfig,
+from src.qmachina.config import (  # noqa: E402
+    RuntimeConfig,
     build_config_with_overrides,
     resolve_config,
 )
@@ -86,7 +86,7 @@ class CampaignConfig:
     bundles: tuple[Mapping[str, Any], ...]
 
 
-def _runtime_override_keys_from_config(cfg: VPRuntimeConfig) -> set[str]:
+def _runtime_override_keys_from_config(cfg: RuntimeConfig) -> set[str]:
     keys = set(cfg.to_dict().keys())
     return keys - _RUNTIME_DISALLOWED_OVERRIDE_KEYS
 

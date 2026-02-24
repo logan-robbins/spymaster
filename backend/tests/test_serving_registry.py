@@ -6,16 +6,16 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.serving_config import (
+from src.qmachina.config import RuntimeConfig
+from src.qmachina.serving_config import (
     PublishedServingSource,
     PublishedServingSpec,
 )
-from src.vacuum_pressure.serving_registry import ServingRegistry
+from src.qmachina.serving_registry import ServingRegistry
 
 
 def _runtime_snapshot() -> dict[str, object]:
-    cfg = VPRuntimeConfig(
+    cfg = RuntimeConfig(
         product_type="future_mbo",
         symbol="MNQH6",
         symbol_root="MNQ",

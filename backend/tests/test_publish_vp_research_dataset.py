@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-import scripts.publish_vp_research_dataset as publish_vp_research_dataset
+import scripts.publish_dataset as publish_dataset_mod
 
 
 def _write_source_dataset(tmp_path: Path) -> Path:
@@ -139,7 +139,7 @@ def test_publish_dataset_splits_and_freezes_base_data(tmp_path: Path) -> None:
     source = _write_source_dataset(tmp_path)
     research_root = tmp_path / "research"
 
-    result = publish_vp_research_dataset.publish_dataset(
+    result = publish_dataset_mod.publish_dataset(
         source_dir=source,
         dataset_id="ds1",
         research_root=research_root,
@@ -183,14 +183,14 @@ def test_add_agents_appends_new_workspaces(tmp_path: Path) -> None:
     source = _write_source_dataset(tmp_path)
     research_root = tmp_path / "research"
 
-    publish_vp_research_dataset.publish_dataset(
+    publish_dataset_mod.publish_dataset(
         source_dir=source,
         dataset_id="ds2",
         research_root=research_root,
         agents=[],
     )
 
-    result = publish_vp_research_dataset.add_agents(
+    result = publish_dataset_mod.add_agents(
         dataset_id="ds2",
         research_root=research_root,
         agents=["gamma", "delta"],

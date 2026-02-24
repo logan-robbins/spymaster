@@ -44,7 +44,7 @@ class ExperimentRunner:
         self.lake_root: Path = Path(lake_root)
         self.registry: DatasetRegistry = DatasetRegistry(self.lake_root)
         self.results_db: ResultsDB = ResultsDB(
-            self.lake_root / "research" / "vp_harness" / "results"
+            self.lake_root / "research" / "harness" / "results"
         )
 
     def run(self, config: ExperimentConfig) -> list[str]:

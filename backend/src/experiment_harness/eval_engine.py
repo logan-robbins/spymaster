@@ -20,9 +20,9 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from src.vp_shared.zscore import robust_zscore_rolling_1d
-from src.vacuum_pressure.scoring import score_dataset
-from src.vacuum_pressure.serving_config import ScoringConfig
+from src.shared.zscore import robust_zscore_rolling_1d
+from src.models.vacuum_pressure.scoring import score_dataset
+from src.qmachina.serving_config import ScoringConfig
 
 from .dataset_registry import DatasetRegistry
 

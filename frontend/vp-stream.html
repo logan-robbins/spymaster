@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vacuum & Pressure Detector</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      overflow: hidden;
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      color: #ccc;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* -- Warning banner -- */
+    #warning-banner {
+      display: none;
+      padding: 6px 16px;
+      background: #664400;
+      color: #ffcc00;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* -- Top bar -- */
+    #top-bar {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: rgba(15, 15, 25, 0.95);
+      border-bottom: 1px solid rgba(100, 100, 150, 0.25);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    #top-bar .title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #00ffaa;
+      letter-spacing: 1px;
+    }
+    #top-bar .sep {
+      width: 1px;
+      height: 20px;
+      background: rgba(100, 100, 150, 0.3);
+    }
+    #top-bar .info { color: #888; }
+    #top-bar .val  { color: #ddd; font-weight: 500; }
+    #top-bar .meta-label { color: #666; font-size: 9px; text-transform: uppercase; }
+    #top-bar .meta-val   { color: #aaa; font-size: 10px; font-weight: 500; }
+    #spot-val  { color: #00ffcc; font-weight: 700; font-size: 13px; }
+    #ts-val    { color: #aaa; }
+    #top-controls {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ctrl-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid rgba(100, 100, 150, 0.35);
+      background: rgba(30, 32, 46, 0.85);
+      color: #b8bfd6;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .ctrl-btn:hover {
+      border-color: rgba(0, 255, 170, 0.45);
+      color: #00ffaa;
+    }
+    .ctrl-btn:active {
+      transform: translateY(1px);
+    }
+    #stream-state {
+      margin-left: 6px;
+      font-size: 9px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #00ffaa;
+      min-width: 46px;
+      text-align: right;
+    }
+
+    /* -- Main content -- */
+    #main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    /* Depth profile panel */
+    #profile-panel {
+      width: 140px;
+      flex-shrink: 0;
+      position: relative;
+      border-right: 1px solid rgba(100, 100, 150, 0.2);
+      padding-bottom: 25px;
+    }
+    #profile-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Heatmap panel */
+    #heatmap-panel {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #heatmap-canvas {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      display: block;
+      cursor: grab;
+      touch-action: none;       /* prevent browser pinch-zoom / scroll */
+      user-select: none;        /* prevent text selection during drag */
+      -webkit-user-select: none;
+    }
+    #time-axis-canvas {
+      width: 100%;
+      height: 24px;
+      flex-shrink: 0;
+      display: block;
+      border-top: 1px solid rgba(100, 100, 150, 0.2);
+    }
+    /* Spot line label overlaid on heatmap */
+    #spot-line-label {
+      position: absolute;
+      left: 4px;
+      color: rgba(0, 255, 170, 0.6);
+      font-size: 9px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Price axis */
+    #price-axis-panel {
+      width: 60px;
+      flex-shrink: 0;
+      position: relative;
+      border-left: 1px solid rgba(100, 100, 150, 0.2);
+      padding-bottom: 25px;
+    }
+    #price-axis-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Signal panel */
+    #signal-panel {
+      width: 256px;
+      flex-shrink: 0;
+      border-left: 1px solid rgba(100, 100, 150, 0.2);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+    .sig-section {
+      padding: 10px;
+      background: rgba(20, 20, 35, 0.6);
+      border-radius: 6px;
+      border: 1px solid rgba(100, 100, 150, 0.15);
+    }
+    .sig-title {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(100, 100, 150, 0.2);
+    }
+    .sig-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-size: 11px;
+    }
+    .sig-label { color: #888; }
+    .sig-value { font-weight: 600; }
+
+    /* Lift/Drag bar */
+    #lift-bar {
+      height: 20px;
+      border-radius: 4px;
+      background: linear-gradient(to right, #cc2222, #444, #22cc66);
+      position: relative;
+      margin-top: 4px;
+    }
+    #lift-marker {
+      position: absolute;
+      top: -2px;
+      width: 4px;
+      height: 24px;
+      background: #fff;
+      border-radius: 2px;
+      transform: translateX(-50%);
+      transition: left 0.15s ease;
+    }
+
+    /* -- Bottom bar -- */
+    #bottom-bar {
+      height: 50px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      background: rgba(15, 15, 25, 0.95);
+      border-top: 1px solid rgba(100, 100, 150, 0.25);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    #regime-label {
+      font-size: 18px;
+      font-weight: 700;
+      min-width: 80px;
+    }
+    #regime-lift-val {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .bar-stat { color: #888; }
+    .bar-stat .v { color: #ddd; font-weight: 500; }
+
+    /* Legend */
+    #legend {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      font-size: 10px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+    .legend-text { color: #888; }
+
+    /* Signal panel helpers */
+    .sig-note {
+      font-size: 10px;
+      line-height: 1.3;
+      color: #777;
+      margin-top: 4px;
+    }
+    .sig-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #2f3138;
+      color: #888;
+      min-width: 54px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Warning banner (hidden by default, shown for stream/runtime errors) -->
+    <div id="warning-banner">
+      Stream contract error.
+    </div>
+
+    <!-- Top bar -->
+    <div id="top-bar">
+      <span class="title">VP DETECTOR</span>
+      <div class="sep"></div>
+      <span class="info">Spot</span>
+      <span id="spot-val">--</span>
+      <div class="sep"></div>
+      <span class="info">Time</span>
+      <span id="ts-val" class="val">--:--:--</span>
+      <div class="sep"></div>
+      <span class="info">Window</span>
+      <span id="win-val" class="val">0</span>
+      <span class="meta-label">WinID</span>
+      <span id="win-id-val" class="meta-val">--</span>
+      <div class="sep"></div>
+      <!-- Runtime metadata (populated once config arrives from server) -->
+      <span class="meta-label">Type</span>
+      <span id="meta-product" class="meta-val">--</span>
+      <span class="meta-label">Sym</span>
+      <span id="meta-symbol" class="meta-val">--</span>
+      <span class="meta-label">Tick</span>
+      <span id="meta-tick" class="meta-val">--</span>
+      <span class="meta-label">Bucket</span>
+      <span id="meta-bucket" class="meta-val">--</span>
+      <span class="meta-label">Mult</span>
+      <span id="meta-mult" class="meta-val">--</span>
+      <div id="top-controls">
+        <button id="ctrl-pause" class="ctrl-btn" title="Pause stream" aria-label="Pause stream">&#9208;</button>
+        <button id="ctrl-play" class="ctrl-btn" title="Play stream" aria-label="Play stream">&#9654;</button>
+        <button id="ctrl-restart" class="ctrl-btn" title="Restart stream" aria-label="Restart stream">&#8635;</button>
+        <span id="stream-state">LIVE</span>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div id="main">
+      <!-- Depth profile -->
+      <div id="profile-panel">
+        <canvas id="profile-canvas"></canvas>
+      </div>
+
+      <!-- Heatmap -->
+      <div id="heatmap-panel">
+        <canvas id="heatmap-canvas"></canvas>
+        <canvas id="time-axis-canvas"></canvas>
+        <span id="spot-line-label">SPOT</span>
+      </div>
+
+      <!-- Price axis -->
+      <div id="price-axis-panel">
+        <canvas id="price-axis-canvas"></canvas>
+      </div>
+
+      <!-- Signal panel -->
+      <div id="signal-panel">
+        <!-- Net Edge -->
+        <div class="sig-section">
+          <div class="sig-title">Net Edge</div>
+          <div class="sig-row">
+            <span class="sig-label">Value</span>
+            <span id="sig-net-edge" class="sig-value">0.0</span>
+          </div>
+          <div id="lift-bar">
+            <div id="lift-marker" style="left: 50%"></div>
+          </div>
+          <div class="sig-row" style="margin-top: 8px;">
+            <span class="sig-label">Bull Edge</span>
+            <span id="sig-bull-edge" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row">
+            <span class="sig-label">Bear Edge</span>
+            <span id="sig-bear-edge" class="sig-value">0.0</span>
+          </div>
+        </div>
+
+        <!-- Force Balance -->
+        <div class="sig-section">
+          <div class="sig-title">Force Balance</div>
+          <div class="sig-row">
+            <span class="sig-label">Vac Above (up path)</span>
+            <span id="sig-vac-above" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Press Above (resist)</span>
+            <span id="sig-press-above" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Press Below (support)</span>
+            <span id="sig-press-below" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Vac Below (down risk)</span>
+            <span id="sig-vac-below" class="sig-value">0.0</span>
+          </div>
+        </div>
+
+        <!-- State -->
+        <div class="sig-section">
+          <div class="sig-title">State</div>
+          <div class="sig-row">
+            <span class="sig-label">VP State</span>
+            <span id="sig-vp-state" class="sig-badge">CHOP</span>
+          </div>
+          <div class="sig-row" style="margin-top: 6px;">
+            <span class="sig-label">Conviction</span>
+            <span id="sig-conviction" class="sig-value">0%</span>
+          </div>
+          <div id="sig-state-note" class="sig-note">Waiting for directional imbalance.</div>
+        </div>
+
+        <!-- Trade Guidance -->
+        <div class="sig-section">
+          <div class="sig-title">Trade Guidance</div>
+          <div class="sig-row">
+            <span class="sig-label">Long</span>
+            <span id="sig-long-action" class="sig-badge">WAIT</span>
+          </div>
+          <div id="sig-long-note" class="sig-note">No clear continuation edge.</div>
+          <div class="sig-row" style="margin-top: 8px;">
+            <span class="sig-label">Short</span>
+            <span id="sig-short-action" class="sig-badge">WAIT</span>
+          </div>
+          <div id="sig-short-note" class="sig-note">No clear continuation edge.</div>
+          <div class="sig-row" style="margin-top: 8px;">
+            <span class="sig-label">Risk Flag</span>
+            <span id="sig-risk-flag" class="sig-value">BALANCED</span>
+          </div>
+        </div>
+
+        <!-- Depth Context -->
+        <div class="sig-section">
+          <div class="sig-title">Depth Context</div>
+          <div class="sig-row">
+            <span class="sig-label">Rest Depth Tilt</span>
+            <span id="sig-depth" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row">
+            <span class="sig-label">Rest Depth Total</span>
+            <span id="sig-rest-depth" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row">
+            <span class="sig-label">Force Total</span>
+            <span id="sig-force-total" class="sig-value">0.0</span>
+          </div>
+          <div class="sig-row">
+            <span class="sig-label">Runtime Model</span>
+            <span id="sig-model-status" class="sig-value">DISABLED</span>
+          </div>
+          <div class="sig-row">
+            <span class="sig-label">Model Score</span>
+            <span id="sig-model-score" class="sig-value">0.0</span>
+          </div>
+          <div id="sig-model-detail" class="sig-note">runtime model not initialized</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div id="bottom-bar">
+      <span id="regime-label" style="color: #888;">CHOP</span>
+      <span id="regime-lift-val" style="color: #888;">0.0</span>
+      <div class="sep" style="height: 24px;"></div>
+      <span class="bar-stat">Bull: <span id="bot-bull-edge" class="v">0.0</span></span>
+      <span class="bar-stat">Bear: <span id="bot-bear-edge" class="v">0.0</span></span>
+      <span class="bar-stat">Conv: <span id="bot-conviction" class="v">0%</span></span>
+      <span class="bar-stat">Risk: <span id="bot-risk-flag" class="v">BALANCED</span></span>
+
+      <div id="legend">
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #22cc66;"></div>
+          <span class="legend-text">Pressure (building)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #333340;"></div>
+          <span class="legend-text">Neutral</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #0a0a0f; border: 1px solid #333;"></div>
+          <span class="legend-text">Vacuum (path clearing)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #59148d;"></div>
+          <span class="legend-text">Projected direction</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/vp-stream.ts"></script>
+</body>
+</html>

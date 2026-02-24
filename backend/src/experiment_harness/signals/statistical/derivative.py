@@ -11,14 +11,14 @@ import numpy as np
 
 from src.experiment_harness.signals import register_signal
 from src.experiment_harness.signals.base import SignalResult, StatisticalSignal
-from src.vp_shared.derivative_core import (
+from src.shared.derivative_core import (
     STATE5_CODES,
     compute_state5_intensities,
     derivative_base_from_intensities,
     normalized_spatial_weights,
     validate_derivative_parameter_set,
 )
-from src.vp_shared.zscore import (
+from src.shared.zscore import (
     robust_or_global_z_series,
     sanitize_unit_interval_array,
     weighted_tanh_blend,

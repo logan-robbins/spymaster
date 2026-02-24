@@ -16,19 +16,19 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.stream_contract import (
+from src.qmachina.config import RuntimeConfig
+from src.qmachina.stream_contract import (
     build_grid_update_payload,
     build_runtime_config_payload,
     grid_schema,
 )
-from src.vacuum_pressure.stream_pipeline import stream_events
+from src.models.vacuum_pressure.stream_pipeline import stream_events
 
 MBOEvent = Tuple[int, str, str, int, int, int, int]
 
 
-def _test_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -85,13 +85,13 @@ def _iter_for(events: list[MBOEvent]):
 
 
 def test_arrow_schema_excludes_flow_score() -> None:
-    schema = grid_schema(_test_config())
+    schema = grid_schema()
     field_names = [f.name for f in schema]
     assert "flow_score" not in field_names
 
 
 def test_arrow_schema_excludes_flow_state_code() -> None:
-    schema = grid_schema(_test_config())
+    schema = grid_schema()
     field_names = [f.name for f in schema]
     assert "flow_state_code" not in field_names
 
@@ -138,7 +138,7 @@ def test_stream_events_grid_cols_exclude_flow_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_minimal_events()),
     )
     grids = list(
@@ -160,7 +160,7 @@ def test_stream_events_grid_cols_exclude_flow_state_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_minimal_events()),
     )
     grids = list(
@@ -182,7 +182,7 @@ def test_stream_events_grid_excludes_state_model_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_minimal_events()),
     )
     grids = list(

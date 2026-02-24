@@ -97,10 +97,10 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
     """
     import pandas as pd
 
-    from ..vacuum_pressure.stream_pipeline import stream_events
+    from ..models.vacuum_pressure.stream_pipeline import stream_events
 
     dataset_id: str = pipeline_spec.dataset_id()
-    output_dir: Path = lake_root / "research" / "vp_immutable" / dataset_id
+    output_dir: Path = lake_root / "research" / "datasets" / dataset_id
     bins_path: Path = output_dir / "bins.parquet"
 
     if bins_path.exists():
@@ -259,7 +259,7 @@ def run(config_path: str, lake_root: str | None) -> None:
     Resolves serving -> pipeline, auto-generates the dataset if missing,
     expands sweep axes, evaluates, and persists results.
     """
-    from ..vacuum_pressure.experiment_config import ExperimentSpec
+    from ..qmachina.experiment_config import ExperimentSpec
 
     resolved_lake: Path = _resolve_lake_root(lake_root)
     spec: ExperimentSpec = ExperimentSpec.from_yaml(Path(config_path))
@@ -327,7 +327,7 @@ def compare(
     filtered by signal and dataset, sorted by the chosen metric.
     """
     resolved_lake: Path = _resolve_lake_root(lake_root)
-    results_db = ResultsDB(resolved_lake / "research" / "vp_harness" / "results")
+    results_db = ResultsDB(resolved_lake / "research" / "harness" / "results")
 
     best = results_db.query_best(
         signal=signal, dataset_id=dataset_id, min_signals=min_signals
@@ -477,9 +477,9 @@ def generate(config_path: str, lake_root: str | None) -> None:
     """Generate an immutable VP dataset from a PipelineSpec YAML.
 
     Loads CONFIG_PATH as a PipelineSpec, resolves runtime config, streams
-    events through the VP engine, and writes to vp_immutable/{dataset_id}/.
+    events through the VP engine, and writes to datasets/{dataset_id}/.
     """
-    from ..vacuum_pressure.pipeline_config import PipelineSpec
+    from ..qmachina.pipeline_config import PipelineSpec
 
     resolved_lake: Path = _resolve_lake_root(lake_root)
     spec: PipelineSpec = PipelineSpec.from_yaml(Path(config_path))
@@ -528,19 +528,19 @@ def promote(
     """
     from datetime import datetime, timezone
 
-    from ..vacuum_pressure.config import build_config_with_overrides
-    from ..vacuum_pressure.experiment_config import ExperimentSpec
-    from ..vacuum_pressure.serving_config import (
+    from ..qmachina.config import build_config_with_overrides
+    from ..qmachina.experiment_config import ExperimentSpec
+    from ..qmachina.serving_config import (
         PublishedServingSource,
         PublishedServingSpec,
         ServingSpec,
     )
-    from ..vacuum_pressure.serving_registry import ServingRegistry
+    from ..qmachina.serving_registry import ServingRegistry
 
     resolved_lake: Path = _resolve_lake_root(lake_root)
     spec: ExperimentSpec = ExperimentSpec.from_yaml(Path(config_path))
 
-    results_db_root: Path = resolved_lake / "research" / "vp_harness" / "results"
+    results_db_root: Path = resolved_lake / "research" / "harness" / "results"
     results_db = ResultsDB(results_db_root)
 
     click.echo(f"Experiment: {spec.name}")
@@ -611,11 +611,11 @@ def promote(
     click.echo(f"  config_hash:    {config_hash}")
     click.echo(
         "WebSocket URL: "
-        f"ws://localhost:8002/v1/vacuum-pressure/stream?serving={result.alias}"
+        f"ws://localhost:8002/v1/stream?serving={result.alias}"
     )
     click.echo(
         "Frontend URL:  "
-        f"http://localhost:5174/vacuum-pressure.html?serving={result.alias}"
+        f"http://localhost:5174/vp-stream.html?serving={result.alias}"
     )
 
 

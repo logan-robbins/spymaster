@@ -12,11 +12,11 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-import scripts.cache_vp_output as cache_vp_output
-from src.vacuum_pressure.config import VPRuntimeConfig
+import scripts.cache_output as cache_output
+from src.qmachina.config import RuntimeConfig
 
-def _test_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -45,7 +45,7 @@ def _test_config() -> VPRuntimeConfig:
 
 def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
     row: Dict[str, Any] = {}
-    for field_name, _dtype in cache_vp_output._BUCKET_INT_FIELDS:
+    for field_name, _dtype in cache_output._BUCKET_INT_FIELDS:
         if field_name == "k":
             row[field_name] = k
         elif field_name == "flow_state_code":
@@ -54,7 +54,7 @@ def _make_bucket_row(k: int, base: float, event_id: int) -> Dict[str, Any]:
             row[field_name] = event_id + k
         else:
             row[field_name] = 0
-    for idx, field_name in enumerate(cache_vp_output._BUCKET_FLOAT_FIELDS):
+    for idx, field_name in enumerate(cache_output._BUCKET_FLOAT_FIELDS):
         row[field_name] = base + float(idx + 1) / 100.0
     return row
 
@@ -65,9 +65,9 @@ def _make_grid(ts_ns: int, seq: int, event_id: int) -> Dict[str, Any]:
         _make_bucket_row(0, 0.2 * (seq + 1), event_id),
     ]
     grid_cols: Dict[str, Any] = {}
-    for field_name, _dtype in cache_vp_output._BUCKET_INT_FIELDS:
+    for field_name, _dtype in cache_output._BUCKET_INT_FIELDS:
         grid_cols[field_name] = [int(row[field_name]) for row in bucket_rows]
-    for field_name in cache_vp_output._BUCKET_FLOAT_FIELDS:
+    for field_name in cache_output._BUCKET_FLOAT_FIELDS:
         grid_cols[field_name] = [float(row[field_name]) for row in bucket_rows]
 
     return {
@@ -90,7 +90,7 @@ def _iter_grids(grids: list[Dict[str, Any]]):
     def _fake_stream_events(
         *,
         lake_root: Path,
-        config: VPRuntimeConfig,
+        config: RuntimeConfig,
         dt: str,
         start_time: str | None = None,
         projection_use_cubic: bool = False,
@@ -118,10 +118,10 @@ def test_capture_stream_output_writes_windowed_tables(
         _make_grid(2_000, 1, 20),
         _make_grid(3_000, 2, 30),
     ]
-    monkeypatch.setattr(cache_vp_output, "stream_events", _iter_grids(grids))
+    monkeypatch.setattr(cache_output, "stream_events", _iter_grids(grids))
 
     output_dir = tmp_path / "capture"
-    summary = cache_vp_output.capture_stream_output(
+    summary = cache_output.capture_stream_output(
         lake_root=tmp_path,
         config=_test_config(),
         dt="2026-02-06",
@@ -157,11 +157,11 @@ def test_capture_stream_output_fails_when_window_has_no_bins(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cache_vp_output, "stream_events", _iter_grids([_make_grid(1_000, 0, 10)]))
+    monkeypatch.setattr(cache_output, "stream_events", _iter_grids([_make_grid(1_000, 0, 10)]))
 
     output_dir = tmp_path / "capture_empty"
     with pytest.raises(RuntimeError, match="No emitted bins captured"):
-        cache_vp_output.capture_stream_output(
+        cache_output.capture_stream_output(
             lake_root=tmp_path,
             config=_test_config(),
             dt="2026-02-06",
@@ -178,4 +178,4 @@ def test_capture_stream_output_fails_when_window_has_no_bins(
 def test_stream_start_hhmm_requires_minute_boundary() -> None:
     ts = pd.Timestamp("2026-02-06 09:25:30", tz="America/New_York")
     with pytest.raises(ValueError, match="minute boundary"):
-        cache_vp_output._stream_start_hhmm(ts)
+        cache_output._stream_start_hhmm(ts)

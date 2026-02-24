@@ -16,9 +16,9 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.scoring import SpectrumScorer, score_dataset
-from src.vacuum_pressure.serving_config import ScoringConfig
-from src.vacuum_pressure.spectrum import IndependentCellSpectrum
+from src.models.vacuum_pressure.scoring import SpectrumScorer, score_dataset
+from src.qmachina.serving_config import ScoringConfig
+from src.models.vacuum_pressure.spectrum import IndependentCellSpectrum
 
 
 # ---------------------------------------------------------------------------

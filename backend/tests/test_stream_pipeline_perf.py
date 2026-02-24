@@ -12,8 +12,8 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.vacuum_pressure.config import VPRuntimeConfig
-from src.vacuum_pressure.stream_pipeline import (
+from src.qmachina.config import RuntimeConfig
+from src.models.vacuum_pressure.stream_pipeline import (
     ProducerLatencyConfig,
     async_stream_events,
     stream_events,
@@ -22,8 +22,8 @@ from src.vacuum_pressure.stream_pipeline import (
 MBOEvent = Tuple[int, str, str, int, int, int, int]
 
 
-def _test_config() -> VPRuntimeConfig:
-    return VPRuntimeConfig(
+def _test_config() -> RuntimeConfig:
+    return RuntimeConfig(
         product_type="future_mbo",
         symbol="TESTH6",
         symbol_root="TEST",
@@ -103,7 +103,7 @@ def _iter_for(events: list[MBOEvent]):
 
 
 def _collect_async_grids(
-    config: VPRuntimeConfig,
+    config: RuntimeConfig,
     output_path: Path,
     *,
     window_start_ns: int | None = None,
@@ -135,7 +135,7 @@ def test_stream_events_capture_producer_timing_includes_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_gap()),
     )
 
@@ -173,7 +173,7 @@ def test_stream_events_empty_bin_applies_passive_decay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_gap_after_activity()),
     )
 
@@ -214,7 +214,7 @@ def test_stream_events_emits_permutation_labels_for_upward_chase(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_up_chase_repricing()),
     )
 
@@ -244,7 +244,7 @@ def test_async_stream_events_writes_latency_jsonl_and_hides_internal_metadata(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_gap()),
     )
 
@@ -275,7 +275,7 @@ def test_async_stream_events_latency_window_filter(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
-        "src.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
         _iter_for(_events_with_gap()),
     )
 
