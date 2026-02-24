@@ -7,12 +7,23 @@ Futures-only vacuum-pressure backend (live server + experiment harness + offline
 - Python: `>=3.12,<3.13`
 - Package/tool runner: `uv` only
 - Virtual environment: `backend/.venv`
+- Rust: `>=1.70` (install via `rustup`)
 
 ## Setup
 
 ```bash
 cd backend
 uv sync
+
+# Build the Rust vp_engine extension (required for vacuum-pressure pipeline)
+source "$HOME/.cargo/env"  # or add ~/.cargo/bin to your shell PATH permanently
+uv run maturin develop --manifest-path rust/vp-engine/Cargo.toml
+```
+
+For optimized (release) builds:
+
+```bash
+uv run maturin develop --release --manifest-path rust/vp-engine/Cargo.toml
 ```
 
 ## Primary Entry Points

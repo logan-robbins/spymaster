@@ -146,6 +146,9 @@ swift/.swiftpm/
 *.xcworkspace
 .swiftpm/
 
+# Rust
+backend/rust/**/target/
+
 # Auto-generated infrastructure inventory (contains sensitive info)
 infra/azure-resources.json
 infra/azure-resources.json.backup

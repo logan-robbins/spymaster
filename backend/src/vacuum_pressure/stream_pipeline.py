@@ -21,8 +21,9 @@ import numpy as np
 
 from ..data_eng.config import PRICE_SCALE
 from .config import VPRuntimeConfig
-from .event_engine import AbsoluteTickEngine
-from .replay_source import _resolve_dbn_path, iter_mbo_events
+from vp_engine import AbsoluteTickEngine
+from vp_engine import iter_mbo_events
+from vp_engine import resolve_dbn_path as _resolve_dbn_path
 from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 logger = logging.getLogger(__name__)
