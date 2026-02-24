@@ -37,6 +37,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from ...qmachina.config import (
+    DEFAULT_C1_V_ADD,
+    DEFAULT_C2_V_REST_POS,
+    DEFAULT_C3_A_ADD,
+    DEFAULT_C4_V_PULL,
+    DEFAULT_C5_V_FILL,
+    DEFAULT_C6_V_REST_NEG,
+    DEFAULT_C7_A_PULL,
+    DEFAULT_TAU_ACCELERATION,
+    DEFAULT_TAU_JERK,
+    DEFAULT_TAU_REST_DECAY,
+    DEFAULT_TAU_VELOCITY,
+)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -63,29 +77,29 @@ SIDE_ASK: str = "A"
 F_SNAPSHOT: int = 32
 F_LAST: int = 128
 
-# Derivative chain time constants (seconds)
-TAU_VELOCITY: float = 2.0
+# Derivative chain time constants (seconds) — aliased from platform defaults.
+TAU_VELOCITY: float = DEFAULT_TAU_VELOCITY
 """Time constant for velocity EMA (1st derivative)."""
 
-TAU_ACCELERATION: float = 5.0
+TAU_ACCELERATION: float = DEFAULT_TAU_ACCELERATION
 """Time constant for acceleration EMA (2nd derivative)."""
 
-TAU_JERK: float = 10.0
+TAU_JERK: float = DEFAULT_TAU_JERK
 """Time constant for jerk EMA (3rd derivative)."""
 
 # Two-force model coefficients — Pressure (depth building)
-C1_V_ADD: float = 1.0
-C2_V_REST_POS: float = 0.5
-C3_A_ADD: float = 0.3
+C1_V_ADD: float = DEFAULT_C1_V_ADD
+C2_V_REST_POS: float = DEFAULT_C2_V_REST_POS
+C3_A_ADD: float = DEFAULT_C3_A_ADD
 
 # Two-force model coefficients — Vacuum (depth draining)
-C4_V_PULL: float = 1.0
-C5_V_FILL: float = 1.5
-C6_V_REST_NEG: float = 0.5
-C7_A_PULL: float = 0.3
+C4_V_PULL: float = DEFAULT_C4_V_PULL
+C5_V_FILL: float = DEFAULT_C5_V_FILL
+C6_V_REST_NEG: float = DEFAULT_C6_V_REST_NEG
+C7_A_PULL: float = DEFAULT_C7_A_PULL
 
 # Rest depth exponential decay time constant (seconds)
-TAU_REST_DECAY: float = 30.0
+TAU_REST_DECAY: float = DEFAULT_TAU_REST_DECAY
 
 
 # ---------------------------------------------------------------------------

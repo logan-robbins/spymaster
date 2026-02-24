@@ -15,7 +15,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .feature_store.config import FeatureStoreConfig
 
 from .config_schema import ExperimentConfig, GridVariantConfig
 from .dataset_registry import DatasetRegistry
@@ -40,12 +43,23 @@ class ExperimentRunner:
         lake_root: Root path of the data lake (e.g. ``backend/lake``).
     """
 
-    def __init__(self, lake_root: Path) -> None:
+    def __init__(
+        self,
+        lake_root: Path,
+        feature_store_config: FeatureStoreConfig | None = None,
+    ) -> None:
         self.lake_root: Path = Path(lake_root)
         self.registry: DatasetRegistry = DatasetRegistry(self.lake_root)
         self.results_db: ResultsDB = ResultsDB(
             self.lake_root / "research" / "harness" / "results"
         )
+        self._feature_retriever = None
+        if feature_store_config is not None and feature_store_config.enabled:
+            from .feature_store.retriever import FeastFeatureRetriever
+
+            self._feature_retriever = FeastFeatureRetriever(
+                self.lake_root, feature_store_config
+            )
 
     def run(self, config: ExperimentConfig) -> list[str]:
         """Execute an experiment config and return all generated run IDs.
@@ -294,7 +308,9 @@ class ExperimentRunner:
         )
 
         engine = EvalEngine()
-        return engine.load_dataset(dataset_id, columns, self.registry)
+        return engine.load_dataset(
+            dataset_id, columns, self.registry, feature_retriever=self._feature_retriever
+        )
 
     def _run_single(
         self,
@@ -467,19 +483,13 @@ class ExperimentRunner:
             else [config.eval.sl_ticks]
         )
 
+        # cooldown_bins is controlled exclusively by config.eval.cooldown_bins
+        # (which accepts int | list[int]). Do not place cooldown_bins in sweep.universal.
         base_cooldown = config.eval.cooldown_bins
         if isinstance(base_cooldown, list):
-            cooldown_values: list[int] = list(base_cooldown)
+            cooldown_values: list[int] = [int(v) for v in base_cooldown]
         else:
-            cooldown_values = [base_cooldown]
-
-        if "cooldown_bins" in config.sweep.universal:
-            sweep_cooldown = config.sweep.universal["cooldown_bins"]
-            if isinstance(sweep_cooldown, list):
-                cooldown_values = list(sweep_cooldown)
-            else:
-                cooldown_values = [sweep_cooldown]
-        cooldown_values = [int(v) for v in cooldown_values]
+            cooldown_values = [int(base_cooldown)]
         if any(v < 1 for v in cooldown_values):
             raise ValueError(f"cooldown_bins values must be >= 1, got {cooldown_values}")
 
@@ -533,10 +543,15 @@ class ExperimentRunner:
             List of param dicts. Returns ``[{}]`` if no sweep axes exist
             (single default run).
         """
-        # Start with universal params (excluding cooldown_bins, handled above)
+        # Start with universal params
+        # NOTE: cooldown_bins belongs in eval.cooldown_bins, not in sweep.universal.
         merged: dict[str, list[Any]] = {}
         for key, values in config.sweep.universal.items():
             if key == "cooldown_bins":
+                logger.warning(
+                    "cooldown_bins found in sweep.universal; ignoring. "
+                    "Use eval.cooldown_bins instead."
+                )
                 continue
             merged[key] = values if isinstance(values, list) else [values]
 
@@ -566,23 +581,13 @@ class ExperimentRunner:
         spec: GridVariantConfig,
     ) -> list[GridVariantConfig]:
         """Expand scalar/list grid-variant fields into concrete scalar specs."""
-        sweep_fields = (
-            "cell_width_ms",
-            "c1_v_add",
-            "c2_v_rest_pos",
-            "c3_a_add",
-            "c4_v_pull",
-            "c5_v_fill",
-            "c6_v_rest_neg",
-            "c7_a_pull",
-            "bucket_size_dollars",
-            "tau_velocity",
-            "tau_acceleration",
-            "tau_jerk",
-            "tau_rest_decay",
-        )
-
+        # Introspect sweepable fields: those whose current value is a list
+        # (GridVariantConfig fields accept scalar | list[scalar] for sweep axes).
         raw = deepcopy(spec.model_dump())
+        sweep_fields = tuple(
+            name for name in GridVariantConfig.model_fields
+            if isinstance(raw.get(name), list)
+        )
         axes: dict[str, list[Any]] = {}
         for field in sweep_fields:
             value = raw.get(field)

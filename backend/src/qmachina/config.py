@@ -17,14 +17,13 @@ import yaml
 from ..shared.hashing import stable_short_hash
 
 LOCKED_INSTRUMENT_CONFIG_ENV = "QMACHINA_INSTRUMENT_CONFIG_PATH"
-_LEGACY_ENV = "VP_INSTRUMENT_CONFIG_PATH"
 """Optional override path for the single-instrument config YAML."""
 
 PRICE_SCALE: float = 1e-9
 """System-wide price scale: price_dollars = price_int * PRICE_SCALE."""
 
 VALID_PRODUCT_TYPES: frozenset[str] = frozenset({"equity_mbo", "future_mbo"})
-"""Product types supported by vacuum-pressure runtime."""
+"""Product types supported by the qMachina streaming runtime."""
 
 # Derivative-chain defaults (seconds)
 DEFAULT_TAU_VELOCITY: float = 2.0
@@ -143,7 +142,6 @@ class RuntimeConfig:
     state_model_bear_pressure_weight: float = DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT
     state_model_bear_vacuum_weight: float = DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT
     state_model_mixed_weight: float = DEFAULT_STATE_MODEL_MIXED_WEIGHT
-    model_id: str = "vacuum_pressure"
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict for wire protocol."""
@@ -214,17 +212,7 @@ def _default_locked_config_path() -> Path:
 
 def _resolve_locked_config_path() -> Path:
     """Resolve locked instrument config path from env override or default."""
-    import warnings
     override = os.getenv(LOCKED_INSTRUMENT_CONFIG_ENV, "").strip()
-    if not override:
-        legacy = os.getenv(_LEGACY_ENV, "").strip()
-        if legacy:
-            warnings.warn(
-                "VP_INSTRUMENT_CONFIG_PATH is deprecated; use QMACHINA_INSTRUMENT_CONFIG_PATH",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            override = legacy
     if override:
         return Path(override).expanduser().resolve()
     return _default_locked_config_path()
@@ -537,21 +525,6 @@ def build_config_with_overrides(
     fields = _normalize_runtime_fields(merged, source="runtime_overrides")
     config_version = _compute_config_version(fields)
     return RuntimeConfig(**fields, config_version=config_version)
-
-
-def parse_projection_horizons_bins_override(raw: Any) -> Tuple[int, ...] | None:
-    """Parse optional projection horizon override into canonical bin tuple.
-
-    Accepts either:
-    - ``None`` / empty string -> no override
-    - comma-separated string (e.g. ``"1,2,4"``)
-    - iterable of ints
-    """
-    if raw is None:
-        return None
-    if isinstance(raw, str) and not raw.strip():
-        return None
-    return _parse_int_sequence(raw, "projection_horizons_bins")
 
 
 def resolve_config(

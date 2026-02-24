@@ -25,7 +25,7 @@ def test_serving_spec_runtime_fields_maps_derivative_and_projection() -> None:
             zscore_min_periods=60,
             derivative_weights=[0.6, 0.3, 0.1],
             tanh_scale=2.5,
-            threshold_neutral=0.2,
+            neutral_threshold=0.2,
         ),
         signal=SignalConfig(
             name="derivative",

@@ -329,5 +329,6 @@ def test_stream_events_bucket_schema(monkeypatch: pytest.MonkeyPatch) -> None:
         assert len(cols["k"]) == expected_rows
         assert "flow_score" not in cols
         assert "flow_state_code" not in cols
-        composite_d1 = np.asarray(cols["composite_d1"], dtype=np.float64)
-        assert np.all(np.isfinite(composite_d1))
+        assert "composite_d1" not in cols  # gold field — not in silver stream
+        v_add = np.asarray(cols["v_add"], dtype=np.float64)
+        assert np.all(np.isfinite(v_add))

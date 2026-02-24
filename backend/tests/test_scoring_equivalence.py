@@ -189,8 +189,8 @@ class TestParameterSensitivity:
     def test_threshold_affects_states(self, rng: np.random.Generator) -> None:
         d1, d2, d3 = _generate_derivatives(rng, self.N_CELLS, self.N_BINS)
 
-        config_a = ScoringConfig(threshold_neutral=0.05)
-        config_b = ScoringConfig(threshold_neutral=0.45)
+        config_a = ScoringConfig(neutral_threshold=0.05)
+        config_b = ScoringConfig(neutral_threshold=0.45)
 
         scorer_a = SpectrumScorer(config_a, self.N_CELLS)
         scorer_b = SpectrumScorer(config_b, self.N_CELLS)

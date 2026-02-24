@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
 from .zscore import validate_zscore_tanh_params
 
 STATE5_CODES: tuple[int, ...] = (-2, -1, 0, 1, 2)
+
+
+class State5Intensities(NamedTuple):
+    """Weighted intensity fractions for each of the five derivative states."""
+
+    bear_vac: Any
+    bear_press: Any
+    mixed: Any
+    bull_press: Any
+    bull_vac: Any
 
 
 def validate_derivative_parameter_set(
@@ -92,14 +102,24 @@ def normalized_spatial_weights(
 def compute_state5_intensities(
     state5_code: np.ndarray,
     weights: np.ndarray,
-) -> tuple[Any, Any, Any, Any, Any]:
+) -> State5Intensities:
+    """Compute weighted intensity fractions for each derivative state.
+
+    Args:
+        state5_code: 1-D array of state codes in {-2, -1, 0, 1, 2}.
+        weights: 1-D spatial weight vector (same length as *state5_code*).
+
+    Returns:
+        A :class:`State5Intensities` named tuple with fields
+        ``bear_vac``, ``bear_press``, ``mixed``, ``bull_press``, ``bull_vac``.
+    """
     s = np.rint(state5_code).astype(np.int8)
     i_bear_vac = (s == -2).astype(np.float64) @ weights
     i_bear_press = (s == -1).astype(np.float64) @ weights
     i_mixed = (s == 0).astype(np.float64) @ weights
     i_bull_press = (s == 1).astype(np.float64) @ weights
     i_bull_vac = (s == 2).astype(np.float64) @ weights
-    return i_bear_vac, i_bear_press, i_mixed, i_bull_press, i_bull_vac
+    return State5Intensities(i_bear_vac, i_bear_press, i_mixed, i_bull_press, i_bull_vac)
 
 
 def derivative_base_from_intensities(

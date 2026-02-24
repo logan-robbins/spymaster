@@ -207,7 +207,7 @@ def test_stream_events_empty_bin_applies_passive_decay(
     assert int(b1["last_event_id"]) == int(b2["last_event_id"])
     assert float(b2["add_mass"]) < float(b1["add_mass"])
     assert float(b2["v_add"]) < float(b1["v_add"])
-    assert float(b2["pressure_variant"]) < float(b1["pressure_variant"])
+    # pressure_variant is a gold field computed offline — not in the silver stream
 
 
 def test_stream_events_emits_permutation_labels_for_upward_chase(
@@ -233,10 +233,13 @@ def test_stream_events_emits_permutation_labels_for_upward_chase(
     assert int(second["microstate_id"]) == 8
     assert int(second["chase_up_flag"]) == 1
 
+    # state5_code is a gold field computed offline — not in the silver stream.
+    # Verify that BBO permutation labels ARE emitted (they are silver fields).
     above = _bucket_by_k(second, 1)
     below = _bucket_by_k(second, -1)
-    assert int(above["state5_code"]) == 2  # bullish vacuum above spot
-    assert int(below["state5_code"]) == 1  # bullish pressure below spot
+    assert "ask_reprice_sign" in above  # silver permutation label is present
+    assert "ask_reprice_sign" in below
+    assert "state5_code" not in above  # gold field not in stream
 
 
 def test_async_stream_events_writes_latency_jsonl_and_hides_internal_metadata(

@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..shared.yaml_io import load_yaml_mapping
 
@@ -53,7 +53,8 @@ class ScoringConfig(BaseModel):
     zscore_min_periods: int = 75
     derivative_weights: list[float] = Field(default=[0.55, 0.30, 0.15])
     tanh_scale: float = 3.0
-    threshold_neutral: float = 0.15
+    # NOTE: YAML configs using `threshold_neutral:` must be updated to `neutral_threshold:`.
+    neutral_threshold: float = 0.15
 
 
 class SignalConfig(BaseModel):
@@ -91,8 +92,74 @@ class StreamFieldSpec(BaseModel):
     description: str = ""
 
 
+class CellShaderConfig(BaseModel):
+    """Cell color mapping configuration for heatmap display mode."""
+
+    signal_field: str = "flow_score"
+    depth_field: str = "rest_depth"
+    color_scheme: Literal["pressure_vacuum", "thermal", "mono_green", "mono_red"] = "pressure_vacuum"
+    normalization: Literal["adaptive_running_max", "zscore_clamp", "identity_clamp"] = "adaptive_running_max"
+    gamma: float = Field(default=0.7, gt=0.0, le=5.0)
+
+
+class OverlaySpec(BaseModel):
+    """A single overlay layer declaration (compute or render)."""
+
+    id: str
+    type: str
+    enabled: bool = True
+    z_order: int = 0
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class VisualizationConfig(BaseModel):
+    """Top-level visualization configuration for a serving spec."""
+
+    display_mode: Literal["heatmap", "candle"] = "heatmap"
+    cell_shader: CellShaderConfig | None = None
+    overlays: list[OverlaySpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate(self) -> "VisualizationConfig":
+        if self.display_mode == "heatmap" and self.cell_shader is None:
+            raise ValueError("cell_shader is required when display_mode='heatmap'")
+        ids = [o.id for o in self.overlays]
+        if len(ids) != len(set(ids)):
+            raise ValueError("overlay IDs must be unique")
+        zo = [o.z_order for o in self.overlays]
+        if len(zo) != len(set(zo)):
+            raise ValueError("overlay z_order values must be unique")
+        for o in self.overlays:
+            if o.type == "projection_bands" and "signal_field" not in o.params:
+                raise ValueError(
+                    f"overlay '{o.id}' of type 'projection_bands' requires params.signal_field"
+                )
+        return self
+
+    @classmethod
+    def default_heatmap(cls) -> "VisualizationConfig":
+        """Return the canonical heatmap visualization config."""
+        return cls(
+            display_mode="heatmap",
+            cell_shader=CellShaderConfig(),
+            overlays=[
+                OverlaySpec(id="vp_gold", type="vp_gold", enabled=True, z_order=0),
+                OverlaySpec(id="spot_trail", type="spot_trail", enabled=True, z_order=10),
+                OverlaySpec(id="bbo_spread", type="bbo_spread", enabled=True, z_order=15),
+                OverlaySpec(id="bbo_trail", type="bbo_trail", enabled=True, z_order=20),
+                OverlaySpec(
+                    id="projection_bands",
+                    type="projection_bands",
+                    enabled=True,
+                    z_order=30,
+                    params={"signal_field": "flow_score", "composite_scale": 8.0},
+                ),
+            ],
+        )
+
+
 class ServingSpec(BaseModel):
-    """Complete serving configuration for the VP modeling layer.
+    """Complete serving configuration for the qMachina model serving layer.
 
     A ServingSpec is the single artifact that parameterizes a live server.
     It names a pipeline (resolved at runtime), and carries scoring, signal,
@@ -106,6 +173,7 @@ class ServingSpec(BaseModel):
     signal: SignalConfig | None = None
     projection: ProjectionConfig = Field(default_factory=ProjectionConfig)
     stream_schema: list[StreamFieldSpec] = Field(default_factory=list)
+    visualization: VisualizationConfig = Field(default_factory=VisualizationConfig.default_heatmap)
 
     @field_validator("stream_schema")
     @classmethod
@@ -172,7 +240,7 @@ class ServingSpec(BaseModel):
         runtime_fields: dict[str, Any] = {
             "flow_derivative_weights": self.scoring.derivative_weights,
             "flow_tanh_scale": self.scoring.tanh_scale,
-            "flow_neutral_threshold": self.scoring.threshold_neutral,
+            "flow_neutral_threshold": self.scoring.neutral_threshold,
             "flow_zscore_window_bins": self.scoring.zscore_window_bins,
             "flow_zscore_min_periods": self.scoring.zscore_min_periods,
         }
@@ -235,19 +303,6 @@ class ServingSpec(BaseModel):
             runtime_fields["projection_horizons_bins"] = bins
 
         return runtime_fields
-
-    def to_runtime_config_json(self, *, serving_name: str = "") -> dict[str, Any]:
-        """Return a JSON-serializable dict for the WebSocket runtime_config message.
-
-        This is the payload shape the frontend expects when it receives
-        the current serving configuration over the wire.
-        """
-        return {
-            "serving_name": serving_name or self.name,
-            "scoring": self.scoring.model_dump(),
-            "signal_config": self.signal.model_dump() if self.signal else None,
-            "projection": self.projection.model_dump(),
-        }
 
     # ------------------------------------------------------------------
     # Persistence (YAML)

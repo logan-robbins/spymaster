@@ -79,7 +79,7 @@ class SpectrumScorer:
         window: int = config.zscore_window_bins
         min_periods: int = config.zscore_min_periods
         tanh_scale: float = config.tanh_scale
-        threshold: float = config.threshold_neutral
+        threshold: float = config.neutral_threshold
 
         validate_zscore_tanh_params(
             zscore_window_bins=window,

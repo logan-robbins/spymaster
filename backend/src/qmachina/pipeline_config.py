@@ -1,4 +1,4 @@
-"""PipelineSpec: three-layer configuration model for VP feature engineering.
+"""PipelineSpec: three-layer configuration model for qMachina feature engineering.
 
 Captures the full parameterization of the raw .dbn -> engineered feature grid
 pipeline. Layers:
@@ -19,8 +19,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..experiment_harness.feature_store.config import FeatureStoreConfig
 from ..shared.yaml_io import load_yaml_mapping
 from .config import RuntimeConfig, build_config_with_overrides, resolve_config
 
@@ -96,7 +97,7 @@ class PipelineOverrides(BaseModel):
 
 
 class PipelineSpec(BaseModel):
-    """Named experiment specification for the VP feature engineering pipeline.
+    """Named experiment specification for the model feature engineering pipeline.
 
     Wraps a CaptureConfig (what data) and PipelineOverrides (how to process)
     with a human-readable name and version tag. Provides deterministic
@@ -108,6 +109,7 @@ class PipelineSpec(BaseModel):
     pipeline_code_version: int = 1
     capture: CaptureConfig
     pipeline: PipelineOverrides = PipelineOverrides()
+    feature_store: FeatureStoreConfig = Field(default_factory=FeatureStoreConfig)
 
     @field_validator("name")
     @classmethod

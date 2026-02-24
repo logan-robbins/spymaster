@@ -43,7 +43,7 @@ class ExperimentTracker:
         if config.tracking_uri:
             mlflow.set_tracking_uri(config.tracking_uri)
 
-        exp_name = config.experiment_name or f"vp/{default_experiment_name}"
+        exp_name = config.experiment_name or f"qmachina/{default_experiment_name}"
         mlflow.set_experiment(exp_name)
         logger.info("Tracking enabled: mlflow experiment='%s'", exp_name)
 

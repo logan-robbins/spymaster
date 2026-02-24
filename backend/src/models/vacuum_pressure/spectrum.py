@@ -133,7 +133,7 @@ class IndependentCellSpectrum:
                 zscore_min_periods=zscore_min_periods,
                 derivative_weights=list(deriv_w),
                 tanh_scale=tanh_scale,
-                threshold_neutral=neutral_threshold,
+                neutral_threshold=neutral_threshold,
             ),
             n_cells=n_cells,
         )
@@ -258,7 +258,7 @@ class IndependentCellSpectrum:
         else:
             score_d3 = (score_d2 - self._prev_score_d2) / dt_s
 
-        projected: Dict[int, np.ndarray] = {}
+        projected: dict[int, np.ndarray] = {}
         for horizon_ms in self._projection_horizons_ms:
             h = float(horizon_ms) / 1000.0
             projected[horizon_ms] = self._project_score_horizon(

@@ -199,3 +199,50 @@ def test_stream_events_grid_excludes_state_model_outputs(
         assert state_model_keys == [], (
             f"Unexpected state_model keys at bin_seq={grid['bin_seq']}: {state_model_keys}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Gold field exclusion: pressure_variant, composite*, state5_code must NOT
+# appear in the live stream (they are computed by gold_builder / frontend).
+# ---------------------------------------------------------------------------
+
+_GOLD_FIELDS = [
+    "pressure_variant",
+    "vacuum_variant",
+    "composite",
+    "composite_d1",
+    "composite_d2",
+    "composite_d3",
+    "state5_code",
+]
+
+
+@pytest.mark.parametrize("field", _GOLD_FIELDS)
+def test_arrow_schema_excludes_gold_field(field: str) -> None:
+    schema = grid_schema()
+    field_names = [f.name for f in schema]
+    assert field not in field_names, f"Gold field '{field}' found in Arrow wire schema"
+
+
+@pytest.mark.parametrize("field", _GOLD_FIELDS)
+def test_stream_events_grid_cols_exclude_gold_field(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+) -> None:
+    monkeypatch.setattr(
+        "src.models.vacuum_pressure.stream_pipeline.iter_mbo_events",
+        _iter_for(_minimal_events()),
+    )
+    grids = list(
+        stream_events(
+            lake_root=Path("/tmp"),
+            config=_test_config(),
+            dt="2026-02-06",
+            start_time=None,
+        )
+    )
+    assert len(grids) >= 1
+    for grid in grids:
+        assert field not in grid["grid_cols"], (
+            f"Gold field '{field}' found in stream grid_cols at bin_seq={grid['bin_seq']}"
+        )

@@ -7,7 +7,7 @@ scoring:
   zscore_min_periods: 75
   derivative_weights: [0.55, 0.30, 0.15]
   tanh_scale: 3.0
-  threshold_neutral: 0.15
+  neutral_threshold: 0.15
 
 signal:
   name: derivative

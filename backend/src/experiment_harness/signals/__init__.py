@@ -1,4 +1,4 @@
-"""Signal library for VP experiment harness.
+"""Signal library for the qMachina experiment harness.
 
 Provides a registry of signal classes (statistical and ML) that can be
 instantiated by name. Each signal class implements either the

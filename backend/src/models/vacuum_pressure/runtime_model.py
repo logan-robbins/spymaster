@@ -2,6 +2,10 @@
 
 This module currently implements the derivative scorer used by the
 evaluation harness (`derivative`) in an online O(n_ticks) per-bin form.
+
+NOTE: ``DerivativeRuntime`` has no live serving callers in ``src/``.
+It is retained only for harness replay and test coverage. It is not
+part of the production serving path.
 """
 from __future__ import annotations
 

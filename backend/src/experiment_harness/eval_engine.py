@@ -1,4 +1,4 @@
-"""Evaluation engine for VP regime-detection experiments.
+"""Signal evaluation engine for TP/SL backtesting experiments.
 
 Extends the logic from ``eval_harness.py`` into a configurable, reusable class
 with module-level utility functions. Supports:
@@ -20,9 +20,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from src.shared.zscore import robust_zscore_rolling_1d
-from src.models.vacuum_pressure.scoring import score_dataset
-from src.qmachina.serving_config import ScoringConfig
+from ..shared.zscore import robust_zscore_rolling_1d
+from ..qmachina.stage_schema import GOLD_COLS
 
 from .dataset_registry import DatasetRegistry
 
@@ -32,56 +31,50 @@ logger = logging.getLogger(__name__)
 K_MIN: int = -50
 K_MAX: int = 50
 N_TICKS: int = 101
-_DERIVABLE_FLOW_COLUMNS: frozenset[str] = frozenset({"flow_score", "flow_state_code"})
-_FLOW_SUPPORT_COLUMNS: tuple[str, ...] = ("composite_d1", "composite_d2", "composite_d3")
 
 
-def _resolve_flow_scoring_config(dataset_root: Path) -> ScoringConfig:
-    """Resolve flow-scoring params from dataset manifest, falling back to defaults."""
-    manifest_path = dataset_root / "manifest.json"
-    defaults = ScoringConfig()
-    if not manifest_path.exists():
-        return defaults
+def pivot_grid_to_arrays(
+    grid_df: pd.DataFrame,
+    bins_df: pd.DataFrame,
+    columns: list[str],
+    *,
+    fillna_value: float | None = None,
+) -> dict[str, np.ndarray]:
+    """Pivot (bin_seq, k) grid rows into dense (n_bins, N_TICKS) arrays.
 
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise ValueError(
-            f"Failed to parse manifest for scoring config: {manifest_path}"
-        ) from exc
+    Shared between ``EvalEngine.load_dataset`` and ``FeastFeatureRetriever``.
 
-    overrides: dict[str, Any] = {}
-    flow_scoring = payload.get("flow_scoring")
-    if isinstance(flow_scoring, dict):
-        if "derivative_weights" in flow_scoring:
-            overrides["derivative_weights"] = flow_scoring["derivative_weights"]
-        if "tanh_scale" in flow_scoring:
-            overrides["tanh_scale"] = flow_scoring["tanh_scale"]
-        if "threshold_neutral" in flow_scoring:
-            overrides["threshold_neutral"] = flow_scoring["threshold_neutral"]
-        if "zscore_window_bins" in flow_scoring:
-            overrides["zscore_window_bins"] = flow_scoring["zscore_window_bins"]
-        if "zscore_min_periods" in flow_scoring:
-            overrides["zscore_min_periods"] = flow_scoring["zscore_min_periods"]
-    else:
-        legacy_params = payload.get("grid_dependent_params")
-        if isinstance(legacy_params, dict):
-            if legacy_params.get("flow_derivative_weights") is not None:
-                overrides["derivative_weights"] = legacy_params["flow_derivative_weights"]
-            if legacy_params.get("flow_tanh_scale") is not None:
-                overrides["tanh_scale"] = legacy_params["flow_tanh_scale"]
+    Args:
+        grid_df: DataFrame with at least ``bin_seq``, ``k``, and all ``columns``.
+        bins_df: DataFrame with ``bin_seq`` column defining the row axis.
+        columns: Column names to pivot from grid_df.
+        fillna_value: If not None, fill NaN values in grid_df columns before
+            converting to numpy. Use 0.0 for Feast retrieval where NaN arises
+            from outer joins.
 
-    if not overrides:
-        return defaults
+    Returns:
+        Dict mapping each column name to a float64 array of shape (n_bins, N_TICKS).
+    """
+    n_bins: int = len(bins_df)
+    bin_seq_index = pd.Index(bins_df["bin_seq"].to_numpy(copy=False))
 
-    merged = defaults.model_dump()
-    merged.update(overrides)
-    try:
-        return ScoringConfig.model_validate(merged)
-    except Exception as exc:
-        raise ValueError(
-            f"Invalid flow_scoring payload in manifest: {manifest_path}"
-        ) from exc
+    bin_seqs: np.ndarray = grid_df["bin_seq"].to_numpy(copy=False)
+    k_vals: np.ndarray = grid_df["k"].to_numpy(copy=False).astype(np.int32, copy=False)
+    b_idxs = bin_seq_index.get_indexer(bin_seqs)
+    k_idxs = k_vals - K_MIN
+    valid_mask = (b_idxs >= 0) & (k_idxs >= 0) & (k_idxs < N_TICKS)
+
+    result: dict[str, np.ndarray] = {}
+    for col in columns:
+        arr: np.ndarray = np.zeros((n_bins, N_TICKS), dtype=np.float64)
+        series = grid_df[col]
+        if fillna_value is not None:
+            series = series.fillna(fillna_value)
+        col_vals: np.ndarray = series.to_numpy(dtype=np.float64, copy=False)
+        arr[b_idxs[valid_mask], k_idxs[valid_mask]] = col_vals[valid_mask]
+        result[col] = arr
+
+    return result
 
 
 def rolling_ols_slope(arr: np.ndarray, window: int) -> np.ndarray:
@@ -190,16 +183,23 @@ class EvalEngine:
         dataset_id: str,
         columns: list[str],
         registry: DatasetRegistry,
+        *,
+        feature_retriever=None,  # duck-typed to avoid circular import
     ) -> dict[str, Any]:
         """Load a dataset by ID using the registry and pivot grid columns.
 
         Reads ``bins.parquet`` for time-bin metadata and ``grid_clean.parquet``
-        for grid columns, pivoting each requested column into an
-        ``(n_bins, 101)`` array indexed by k = -50..+50.
+        for silver columns, or ``gold_grid.parquet`` for gold columns.
+        Pivots each requested column into an ``(n_bins, 101)`` array indexed
+        by k = -50..+50.
+
+        Gold columns (pressure_variant, vacuum_variant, composite*, state5_code,
+        flow_score, flow_state_code) require a pre-generated gold_grid.parquet.
+        Run ``generate-gold`` first if gold columns are needed.
 
         Args:
             dataset_id: Dataset identifier string.
-            columns: Grid column names to load and pivot (e.g. ``["velocity"]``).
+            columns: Grid column names to load and pivot.
             registry: DatasetRegistry instance for path resolution.
 
         Returns:
@@ -213,13 +213,45 @@ class EvalEngine:
 
         Raises:
             FileNotFoundError: If the dataset cannot be resolved.
+            KeyError: If requested columns are missing from the appropriate parquet file.
         """
+        if feature_retriever is not None:
+            return feature_retriever.load_dataset(dataset_id, columns, registry)
+
         paths = registry.resolve(dataset_id)
+
+        silver_cols_requested = [c for c in columns if c not in GOLD_COLS]
+        gold_cols_requested = [c for c in columns if c in GOLD_COLS]
+
+        # Verify silver columns
+        silver_schema = set(pq.read_schema(paths.grid_clean_parquet).names)
+        missing_silver = [c for c in silver_cols_requested if c not in silver_schema]
+        if missing_silver:
+            raise KeyError(
+                f"Dataset '{dataset_id}' missing silver columns: {missing_silver}"
+            )
+
+        # Verify gold columns if requested
+        if gold_cols_requested:
+            if not paths.gold_grid_parquet.exists():
+                raise KeyError(
+                    f"Dataset '{dataset_id}' has no gold_grid.parquet. "
+                    f"Run `generate-gold` to compute gold features before loading: "
+                    f"{gold_cols_requested}"
+                )
+            gold_schema = set(pq.read_schema(paths.gold_grid_parquet).names)
+            missing_gold = [c for c in gold_cols_requested if c not in gold_schema]
+            if missing_gold:
+                raise KeyError(
+                    f"Dataset '{dataset_id}' gold_grid.parquet missing columns: {missing_gold}"
+                )
+
         logger.info(
-            "Loading dataset '%s': bins=%s, grid=%s",
+            "Loading dataset '%s': bins=%s, silver_cols=%s, gold_cols=%s",
             dataset_id,
             paths.bins_parquet,
-            paths.grid_clean_parquet,
+            silver_cols_requested,
+            gold_cols_requested,
         )
 
         bins_df: pd.DataFrame = pd.read_parquet(paths.bins_parquet)
@@ -229,51 +261,23 @@ class EvalEngine:
         mid_price: np.ndarray = bins_df["mid_price"].values.astype(np.float64)
         ts_ns: np.ndarray = bins_df["ts_ns"].values.astype(np.int64)
 
-        grid_schema_cols = set(pq.read_schema(paths.grid_clean_parquet).names)
-        missing_cols = [c for c in columns if c not in grid_schema_cols]
-        missing_flow_cols = [c for c in missing_cols if c in _DERIVABLE_FLOW_COLUMNS]
-        missing_unsupported = [c for c in missing_cols if c not in _DERIVABLE_FLOW_COLUMNS]
-        if missing_unsupported:
-            raise KeyError(
-                f"Dataset '{dataset_id}' missing required columns: {missing_unsupported}"
-            )
-
-        read_cols: list[str] = ["bin_seq", "k"] + [
-            c for c in columns if c in grid_schema_cols
-        ]
-        if missing_flow_cols:
-            missing_support = [c for c in _FLOW_SUPPORT_COLUMNS if c not in grid_schema_cols]
-            if missing_support:
-                raise KeyError(
-                    f"Dataset '{dataset_id}' missing columns needed to derive flow fields: {missing_support}"
-                )
-            read_cols.extend(_FLOW_SUPPORT_COLUMNS)
-
-        dedup_read_cols: list[str] = []
-        seen: set[str] = set()
-        for col in read_cols:
-            if col in seen:
-                continue
-            seen.add(col)
-            dedup_read_cols.append(col)
-
+        # Load silver grid
+        silver_read_cols = ["bin_seq", "k"] + silver_cols_requested
         grid_df: pd.DataFrame = pd.read_parquet(
-            paths.grid_clean_parquet, columns=dedup_read_cols
+            paths.grid_clean_parquet,
+            columns=list(dict.fromkeys(silver_read_cols)),
         )
 
-        if missing_flow_cols:
-            scoring_cfg = _resolve_flow_scoring_config(paths.grid_clean_parquet.parent)
-            score_input = grid_df[
-                ["bin_seq", "k", "composite_d1", "composite_d2", "composite_d3"]
-            ].copy()
-            scored_df = score_dataset(score_input, scoring_cfg, N_TICKS)
-            if "flow_score" in missing_flow_cols:
-                grid_df["flow_score"] = scored_df["flow_score"].to_numpy(copy=False)
-            if "flow_state_code" in missing_flow_cols:
-                grid_df["flow_state_code"] = scored_df["flow_state_code"].to_numpy(copy=False)
+        # Load and merge gold grid
+        if gold_cols_requested:
+            gold_read_cols = ["bin_seq", "k"] + gold_cols_requested
+            gold_df = pd.read_parquet(
+                paths.gold_grid_parquet,
+                columns=list(dict.fromkeys(gold_read_cols)),
+            )
+            grid_df = grid_df.merge(gold_df, on=["bin_seq", "k"], how="left")
 
         k_values: np.ndarray = np.arange(K_MIN, K_MAX + 1, dtype=np.int32)
-        bin_seq_index = pd.Index(bins_df["bin_seq"].to_numpy(copy=False))
 
         result: dict[str, Any] = {
             "bins": bins_df,
@@ -283,19 +287,8 @@ class EvalEngine:
             "k_values": k_values,
         }
 
-        # Pivot each column to (n_bins, 101) array
-        bin_seqs: np.ndarray = grid_df["bin_seq"].to_numpy(copy=False)
-        k_vals: np.ndarray = grid_df["k"].to_numpy(copy=False).astype(np.int32, copy=False)
-        b_idxs = bin_seq_index.get_indexer(bin_seqs)
-        k_idxs = k_vals - K_MIN
-        valid_mask = (b_idxs >= 0) & (k_idxs >= 0) & (k_idxs < N_TICKS)
-
-        for col in columns:
-            arr: np.ndarray = np.zeros((n_bins, N_TICKS), dtype=np.float64)
-            col_vals: np.ndarray = grid_df[col].to_numpy(dtype=np.float64, copy=False)
-            arr[b_idxs[valid_mask], k_idxs[valid_mask]] = col_vals[valid_mask]
-
-            result[col] = arr
+        pivoted = pivot_grid_to_arrays(grid_df, bins_df, columns)
+        result.update(pivoted)
 
         logger.info(
             "Loaded dataset '%s': %d bins, %d grid columns",

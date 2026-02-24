@@ -1,5 +1,6 @@
 /**
- * Vacuum & Pressure Detector -- frontend visualisation.
+ * qMachina streaming visualization client — WebSocket stream consumer for
+ * model grid updates.
  *
  * Price-anchored heatmap: the Y-axis represents fixed dollar price levels.
  * Spot moves within the grid as a visible polyline trail.
@@ -42,13 +43,6 @@ interface RuntimeConfig {
   rel_tick_size: number;
   grid_radius_ticks: number;
   cell_width_ms: number;
-  flow_windows: number[];
-  flow_rollup_weights: number[];
-  flow_derivative_weights: number[];
-  flow_tanh_scale: number;
-  flow_neutral_threshold: number;
-  flow_zscore_window_bins: number;
-  flow_zscore_min_periods: number;
   projection_horizons_bins: number[];
   projection_horizons_ms: number[];
   contract_multiplier: number;
@@ -57,63 +51,327 @@ interface RuntimeConfig {
   config_version: string;
 }
 
-interface RuntimeModelConfig {
-  name: string;
-}
 
-interface RuntimeModelUpdate {
-  name: string;
-  score: number;
-  ready: boolean;
-  sampleCount: number;
-  base: number;
-  d1: number;
-  d2: number;
-  d3: number;
-  z1: number;
-  z2: number;
-  z3: number;
-  bullIntensity: number;
-  bearIntensity: number;
-  mixedIntensity: number;
-  dominantState5Code: number;
-}
-
-/** Dense grid bucket row from event-driven mode (mode=event).
- *  Two-force model: pressure (depth building, always >= 0) and
- *  vacuum (depth draining, always >= 0).  resistance_variant removed. */
+/** Silver-stage dense grid bucket row (wire format from Arrow IPC stream). */
 interface GridBucketRow {
   k: number;
-  pressure_variant: number;
-  vacuum_variant: number;
+  // Mass fields
   add_mass: number;
   pull_mass: number;
   fill_mass: number;
   rest_depth: number;
+  bid_depth: number;
+  ask_depth: number;
+  // Velocity (EMA first derivative)
   v_add: number;
   v_pull: number;
   v_fill: number;
   v_rest_depth: number;
+  v_bid_depth: number;
+  v_ask_depth: number;
+  // Acceleration (EMA second derivative)
   a_add: number;
   a_pull: number;
   a_fill: number;
   a_rest_depth: number;
+  a_bid_depth: number;
+  a_ask_depth: number;
+  // Jerk (EMA third derivative)
   j_add: number;
   j_pull: number;
   j_fill: number;
   j_rest_depth: number;
+  j_bid_depth: number;
+  j_ask_depth: number;
+  // BBO permutation labels
+  best_ask_move_ticks: number;
+  best_bid_move_ticks: number;
+  ask_reprice_sign: number;
+  bid_reprice_sign: number;
+  microstate_id: number;
+  chase_up_flag: number;
+  chase_down_flag: number;
+  // Metadata
+  last_event_id: number;
+}
+
+/** Gold-stage computed row (produced in-browser by GoldFeatureRuntime). */
+interface GoldBucketRow {
+  k: number;
+  pressure_variant: number;
+  vacuum_variant: number;
   composite: number;
   composite_d1: number;
   composite_d2: number;
   composite_d3: number;
+  state5_code: number;
   flow_score: number;
   flow_state_code: number;
-  last_event_id: number;
+}
+
+interface GoldConfig {
+  c1_v_add: number; c2_v_rest_pos: number; c3_a_add: number;
+  c4_v_pull: number; c5_v_fill: number; c6_v_rest_neg: number; c7_a_pull: number;
+  flow_windows: number[]; flow_rollup_weights: number[];
+  flow_derivative_weights: number[];
+  flow_tanh_scale: number; flow_neutral_threshold: number;
+  flow_zscore_window_bins: number; flow_zscore_min_periods: number;
+}
+
+interface CellShaderConfig {
+  signal_field: string;
+  depth_field: string;
+  color_scheme: 'pressure_vacuum' | 'thermal' | 'mono_green' | 'mono_red';
+  normalization: 'adaptive_running_max' | 'zscore_clamp' | 'identity_clamp';
+  gamma: number;
+}
+
+interface OverlaySpec {
+  id: string;
+  type: string;
+  enabled: boolean;
+  z_order: number;
+  params: Record<string, unknown>;
+}
+
+interface VisualizationConfig {
+  display_mode: 'heatmap' | 'candle';
+  cell_shader: CellShaderConfig | null;
+  overlays: OverlaySpec[];
+}
+
+interface CandleBar {
+  open: number; close: number; high: number; low: number; bullish: boolean;
 }
 
 /** Parsed and validated URL query parameters. */
 interface StreamParams {
   serving: string;
+}
+
+// --------------------------------------------------- GoldFeatureRuntime
+
+/**
+ * In-browser gold feature computation. Replicates the Python gold_builder
+ * math exactly to maintain train/serve parity:
+ *   1. VP force block: pressure_variant, vacuum_variant, composite, d1/d2/d3
+ *   2. State5 code: directional label from k + BBO reprice signs
+ *   3. Flow score: robust MAD z-score per derivative channel -> weighted tanh
+ *
+ * Per-k ring buffers maintain incremental state across bins.
+ */
+class GoldFeatureRuntime {
+  private readonly c1: number; private readonly c2: number; private readonly c3: number;
+  private readonly c4: number; private readonly c5: number; private readonly c6: number;
+  private readonly c7: number;
+  private readonly flowWindows: number[];
+  private readonly flowWeights: number[];
+  private readonly derivWeights: number[];  // normalized
+  private readonly tanhScale: number;
+  private readonly threshold: number;
+  private readonly zWindow: number;
+  private readonly zMinPeriods: number;
+  private readonly cellWidthS: number;
+  private readonly EPS = 1e-12;
+  private readonly SCALE_EPS = 1e-9;
+  private readonly MAD_SIGMA = 1.4826;
+
+  // Per-k ring buffers for composite values (for rolling window average)
+  private readonly compBufs: Map<number, Float64Array> = new Map();
+  private readonly compIdx: Map<number, number> = new Map();
+  private readonly compCount: Map<number, number> = new Map();
+
+  // Per-k ring buffers for z-score computation (d1, d2, d3)
+  private readonly zBufs: Map<number, [Float64Array, Float64Array, Float64Array]> = new Map();
+  private readonly zIdx: Map<number, number> = new Map();
+  private readonly zCount: Map<number, number> = new Map();
+
+  // Per-k previous values for derivative computation
+  private readonly prevComp: Map<number, number> = new Map();
+  private readonly prevD1: Map<number, number> = new Map();
+  private readonly prevD2: Map<number, number> = new Map();
+
+  private readonly maxCompHist: number;
+
+  constructor(goldCfg: GoldConfig, cellWidthMs: number) {
+    this.c1 = goldCfg.c1_v_add;
+    this.c2 = goldCfg.c2_v_rest_pos;
+    this.c3 = goldCfg.c3_a_add;
+    this.c4 = goldCfg.c4_v_pull;
+    this.c5 = goldCfg.c5_v_fill;
+    this.c6 = goldCfg.c6_v_rest_neg;
+    this.c7 = goldCfg.c7_a_pull;
+    this.flowWindows = goldCfg.flow_windows;
+    this.flowWeights = goldCfg.flow_rollup_weights;
+    const dw = goldCfg.flow_derivative_weights;
+    const dwSum = dw.reduce((a, b) => a + b, 0);
+    this.derivWeights = dwSum > 0 ? dw.map(w => w / dwSum) : [1 / 3, 1 / 3, 1 / 3];
+    this.tanhScale = goldCfg.flow_tanh_scale;
+    this.threshold = goldCfg.flow_neutral_threshold;
+    this.zWindow = goldCfg.flow_zscore_window_bins;
+    this.zMinPeriods = goldCfg.flow_zscore_min_periods;
+    this.cellWidthS = cellWidthMs / 1000.0;
+    this.maxCompHist = Math.max(...goldCfg.flow_windows, 10) + 5;
+  }
+
+  reset(): void {
+    this.compBufs.clear(); this.compIdx.clear(); this.compCount.clear();
+    this.zBufs.clear(); this.zIdx.clear(); this.zCount.clear();
+    this.prevComp.clear(); this.prevD1.clear(); this.prevD2.clear();
+  }
+
+  get ready(): boolean {
+    for (const count of this.zCount.values()) {
+      if (count >= this.zMinPeriods) return true;
+    }
+    return false;
+  }
+
+  /** Compute gold features from one bin's silver grid. Returns per-k gold rows. */
+  update(silverGrid: Map<number, GridBucketRow>): Map<number, GoldBucketRow> {
+    const gold = new Map<number, GoldBucketRow>();
+    const dt = this.cellWidthS;
+
+    for (const [k, row] of silverGrid) {
+      // --- VP force block ---
+      const vRest = row.v_rest_depth;
+      const pressure = (
+        this.c1 * row.v_add
+        + this.c2 * Math.max(vRest, 0)
+        + this.c3 * Math.max(row.a_add, 0)
+      );
+      const vacuum = (
+        this.c4 * row.v_pull
+        + this.c5 * row.v_fill
+        + this.c6 * Math.max(-vRest, 0)
+        + this.c7 * Math.max(row.a_pull, 0)
+      );
+      const compositeRaw = (pressure - vacuum) / (Math.abs(pressure) + Math.abs(vacuum) + this.EPS);
+
+      // --- Rolling composite (weighted window averages) ---
+      if (!this.compBufs.has(k)) {
+        this.compBufs.set(k, new Float64Array(this.maxCompHist));
+        this.compIdx.set(k, 0);
+        this.compCount.set(k, 0);
+      }
+      const cbuf = this.compBufs.get(k)!;
+      const cidx = this.compIdx.get(k)!;
+      const ccount = this.compCount.get(k)!;
+      cbuf[cidx] = compositeRaw;
+      const newCidx = (cidx + 1) % this.maxCompHist;
+      const newCcount = Math.min(ccount + 1, this.maxCompHist);
+      this.compIdx.set(k, newCidx);
+      this.compCount.set(k, newCcount);
+
+      let composite = 0;
+      for (let wi = 0; wi < this.flowWindows.length; wi++) {
+        const win = this.flowWindows[wi];
+        const wt = this.flowWeights[wi];
+        const n = Math.min(win, newCcount);
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+          sum += cbuf[(cidx - j + this.maxCompHist) % this.maxCompHist];
+        }
+        composite += wt * (sum / Math.max(n, 1));
+      }
+
+      // --- Temporal derivatives ---
+      const prevComp = this.prevComp.get(k) ?? composite;
+      const d1 = newCcount > 1 ? (composite - prevComp) / dt : 0;
+      const prevD1 = this.prevD1.get(k) ?? d1;
+      const d2 = newCcount > 2 ? (d1 - prevD1) / dt : 0;
+      const prevD2 = this.prevD2.get(k) ?? d2;
+      const d3 = newCcount > 3 ? (d2 - prevD2) / dt : 0;
+      this.prevComp.set(k, composite);
+      this.prevD1.set(k, d1);
+      this.prevD2.set(k, d2);
+
+      // --- State5 code ---
+      const state5 = this._state5(k, row.ask_reprice_sign, row.bid_reprice_sign);
+
+      // --- Robust z-score per derivative channel ---
+      if (!this.zBufs.has(k)) {
+        this.zBufs.set(k, [
+          new Float64Array(this.zWindow),
+          new Float64Array(this.zWindow),
+          new Float64Array(this.zWindow),
+        ]);
+        this.zIdx.set(k, 0);
+        this.zCount.set(k, 0);
+      }
+      const zbufs = this.zBufs.get(k)!;
+      const zidx = this.zIdx.get(k)!;
+      const zcount = this.zCount.get(k)!;
+      const derivs = [d1, d2, d3];
+      const zScores = [0, 0, 0];
+      for (let ch = 0; ch < 3; ch++) {
+        zbufs[ch][zidx] = derivs[ch];
+      }
+      const newZidx = (zidx + 1) % this.zWindow;
+      const newZcount = Math.min(zcount + 1, this.zWindow);
+      this.zIdx.set(k, newZidx);
+      this.zCount.set(k, newZcount);
+
+      if (newZcount >= this.zMinPeriods) {
+        const n = newZcount;
+        for (let ch = 0; ch < 3; ch++) {
+          const buf = zbufs[ch];
+          // Extract valid history
+          const hist: number[] = [];
+          for (let j = 0; j < n; j++) {
+            hist.push(buf[(zidx - j + this.zWindow) % this.zWindow]);
+          }
+          const med = this._median(hist);
+          const absDevs = hist.map(v => Math.abs(v - med));
+          const mad = this._median(absDevs);
+          const scale = this.MAD_SIGMA * mad;
+          zScores[ch] = scale > this.SCALE_EPS ? (derivs[ch] - med) / scale : 0;
+        }
+      }
+
+      // --- Weighted tanh blend (matching Python weighted_tanh_blend) ---
+      const dw = this.derivWeights;  // already normalized
+      let score = (
+        dw[0] * Math.tanh(zScores[0] / this.tanhScale)
+        + dw[1] * Math.tanh(zScores[1] / this.tanhScale)
+        + dw[2] * Math.tanh(zScores[2] / this.tanhScale)
+      );
+      score = Math.max(-1, Math.min(1, isNaN(score) ? 0 : score));
+      const stateCode = Math.abs(score) < this.threshold ? 0 : score > 0 ? 1 : -1;
+
+      gold.set(k, {
+        k, pressure_variant: pressure, vacuum_variant: vacuum,
+        composite, composite_d1: d1, composite_d2: d2, composite_d3: d3,
+        state5_code: state5, flow_score: score, flow_state_code: stateCode,
+      });
+    }
+    return gold;
+  }
+
+  private _state5(k: number, askSign: number, bidSign: number): number {
+    if (k === 0) return 0;
+    const above: Record<string, number> = {
+      '1,1': 2, '1,0': -1, '1,-1': -1,
+      '0,1': 2, '0,0': 0, '0,-1': -1,
+      '-1,1': 0, '-1,0': -1, '-1,-1': -1,
+    };
+    const below: Record<string, number> = {
+      '1,1': 1, '1,0': -2, '1,-1': -2,
+      '0,1': 1, '0,0': 0, '0,-1': -2,
+      '-1,1': 0, '-1,0': -2, '-1,-1': -2,
+    };
+    const key = `${askSign},${bidSign}`;
+    return (k > 0 ? above[key] : below[key]) ?? 0;
+  }
+
+  private _median(arr: number[]): number {
+    if (arr.length === 0) return 0;
+    const sorted = arr.slice().sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
 }
 
 // --------------------------------------------------------- Layout constants
@@ -129,8 +387,8 @@ const SCROLL_MARGIN = 10;                    // rows from edge before auto-scrol
 
 let runtimeConfig: RuntimeConfig | null = null;
 let configReceived = false;
-let runtimeModelConfig: RuntimeModelConfig | null = null;
-let latestRuntimeModel: RuntimeModelUpdate | null = null;
+let goldRuntime: GoldFeatureRuntime | null = null;
+let currentGoldGrid: Map<number, GoldBucketRow> = new Map();
 
 // BBO state for overlay rendering
 let bestBidDollars = 0;
@@ -185,12 +443,14 @@ let runningMaxDepth = 100; // adaptive normalisation
 const streamContractErrors = new Set<string>();
 
 // --------------------------------------------------- Event-mode state
-let isEventMode = false;
 let currentGrid: Map<number, GridBucketRow> = new Map();
 /** Per-bucket last_event_id tracker for persistence (keyed by heatmap row). */
 const lastRenderedEventIdByRow: Map<number, number> = new Map();
 /** Running max for |flow_score| adaptive normalization. */
 let runningMaxSpectrum = 10;
+let vizConfig: VisualizationConfig | null = null;
+let candleTrail: (CandleBar | null)[] = new Array(HMAP_HISTORY).fill(null);
+let prevMidPrice = 0;
 
 function resetHeatmapBuffers(gridRadiusTicks: number): void {
   GRID_RADIUS_TICKS = gridRadiusTicks;
@@ -201,6 +461,8 @@ function resetHeatmapBuffers(gridRadiusTicks: number): void {
   currentSpotDollars = 0;
   windowCount = 0;
   spotTrail = new Array(HMAP_HISTORY).fill(null);
+  candleTrail = new Array(HMAP_HISTORY).fill(null);
+  prevMidPrice = 0;
   bidTrail = new Array(HMAP_HISTORY).fill(null);
   askTrail = new Array(HMAP_HISTORY).fill(null);
   columnTimestamps = new Array(HMAP_HISTORY).fill(null);
@@ -398,14 +660,14 @@ function streamContractError(surface: string, detail: string): never {
   const key = `${surface}:${detail}`;
   if (!streamContractErrors.has(key)) {
     streamContractErrors.add(key);
-    const msg = `[VP] Stream contract error (${surface}): ${detail}`;
+    const msg = `[stream] Stream contract error (${surface}): ${detail}`;
     console.error(msg);
     $warningBanner.textContent = msg;
     $warningBanner.style.display = '';
     $warningBanner.style.background = '#660000';
     $warningBanner.style.color = '#ffbbbb';
   }
-  throw new Error(`[VP] stream contract violation in ${surface}: ${detail}`);
+  throw new Error(`[stream] stream contract violation in ${surface}: ${detail}`);
 }
 
 function requireField(
@@ -510,6 +772,57 @@ function requireBigIntField(
   }
 }
 
+function requireObjectField(
+  surface: string,
+  obj: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> {
+  const raw = requireField(surface, obj, field);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    streamContractError(surface, `field "${field}" is not an object`);
+  }
+  return raw as Record<string, unknown>;
+}
+
+function parseVisualizationConfig(
+  surface: string,
+  raw: Record<string, unknown>,
+): VisualizationConfig {
+  const displayMode = requireStringField(surface, raw, 'display_mode') as 'heatmap' | 'candle';
+  if (displayMode !== 'heatmap' && displayMode !== 'candle') {
+    streamContractError(surface, `invalid display_mode: ${displayMode}`);
+  }
+
+  const cellShaderRaw = raw.cell_shader;
+  let cellShader: CellShaderConfig | null = null;
+  if (cellShaderRaw !== null && cellShaderRaw !== undefined) {
+    const cs = cellShaderRaw as Record<string, unknown>;
+    cellShader = {
+      signal_field: requireStringField(`${surface}.cell_shader`, cs, 'signal_field'),
+      depth_field: requireStringField(`${surface}.cell_shader`, cs, 'depth_field'),
+      color_scheme: requireStringField(`${surface}.cell_shader`, cs, 'color_scheme') as CellShaderConfig['color_scheme'],
+      normalization: requireStringField(`${surface}.cell_shader`, cs, 'normalization') as CellShaderConfig['normalization'],
+      gamma: requireNumberField(`${surface}.cell_shader`, cs, 'gamma'),
+    };
+  }
+
+  const overlaysRaw = Array.isArray(raw.overlays) ? raw.overlays as unknown[] : [];
+  const overlays: OverlaySpec[] = overlaysRaw.map((o, i) => {
+    const ov = o as Record<string, unknown>;
+    return {
+      id: requireStringField(`${surface}.overlays[${i}]`, ov, 'id'),
+      type: requireStringField(`${surface}.overlays[${i}]`, ov, 'type'),
+      enabled: typeof ov.enabled === 'boolean' ? ov.enabled : true,
+      z_order: typeof ov.z_order === 'number' ? ov.z_order : 0,
+      params: (typeof ov.params === 'object' && ov.params !== null && !Array.isArray(ov.params))
+        ? ov.params as Record<string, unknown>
+        : {},
+    };
+  });
+
+  return { display_mode: displayMode, cell_shader: cellShader, overlays };
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
@@ -550,6 +863,85 @@ function heatmapRGB(
       Math.round(0.18 * baseLum * 255),
     ];
   }
+}
+
+function cellShade(
+  depth: number,
+  signal: number,
+  maxDepth: number,
+  maxSignal: number,
+  cfg: CellShaderConfig,
+): [number, number, number] {
+  // Normalize signal based on normalization mode
+  let normSignal: number;
+  switch (cfg.normalization) {
+    case 'adaptive_running_max':
+      normSignal = maxSignal > 1e-9 ? signal / maxSignal : signal;
+      break;
+    case 'zscore_clamp':
+      normSignal = Math.max(-1, Math.min(1, signal));
+      break;
+    case 'identity_clamp':
+    default:
+      normSignal = Math.max(-1, Math.min(1, signal));
+      break;
+  }
+
+  switch (cfg.color_scheme) {
+    case 'pressure_vacuum':
+      return heatmapRGB(depth, Math.max(0, normSignal), maxDepth);
+    case 'thermal': {
+      const depthN = Math.min(1.0, Math.log1p(depth) / Math.log1p(maxDepth || 1));
+      const t = Math.max(-1, Math.min(1, normSignal));
+      const tPos = Math.pow(Math.max(0, t), cfg.gamma);
+      const tNeg = Math.pow(Math.max(0, -t), cfg.gamma);
+      const lum = 0.1 + depthN * 0.1 + (tPos + tNeg) * 0.8;
+      return [
+        Math.round((0.1 + tNeg * 0.8 + tPos * 0.2) * 255 * lum),
+        Math.round((0.05 + tPos * 0.4 + tNeg * 0.1) * 255 * lum),
+        Math.round((0.3 + tPos * 0.2) * 255 * lum),
+      ];
+    }
+    case 'mono_green': {
+      const depthN = Math.min(1.0, Math.log1p(depth) / Math.log1p(maxDepth || 1));
+      const t = Math.pow(Math.max(0, normSignal), cfg.gamma);
+      const lum = 0.05 + depthN * 0.1 + t * 0.85;
+      return [
+        Math.round(0.02 * 255 * lum),
+        Math.round((0.08 + 0.92 * t) * 255 * lum),
+        Math.round(0.04 * 255 * lum),
+      ];
+    }
+    case 'mono_red': {
+      const depthN = Math.min(1.0, Math.log1p(depth) / Math.log1p(maxDepth || 1));
+      const t = Math.pow(Math.max(0, -normSignal), cfg.gamma);
+      const lum = 0.05 + depthN * 0.1 + t * 0.85;
+      return [
+        Math.round((0.08 + 0.92 * t) * 255 * lum),
+        Math.round(0.02 * 255 * lum),
+        Math.round(0.04 * 255 * lum),
+      ];
+    }
+    default:
+      return heatmapRGB(depth, Math.max(0, normSignal), maxDepth);
+  }
+}
+
+function getCompositeSignal(goldGrid: Map<number, GoldBucketRow>): number | null {
+  if (!vizConfig) return null;
+  const pbOverlay = vizConfig.overlays.find(o => o.type === 'projection_bands' && o.enabled);
+  if (!pbOverlay) return null;
+  const sf = pbOverlay.params.signal_field as string | undefined;
+  if (!sf) return null;
+  const row = goldGrid.get(0) as Record<string, number> | undefined;
+  return row?.[sf] ?? null;
+}
+
+function getCompositeScale(): number {
+  if (!vizConfig) return 8.0;
+  const pbOverlay = vizConfig.overlays.find(o => o.type === 'projection_bands' && o.enabled);
+  if (!pbOverlay) return 8.0;
+  return typeof pbOverlay.params.composite_scale === 'number' ? pbOverlay.params.composite_scale : 8.0;
 }
 
 // --------------------------------------------------------------- Grid scroll
@@ -634,6 +1026,7 @@ function shiftGrid(shiftRows: number): void {
  */
 function pushHeatmapColumnFromGrid(
   grid: Map<number, GridBucketRow>,
+  goldGrid: Map<number, GoldBucketRow>,
   spotDollars: number,
 ): void {
   if (!anchorInitialized) {
@@ -712,12 +1105,18 @@ function pushHeatmapColumnFromGrid(
   warmupTrail.push(null);
 
   // Map grid buckets to heatmap rows and track adaptive normalization.
+  const activeCellShader = vizConfig?.cell_shader ?? null;
+  const signalField = activeCellShader?.signal_field ?? 'flow_score';
+  const depthField = activeCellShader?.depth_field ?? 'rest_depth';
+
   let maxSpectrumAbs = 0;
   let maxRestD = 0;
-  for (const bucket_row of grid.values()) {
-    const spectrumAbs = Math.abs(bucket_row.flow_score);
+  for (const [k_ref, bucket_row] of grid) {
+    const goldRow = goldGrid.get(k_ref) as Record<string, number> | undefined;
+    const spectrumAbs = Math.abs(goldRow?.[signalField] ?? 0);
     if (spectrumAbs > maxSpectrumAbs) maxSpectrumAbs = spectrumAbs;
-    if (bucket_row.rest_depth > maxRestD) maxRestD = bucket_row.rest_depth;
+    const depthVal = (bucket_row as unknown as Record<string, number>)[depthField] ?? 0;
+    if (depthVal > maxRestD) maxRestD = depthVal;
   }
   runningMaxSpectrum = Math.max(
     runningMaxSpectrum * DEPTH_NORM_PERCENTILE_DECAY,
@@ -741,14 +1140,19 @@ function pushHeatmapColumnFromGrid(
     }
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
-    const [r, g, b] = heatmapRGB(bucketData.rest_depth, bucketData.flow_score, runningMaxDepth);
+    const goldRow = goldGrid.get(k) as Record<string, number> | undefined;
+    const signalVal = goldRow?.[signalField] ?? 0;
+    const depthVal = (bucketData as unknown as Record<string, number>)[depthField] ?? 0;
+    const [r, g, b] = activeCellShader
+      ? cellShade(depthVal, signalVal, runningMaxDepth, runningMaxSpectrum, activeCellShader)
+      : heatmapRGB(depthVal, signalVal, runningMaxDepth);
     const idx = (row * w + (w - 1)) * 4;
     d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
   }
 
-  if (latestRuntimeModel !== null) {
-    compositeTrail[HMAP_HISTORY - 1] = latestRuntimeModel.score;
-    warmupTrail[HMAP_HISTORY - 1] = latestRuntimeModel.ready ? 1 : 0;
+  if (goldRuntime !== null && goldGrid.size > 0) {
+    compositeTrail[HMAP_HISTORY - 1] = getCompositeSignal(goldGrid);
+    warmupTrail[HMAP_HISTORY - 1] = goldRuntime.ready ? 1 : 0;
   } else {
     compositeTrail[HMAP_HISTORY - 1] = null;
     warmupTrail[HMAP_HISTORY - 1] = null;
@@ -768,7 +1172,10 @@ function pushHeatmapColumnFromGrid(
  *   vacuumAbove   (path clearing up)    → +bullish
  *   vacuumBelow   (support crumbling)   → −bearish
  */
-function computeGridAggregates(grid: Map<number, GridBucketRow>): {
+function computeGridAggregates(
+  grid: Map<number, GridBucketRow>,
+  goldGrid: Map<number, GoldBucketRow>,
+): {
   pressureAbove: number;
   pressureBelow: number;
   vacuumAbove: number;
@@ -785,15 +1192,16 @@ function computeGridAggregates(grid: Map<number, GridBucketRow>): {
   let totalRestDepthBelow = 0;
 
   for (const [k, b] of grid) {
+    const gb = goldGrid.get(k);
     if (k > 0) {
       // Above spot: pressure = resistance forming, vacuum = path clearing
-      pressureAbove += b.pressure_variant;
-      vacuumAbove += b.vacuum_variant;
+      pressureAbove += gb?.pressure_variant ?? 0;
+      vacuumAbove += gb?.vacuum_variant ?? 0;
       totalRestDepthAbove += b.rest_depth;
     } else if (k < 0) {
       // Below spot: pressure = support forming, vacuum = support crumbling
-      pressureBelow += b.pressure_variant;
-      vacuumBelow += b.vacuum_variant;
+      pressureBelow += gb?.pressure_variant ?? 0;
+      vacuumBelow += gb?.vacuum_variant ?? 0;
       totalRestDepthBelow += b.rest_depth;
     }
   }
@@ -812,8 +1220,8 @@ function computeGridAggregates(grid: Map<number, GridBucketRow>): {
  * Update the signal panel from event-mode grid data (two-force model).
  * Produces explainable, in-trade guidance from pressure/vacuum balance.
  */
-function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>): void {
-  const agg = computeGridAggregates(grid);
+function updateSignalPanelFromGrid(grid: Map<number, GridBucketRow>, goldGrid: Map<number, GoldBucketRow>): void {
+  const agg = computeGridAggregates(grid, goldGrid);
   const bullEdge = agg.pressureBelow + agg.vacuumAbove;
   const bearEdge = agg.pressureAbove + agg.vacuumBelow;
   const netEdge = bullEdge - bearEdge;
@@ -970,38 +1378,28 @@ function updateRuntimeModelPanel(): void {
   const scoreEl = $('sig-model-score');
   const detailEl = $('sig-model-detail');
 
-  if (!runtimeModelConfig) {
-    statusEl.textContent = 'WAIT';
-    statusEl.style.color = '#ccaa22';
+  if (!goldRuntime) {
+    statusEl.textContent = 'DISABLED';
+    statusEl.style.color = '#888';
     scoreEl.textContent = '0.0';
     scoreEl.style.color = '#888';
-    detailEl.textContent = 'awaiting runtime model config';
+    detailEl.textContent = 'runtime model not initialized';
     detailEl.style.color = '#777';
     return;
   }
 
-  if (!latestRuntimeModel) {
-    statusEl.textContent = `${runtimeModelConfig.name.toUpperCase()} WAIT`;
-    statusEl.style.color = '#ccaa22';
-    scoreEl.textContent = '0.0';
-    scoreEl.style.color = '#888';
-    detailEl.textContent = 'awaiting runtime model ticks';
-    detailEl.style.color = '#777';
-    return;
-  }
+  const isReady = goldRuntime.ready;
+  statusEl.textContent = isReady ? 'VP LIVE' : 'VP WARM';
+  statusEl.style.color = isReady ? '#22cc66' : '#ccaa22';
 
-  statusEl.textContent = latestRuntimeModel.ready
-    ? `${latestRuntimeModel.name.toUpperCase()} LIVE`
-    : `${latestRuntimeModel.name.toUpperCase()} WARM`;
-  statusEl.style.color = latestRuntimeModel.ready ? '#22cc66' : '#ccaa22';
+  const spotGold = currentGoldGrid.get(0);
+  const score = spotGold?.flow_score ?? 0;
+  scoreEl.textContent = fmt(score, 3);
+  scoreEl.style.color = signColour(score, 3.0);
 
-  scoreEl.textContent = fmt(latestRuntimeModel.score, 3);
-  scoreEl.style.color = signColour(latestRuntimeModel.score, 3.0);
-
-  detailEl.textContent =
-    `bull=${latestRuntimeModel.bullIntensity.toFixed(3)} ` +
-    `bear=${latestRuntimeModel.bearIntensity.toFixed(3)} ` +
-    `d1/z1=${latestRuntimeModel.d1.toFixed(3)}/${latestRuntimeModel.z1.toFixed(3)}`;
+  detailEl.textContent = spotGold
+    ? `d1=${spotGold.composite_d1.toFixed(3)} composite=${spotGold.composite.toFixed(3)}`
+    : 'awaiting data';
   detailEl.style.color = '#888';
 }
 
@@ -1033,10 +1431,6 @@ let projectionHorizons: ProjectionHorizon[] = buildProjectionHorizons(
   DEFAULT_PROJECTION_HORIZON_BINS,
   100,
 );
-
-/** Signal amplification: composite signal is typically [-0.3, +0.3],
- *  scale up to make directional shifts visually obvious. */
-const COMPOSITE_SCALE = 8.0;
 
 /** Band half-width in rows for the projected envelope. */
 const BAND_HALF_WIDTH_ROWS = 4;
@@ -1169,7 +1563,7 @@ function renderProjectionBands(
     const lastWarmup = warmupTrail[HMAP_HISTORY - 1];
 
     if (lastSpot !== null && lastComposite !== null && lastWarmup !== null && lastWarmup > 0) {
-      const scaledSignal = lastComposite * COMPOSITE_SCALE;
+      const scaledSignal = lastComposite * getCompositeScale();
       const nHorizons = projectionHorizons.length;
       if (nHorizons === 0) return;
       const colWidth = zoneWidth / nHorizons;
@@ -1250,7 +1644,7 @@ function renderProjectionBands(
         continue;
       }
 
-      const scaledSignal = pastComposite * COMPOSITE_SCALE;
+      const scaledSignal = pastComposite * getCompositeScale();
       const centerRow = pastSpot - scaledSignal * horizon.spreadTicks;
       const topRow = centerRow - BAND_HALF_WIDTH_ROWS;
       const botRow = centerRow + BAND_HALF_WIDTH_ROWS;
@@ -1357,7 +1751,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   if (!anchorInitialized) return;
 
   const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
-  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
 
   // Gridlines
   const topPrice = rowToPrice(vpY);
@@ -1365,15 +1758,8 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   const visDollars = (topPrice - botPrice);
   const gridInterval = nicePriceInterval(visDollars, 40);
 
-  // Projection zone: render experiment-driven directional bands
-  if (dataWidth < cw) {
-    const lastSpotRow = spotTrail[HMAP_HISTORY - 1];
-    renderProjectionBands(
-      ctx,
-      lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS,
-      ch, dataWidth, cw,
-    );
-  }
+  // Overlays: z-ordered rendering driven by vizConfig
+  renderOverlays(ctx, cw, ch, dataWidth);
 
   ctx.strokeStyle = 'rgba(60, 60, 90, 0.2)';
   ctx.lineWidth = 0.5;
@@ -1399,7 +1785,33 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     ctx.setLineDash([]);
   }
 
-  // Spot trail polyline
+  // Zoom indicator (only when zoomed)
+  if (Math.abs(zoomX - 1.0) > 0.01 || Math.abs(zoomY - 1.0) > 0.01) {
+    ctx.save();
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(0, 255, 170, 0.5)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${zoomX.toFixed(1)}x \u00d7 ${zoomY.toFixed(1)}x`, 6, ch - 6);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = 'rgba(100, 100, 150, 0.4)';
+    ctx.fillText('dblclick to reset', 6, ch - 18);
+    ctx.restore();
+  }
+}
+
+function renderSpotTrailOverlay(
+  ctx: CanvasRenderingContext2D,
+  cw: number,
+  ch: number,
+  dataWidth: number,
+): void {
+  if (!anchorInitialized) return;
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
   ctx.strokeStyle = 'rgba(0, 255, 170, 0.85)';
   ctx.lineWidth = 1.5;
   ctx.lineJoin = 'round';
@@ -1407,40 +1819,29 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   let started = false;
   for (let i = 0; i < HMAP_HISTORY; i++) {
     const row = spotTrail[i];
-    if (row === null) {
-      started = false;
-      continue;
-    }
+    if (row === null) { started = false; continue; }
     const x = colToX(i + 0.5);
     const y = rowToY(row);
-    // Clip to canvas bounds (not buffer bounds -- zoom-out may extend past)
     if (x < -50 || x > dataWidth + 50 || y < -50 || y > ch + 50) { started = false; continue; }
-    if (!started) {
-      ctx.moveTo(x, y);
-      started = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else { ctx.lineTo(x, y); }
   }
   ctx.stroke();
 
-  // Spot dot at current position (rightmost)
+  // Spot dot at current position
   const lastSpot = spotTrail[HMAP_HISTORY - 1];
   if (lastSpot !== null) {
     const x = colToX(HMAP_HISTORY - 0.5);
     const y = rowToY(lastSpot);
-
     if (x >= -20 && x <= cw + 20 && y >= -20 && y <= ch + 20) {
       ctx.fillStyle = 'rgba(0, 255, 170, 0.3)';
       ctx.beginPath();
       ctx.arc(x, y, 6, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.fillStyle = '#00ffaa';
       ctx.beginPath();
       ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.strokeStyle = 'rgba(0, 255, 170, 0.25)';
       ctx.lineWidth = 0.5;
       ctx.setLineDash([3, 5]);
@@ -1449,7 +1850,6 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
       ctx.lineTo(cw, y);
       ctx.stroke();
       ctx.setLineDash([]);
-
       if (y >= 0 && y <= ch) {
         $spotLine.style.top = `${y - 10}px`;
         $spotLine.style.display = '';
@@ -1460,13 +1860,26 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
       $spotLine.style.display = 'none';
     }
   }
+}
 
-  // BBO bid trail (green dashed line)
+function renderBBOTrailOverlay(
+  ctx: CanvasRenderingContext2D,
+  _cw: number,
+  ch: number,
+  dataWidth: number,
+): void {
+  if (!anchorInitialized) return;
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
+  // BBO bid trail (green dashed)
   ctx.strokeStyle = 'rgba(34, 204, 102, 0.45)';
   ctx.lineWidth = 1.0;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();
-  started = false;
+  let started = false;
   for (let i = 0; i < HMAP_HISTORY; i++) {
     const row = bidTrail[i];
     if (row === null) { started = false; continue; }
@@ -1478,7 +1891,7 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   }
   ctx.stroke();
 
-  // BBO ask trail (red dashed line)
+  // BBO ask trail (red dashed)
   ctx.strokeStyle = 'rgba(204, 34, 85, 0.45)';
   ctx.beginPath();
   started = false;
@@ -1493,8 +1906,20 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
   }
   ctx.stroke();
   ctx.setLineDash([]);
+}
 
-  // Spread fill: semi-transparent region between bid and ask
+function renderBBOSpreadOverlay(
+  ctx: CanvasRenderingContext2D,
+  _cw: number,
+  ch: number,
+  dataWidth: number,
+): void {
+  if (!anchorInitialized) return;
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
   const spreadXs: number[] = [];
   const spreadBidYs: number[] = [];
   const spreadAskYs: number[] = [];
@@ -1517,19 +1942,100 @@ function renderHeatmap(canvas: HTMLCanvasElement): void {
     ctx.closePath();
     ctx.fill();
   }
+}
 
-  // Zoom indicator (only when zoomed)
-  if (Math.abs(zoomX - 1.0) > 0.01 || Math.abs(zoomY - 1.0) > 0.01) {
-    ctx.save();
-    ctx.font = '10px monospace';
-    ctx.fillStyle = 'rgba(0, 255, 170, 0.5)';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`${zoomX.toFixed(1)}x \u00d7 ${zoomY.toFixed(1)}x`, 6, ch - 6);
-    ctx.font = '9px monospace';
-    ctx.fillStyle = 'rgba(100, 100, 150, 0.4)';
-    ctx.fillText('dblclick to reset', 6, ch - 18);
-    ctx.restore();
+function renderCandleBase(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !anchorInitialized) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
+    canvas.width = cw * dpr;
+    canvas.height = ch * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, cw, ch);
+
+  if (!userPanned) resetViewport();
+
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const dataWidth = projectionDataWidth(cw);
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
+  // Draw OHLC candles from candleTrail
+  const barWidth = Math.max(1, dataWidth / srcW * 0.8);
+  for (let i = 0; i < HMAP_HISTORY; i++) {
+    const bar = candleTrail[i];
+    if (!bar) continue;
+    const x = colToX(i + 0.5);
+    if (x < -10 || x > dataWidth + 10) continue;
+
+    const openRow = priceToRow(bar.open);
+    const closeRow = priceToRow(bar.close);
+    const highRow = priceToRow(bar.high);
+    const lowRow = priceToRow(bar.low);
+
+    const yOpen = rowToY(openRow);
+    const yClose = rowToY(closeRow);
+    const yHigh = rowToY(highRow);
+    const yLow = rowToY(lowRow);
+
+    const color = bar.bullish ? '#22cc66' : '#cc2255';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = bar.bullish ? 'rgba(34,204,102,0.5)' : 'rgba(204,34,85,0.5)';
+    ctx.lineWidth = 1;
+
+    // Wick
+    ctx.beginPath();
+    ctx.moveTo(x, yHigh);
+    ctx.lineTo(x, yLow);
+    ctx.stroke();
+
+    // Body
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    ctx.fillRect(x - barWidth / 2, bodyTop, barWidth, bodyH);
+  }
+}
+
+function renderOverlays(
+  ctx: CanvasRenderingContext2D,
+  cw: number,
+  ch: number,
+  dataWidth: number,
+): void {
+  if (!vizConfig) return;
+  const sorted = [...vizConfig.overlays]
+    .filter(o => o.enabled && o.type !== 'vp_gold')
+    .sort((a, b) => a.z_order - b.z_order);
+
+  const lastSpotRow = spotTrail[HMAP_HISTORY - 1];
+
+  for (const overlay of sorted) {
+    switch (overlay.type) {
+      case 'spot_trail':
+        renderSpotTrailOverlay(ctx, cw, ch, dataWidth);
+        break;
+      case 'bbo_trail':
+        renderBBOTrailOverlay(ctx, cw, ch, dataWidth);
+        break;
+      case 'bbo_spread':
+        renderBBOSpreadOverlay(ctx, cw, ch, dataWidth);
+        break;
+      case 'projection_bands':
+        renderProjectionBands(
+          ctx,
+          lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS,
+          ch, dataWidth, cw,
+        );
+        break;
+    }
   }
 }
 
@@ -1668,8 +2174,8 @@ function renderProfile(canvas: HTMLCanvasElement): void {
     ctx.fillText(p.toFixed(labelDp), 36, y);
   }
 
-  // Depth bars from event-mode dense grid
-  if (isEventMode && currentGrid.size > 0 && currentSpotDollars > 0) {
+  // Depth bars from dense grid
+  if (currentGrid.size > 0 && currentSpotDollars > 0) {
     // Event mode: render rest_depth bars colored by per-cell spectrum score.
     for (const [k, b] of currentGrid) {
       const absPrice = currentSpotDollars + k * bucket;
@@ -1677,7 +2183,7 @@ function renderProfile(canvas: HTMLCanvasElement): void {
       if (row < vpY - 1 || row > vpY + srcH + 1) continue;
       const y = (row - vpY) * rowH;
       const barW = Math.min(barMax, (Math.log1p(b.rest_depth) / Math.log1p(maxD)) * barMax);
-      const pressureT = Math.max(0, Math.min(1, b.flow_score));
+      const pressureT = Math.max(0, Math.min(1, currentGoldGrid.get(k)?.flow_score ?? 0));
 
       if (pressureT > 0.01) {
         // Pressure: green intensity proportional to score
@@ -1842,7 +2348,7 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
  * Apply a runtime config received from the server.
  * Updates the metadata display and hides the warning banner.
  */
-function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig): void {
+function applyRuntimeConfig(cfg: RuntimeConfig, goldCfg: GoldConfig, viz: VisualizationConfig): void {
   if (cfg.grid_radius_ticks < 1) {
     streamContractError(
       'runtime_config',
@@ -1859,8 +2365,10 @@ function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig): v
     normalizedCfg.projection_horizons_bins,
     normalizedCfg.cell_width_ms,
   );
-  runtimeModelConfig = modelCfg;
-  latestRuntimeModel = null;
+  vizConfig = viz;
+  const hasVpGold = viz.overlays.some(o => o.type === 'vp_gold' && o.enabled);
+  goldRuntime = hasVpGold ? new GoldFeatureRuntime(goldCfg, normalizedCfg.cell_width_ms) : null;
+  currentGoldGrid = new Map();
 
   runtimeConfig = normalizedCfg;
   configReceived = true;
@@ -1876,7 +2384,7 @@ function applyRuntimeConfig(cfg: RuntimeConfig, modelCfg: RuntimeModelConfig): v
   $warningBanner.style.display = 'none';
 
   console.log(
-    `[VP] Runtime config applied: product_type=${normalizedCfg.product_type} ` +
+    `[stream] Runtime config applied: product_type=${normalizedCfg.product_type} ` +
     `symbol=${normalizedCfg.symbol} bucket=$${normalizedCfg.bucket_size_dollars} ` +
     `tick=$${normalizedCfg.tick_size} decimals=${normalizedCfg.price_decimals} ` +
     `multiplier=${normalizedCfg.contract_multiplier} version=${normalizedCfg.config_version}`
@@ -1893,8 +2401,8 @@ function parseStreamParams(): StreamParams {
   if (!serving || !serving.trim()) {
     const msg =
       'Missing required query parameter: serving. ' +
-      'Example: ?serving=vp_main';
-    console.error(`[VP] ${msg}`);
+      'Example: ?serving=<serving_alias>';
+    console.error(`[stream] ${msg}`);
     // Show error in the UI
     $warningBanner.textContent = msg;
     $warningBanner.style.display = '';
@@ -1952,12 +2460,15 @@ function resetStreamState(): void {
   currentSpotDollars = 0;
   runningMaxDepth = 100;
   configReceived = false;
-  runtimeModelConfig = null;
-  latestRuntimeModel = null;
-  isEventMode = false;
+  goldRuntime?.reset();
+  goldRuntime = null;
+  currentGoldGrid = new Map();
   currentGrid = new Map();
   lastRenderedEventIdByRow.clear();
   runningMaxSpectrum = 10;
+  vizConfig = null;
+  prevMidPrice = 0;
+  for (let i = 0; i < candleTrail.length; i++) candleTrail[i] = null;
   bestBidDollars = 0;
   bestAskDollars = 0;
   currentBinEndNs = 0n;
@@ -2059,7 +2570,7 @@ function connectWS(): void {
     `ws://localhost:${WS_PORT}/v1/stream` +
     `?serving=${encodeURIComponent(streamParams.serving)}`;
 
-  console.log(`[VP] Connecting to: ${url}`);
+  console.log(`[stream] Connecting to: ${url}`);
   const ws = new WebSocket(url);
   wsClient = ws;
 
@@ -2093,22 +2604,25 @@ function connectWS(): void {
               msg,
               'projection_horizons_ms',
             );
-            const modelConfigRaw = msg['model_config'];
-            const runtimeModelRaw = modelConfigRaw
-              ? requireField('runtime_config.model_config', modelConfigRaw as Record<string, unknown>, 'state_model')
-              : msg['state_model'];  // legacy fallback
-            if (
-              runtimeModelRaw === null ||
-              typeof runtimeModelRaw !== 'object' ||
-              Array.isArray(runtimeModelRaw)
-            ) {
-              streamContractError('runtime_config', 'state_model must be an object');
-            }
-            const runtimeModelObj = runtimeModelRaw as Record<string, unknown>;
-            const modelCfg: RuntimeModelConfig = {
-              name: requireStringField('runtime_config.state_model', runtimeModelObj, 'name'),
+            const goldCfgRaw = requireObjectField('runtime_config', msg, 'gold_config');
+            const goldCfg: GoldConfig = {
+              c1_v_add: requireNumberField('gold_config', goldCfgRaw, 'c1_v_add'),
+              c2_v_rest_pos: requireNumberField('gold_config', goldCfgRaw, 'c2_v_rest_pos'),
+              c3_a_add: requireNumberField('gold_config', goldCfgRaw, 'c3_a_add'),
+              c4_v_pull: requireNumberField('gold_config', goldCfgRaw, 'c4_v_pull'),
+              c5_v_fill: requireNumberField('gold_config', goldCfgRaw, 'c5_v_fill'),
+              c6_v_rest_neg: requireNumberField('gold_config', goldCfgRaw, 'c6_v_rest_neg'),
+              c7_a_pull: requireNumberField('gold_config', goldCfgRaw, 'c7_a_pull'),
+              flow_windows: requireNumberArrayField('gold_config', goldCfgRaw, 'flow_windows'),
+              flow_rollup_weights: requireNumberArrayField('gold_config', goldCfgRaw, 'flow_rollup_weights'),
+              flow_derivative_weights: requireNumberArrayField('gold_config', goldCfgRaw, 'flow_derivative_weights'),
+              flow_tanh_scale: requireNumberField('gold_config', goldCfgRaw, 'flow_tanh_scale'),
+              flow_neutral_threshold: requireNumberField('gold_config', goldCfgRaw, 'flow_neutral_threshold'),
+              flow_zscore_window_bins: requireNumberField('gold_config', goldCfgRaw, 'flow_zscore_window_bins'),
+              flow_zscore_min_periods: requireNumberField('gold_config', goldCfgRaw, 'flow_zscore_min_periods'),
             };
-
+            const vizRaw = requireObjectField('runtime_config', msg, 'visualization');
+            const viz = parseVisualizationConfig('visualization', vizRaw);
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -2119,20 +2633,13 @@ function connectWS(): void {
               rel_tick_size: requireNumberField('runtime_config', msg, 'rel_tick_size'),
               grid_radius_ticks: requireNumberField('runtime_config', msg, 'grid_radius_ticks'),
               cell_width_ms: cellWidthMs,
-              flow_windows: requireNumberArrayField('runtime_config', msg, 'flow_windows'),
-              flow_rollup_weights: requireNumberArrayField('runtime_config', msg, 'flow_rollup_weights'),
-              flow_derivative_weights: requireNumberArrayField('runtime_config', msg, 'flow_derivative_weights'),
-              flow_tanh_scale: requireNumberField('runtime_config', msg, 'flow_tanh_scale'),
-              flow_neutral_threshold: requireNumberField('runtime_config', msg, 'flow_neutral_threshold'),
-              flow_zscore_window_bins: requireNumberField('runtime_config', msg, 'flow_zscore_window_bins'),
-              flow_zscore_min_periods: requireNumberField('runtime_config', msg, 'flow_zscore_min_periods'),
               projection_horizons_bins: projectionHorizonBins,
               projection_horizons_ms: projectionHorizonMs,
               contract_multiplier: requireNumberField('runtime_config', msg, 'contract_multiplier'),
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
-            }, modelCfg);
+            }, goldCfg, viz);
             const cfgMode = optionalString(msg.mode);
             const cfgStage = optionalString(msg.deployment_stage);
             const cfgFormat = optionalString(msg.stream_format);
@@ -2142,13 +2649,9 @@ function connectWS(): void {
               cfgMode === 'pre_prod' ||
               cfgFormat === 'dense_grid'
             ) {
-              isEventMode = true;
-              const schemaFieldNames = Array.isArray(msg.grid_schema_fields)
-                ? (msg.grid_schema_fields as unknown[]).map((field: unknown) =>
-                    typeof field === 'string' ? field : (field as Record<string, unknown>).name)
-                : msg.grid_schema_fields;
+              const schemaFieldNames = (msg.grid_schema_fields as Array<{name: string}>).map(f => f.name);
               console.log(
-                `[VP] Dense-grid stream detected, stage=${String(cfgStage ?? cfgMode ?? 'unknown')}, ` +
+                `[stream] Dense-grid stream detected, stage=${String(cfgStage ?? cfgMode ?? 'unknown')}, ` +
                 `grid_rows=${msg.grid_rows}, ` +
                 `grid_schema_fields=${JSON.stringify(schemaFieldNames)}`
               );
@@ -2162,7 +2665,6 @@ function connectWS(): void {
             if (!configReceived) {
               streamContractError('grid_update', 'received before runtime_config');
             }
-            isEventMode = true;
             const tsNs = requireBigIntField('grid_update', msg, 'ts_ns');
             const binSeq = requireNumberField('grid_update', msg, 'bin_seq');
             requireBigIntField('grid_update', msg, 'bin_start_ns');
@@ -2174,25 +2676,6 @@ function connectWS(): void {
             const bestBidPriceInt = requireBigIntField('grid_update', msg, 'best_bid_price_int');
             const bestAskPriceInt = requireBigIntField('grid_update', msg, 'best_ask_price_int');
             requireBooleanField('grid_update', msg, 'book_valid');
-            latestRuntimeModel = {
-              name: requireStringField('grid_update', msg, 'state_model_name'),
-              score: requireNumberField('grid_update', msg, 'state_model_score'),
-              ready: requireBooleanField('grid_update', msg, 'state_model_ready'),
-              sampleCount: Math.round(requireNumberField('grid_update', msg, 'state_model_sample_count')),
-              base: requireNumberField('grid_update', msg, 'state_model_base'),
-              d1: requireNumberField('grid_update', msg, 'state_model_d1'),
-              d2: requireNumberField('grid_update', msg, 'state_model_d2'),
-              d3: requireNumberField('grid_update', msg, 'state_model_d3'),
-              z1: requireNumberField('grid_update', msg, 'state_model_z1'),
-              z2: requireNumberField('grid_update', msg, 'state_model_z2'),
-              z3: requireNumberField('grid_update', msg, 'state_model_z3'),
-              bullIntensity: requireNumberField('grid_update', msg, 'state_model_bull_intensity'),
-              bearIntensity: requireNumberField('grid_update', msg, 'state_model_bear_intensity'),
-              mixedIntensity: requireNumberField('grid_update', msg, 'state_model_mixed_intensity'),
-              dominantState5Code: Math.round(
-                requireNumberField('grid_update', msg, 'state_model_dominant_state5_code'),
-              ),
-            };
 
             // Convert integer prices to dollars using runtime price scale.
             // spot_ref_price_int is the canonical anchor for k-to-price mapping.
@@ -2229,41 +2712,66 @@ function connectWS(): void {
             const k = requireNumberField('grid', j, 'k');
             const parsed: GridBucketRow = {
               k,
-              pressure_variant: requireNumberField('grid', j, 'pressure_variant'),
-              vacuum_variant: requireNumberField('grid', j, 'vacuum_variant'),
+              // Mass fields
               add_mass: requireNumberField('grid', j, 'add_mass'),
               pull_mass: requireNumberField('grid', j, 'pull_mass'),
               fill_mass: requireNumberField('grid', j, 'fill_mass'),
               rest_depth: requireNumberField('grid', j, 'rest_depth'),
+              bid_depth: requireNumberField('grid', j, 'bid_depth'),
+              ask_depth: requireNumberField('grid', j, 'ask_depth'),
+              // Velocity
               v_add: requireNumberField('grid', j, 'v_add'),
               v_pull: requireNumberField('grid', j, 'v_pull'),
               v_fill: requireNumberField('grid', j, 'v_fill'),
               v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
+              v_bid_depth: requireNumberField('grid', j, 'v_bid_depth'),
+              v_ask_depth: requireNumberField('grid', j, 'v_ask_depth'),
+              // Acceleration
               a_add: requireNumberField('grid', j, 'a_add'),
               a_pull: requireNumberField('grid', j, 'a_pull'),
               a_fill: requireNumberField('grid', j, 'a_fill'),
               a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
+              a_bid_depth: requireNumberField('grid', j, 'a_bid_depth'),
+              a_ask_depth: requireNumberField('grid', j, 'a_ask_depth'),
+              // Jerk
               j_add: requireNumberField('grid', j, 'j_add'),
               j_pull: requireNumberField('grid', j, 'j_pull'),
               j_fill: requireNumberField('grid', j, 'j_fill'),
               j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
-              composite: requireNumberField('grid', j, 'composite'),
-              composite_d1: requireNumberField('grid', j, 'composite_d1'),
-              composite_d2: requireNumberField('grid', j, 'composite_d2'),
-              composite_d3: requireNumberField('grid', j, 'composite_d3'),
-              flow_score: requireNumberField('grid', j, 'flow_score'),
-              flow_state_code: requireNumberField('grid', j, 'flow_state_code'),
+              j_bid_depth: requireNumberField('grid', j, 'j_bid_depth'),
+              j_ask_depth: requireNumberField('grid', j, 'j_ask_depth'),
+              // BBO permutation labels
+              best_ask_move_ticks: requireNumberField('grid', j, 'best_ask_move_ticks'),
+              best_bid_move_ticks: requireNumberField('grid', j, 'best_bid_move_ticks'),
+              ask_reprice_sign: requireNumberField('grid', j, 'ask_reprice_sign'),
+              bid_reprice_sign: requireNumberField('grid', j, 'bid_reprice_sign'),
+              microstate_id: requireNumberField('grid', j, 'microstate_id'),
+              chase_up_flag: requireNumberField('grid', j, 'chase_up_flag'),
+              chase_down_flag: requireNumberField('grid', j, 'chase_down_flag'),
+              // Metadata
               last_event_id: requireNumberField('grid', j, 'last_event_id'),
             };
             gridMap.set(k, parsed);
           }
           currentGrid = gridMap;
-          pushHeatmapColumnFromGrid(gridMap, currentSpotDollars);
-          updateSignalPanelFromGrid(gridMap);
+          currentGoldGrid = goldRuntime ? goldRuntime.update(gridMap) : new Map();
+          // Update candle trail
+          const bar: CandleBar = {
+            open: prevMidPrice > 0 ? prevMidPrice : currentSpotDollars,
+            close: currentSpotDollars,
+            high: bestAskDollars > 0 ? bestAskDollars : currentSpotDollars,
+            low: bestBidDollars > 0 ? bestBidDollars : currentSpotDollars,
+            bullish: currentSpotDollars >= prevMidPrice,
+          };
+          candleTrail.shift();
+          candleTrail.push(bar);
+          prevMidPrice = currentSpotDollars;
+          pushHeatmapColumnFromGrid(gridMap, currentGoldGrid, currentSpotDollars);
+          updateSignalPanelFromGrid(gridMap, currentGoldGrid);
           updateRuntimeModelPanel();
         }
       } catch (e) {
-        console.error('[VP] Message processing error:', e);
+        console.error('[stream] Message processing error:', e);
       }
     }
 
@@ -2271,21 +2779,21 @@ function connectWS(): void {
   };
 
   ws.onopen = () => {
-    console.log('[VP] WebSocket connected');
+    console.log('[stream] WebSocket connected');
     updateStreamControlUi();
   };
   ws.onmessage = (event: MessageEvent) => {
     messageQueue.push(event);
     processQueue();
   };
-  ws.onerror = (err) => console.error('[VP] WebSocket error:', err);
+  ws.onerror = (err) => console.error('[stream] WebSocket error:', err);
   ws.onclose = () => {
     wsClient = null;
     if (reconnectEnabled && !streamPaused) {
-      console.log('[VP] WebSocket closed, reconnecting in 3s...');
+      console.log('[stream] WebSocket closed, reconnecting in 3s...');
       scheduleReconnect();
     } else {
-      console.log('[VP] WebSocket closed');
+      console.log('[stream] WebSocket closed');
     }
   };
 }
@@ -2386,7 +2894,11 @@ function startRenderLoop(): void {
   hmapCanvas.style.cursor = 'grab';
 
   function frame() {
-    renderHeatmap(hmapCanvas);
+    if (vizConfig?.display_mode === 'candle') {
+      renderCandleBase(hmapCanvas);
+    } else {
+      renderHeatmap(hmapCanvas);
+    }
     renderProfile(profCanvas);
     renderPriceAxis(axisCanvas);
     renderTimeAxis(timeCanvas);

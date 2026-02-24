@@ -32,7 +32,7 @@ def _et_hhmm_to_utc_ns(dt: str, hhmm: str) -> int:
 
 
 @dataclass(frozen=True)
-class PreparedStreamSession:
+class ResolvedStreamSession:
     """Resolved stream session inputs for one websocket connection."""
 
     resolved_serving: ResolvedServing
@@ -52,7 +52,7 @@ def prepare_stream_session(
     perf_window_start_et: str | None,
     perf_window_end_et: str | None,
     perf_summary_every_bins: int,
-) -> PreparedStreamSession:
+) -> ResolvedStreamSession:
     """Resolve serving and build deterministic runtime stream session config."""
     resolved_serving = serving_registry.resolve(serving)
     serving_spec = resolved_serving.spec
@@ -74,18 +74,12 @@ def prepare_stream_session(
         runtime_snapshot,
         source=f"serving_runtime_snapshot:{resolved_serving.serving_id}",
     )
-    # Build fields from runtime_snapshot stream_schema if present
+    # Build fields from runtime_snapshot stream_schema if present; else use canonical silver schema.
     raw_stream_schema = runtime_snapshot.get("stream_schema")
     if raw_stream_schema:
         from .serving_config import StreamFieldSpec
         fields = [StreamFieldSpec(**f) for f in raw_stream_schema]
     else:
-        import warnings
-        warnings.warn(
-            "stream_schema missing from runtime_snapshot; using legacy VP field list",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         fields = None
     schema = grid_schema(fields)
     producer_latency_cfg = None
@@ -106,7 +100,7 @@ def prepare_stream_session(
             window_end_ns=window_end_ns,
             summary_every_bins=perf_summary_every_bins,
         )
-    return PreparedStreamSession(
+    return ResolvedStreamSession(
         resolved_serving=resolved_serving,
         config=config,
         schema=schema,
@@ -121,7 +115,7 @@ async def run_stream_session(
     *,
     websocket: WebSocket,
     lake_root: Path,
-    session: PreparedStreamSession,
+    session: ResolvedStreamSession,
 ) -> None:
     """Send fixed-bin dense-grid updates over websocket."""
     grid_count = 0
@@ -152,12 +146,12 @@ async def run_stream_session(
         )
 
     try:
-        from ..models.vacuum_pressure.stream_pipeline import _build_vp_model_config
+        from ..models.vacuum_pressure.stream_pipeline import build_model_config
         runtime_config_payload = build_runtime_config_payload(
             config,
             schema,
             fields=session.fields,
-            model_config=_build_vp_model_config(config),
+            model_config=build_model_config(config),
             resolved_serving=resolved_serving,
         )
         await websocket.send_text(json.dumps(runtime_config_payload))

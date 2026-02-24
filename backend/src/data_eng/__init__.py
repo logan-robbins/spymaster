@@ -1,4 +1,4 @@
-"""Minimal stage-based data pipeline example for Databento MBP-10 data."""
+"""Shared data engineering primitives: price scale constant and session window utilities."""
 
 __all__ = ["__version__"]
 

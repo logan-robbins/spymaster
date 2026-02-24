@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.shared.yaml_io import load_yaml_mapping
+from ..shared.yaml_io import load_yaml_mapping
 
 logger = logging.getLogger(__name__)
 

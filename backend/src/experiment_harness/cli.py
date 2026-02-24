@@ -1,8 +1,8 @@
-"""Click CLI for the VP experiment harness.
+"""Click CLI for the qMachina experiment harness.
 
 Provides commands for running experiments, comparing results, generating
-immutable datasets, promoting experiment winners, and listing available
-signals and datasets.
+immutable datasets, computing gold features, promoting experiment winners,
+and listing available signals and datasets.
 
 Entry point::
 
@@ -11,6 +11,7 @@ Entry point::
     uv run python -m src.experiment_harness.cli list-signals
     uv run python -m src.experiment_harness.cli list-datasets
     uv run python -m src.experiment_harness.cli generate path/to/pipeline_spec.yaml
+    uv run python -m src.experiment_harness.cli generate-gold path/to/pipeline_spec.yaml
     uv run python -m src.experiment_harness.cli promote path/to/experiment_spec.yaml --run-id abc12345 --alias vp_main
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ from typing import Any
 
 import click
 
+from ..qmachina.stage_schema import SILVER_COLS
 from .dataset_registry import DatasetRegistry
 from .results_db import ResultsDB
 from .runner import ExperimentRunner
@@ -35,7 +37,6 @@ logger = logging.getLogger(__name__)
 # cli.py is at backend/src/experiment_harness/cli.py
 # parents[0] = experiment_harness/, [1] = src/, [2] = backend/
 _DEFAULT_LAKE_ROOT: Path = Path(__file__).resolve().parents[2] / "lake"
-_IMMUTABLE_EXCLUDED_MODEL_COLUMNS: set[str] = {"flow_score", "flow_state_code"}
 
 
 def _resolve_lake_root(lake_root_arg: str | None) -> Path:
@@ -156,7 +157,7 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
         for row_idx in range(n_rows):
             row: dict[str, Any] = {"bin_seq": bin_seq}
             for col_name, col_values in cols.items():
-                if col_name in _IMMUTABLE_EXCLUDED_MODEL_COLUMNS:
+                if col_name not in SILVER_COLS:
                     continue
                 value = col_values[row_idx]
                 if hasattr(value, "item"):
@@ -205,13 +206,6 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
         "start_time": pipeline_spec.capture.start_time,
         "end_time": pipeline_spec.capture.end_time,
         "cell_width_ms": config.cell_width_ms,
-        "flow_scoring": {
-            "derivative_weights": list(config.flow_derivative_weights),
-            "tanh_scale": float(config.flow_tanh_scale),
-            "threshold_neutral": float(config.flow_neutral_threshold),
-            "zscore_window_bins": int(config.flow_zscore_window_bins),
-            "zscore_min_periods": int(config.flow_zscore_min_periods),
-        },
         "n_bins": n_bins,
         "code_version": pipeline_spec.pipeline_code_version,
         "source_manifest": {
@@ -241,7 +235,7 @@ def _generate_dataset(lake_root: Path, pipeline_spec: Any) -> str:
 
 @click.group()
 def cli() -> None:
-    """VP Experiment Harness -- signal evaluation and comparison."""
+    """qMachina Experiment Harness -- signal evaluation and comparison."""
     _setup_logging()
 
 
@@ -273,7 +267,7 @@ def run(config_path: str, lake_root: str | None) -> None:
     pipeline_spec = serving_spec.resolve_pipeline(resolved_lake)
     _generate_dataset(resolved_lake, pipeline_spec)
 
-    harness_dict: dict[str, Any] = spec.to_harness_config(resolved_lake)
+    harness_dict: dict[str, Any] = spec.to_runner_config(resolved_lake)
 
     # ExperimentConfig is the internal runner schema — not user-facing.
     from .config_schema import ExperimentConfig
@@ -284,7 +278,10 @@ def run(config_path: str, lake_root: str | None) -> None:
     click.echo(f"Signals:    {config.signals}")
     click.echo()
 
-    runner = ExperimentRunner(resolved_lake)
+    runner = ExperimentRunner(
+        lake_root=resolved_lake,
+        feature_store_config=spec.feature_store if spec.feature_store.enabled else None,
+    )
     run_ids: list[str] = runner.run(config)
 
     click.echo()
@@ -491,7 +488,58 @@ def generate(config_path: str, lake_root: str | None) -> None:
     click.echo(f"Window:     {spec.capture.start_time} - {spec.capture.end_time}")
     click.echo()
 
-    _generate_dataset(resolved_lake, spec)
+    dataset_id = _generate_dataset(resolved_lake, spec)
+    if spec.feature_store.enabled:
+        from .feature_store.writer import sync_dataset_to_feature_store
+
+        registry = DatasetRegistry(resolved_lake)
+        paths = registry.resolve(dataset_id)
+        sync_dataset_to_feature_store(dataset_id, paths, resolved_lake, spec.feature_store)
+        click.echo(f"Feature store synced: {dataset_id}")
+
+
+@cli.command("generate-gold")
+@click.argument("config_path", type=click.Path(exists=True))
+@click.option(
+    "--lake-root",
+    default=None,
+    type=str,
+    help="Override lake root directory. Default: backend/lake/",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Recompute gold features even if gold_grid.parquet already exists.",
+)
+def generate_gold(config_path: str, lake_root: str | None, force: bool) -> None:
+    """Compute gold features for an existing dataset.
+
+    Loads CONFIG_PATH as a PipelineSpec, resolves the dataset, and runs
+    the gold feature builder to produce gold_grid.parquet alongside the
+    existing silver grid_clean.parquet. Idempotent unless --force is given.
+    """
+    from ..qmachina.gold_config import GoldFeatureConfig
+    from ..qmachina.pipeline_config import PipelineSpec
+    from .gold_builder import generate_gold_dataset
+
+    resolved_lake: Path = _resolve_lake_root(lake_root)
+    spec: PipelineSpec = PipelineSpec.from_yaml(Path(config_path))
+    dataset_id = spec.dataset_id()
+
+    click.echo(f"Pipeline:   {spec.name}")
+    click.echo(f"Dataset ID: {dataset_id}")
+    click.echo()
+
+    registry = DatasetRegistry(resolved_lake)
+    paths = registry.resolve(dataset_id)
+
+    config = spec.resolve_runtime_config()
+    gold_cfg = GoldFeatureConfig.from_runtime_config(config)
+    click.echo(f"Gold config hash: {gold_cfg.config_hash()}")
+
+    gold_path = generate_gold_dataset(paths, gold_cfg, force=force)
+    click.echo(f"Gold features written: {gold_path}")
 
 
 @cli.command()

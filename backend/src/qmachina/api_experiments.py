@@ -34,6 +34,9 @@ def _safe_int(v: Any) -> int | None:
         return None
 
 
+_STREAM_HTML_PATH = "/vp-stream.html"
+
+
 def register_experiment_routes(
     app: FastAPI,
     *,
@@ -48,7 +51,7 @@ def register_experiment_routes(
         if alias_hit is None:
             return None, False
         alias, _serving_id = alias_hit
-        return f"/vp-stream.html?{urlencode({'serving': alias})}", True
+        return f"{_STREAM_HTML_PATH}?{urlencode({'serving': alias})}", True
 
     def _results_db():
         from ..experiment_harness.results_db import ResultsDB

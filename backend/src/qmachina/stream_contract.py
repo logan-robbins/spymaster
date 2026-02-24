@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pyarrow as pa
 
 from .config import RuntimeConfig
-from .serving_config import StreamFieldSpec
+from .gold_config import GoldFeatureConfig
+from .serving_config import StreamFieldSpec, VisualizationConfig
+from .stage_schema import SILVER_FLOAT_COLS, SILVER_INT_COL_DTYPES
 
 if TYPE_CHECKING:
     from .serving_registry import ResolvedServing
@@ -14,61 +17,38 @@ if TYPE_CHECKING:
 
 _DTYPE_MAP = {"int8": pa.int8(), "int32": pa.int32(), "int64": pa.int64(), "float64": pa.float64()}
 
-_VP_LEGACY_FIELDS: list[tuple[str, pa.DataType]] = [
-    ("k", pa.int32()),
-    ("pressure_variant", pa.float64()),
-    ("vacuum_variant", pa.float64()),
-    ("add_mass", pa.float64()),
-    ("pull_mass", pa.float64()),
-    ("fill_mass", pa.float64()),
-    ("rest_depth", pa.float64()),
-    ("bid_depth", pa.float64()),
-    ("ask_depth", pa.float64()),
-    ("v_add", pa.float64()),
-    ("v_pull", pa.float64()),
-    ("v_fill", pa.float64()),
-    ("v_rest_depth", pa.float64()),
-    ("v_bid_depth", pa.float64()),
-    ("v_ask_depth", pa.float64()),
-    ("a_add", pa.float64()),
-    ("a_pull", pa.float64()),
-    ("a_fill", pa.float64()),
-    ("a_rest_depth", pa.float64()),
-    ("a_bid_depth", pa.float64()),
-    ("a_ask_depth", pa.float64()),
-    ("j_add", pa.float64()),
-    ("j_pull", pa.float64()),
-    ("j_fill", pa.float64()),
-    ("j_rest_depth", pa.float64()),
-    ("j_bid_depth", pa.float64()),
-    ("j_ask_depth", pa.float64()),
-    ("composite", pa.float64()),
-    ("composite_d1", pa.float64()),
-    ("composite_d2", pa.float64()),
-    ("composite_d3", pa.float64()),
-    ("best_ask_move_ticks", pa.int32()),
-    ("best_bid_move_ticks", pa.int32()),
-    ("ask_reprice_sign", pa.int8()),
-    ("bid_reprice_sign", pa.int8()),
-    ("microstate_id", pa.int8()),
-    ("state5_code", pa.int8()),
-    ("chase_up_flag", pa.int8()),
-    ("chase_down_flag", pa.int8()),
-    ("last_event_id", pa.int64()),
-]
+_INT_DTYPE_TO_PA: dict[Any, pa.DataType] = {
+    np.int8: pa.int8(),
+    np.int32: pa.int32(),
+    np.int64: pa.int64(),
+}
+
+# Canonical silver wire schema: all silver columns in stable order.
+_SILVER_SCHEMA_FIELDS: list[tuple[str, pa.DataType]] = (
+    [("k", pa.int32())]
+    + [(col, pa.float64()) for col in SILVER_FLOAT_COLS]
+    + [
+        (col, _INT_DTYPE_TO_PA[dtype])
+        for col, dtype in SILVER_INT_COL_DTYPES.items()
+        if col != "k"
+    ]
+)
 
 
 def grid_schema(fields: "list[StreamFieldSpec] | None" = None) -> pa.Schema:
-    """Return Arrow schema for dense-grid binary frames."""
-    import warnings
-    if not fields:
-        warnings.warn(
-            "grid_schema called without StreamFieldSpec list; falling back to legacy VP field list",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return pa.schema([pa.field(name, dtype) for name, dtype in _VP_LEGACY_FIELDS])
-    return pa.schema([pa.field(f.name, _DTYPE_MAP[f.dtype]) for f in fields])
+    """Return Arrow schema for dense-grid binary frames.
+
+    Args:
+        fields: Optional list of StreamFieldSpec from serving config.
+            When provided, the schema is built from those specs.
+            When None, uses the canonical silver schema.
+
+    Returns:
+        PyArrow Schema for Arrow IPC serialization.
+    """
+    if fields:
+        return pa.schema([pa.field(f.name, _DTYPE_MAP[f.dtype]) for f in fields])
+    return pa.schema([pa.field(name, dtype) for name, dtype in _SILVER_SCHEMA_FIELDS])
 
 
 def grid_to_arrow_ipc(grid_dict: dict[str, Any], schema: pa.Schema) -> bytes:
@@ -111,16 +91,13 @@ def build_runtime_config_payload(
     payload: dict[str, Any] = {
         "type": "runtime_config",
         **config.to_dict(),
-        "mode": "pre_prod",
-        "deployment_stage": "pre_prod",
         "stream_format": "dense_grid",
         "grid_schema_fields": (
             [{"name": f.name, "dtype": f.dtype, "role": f.role} for f in fields]
             if fields
-            else [f.name for f in schema]
+            else [{"name": f.name, "dtype": str(f.type)} for f in schema]
         ),
         "grid_rows": 2 * config.grid_radius_ticks + 1,
-        "effective_config_hash": config.config_version,
     }
     if model_config is not None:
         payload["model_config"] = model_config
@@ -128,6 +105,17 @@ def build_runtime_config_payload(
         payload["serving"] = resolved_serving.spec.to_runtime_config_json(
             serving_name=resolved_serving.alias or resolved_serving.serving_id
         )
+
+    # Gold feature config — fixes train/serve parity gap
+    gold_cfg = GoldFeatureConfig.from_runtime_config(config)
+    payload["gold_config"] = gold_cfg.model_dump()
+
+    # Visualization config — enables configurable rendering
+    if resolved_serving is not None and hasattr(resolved_serving.spec, "visualization"):
+        payload["visualization"] = resolved_serving.spec.visualization.model_dump()
+    else:
+        payload["visualization"] = VisualizationConfig.default_heatmap().model_dump()
+
     return payload
 
 

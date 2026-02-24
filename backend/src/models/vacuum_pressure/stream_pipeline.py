@@ -1,9 +1,12 @@
-"""Live event-stream pipeline for canonical fixed-bin VP streaming.
+"""Live event-stream pipeline for canonical fixed-bin silver streaming.
 
 Uses AbsoluteTickEngine with per-tick independent state arrays.
-Spectrum operates on ALL N_TICKS absolute ticks.
-At serve time, a window of ±grid_radius_ticks around spot is extracted
-and emitted with relative k values for frontend compatibility.
+Emits a window of ±grid_radius_ticks around spot with relative k values.
+
+Silver output: base cell tensors (mechanics + EMA derivatives) + BBO metadata only.
+Gold features (pressure_variant, vacuum_variant, composite*, state5_code,
+flow_score, flow_state_code) are computed downstream by gold_builder (offline)
+or GoldFeatureRuntime (frontend in-memory).
 """
 from __future__ import annotations
 
@@ -21,18 +24,24 @@ import numpy as np
 
 from ...data_eng.config import PRICE_SCALE
 from ...qmachina.config import RuntimeConfig
+from ...qmachina.stage_schema import SILVER_FLOAT_COLS, SILVER_INT_COL_DTYPES
+from ._pipeline_utils import (
+    EQUITY_WARMUP_HOURS,
+    FUTURES_WARMUP_HOURS,
+    _compute_time_boundaries,
+    _resolve_tick_int,
+)
 from qm_engine import AbsoluteTickEngine
 from qm_engine import iter_mbo_events
 from qm_engine import resolve_dbn_path as _resolve_dbn_path
-from .spectrum import IndependentCellSpectrum, ProjectionModelConfig
 
 logger = logging.getLogger(__name__)
 
 
-def _build_vp_model_config(config: "RuntimeConfig") -> dict:
+def build_model_config(config: "RuntimeConfig") -> dict:
     """Build VP-specific model_config payload for runtime_config wire message."""
     return {
-        "model": "vacuum_pressure",
+        "model": config.model_id,
         "state_model": {
             "name": "derivative",
             "center_exclusion_radius": config.state_model_center_exclusion_radius,
@@ -52,84 +61,7 @@ def _build_vp_model_config(config: "RuntimeConfig") -> dict:
     }
 
 
-FUTURES_WARMUP_HOURS = 0.5
-EQUITY_WARMUP_HOURS = 0.5
 _PRODUCER_PERF_KEY = "_producer_perf"
-
-STATE5_BEAR_VACUUM = -2
-STATE5_BEAR_PRESSURE = -1
-STATE5_MIXED = 0
-STATE5_BULL_PRESSURE = 1
-STATE5_BULL_VACUUM = 2
-
-_ABOVE_STATE5_BY_SIGNS: dict[tuple[int, int], int] = {
-    (1, 1): STATE5_BULL_VACUUM,
-    (1, 0): STATE5_BEAR_PRESSURE,
-    (1, -1): STATE5_BEAR_PRESSURE,
-    (0, 1): STATE5_BULL_VACUUM,
-    (0, 0): STATE5_MIXED,
-    (0, -1): STATE5_BEAR_PRESSURE,
-    (-1, 1): STATE5_MIXED,
-    (-1, 0): STATE5_BEAR_PRESSURE,
-    (-1, -1): STATE5_BEAR_PRESSURE,
-}
-
-_BELOW_STATE5_BY_SIGNS: dict[tuple[int, int], int] = {
-    (1, 1): STATE5_BULL_PRESSURE,
-    (1, 0): STATE5_BEAR_VACUUM,
-    (1, -1): STATE5_BEAR_VACUUM,
-    (0, 1): STATE5_BULL_PRESSURE,
-    (0, 0): STATE5_MIXED,
-    (0, -1): STATE5_BEAR_VACUUM,
-    (-1, 1): STATE5_MIXED,
-    (-1, 0): STATE5_BEAR_VACUUM,
-    (-1, -1): STATE5_BEAR_VACUUM,
-}
-
-_GRID_FLOAT_COLS: tuple[str, ...] = (
-    "pressure_variant",
-    "vacuum_variant",
-    "add_mass",
-    "pull_mass",
-    "fill_mass",
-    "rest_depth",
-    "bid_depth",
-    "ask_depth",
-    "v_add",
-    "v_pull",
-    "v_fill",
-    "v_rest_depth",
-    "v_bid_depth",
-    "v_ask_depth",
-    "a_add",
-    "a_pull",
-    "a_fill",
-    "a_rest_depth",
-    "a_bid_depth",
-    "a_ask_depth",
-    "j_add",
-    "j_pull",
-    "j_fill",
-    "j_rest_depth",
-    "j_bid_depth",
-    "j_ask_depth",
-    "composite",
-    "composite_d1",
-    "composite_d2",
-    "composite_d3",
-)
-
-_GRID_INT_COL_DTYPES: dict[str, Any] = {
-    "best_ask_move_ticks": np.int32,
-    "best_bid_move_ticks": np.int32,
-    "ask_reprice_sign": np.int8,
-    "bid_reprice_sign": np.int8,
-    "microstate_id": np.int8,
-    "state5_code": np.int8,
-    "chase_up_flag": np.int8,
-    "chase_down_flag": np.int8,
-    "last_event_id": np.int64,
-}
 
 
 @dataclass(frozen=True)
@@ -153,7 +85,6 @@ def _latency_us(start_ns: int | None, end_ns: int | None) -> float | None:
 
 
 def _sign_from_ticks(delta_ticks: int) -> int:
-    """Map tick move into {-1, 0, +1}."""
     if delta_ticks > 0:
         return 1
     if delta_ticks < 0:
@@ -178,18 +109,7 @@ def _best_move_ticks(
 
 
 def _microstate_id(ask_sign: int, bid_sign: int) -> int:
-    """Encode (ask_sign, bid_sign) into stable microstate id [0, 8]."""
     return int((ask_sign + 1) * 3 + (bid_sign + 1))
-
-
-def _state5_code(k: int, ask_sign: int, bid_sign: int) -> int:
-    """Map signs + bucket location to 5-state directional permutation code."""
-    if k == 0:
-        return STATE5_MIXED
-    key = (ask_sign, bid_sign)
-    if k > 0:
-        return _ABOVE_STATE5_BY_SIGNS[key]
-    return _BELOW_STATE5_BY_SIGNS[key]
 
 
 def _annotate_permutation_labels(
@@ -197,8 +117,8 @@ def _annotate_permutation_labels(
     *,
     ask_move_ticks: int,
     bid_move_ticks: int,
-) -> np.ndarray:
-    """Annotate each emitted row with permutation microstate + directional labels."""
+) -> None:
+    """Annotate each emitted row with BBO movement microstate labels (silver only)."""
     ask_sign = _sign_from_ticks(ask_move_ticks)
     bid_sign = _sign_from_ticks(bid_move_ticks)
     micro_id = _microstate_id(ask_sign, bid_sign)
@@ -214,24 +134,13 @@ def _annotate_permutation_labels(
     grid["chase_down_flag"] = chase_down_flag
 
     cols: Dict[str, np.ndarray] = grid["grid_cols"]
-    k_values = np.asarray(cols["k"], dtype=np.int32)
-    state_above = _ABOVE_STATE5_BY_SIGNS[(ask_sign, bid_sign)]
-    state_below = _BELOW_STATE5_BY_SIGNS[(ask_sign, bid_sign)]
-
-    state5_series = np.full(k_values.shape[0], STATE5_MIXED, dtype=np.int8)
-    state5_series[k_values > 0] = np.int8(state_above)
-    state5_series[k_values < 0] = np.int8(state_below)
-
     cols["best_ask_move_ticks"].fill(ask_move_ticks)
     cols["best_bid_move_ticks"].fill(bid_move_ticks)
     cols["ask_reprice_sign"].fill(ask_sign)
     cols["bid_reprice_sign"].fill(bid_sign)
     cols["microstate_id"].fill(micro_id)
-    cols["state5_code"][:] = state5_series
     cols["chase_up_flag"].fill(chase_up_flag)
     cols["chase_down_flag"].fill(chase_down_flag)
-
-    return state5_series
 
 
 class _ProducerLatencyWriter:
@@ -376,41 +285,6 @@ class _ProducerLatencyWriter:
         self._emit_summary()
 
 
-def _compute_time_boundaries(
-    product_type: str,
-    dt: str,
-    start_time: str | None,
-) -> tuple[int, int]:
-    """Compute (warmup_start_ns, emit_after_ns) from ET start_time."""
-    if not start_time:
-        return 0, 0
-
-    import pandas as pdt
-
-    warmup_hours = FUTURES_WARMUP_HOURS if "future" in product_type else EQUITY_WARMUP_HOURS
-
-    et_start = pdt.Timestamp(f"{dt} {start_time}:00", tz="America/New_York").tz_convert("UTC")
-    warmup_start = et_start - pdt.Timedelta(hours=warmup_hours)
-
-    return int(warmup_start.value), int(et_start.value)
-
-
-def _resolve_tick_int(config: RuntimeConfig) -> int:
-    """Resolve integer price increment for event-engine bucket mapping."""
-    if config.product_type == "future_mbo":
-        tick_int = int(round(config.tick_size / PRICE_SCALE))
-    elif config.product_type == "equity_mbo":
-        tick_int = int(round(config.bucket_size_dollars / PRICE_SCALE))
-    else:
-        raise ValueError(f"Unsupported product_type: {config.product_type}")
-
-    if tick_int <= 0:
-        raise ValueError(
-            f"Resolved tick_int must be > 0, got {tick_int} for {config.product_type}/{config.symbol}"
-        )
-    return tick_int
-
-
 def _create_engine(config: RuntimeConfig) -> AbsoluteTickEngine:
     """Create the absolute-tick VP engine for fixed-bin streaming."""
     tick_int = _resolve_tick_int(config)
@@ -534,7 +408,6 @@ def ensure_book_cache(
 
 def _build_bin_grid(
     engine: AbsoluteTickEngine,
-    spectrum: IndependentCellSpectrum,
     *,
     bin_seq: int,
     bin_start_ns: int,
@@ -542,32 +415,23 @@ def _build_bin_grid(
     bin_event_count: int,
     window_radius: int,
 ) -> Dict[str, Any]:
-    """Snapshot engine + spectrum and emit a dense columnar window around spot."""
+    """Snapshot engine and emit a dense silver columnar window around spot."""
     full = engine.grid_snapshot_arrays()
-    pressure_full = full["pressure_variant"]
-    vacuum_full = full["vacuum_variant"]
 
-    # Spectrum on all absolute ticks
-    spectrum_out = spectrum.update(
-        ts_ns=bin_end_ns,
-        pressure=pressure_full,
-        vacuum=vacuum_full,
-    )
-
-    # Compute spot and window center
     spot_int = engine.spot_ref_price_int
     center_idx = engine.spot_to_idx(spot_int) if spot_int > 0 else None
 
     n_rows = 2 * window_radius + 1
     k_values = np.arange(-window_radius, window_radius + 1, dtype=np.int32)
     grid_cols: Dict[str, np.ndarray] = {"k": k_values}
-    for col in _GRID_FLOAT_COLS:
+    for col in SILVER_FLOAT_COLS:
         grid_cols[col] = np.zeros(n_rows, dtype=np.float64)
-    for col, dtype in _GRID_INT_COL_DTYPES.items():
+    for col, dtype in SILVER_INT_COL_DTYPES.items():
+        if col == "k":
+            continue  # k is set above as a range; do not overwrite
         grid_cols[col] = np.zeros(n_rows, dtype=dtype)
 
     if center_idx is None:
-        # No valid spot — emit empty grid columns.
         return {
             "ts_ns": bin_end_ns,
             "bin_seq": bin_seq,
@@ -583,51 +447,21 @@ def _build_bin_grid(
             "grid_cols": grid_cols,
         }
 
-    # Extract window with padding for edges
     n_ticks = engine.n_ticks
     w_start = center_idx - window_radius
     w_end = center_idx + window_radius + 1
 
-    # Clamp to valid array bounds
     arr_start = max(0, w_start)
     arr_end = min(n_ticks, w_end)
 
-    # How many zeros to pad on each side.
     pad_left = arr_start - w_start
     if arr_end > arr_start:
         dst_slice = slice(pad_left, pad_left + (arr_end - arr_start))
         src_slice = slice(arr_start, arr_end)
 
-        grid_cols["pressure_variant"][dst_slice] = full["pressure_variant"][src_slice]
-        grid_cols["vacuum_variant"][dst_slice] = full["vacuum_variant"][src_slice]
-        grid_cols["add_mass"][dst_slice] = full["add_mass"][src_slice]
-        grid_cols["pull_mass"][dst_slice] = full["pull_mass"][src_slice]
-        grid_cols["fill_mass"][dst_slice] = full["fill_mass"][src_slice]
-        grid_cols["rest_depth"][dst_slice] = full["rest_depth"][src_slice]
-        grid_cols["bid_depth"][dst_slice] = full["bid_depth"][src_slice]
-        grid_cols["ask_depth"][dst_slice] = full["ask_depth"][src_slice]
-        grid_cols["v_add"][dst_slice] = full["v_add"][src_slice]
-        grid_cols["v_pull"][dst_slice] = full["v_pull"][src_slice]
-        grid_cols["v_fill"][dst_slice] = full["v_fill"][src_slice]
-        grid_cols["v_rest_depth"][dst_slice] = full["v_rest_depth"][src_slice]
-        grid_cols["v_bid_depth"][dst_slice] = full["v_bid_depth"][src_slice]
-        grid_cols["v_ask_depth"][dst_slice] = full["v_ask_depth"][src_slice]
-        grid_cols["a_add"][dst_slice] = full["a_add"][src_slice]
-        grid_cols["a_pull"][dst_slice] = full["a_pull"][src_slice]
-        grid_cols["a_fill"][dst_slice] = full["a_fill"][src_slice]
-        grid_cols["a_rest_depth"][dst_slice] = full["a_rest_depth"][src_slice]
-        grid_cols["a_bid_depth"][dst_slice] = full["a_bid_depth"][src_slice]
-        grid_cols["a_ask_depth"][dst_slice] = full["a_ask_depth"][src_slice]
-        grid_cols["j_add"][dst_slice] = full["j_add"][src_slice]
-        grid_cols["j_pull"][dst_slice] = full["j_pull"][src_slice]
-        grid_cols["j_fill"][dst_slice] = full["j_fill"][src_slice]
-        grid_cols["j_rest_depth"][dst_slice] = full["j_rest_depth"][src_slice]
-        grid_cols["j_bid_depth"][dst_slice] = full["j_bid_depth"][src_slice]
-        grid_cols["j_ask_depth"][dst_slice] = full["j_ask_depth"][src_slice]
-        grid_cols["composite"][dst_slice] = spectrum_out.composite[src_slice]
-        grid_cols["composite_d1"][dst_slice] = spectrum_out.composite_d1[src_slice]
-        grid_cols["composite_d2"][dst_slice] = spectrum_out.composite_d2[src_slice]
-        grid_cols["composite_d3"][dst_slice] = spectrum_out.composite_d3[src_slice]
+        for col in SILVER_FLOAT_COLS:
+            if col in full:
+                grid_cols[col][dst_slice] = full[col][src_slice]
         grid_cols["last_event_id"][dst_slice] = np.asarray(
             full["last_event_id"][src_slice], dtype=np.int64
         )
@@ -655,11 +489,8 @@ def stream_events(
     start_time: str | None = None,
     *,
     capture_producer_timing: bool = False,
-    projection_use_cubic: bool = False,
-    projection_cubic_scale: float = 1.0 / 6.0,
-    projection_damping_lambda: float = 0.0,
 ) -> Generator[Dict[str, Any], None, None]:
-    """Synchronous pipeline: DBN events -> fixed-width cell bins."""
+    """Synchronous pipeline: DBN events -> fixed-width silver cell bins."""
     warmup_start_ns, emit_after_ns = _compute_time_boundaries(
         config.product_type, dt, start_time,
     )
@@ -671,24 +502,6 @@ def stream_events(
     if cell_width_ns <= 0:
         raise ValueError(f"cell_width_ms must resolve to positive ns, got {config.cell_width_ms}")
 
-    # Spectrum operates on ALL N_TICKS absolute ticks
-    spectrum = IndependentCellSpectrum(
-        n_cells=config.n_absolute_ticks,
-        windows=config.flow_windows,
-        rollup_weights=config.flow_rollup_weights,
-        derivative_weights=config.flow_derivative_weights,
-        tanh_scale=config.flow_tanh_scale,
-        neutral_threshold=config.flow_neutral_threshold,
-        zscore_window_bins=config.flow_zscore_window_bins,
-        zscore_min_periods=config.flow_zscore_min_periods,
-        projection_horizons_ms=config.projection_horizons_ms,
-        default_dt_s=float(config.cell_width_ms) / 1000.0,
-        projection_model=ProjectionModelConfig(
-            use_cubic=projection_use_cubic,
-            cubic_scale=projection_cubic_scale,
-            damping_lambda=projection_damping_lambda,
-        ),
-    )
     event_count = 0
     yielded_count = 0
     warmup_count = 0
@@ -749,7 +562,6 @@ def stream_events(
             engine.advance_time(bin_end_ns)
             grid = _build_bin_grid(
                 engine,
-                spectrum,
                 bin_seq=bin_seq,
                 bin_start_ns=bin_start_ns,
                 bin_end_ns=bin_end_ns,
@@ -810,7 +622,6 @@ def stream_events(
         engine.advance_time(bin_end_ns)
         grid = _build_bin_grid(
             engine,
-            spectrum,
             bin_seq=bin_seq,
             bin_start_ns=bin_start_ns,
             bin_end_ns=bin_end_ns,
@@ -860,9 +671,6 @@ async def async_stream_events(
     start_time: str | None = None,
     *,
     producer_latency_config: ProducerLatencyConfig | None = None,
-    projection_use_cubic: bool = False,
-    projection_cubic_scale: float = 1.0 / 6.0,
-    projection_damping_lambda: float = 0.0,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Async wrapper with fixed wall-clock pacing by cell width."""
     import concurrent.futures
@@ -889,9 +697,6 @@ async def async_stream_events(
                 dt=dt,
                 start_time=start_time,
                 capture_producer_timing=latency_writer is not None,
-                projection_use_cubic=projection_use_cubic,
-                projection_cubic_scale=projection_cubic_scale,
-                projection_damping_lambda=projection_damping_lambda,
             ):
                 perf_meta = grid.pop(_PRODUCER_PERF_KEY, None) if latency_writer is not None else None
                 queue_put_start_wall_ns = time.monotonic_ns()

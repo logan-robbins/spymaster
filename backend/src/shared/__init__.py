@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .derivative_core import (
     STATE5_CODES,
+    State5Intensities,
     compute_state5_intensities,
     derivative_base_from_intensities,
     normalized_spatial_weights,
@@ -17,6 +18,7 @@ from .zscore import (
     robust_zscore_rolling_1d,
     sanitize_unit_interval_array,
     sanitize_unit_interval_scalar,
+    validate_non_negative_weight_vector,
     validate_positive_weight_vector,
     validate_zscore_tanh_params,
     weighted_tanh_blend,
@@ -25,6 +27,7 @@ from .zscore import (
 __all__ = [
     "MAD_TO_SIGMA",
     "STATE5_CODES",
+    "State5Intensities",
     "compute_state5_intensities",
     "derivative_base_from_intensities",
     "load_yaml_mapping",
@@ -37,6 +40,7 @@ __all__ = [
     "sanitize_unit_interval_scalar",
     "stable_short_hash",
     "validate_derivative_parameter_set",
+    "validate_non_negative_weight_vector",
     "validate_positive_weight_vector",
     "validate_zscore_tanh_params",
     "weighted_tanh_blend",

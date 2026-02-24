@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..experiment_harness.feature_store.config import FeatureStoreConfig
 from ..shared.yaml_io import load_yaml_mapping
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,7 @@ class ExperimentTrackingConfig(BaseModel):
         backend: Tracking backend to use.  ``"mlflow"`` for MLflow,
             ``"none"`` to disable tracking.
         experiment_name: MLflow experiment name override.  Defaults to
-            ``vp/{experiment.name}`` when ``None``.
+            ``qmachina/{experiment.name}`` when ``None``.
         run_name_prefix: Optional prefix for individual run names.
         tags: Arbitrary key-value tags attached to every run.
     """
@@ -184,6 +185,7 @@ class ExperimentSpec(BaseModel):
     tracking: ExperimentTrackingConfig = Field(
         default_factory=ExperimentTrackingConfig
     )
+    feature_store: FeatureStoreConfig = Field(default_factory=FeatureStoreConfig)
 
     @field_validator("name")
     @classmethod
@@ -226,7 +228,7 @@ class ExperimentSpec(BaseModel):
     # Harness bridge
     # ------------------------------------------------------------------
 
-    def to_harness_config(self, lake_root: Path) -> dict[str, Any]:
+    def to_runner_config(self, lake_root: Path) -> dict[str, Any]:
         """Convert to a dict compatible with the experiment_harness ExperimentConfig schema.
 
         Resolves the serving config and its upstream pipeline config,
@@ -273,7 +275,7 @@ class ExperimentSpec(BaseModel):
             "tracking": {
                 "backend": self.tracking.backend,
                 "experiment_name": (
-                    self.tracking.experiment_name or f"vp/{self.name}"
+                    self.tracking.experiment_name or f"qmachina/{self.name}"
                 ),
                 "run_name_prefix": self.tracking.run_name_prefix,
                 "tags": self.tracking.tags,

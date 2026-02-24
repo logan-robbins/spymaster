@@ -1,4 +1,4 @@
-"""Generate grid variants by re-running the VP engine with modified parameters.
+"""Generate grid variants by re-running the qMachina engine with modified parameters.
 
 Each unique parameter set produces a deterministic variant_id (SHA256 of all
 relevant params -> 12-char hex).
@@ -16,10 +16,9 @@ from typing import Any
 
 import pandas as pd
 
-from src.shared.hashing import stable_short_hash
+from ..shared.hashing import stable_short_hash
 
 from .config_schema import GridVariantConfig
-from .dataset_registry import DatasetRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -65,25 +64,25 @@ _GRID_SCALAR_COLS: list[str] = [
 def _import_stream_pipeline() -> Any:
     """Lazily import stream_pipeline to avoid hard dependency at module load."""
     try:
-        import src.models.vacuum_pressure.stream_pipeline as sp  # type: ignore[import-untyped]
+        from ..models.vacuum_pressure import stream_pipeline as sp  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
             "Cannot import models.vacuum_pressure.stream_pipeline. "
-            "Grid generation requires the full VP runtime to be installed."
+            "Grid generation requires the qMachina runtime to be installed."
         ) from exc
     return sp
 
 
-def _import_vp_config() -> Any:
-    """Lazily import VP config module."""
+def _import_runtime_config() -> Any:
+    """Lazily import qMachina config module."""
     try:
-        import src.qmachina.config as vp_config  # type: ignore[import-untyped]
+        from ..qmachina import config as runtime_config_mod  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
             "Cannot import qmachina.config. "
-            "Grid generation requires the full VP runtime to be installed."
+            "Grid generation requires the qMachina runtime to be installed."
         ) from exc
-    return vp_config
+    return runtime_config_mod
 
 
 def _require_scalar(value: Any, field_name: str) -> Any:
@@ -98,7 +97,7 @@ def _require_scalar(value: Any, field_name: str) -> Any:
 
 
 class GridGenerator:
-    """Generate grid variants by re-running the VP engine with modified parameters."""
+    """Generate grid variants by re-running the qMachina engine with modified parameters."""
 
     def __init__(self, lake_root: Path) -> None:
         self.lake_root = Path(lake_root)
@@ -151,9 +150,6 @@ class GridGenerator:
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         logger.info("Wrote manifest to %s", manifest_path)
 
-        registry = DatasetRegistry(self.lake_root)
-        registry.register_generated(variant_id, variant_dir)
-
         logger.info("Grid variant %s generation complete.", variant_id)
         return variant_id
 
@@ -193,10 +189,10 @@ class GridGenerator:
 
     def _build_runtime_config(self, spec: GridVariantConfig) -> Any:
         """Construct a RuntimeConfig directly from spec + locked defaults."""
-        vp_config_mod = _import_vp_config()
+        runtime_config_mod = _import_runtime_config()
 
-        locked_path = vp_config_mod._resolve_locked_config_path()
-        base_cfg = vp_config_mod._load_locked_instrument_config(locked_path)
+        locked_path = runtime_config_mod._resolve_locked_config_path()
+        base_cfg = runtime_config_mod._load_locked_instrument_config(locked_path)
 
         cell_width_ms = int(_require_scalar(spec.cell_width_ms, "cell_width_ms"))
         bucket_size_dollars = spec.bucket_size_dollars
@@ -283,7 +279,7 @@ class GridGenerator:
             "c7_a_pull": float(_require_scalar(spec.c7_a_pull, "c7_a_pull")),
         }
 
-        return vp_config_mod.build_config_with_overrides(base_cfg, overrides)
+        return runtime_config_mod.build_config_with_overrides(base_cfg, overrides)
 
     def _run_pipeline(
         self,
