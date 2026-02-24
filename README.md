@@ -19,15 +19,9 @@ qMachina research platform. Replays Databento MBO .dbn files through an order-bo
 |  [warmup phase] -- book cache pkl --> reanchor_to_bbo                       |
 |                                          |                                  |
 |                                          v (every cell_width_ms)            |
-|                                   grid_snapshot_arrays()                    |
-|                                          |                                  |
-|                                          v                                  |
-|                              IndependentCellSpectrum                        |
-|                         (flow windows, rollup, tanh-z-score)               |
-|                                          |                                  |
-|                                          v                                  |
-|                               DerivativeRuntime                             |
-|                          (state5_code -> z-score -> tanh blend)             |
+|                              SILVER STREAM (wire schema)                    |
+|                       mass fields, EMA v/a/j, BBO labels                   |
+|                              (no gold/spectrum fields)                      |
 |                                          |                                  |
 |                                          v                                  |
 |                              +--------------------+                         |
@@ -36,11 +30,12 @@ qMachina research platform. Replays Databento MBO .dbn files through an order-bo
 |                              +--------+-----------+                         |
 |                                       | runtime_config JSON (once)          |
 |                                       | grid_update JSON (per bin)          |
-|                                       | Arrow IPC binary (per bin)          |
+|                                       | Arrow IPC binary -- SILVER ONLY     |
 |                                       v                                     |
 |                              +--------------------+                         |
 |                              |   Vite Frontend     |                        |
-|                              |  vp-stream          | heatmap + gauges      |
+|                              |  GoldFeatureRuntime | gold computed in-mem  |
+|                              |  (VP force, tanh-z) | heatmap + gauges      |
 |                              |  experiments        | result browser         |
 |                              +--------------------+                         |
 +-----------------------------------------------------------------------------+
@@ -126,6 +121,17 @@ uv run python -m src.experiment_harness.cli generate <pipeline_spec.yaml>
 ```
 
 Idempotent -- skips if hash-addressed output exists. Output under `lake/research/datasets/<dataset_id>/`: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`.
+
+### Generate gold features (offline)
+
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli generate-gold <pipeline_spec.yaml>
+# Force recompute even if gold_grid.parquet exists:
+uv run python -m src.experiment_harness.cli generate-gold <pipeline_spec.yaml> --force
+```
+
+Computes gold features (VP force block, spectrum scoring, state5, derivatives) from an existing silver dataset and writes `lake/research/datasets/<dataset_id>/gold_grid.parquet`. Requires `bins.parquet` and `grid_clean.parquet` to already exist (`generate` must run first). Hash-manifested -- skips if config is unchanged.
 
 ### Run experiment
 
@@ -216,6 +222,10 @@ Message sequence: (1) text `runtime_config` JSON once, (2) per bin: text `grid_u
 
 Wire contract defined in `backend/src/qmachina/stream_contract.py` -- `build_runtime_config_payload()`, `build_grid_update_payload()`, `grid_schema()`.
 
+`runtime_config` payload includes two top-level objects added in the configurable visualization layer:
+- `gold_config` -- VP force coefficients c1..c7 and flow parameters (fixes train/serve parity)
+- `visualization` -- `VisualizationConfig` with `display_mode`, `cell_shader`, and `overlays` (configurable rendering)
+
 ---
 
 ## Config Chain
@@ -227,7 +237,7 @@ ExperimentSpec  ->  ServingSpec  ->  PipelineSpec
 
 Each layer references the one below by name. Config models:
 - `backend/src/qmachina/pipeline_config.py` -- PipelineSpec
-- `backend/src/qmachina/serving_config.py` -- ServingSpec, PublishedServingSpec, StreamFieldSpec
+- `backend/src/qmachina/serving_config.py` -- ServingSpec (with `visualization: VisualizationConfig`), PublishedServingSpec, StreamFieldSpec, CellShaderConfig, OverlaySpec, VisualizationConfig
 - `backend/src/qmachina/experiment_config.py` -- ExperimentSpec
 - `backend/src/qmachina/config.py` -- RuntimeConfig, `resolve_config()`, `build_config_from_mapping()`, `build_config_with_overrides()`
 
@@ -261,7 +271,7 @@ Entry points that compose the system. Each imports branch/leaf modules -- read t
 |-------------|------|
 | `backend/scripts/run_server.py` | Server entry: argparse -> `create_app()` -> uvicorn |
 | `backend/src/qmachina/app.py` | FastAPI composition root: middleware + health + routes |
-| `backend/src/experiment_harness/cli.py` | Click CLI: generate, run, compare, promote, list-signals, list-datasets, online-sim |
+| `backend/src/experiment_harness/cli.py` | Click CLI: generate, generate-gold, run, compare, promote, list-signals, list-datasets, online-sim |
 | `backend/src/experiment_harness/runner.py` | ExperimentRunner: sweep expansion, signal evaluation, result persistence |
 | `backend/scripts/analyze_signals.py` | Offline regime analysis |
 | `backend/scripts/warm_cache.py` | Pre-build book state pkl cache |
@@ -295,11 +305,88 @@ backend/src/
 |------|----------|
 | `backend/lake/raw/source=databento/product_type=<product_type>/symbol=<root>/table=market_by_order_dbn/` | Raw .dbn replay files (immutable) |
 | `backend/lake/cache/book_engine/` | Book state pkl checkpoints (SHA256-keyed, auto-built) |
-| `backend/lake/research/datasets/<dataset_id>/` | Immutable datasets: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json` |
+| `backend/lake/research/datasets/<dataset_id>/` | Immutable datasets: `bins.parquet`, `grid_clean.parquet`, `manifest.json`, `checksums.json`; optional `gold_grid.parquet` |
 | `backend/lake/research/harness/results/` | `runs_meta.parquet` + `runs.parquet` (experiment results) |
 | `backend/lake/research/harness/configs/` | Experiment config YAMLs (pipelines / serving / experiments) |
 | `backend/lake/research/harness/configs/serving_versions/` | Immutable serving version specs consumed by live stream runtime |
 | `backend/lake/research/harness/serving_registry.sqlite` | Alias -> serving_id mapping, immutable version metadata, promotion audit |
+| `backend/lake/research/feature_store/` | Feast offline store root (auto-created on first sync) |
+| `backend/lake/research/feature_store/offline/bins/<dataset_id>.parquet` | Feature-store bins (adds `event_timestamp`, `dataset_id`, `bins_key`) |
+| `backend/lake/research/feature_store/offline/grid/<dataset_id>.parquet` | Feature-store grid (adds `event_timestamp`, `dataset_id`, `grid_key`) |
+
+---
+
+## Feast Feature Store (Offline)
+
+Feature store is **opt-in per spec** via `feature_store: {enabled: true}` in the pipeline or experiment YAML. Existing YAMLs default to `enabled: false` and are unchanged.
+
+### Setup
+
+Feast is installed as part of the regular `uv sync`. No extra install step is needed. The feature store repo (`feature_store.yaml`, `registry.db`) is created automatically on first sync.
+
+**Dependency note:** Feast requires `uvicorn==0.34`. The project constraint was relaxed to `uvicorn>=0.34` to accommodate this.
+
+### Sync a dataset to the feature store
+
+Add to your pipeline YAML:
+```yaml
+feature_store:
+  enabled: true
+```
+
+Then generate (or re-generate) the dataset:
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli generate \
+  lake/research/harness/configs/pipelines/<your_pipeline>.yaml
+```
+
+After generating, the feature store files appear under `lake/research/feature_store/`.
+
+### Run an experiment using Feast retrieval
+
+Add to your experiment YAML:
+```yaml
+feature_store:
+  enabled: true
+```
+
+Then run as normal:
+```bash
+cd backend
+uv run python -m src.experiment_harness.cli run \
+  lake/research/harness/configs/experiments/<your_experiment>.yaml
+```
+
+The runner instantiates `FeastFeatureRetriever` and routes all `load_dataset` calls through Feast's point-in-time join. The legacy direct-Parquet path is used when `feature_store.enabled: false` (default).
+
+### Module layout
+
+```
+backend/src/experiment_harness/feature_store/
+  __init__.py
+  config.py       # FeatureStoreConfig (Pydantic, enabled: bool, project: str)
+  writer.py       # sync_dataset_to_feature_store()
+  retriever.py    # FeastFeatureRetriever
+```
+
+### Tests
+
+```bash
+cd backend
+uv run pytest tests/test_feature_store_writer.py tests/test_feast_retriever.py -v
+```
+
+---
+
+## Stage Boundary (Silver vs Gold)
+
+The streaming pipeline enforces a hard stage boundary:
+
+- **Silver** (wire, lowest latency): mass fields, EMA v/a/j chains, BBO permutation labels. Defined in `src/qmachina/stage_schema.py` as `SILVER_COLS` allow-list. Sent over WebSocket as Arrow IPC.
+- **Gold** (computed): VP force block (`pressure_variant`, `vacuum_variant`, `composite`, `composite_d{1,2,3}`, `state5_code`), spectrum scoring (`flow_score`, `flow_state_code`). Computed **in the browser** by `GoldFeatureRuntime` (TypeScript) or **offline** via `generate-gold` CLI.
+
+Adding a field to the stream requires updating both the Python allow-list and the TypeScript `GridBucketRow` interface.
 
 ---
 
@@ -310,6 +397,7 @@ backend/src/
 - Book cache keyed by `sha256(product_type:symbol:dt:warmup_start_ns:mtime_ns:size)[:16]`. First run builds; subsequent runs load + reanchor.
 - Train/serve parity enforced by `shared/` -- `scoring.py` and `derivative_core.py` share identical math.
 - Stream sessions built from immutable `runtime_snapshot` via `build_config_from_mapping()`, validated against instrument lock.
+- `_build_bin_grid` in `stream_pipeline.py`: `SILVER_INT_COL_DTYPES` includes `"k"` -- the initialization loop skips `"k"` to avoid overwriting the pre-set k range array.
 
 ---
 
