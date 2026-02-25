@@ -144,6 +144,98 @@ interface CandleBar {
   open: number; close: number; high: number; low: number; bullish: boolean;
 }
 
+interface EmaConfig {
+  periods: number[];
+  weights: number[];
+  sma_periods: number[];
+  signal_tanh_scale: number;
+}
+
+/** Shared interface implemented by all in-browser model runtimes. */
+interface ModelRuntime {
+  get ready(): boolean;
+  reset(): void;
+}
+
+// ------------------------------------------------- Overlay typed params
+
+interface ProjectionBandsParams { signal_field: string; composite_scale?: number; }
+interface EmaLinesParams { line_width?: number; }
+
+// ------------------------------------------------- EmaEnsembleRuntime
+
+/**
+ * In-browser EMA/SMA ensemble computation.
+ * EMA: incremental α-weighted update per period.
+ * SMA: circular buffer mean per period.
+ * Signal: tanh(weighted crossover blend) ∈ [-1, 1].
+ */
+class EmaEnsembleRuntime implements ModelRuntime {
+  private readonly periods: number[];
+  private readonly weights: number[];
+  private readonly smaPeriods: number[];
+  private readonly tanhScale: number;
+  private readonly emaState = new Map<number, number | null>();
+  private readonly smaBuffers = new Map<number, number[]>();
+
+  constructor(cfg: EmaConfig) {
+    this.periods = cfg.periods;
+    this.weights = cfg.weights;
+    this.smaPeriods = cfg.sma_periods;
+    this.tanhScale = cfg.signal_tanh_scale;
+    for (const p of this.periods) this.emaState.set(p, null);
+    for (const p of this.smaPeriods) this.smaBuffers.set(p, []);
+  }
+
+  reset(): void {
+    for (const p of this.periods) this.emaState.set(p, null);
+    for (const p of this.smaPeriods) this.smaBuffers.set(p, []);
+  }
+
+  update(close: number): void {
+    for (const p of this.periods) {
+      const alpha = 2 / (p + 1);
+      const prev = this.emaState.get(p);
+      this.emaState.set(p, prev == null ? close : prev + alpha * (close - prev));
+    }
+    for (const p of this.smaPeriods) {
+      const buf = this.smaBuffers.get(p)!;
+      buf.push(close);
+      if (buf.length > p) buf.shift();
+    }
+  }
+
+  getEma(period: number): number | null {
+    return this.emaState.get(period) ?? null;
+  }
+
+  getSma(period: number): number | null {
+    const buf = this.smaBuffers.get(period);
+    if (!buf || buf.length === 0) return null;
+    return buf.reduce((a, b) => a + b, 0) / buf.length;
+  }
+
+  /** Weighted tanh blend of adjacent EMA crossover signs. */
+  get signal(): number {
+    let sum = 0;
+    for (let i = 0; i < this.periods.length - 1; i++) {
+      const fast = this.emaState.get(this.periods[i]);
+      const slow = this.emaState.get(this.periods[i + 1]);
+      if (fast == null || slow == null) return 0;
+      const diff = fast - slow;
+      sum += this.weights[i] * (diff > 0 ? 1 : diff < 0 ? -1 : 0);
+    }
+    return Math.tanh(sum * this.tanhScale);
+  }
+
+  get ready(): boolean {
+    return [...this.emaState.values()].every(v => v !== null);
+  }
+
+  get allPeriods(): number[] { return this.periods; }
+  get allSmaPeriods(): number[] { return this.smaPeriods; }
+}
+
 /** Parsed and validated URL query parameters. */
 interface StreamParams {
   serving: string;
@@ -160,7 +252,7 @@ interface StreamParams {
  *
  * Per-k ring buffers maintain incremental state across bins.
  */
-class GoldFeatureRuntime {
+class GoldFeatureRuntime implements ModelRuntime {
   private readonly c1: number; private readonly c2: number; private readonly c3: number;
   private readonly c4: number; private readonly c5: number; private readonly c6: number;
   private readonly c7: number;
@@ -452,6 +544,14 @@ let vizConfig: VisualizationConfig | null = null;
 let candleTrail: (CandleBar | null)[] = new Array(HMAP_HISTORY).fill(null);
 let prevMidPrice = 0;
 
+// EMA ensemble model state
+let currentModelId = 'vacuum_pressure';
+let emaRuntime: EmaEnsembleRuntime | null = null;
+// Per-period EMA/SMA trail ring buffers (initialized when emaRuntime is set)
+let emaTrailMap = new Map<number, (number | null)[]>();
+let smaTrailMap = new Map<number, (number | null)[]>();
+let emaSignalTrail: (number | null)[] = new Array(HMAP_HISTORY).fill(null);
+
 function resetHeatmapBuffers(gridRadiusTicks: number): void {
   GRID_RADIUS_TICKS = gridRadiusTicks;
   HMAP_LEVELS = GRID_RADIUS_TICKS * 2 + 1;
@@ -468,6 +568,7 @@ function resetHeatmapBuffers(gridRadiusTicks: number): void {
   columnTimestamps = new Array(HMAP_HISTORY).fill(null);
   compositeTrail = new Array(HMAP_HISTORY).fill(null);
   warmupTrail = new Array(HMAP_HISTORY).fill(null);
+  emaSignalTrail = new Array(HMAP_HISTORY).fill(null);
   hmapData = new Uint8ClampedArray(HMAP_HISTORY * HMAP_LEVELS * 4);
   for (let i = 0; i < hmapData.length; i += 4) {
     hmapData[i] = 10;
@@ -928,6 +1029,10 @@ function cellShade(
 }
 
 function getCompositeSignal(goldGrid: Map<number, GoldBucketRow>): number | null {
+  // In candle/EMA mode, return the latest EMA signal from the trail
+  if (vizConfig?.display_mode === 'candle' && emaRuntime?.ready) {
+    return emaSignalTrail[HMAP_HISTORY - 1];
+  }
   if (!vizConfig) return null;
   const pbOverlay = vizConfig.overlays.find(o => o.type === 'projection_bands' && o.enabled);
   if (!pbOverlay) return null;
@@ -1153,6 +1258,9 @@ function pushHeatmapColumnFromGrid(
   if (goldRuntime !== null && goldGrid.size > 0) {
     compositeTrail[HMAP_HISTORY - 1] = getCompositeSignal(goldGrid);
     warmupTrail[HMAP_HISTORY - 1] = goldRuntime.ready ? 1 : 0;
+  } else if (emaRuntime !== null && vizConfig?.display_mode === 'candle') {
+    compositeTrail[HMAP_HISTORY - 1] = getCompositeSignal(new Map());
+    warmupTrail[HMAP_HISTORY - 1] = emaRuntime.ready ? 1 : 0;
   } else {
     compositeTrail[HMAP_HISTORY - 1] = null;
     warmupTrail[HMAP_HISTORY - 1] = null;
@@ -1997,7 +2105,108 @@ function renderCandleBase(canvas: HTMLCanvasElement): void {
     const bodyH = Math.max(1, Math.abs(yClose - yOpen));
     ctx.fillRect(x - barWidth / 2, bodyTop, barWidth, bodyH);
   }
+
+  // Render overlays on top of candles (EMA lines, projection bands, etc.)
+  renderOverlays(ctx, cw, ch, dataWidth);
 }
+
+/** EMA period index → color hue (longest = dim purple, shortest = bright lavender). */
+function _emaPeriodColor(periodIdx: number, totalPeriods: number, alpha: number): string {
+  const t = totalPeriods > 1 ? periodIdx / (totalPeriods - 1) : 0;
+  // Longest (t=0): dim purple; Shortest (t=1): bright lavender
+  const r = Math.round(100 + t * 100);
+  const g = Math.round(50 + t * 80);
+  const b = Math.round(180 + t * 60);
+  const a = (0.45 + t * 0.45) * alpha;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function renderEmaLines(ctx: CanvasRenderingContext2D, ch: number, dataWidth: number): void {
+  if (!emaRuntime || !anchorInitialized) return;
+  const periods = emaRuntime.allPeriods;
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
+  // Draw longest period first (underneath), shortest period last (on top)
+  for (let pi = 0; pi < periods.length; pi++) {
+    const period = periods[pi];
+    const trail = emaTrailMap.get(period);
+    if (!trail) continue;
+
+    ctx.strokeStyle = _emaPeriodColor(periods.length - 1 - pi, periods.length, 1.0);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let started = false;
+    for (let col = 0; col < HMAP_HISTORY; col++) {
+      const val = trail[col];
+      if (val === null) { started = false; continue; }
+      const x = colToX(col + 0.5);
+      if (x < -5 || x > dataWidth + 5) { started = false; continue; }
+      const y = rowToY(priceToRow(val));
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function renderSmaLines(ctx: CanvasRenderingContext2D, ch: number, dataWidth: number): void {
+  if (!emaRuntime || !anchorInitialized) return;
+  const smaPeriods = emaRuntime.allSmaPeriods;
+  const srcW = visibleCols();
+  const srcH = visibleRows();
+  const colToX = (col: number): number => ((col - vpX) / srcW) * dataWidth;
+  const rowToY = (row: number): number => ((row - vpY) / srcH) * ch;
+
+  for (let pi = 0; pi < smaPeriods.length; pi++) {
+    const period = smaPeriods[pi];
+    const trail = smaTrailMap.get(period);
+    if (!trail) continue;
+
+    ctx.strokeStyle = `rgba(255, 200, 80, ${0.35 + pi * 0.2})`;
+    ctx.lineWidth = 1.0;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    let started = false;
+    for (let col = 0; col < HMAP_HISTORY; col++) {
+      const val = trail[col];
+      if (val === null) { started = false; continue; }
+      const x = colToX(col + 0.5);
+      if (x < -5 || x > dataWidth + 5) { started = false; continue; }
+      const y = rowToY(priceToRow(val));
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+type OverlayRenderer = (
+  ctx: CanvasRenderingContext2D,
+  overlay: OverlaySpec,
+  cw: number,
+  ch: number,
+  dataWidth: number,
+  spotRow: number,
+) => void;
+
+const OVERLAY_RENDERERS = new Map<string, OverlayRenderer>([
+  ['spot_trail',       (ctx, _o, cw, ch, dw)          => renderSpotTrailOverlay(ctx, cw, ch, dw)],
+  ['bbo_trail',        (ctx, _o, cw, ch, dw)          => renderBBOTrailOverlay(ctx, cw, ch, dw)],
+  ['bbo_spread',       (ctx, _o, cw, ch, dw)          => renderBBOSpreadOverlay(ctx, cw, ch, dw)],
+  ['projection_bands', (ctx, overlay, cw, ch, dw, spotRow) => {
+    const _p = overlay.params as unknown as ProjectionBandsParams; void _p;
+    renderProjectionBands(ctx, spotRow, ch, dw, cw);
+  }],
+  ['ema_lines',  (ctx, overlay, _cw, ch, dw) => {
+    const _p = overlay.params as unknown as EmaLinesParams; void _p;
+    renderEmaLines(ctx, ch, dw);
+  }],
+  ['sma_lines',        (ctx, _o, _cw, ch, dw)         => renderSmaLines(ctx, ch, dw)],
+]);
 
 function renderOverlays(
   ctx: CanvasRenderingContext2D,
@@ -2011,26 +2220,15 @@ function renderOverlays(
     .sort((a, b) => a.z_order - b.z_order);
 
   const lastSpotRow = spotTrail[HMAP_HISTORY - 1];
+  const spotRow = lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS;
 
   for (const overlay of sorted) {
-    switch (overlay.type) {
-      case 'spot_trail':
-        renderSpotTrailOverlay(ctx, cw, ch, dataWidth);
-        break;
-      case 'bbo_trail':
-        renderBBOTrailOverlay(ctx, cw, ch, dataWidth);
-        break;
-      case 'bbo_spread':
-        renderBBOSpreadOverlay(ctx, cw, ch, dataWidth);
-        break;
-      case 'projection_bands':
-        renderProjectionBands(
-          ctx,
-          lastSpotRow !== null ? lastSpotRow : GRID_RADIUS_TICKS,
-          ch, dataWidth, cw,
-        );
-        break;
+    const renderer = OVERLAY_RENDERERS.get(overlay.type);
+    if (renderer == null) {
+      console.warn(`[stream] Unknown overlay type '${overlay.type}' — skipping`);
+      continue;
     }
+    renderer(ctx, overlay, cw, ch, dataWidth, spotRow);
   }
 }
 
@@ -2343,7 +2541,13 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
  * Apply a runtime config received from the server.
  * Updates the metadata display and hides the warning banner.
  */
-function applyRuntimeConfig(cfg: RuntimeConfig, goldCfg: GoldConfig, viz: VisualizationConfig): void {
+function applyRuntimeConfig(
+  cfg: RuntimeConfig,
+  goldCfg: GoldConfig,
+  viz: VisualizationConfig,
+  modelId: string = 'vacuum_pressure',
+  emaCfg: EmaConfig | null = null,
+): void {
   if (cfg.grid_radius_ticks < 1) {
     streamContractError(
       'runtime_config',
@@ -2365,6 +2569,23 @@ function applyRuntimeConfig(cfg: RuntimeConfig, goldCfg: GoldConfig, viz: Visual
   goldRuntime = hasVpGold ? new GoldFeatureRuntime(goldCfg, normalizedCfg.cell_width_ms) : null;
   currentGoldGrid = new Map();
 
+  // EMA ensemble initialization
+  currentModelId = modelId;
+  if (modelId === 'ema_ensemble' && emaCfg !== null) {
+    emaRuntime = new EmaEnsembleRuntime(emaCfg);
+    emaTrailMap.clear();
+    smaTrailMap.clear();
+    for (const p of emaCfg.periods) {
+      emaTrailMap.set(p, new Array(HMAP_HISTORY).fill(null));
+    }
+    for (const p of emaCfg.sma_periods) {
+      smaTrailMap.set(p, new Array(HMAP_HISTORY).fill(null));
+    }
+    emaSignalTrail = new Array(HMAP_HISTORY).fill(null);
+  } else {
+    emaRuntime = null;
+  }
+
   runtimeConfig = normalizedCfg;
   configReceived = true;
 
@@ -2379,7 +2600,7 @@ function applyRuntimeConfig(cfg: RuntimeConfig, goldCfg: GoldConfig, viz: Visual
   $warningBanner.style.display = 'none';
 
   console.log(
-    `[stream] Runtime config applied: product_type=${normalizedCfg.product_type} ` +
+    `[stream] Runtime config applied: model=${modelId} product_type=${normalizedCfg.product_type} ` +
     `symbol=${normalizedCfg.symbol} bucket=$${normalizedCfg.bucket_size_dollars} ` +
     `tick=$${normalizedCfg.tick_size} decimals=${normalizedCfg.price_decimals} ` +
     `multiplier=${normalizedCfg.contract_multiplier} version=${normalizedCfg.config_version}`
@@ -2462,6 +2683,12 @@ function resetStreamState(): void {
   lastRenderedEventIdByRow.clear();
   runningMaxSpectrum = 10;
   vizConfig = null;
+  currentModelId = 'vacuum_pressure';
+  emaRuntime?.reset();
+  emaRuntime = null;
+  emaTrailMap.clear();
+  smaTrailMap.clear();
+  for (let i = 0; i < emaSignalTrail.length; i++) emaSignalTrail[i] = null;
   prevMidPrice = 0;
   for (let i = 0; i < candleTrail.length; i++) candleTrail[i] = null;
   bestBidDollars = 0;
@@ -2618,6 +2845,16 @@ function connectWS(): void {
             };
             const vizRaw = requireObjectField('runtime_config', msg, 'visualization');
             const viz = parseVisualizationConfig('visualization', vizRaw);
+            const parsedModelId = optionalString(msg.model_id) ?? 'vacuum_pressure';
+            const emaCfgRaw = (msg.ema_config && typeof msg.ema_config === 'object')
+              ? msg.ema_config as Record<string, unknown>
+              : null;
+            const parsedEmaCfg: EmaConfig | null = emaCfgRaw ? {
+              periods: requireNumberArrayField('ema_config', emaCfgRaw, 'periods') as number[],
+              weights: requireNumberArrayField('ema_config', emaCfgRaw, 'weights') as number[],
+              sma_periods: requireNumberArrayField('ema_config', emaCfgRaw, 'sma_periods') as number[],
+              signal_tanh_scale: requireNumberField('ema_config', emaCfgRaw, 'signal_tanh_scale'),
+            } : null;
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -2634,7 +2871,7 @@ function connectWS(): void {
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
-            }, goldCfg, viz);
+            }, goldCfg, viz, parsedModelId, parsedEmaCfg);
             const cfgMode = optionalString(msg.mode);
             const cfgStage = optionalString(msg.deployment_stage);
             const cfgFormat = optionalString(msg.stream_format);
@@ -2699,56 +2936,86 @@ function connectWS(): void {
 
           const buffer = await event.data.arrayBuffer();
           const table = tableFromIPC(buffer);
-          const gridMap = new Map<number, GridBucketRow>();
-          for (let i = 0; i < table.numRows; i++) {
-            const row = table.get(i);
-            if (!row) continue;
-            const j = row.toJSON() as Record<string, unknown>;
-            const k = requireNumberField('grid', j, 'k');
-            const parsed: GridBucketRow = {
-              k,
-              // Mass fields
-              add_mass: requireNumberField('grid', j, 'add_mass'),
-              pull_mass: requireNumberField('grid', j, 'pull_mass'),
-              fill_mass: requireNumberField('grid', j, 'fill_mass'),
-              rest_depth: requireNumberField('grid', j, 'rest_depth'),
-              bid_depth: requireNumberField('grid', j, 'bid_depth'),
-              ask_depth: requireNumberField('grid', j, 'ask_depth'),
-              // Velocity
-              v_add: requireNumberField('grid', j, 'v_add'),
-              v_pull: requireNumberField('grid', j, 'v_pull'),
-              v_fill: requireNumberField('grid', j, 'v_fill'),
-              v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
-              v_bid_depth: requireNumberField('grid', j, 'v_bid_depth'),
-              v_ask_depth: requireNumberField('grid', j, 'v_ask_depth'),
-              // Acceleration
-              a_add: requireNumberField('grid', j, 'a_add'),
-              a_pull: requireNumberField('grid', j, 'a_pull'),
-              a_fill: requireNumberField('grid', j, 'a_fill'),
-              a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
-              a_bid_depth: requireNumberField('grid', j, 'a_bid_depth'),
-              a_ask_depth: requireNumberField('grid', j, 'a_ask_depth'),
-              // Jerk
-              j_add: requireNumberField('grid', j, 'j_add'),
-              j_pull: requireNumberField('grid', j, 'j_pull'),
-              j_fill: requireNumberField('grid', j, 'j_fill'),
-              j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
-              j_bid_depth: requireNumberField('grid', j, 'j_bid_depth'),
-              j_ask_depth: requireNumberField('grid', j, 'j_ask_depth'),
-              // BBO permutation labels
-              best_ask_move_ticks: requireNumberField('grid', j, 'best_ask_move_ticks'),
-              best_bid_move_ticks: requireNumberField('grid', j, 'best_bid_move_ticks'),
-              ask_reprice_sign: requireNumberField('grid', j, 'ask_reprice_sign'),
-              bid_reprice_sign: requireNumberField('grid', j, 'bid_reprice_sign'),
-              microstate_id: requireNumberField('grid', j, 'microstate_id'),
-              chase_up_flag: requireNumberField('grid', j, 'chase_up_flag'),
-              chase_down_flag: requireNumberField('grid', j, 'chase_down_flag'),
-              // Metadata
-              last_event_id: requireNumberField('grid', j, 'last_event_id'),
-            };
-            gridMap.set(k, parsed);
+          let gridMap: Map<number, GridBucketRow>;
+
+          if (currentModelId === 'ema_ensemble') {
+            // EMA model: 1-row frame with 4 fields only (k, fill_mass, rest_depth, last_event_id)
+            gridMap = new Map();
+            // (We don't need to populate gridMap for EMA candle rendering)
+          } else {
+            // VP model: full silver row parse
+            gridMap = new Map<number, GridBucketRow>();
+            for (let i = 0; i < table.numRows; i++) {
+              const row = table.get(i);
+              if (!row) continue;
+              const j = row.toJSON() as Record<string, unknown>;
+              const k = requireNumberField('grid', j, 'k');
+              const parsed: GridBucketRow = {
+                k,
+                // Mass fields
+                add_mass: requireNumberField('grid', j, 'add_mass'),
+                pull_mass: requireNumberField('grid', j, 'pull_mass'),
+                fill_mass: requireNumberField('grid', j, 'fill_mass'),
+                rest_depth: requireNumberField('grid', j, 'rest_depth'),
+                bid_depth: requireNumberField('grid', j, 'bid_depth'),
+                ask_depth: requireNumberField('grid', j, 'ask_depth'),
+                // Velocity
+                v_add: requireNumberField('grid', j, 'v_add'),
+                v_pull: requireNumberField('grid', j, 'v_pull'),
+                v_fill: requireNumberField('grid', j, 'v_fill'),
+                v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
+                v_bid_depth: requireNumberField('grid', j, 'v_bid_depth'),
+                v_ask_depth: requireNumberField('grid', j, 'v_ask_depth'),
+                // Acceleration
+                a_add: requireNumberField('grid', j, 'a_add'),
+                a_pull: requireNumberField('grid', j, 'a_pull'),
+                a_fill: requireNumberField('grid', j, 'a_fill'),
+                a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
+                a_bid_depth: requireNumberField('grid', j, 'a_bid_depth'),
+                a_ask_depth: requireNumberField('grid', j, 'a_ask_depth'),
+                // Jerk
+                j_add: requireNumberField('grid', j, 'j_add'),
+                j_pull: requireNumberField('grid', j, 'j_pull'),
+                j_fill: requireNumberField('grid', j, 'j_fill'),
+                j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
+                j_bid_depth: requireNumberField('grid', j, 'j_bid_depth'),
+                j_ask_depth: requireNumberField('grid', j, 'j_ask_depth'),
+                // BBO permutation labels
+                best_ask_move_ticks: requireNumberField('grid', j, 'best_ask_move_ticks'),
+                best_bid_move_ticks: requireNumberField('grid', j, 'best_bid_move_ticks'),
+                ask_reprice_sign: requireNumberField('grid', j, 'ask_reprice_sign'),
+                bid_reprice_sign: requireNumberField('grid', j, 'bid_reprice_sign'),
+                microstate_id: requireNumberField('grid', j, 'microstate_id'),
+                chase_up_flag: requireNumberField('grid', j, 'chase_up_flag'),
+                chase_down_flag: requireNumberField('grid', j, 'chase_down_flag'),
+                // Metadata
+                last_event_id: requireNumberField('grid', j, 'last_event_id'),
+              };
+              gridMap.set(k, parsed);
+            }
           }
+
           currentGrid = gridMap;
+
+          // EMA runtime update — must happen before pushHeatmapColumnFromGrid
+          // so getCompositeSignal() returns the current EMA signal.
+          if (emaRuntime !== null) {
+            emaRuntime.update(currentSpotDollars);
+            // Advance EMA trails
+            for (const [period, trail] of emaTrailMap) {
+              trail.shift();
+              trail.push(emaRuntime.getEma(period));
+            }
+            // Advance SMA trails
+            for (const [period, trail] of smaTrailMap) {
+              trail.shift();
+              trail.push(emaRuntime.getSma(period));
+            }
+            // Advance signal trail
+            emaSignalTrail.shift();
+            emaSignalTrail.push(emaRuntime.ready ? emaRuntime.signal : null);
+          }
+
           currentGoldGrid = goldRuntime ? goldRuntime.update(gridMap) : new Map();
           // Update candle trail
           const bar: CandleBar = {

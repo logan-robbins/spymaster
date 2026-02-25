@@ -110,7 +110,9 @@ kill $(lsof -t -iTCP:5174) 2>/dev/null
 nohup npm run dev > /tmp/qm_frontend.log 2>&1 &
 ```
 
-- Live heatmap: `http://localhost:5174/vp-stream.html?serving=<alias_or_id>`
+- Live stream: `http://localhost:5174/vp-stream.html?serving=<alias_or_id>`
+  - VP heatmap mode: `?serving=derivative_baseline`
+  - EMA candle mode: `?serving=ema_ensemble_baseline`
 - Experiment browser: `http://localhost:5174/experiments.html`
 
 ### Generate dataset
@@ -158,6 +160,16 @@ uv run python -m src.experiment_harness.cli promote <experiment_spec.yaml> --run
 ```
 
 Writes immutable PublishedServingSpec to `configs/serving_versions/` and updates `serving_registry.sqlite`.
+
+### Register a ServingSpec directly (no experiment run needed)
+
+```bash
+cd backend
+uv run scripts/register_serving.py <serving_spec_name>
+uv run scripts/register_serving.py <serving_spec_name> --alias <custom_alias>
+```
+
+Loads the named ServingSpec YAML from `configs/serving/`, resolves it against the pipeline config, and registers an immutable PublishedServingSpec. Use this for models like `ema_ensemble` that don't require experiment evaluation before serving.
 
 ### Stream with promoted config
 
@@ -222,9 +234,11 @@ Message sequence: (1) text `runtime_config` JSON once, (2) per bin: text `grid_u
 
 Wire contract defined in `backend/src/qmachina/stream_contract.py` -- `build_runtime_config_payload()`, `build_grid_update_payload()`, `grid_schema()`.
 
-`runtime_config` payload includes two top-level objects added in the configurable visualization layer:
+`runtime_config` payload includes model-specific top-level objects:
 - `gold_config` -- VP force coefficients c1..c7 and flow parameters (fixes train/serve parity)
 - `visualization` -- `VisualizationConfig` with `display_mode`, `cell_shader`, and `overlays` (configurable rendering)
+- `ema_config` -- (EMA model only) periods, weights, sma_periods, signal_tanh_scale for in-browser gold computation
+- `model_id` -- `"vacuum_pressure"` or `"ema_ensemble"`; controls frontend rendering mode and binary frame parsing
 
 ---
 
@@ -237,7 +251,7 @@ ExperimentSpec  ->  ServingSpec  ->  PipelineSpec
 
 Each layer references the one below by name. Config models:
 - `backend/src/qmachina/pipeline_config.py` -- PipelineSpec
-- `backend/src/qmachina/serving_config.py` -- ServingSpec (with `visualization: VisualizationConfig`), PublishedServingSpec, StreamFieldSpec, CellShaderConfig, OverlaySpec, VisualizationConfig
+- `backend/src/qmachina/serving_config.py` -- ServingSpec (with `visualization: VisualizationConfig`), PublishedServingSpec, StreamFieldSpec, CellShaderConfig, OverlaySpec, VisualizationConfig; public `DERIVATIVE_PARAM_KEYS`, `DERIVATIVE_WEIGHT_KEYS`
 - `backend/src/qmachina/experiment_config.py` -- ExperimentSpec
 - `backend/src/qmachina/config.py` -- RuntimeConfig, `resolve_config()`, `build_config_from_mapping()`, `build_config_with_overrides()`
 
@@ -291,8 +305,14 @@ Entry points that compose the system. Each imports branch/leaf modules -- read t
 backend/src/
   shared/                     # Reusable utilities (hashing, yaml_io, zscore, derivative_core)
   models/
+    registry.py               # Model registry: get_async_stream_events(model_id), get_build_model_config(model_id)
     vacuum_pressure/          # VP model: event engine, core pipeline, spectrum, scoring, runtime model, stream pipeline
+    ema_ensemble/             # EMA ensemble model: single-row bin emission, BBO tracking, no LOB grid
   qmachina/                   # Platform infrastructure: config, serving, stream contract, API routes, app
+    engine_factory.py         # create_absolute_tick_engine(config) — shared by all models
+    book_cache.py             # ensure_book_cache(...) — shared by all models
+    stream_time_utils.py      # compute_time_boundaries, resolve_tick_int — shared by all models
+    async_stream_wrapper.py   # make_async_stream_events(sync_fn), ProducerLatencyConfig — shared async wrapper
   experiment_harness/         # Offline experiment CLI, runner, eval engine, signals, dataset registry
   data_eng/                   # Bronze/Silver/Gold data engineering pipelines
 ```

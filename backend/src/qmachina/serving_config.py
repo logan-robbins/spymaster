@@ -26,7 +26,7 @@ from ..shared.yaml_io import load_yaml_mapping
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-_DERIVATIVE_PARAM_TO_RUNTIME_KEY: dict[str, str] = {
+DERIVATIVE_PARAM_KEYS: dict[str, str] = {
     "center_exclusion_radius": "state_model_center_exclusion_radius",
     "spatial_decay_power": "state_model_spatial_decay_power",
     "zscore_window_bins": "state_model_zscore_window_bins",
@@ -37,7 +37,7 @@ _DERIVATIVE_PARAM_TO_RUNTIME_KEY: dict[str, str] = {
     "d3_weight": "state_model_d3_weight",
 }
 
-_DERIVATIVE_WEIGHT_TO_RUNTIME_KEY: dict[str, str] = {
+DERIVATIVE_WEIGHT_KEYS: dict[str, str] = {
     "bull_pressure": "state_model_bull_pressure_weight",
     "bull_vacuum": "state_model_bull_vacuum_weight",
     "bear_pressure": "state_model_bear_pressure_weight",
@@ -158,6 +158,15 @@ class VisualizationConfig(BaseModel):
         )
 
 
+class EmaConfig(BaseModel):
+    """EMA/SMA ensemble model configuration — gold features computed in-browser."""
+
+    periods: list[int] = Field(default=[5, 10, 20, 50])
+    weights: list[float] = Field(default=[0.4, 0.3, 0.2, 0.1])
+    sma_periods: list[int] = Field(default=[10, 20])
+    signal_tanh_scale: float = 1.0
+
+
 class ServingSpec(BaseModel):
     """Complete serving configuration for the qMachina model serving layer.
 
@@ -168,10 +177,12 @@ class ServingSpec(BaseModel):
 
     name: str
     description: str = ""
+    model_id: str = "vacuum_pressure"
     pipeline: str
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     signal: SignalConfig | None = None
     projection: ProjectionConfig = Field(default_factory=ProjectionConfig)
+    ema_config: EmaConfig | None = None
     stream_schema: list[StreamFieldSpec] = Field(default_factory=list)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig.default_heatmap)
 
@@ -187,10 +198,23 @@ class ServingSpec(BaseModel):
         for f in v:
             if f.dtype not in _VALID_DTYPES:
                 raise ValueError(f"stream_schema field '{f.name}' has invalid dtype '{f.dtype}'. Must be one of {_VALID_DTYPES}")
+        _valid_roles = [r.value for r in StreamFieldRole]
+        for f in v:
+            if f.role is not None and f.role not in StreamFieldRole.__members__.values():
+                raise ValueError(
+                    f"stream_schema field '{f.name}' has invalid role '{f.role}'. "
+                    f"Valid roles: {_valid_roles}"
+                )
         if not any(f.name == "k" and f.dtype == "int32" and f.role == StreamFieldRole.GRID_INDEX for f in v):
-            raise ValueError("stream_schema must contain field 'k' with dtype='int32' and role=grid_index")
+            raise ValueError(
+                "stream_schema must contain field 'k' with dtype='int32' and role='grid_index'. "
+                f"Valid roles: {_valid_roles}"
+            )
         if not any(f.name == "last_event_id" and f.dtype == "int64" and f.role == StreamFieldRole.METADATA for f in v):
-            raise ValueError("stream_schema must contain field 'last_event_id' with dtype='int64' and role=metadata")
+            raise ValueError(
+                "stream_schema must contain field 'last_event_id' with dtype='int64' and role='metadata'. "
+                f"Valid roles: {_valid_roles}"
+            )
         for f in v:
             if f.role == StreamFieldRole.VELOCITY and f.dtype != "float64":
                 raise ValueError(f"VELOCITY field '{f.name}' must use dtype='float64'")
@@ -238,12 +262,16 @@ class ServingSpec(BaseModel):
         Unknown derivative params/weights fail fast.
         """
         runtime_fields: dict[str, Any] = {
-            "flow_derivative_weights": self.scoring.derivative_weights,
-            "flow_tanh_scale": self.scoring.tanh_scale,
-            "flow_neutral_threshold": self.scoring.neutral_threshold,
-            "flow_zscore_window_bins": self.scoring.zscore_window_bins,
-            "flow_zscore_min_periods": self.scoring.zscore_min_periods,
+            "model_id": self.model_id,
         }
+
+        # Scoring fields are vacuum_pressure-specific. Other models skip this block.
+        if self.model_id == "vacuum_pressure":
+            runtime_fields["flow_derivative_weights"] = self.scoring.derivative_weights
+            runtime_fields["flow_tanh_scale"] = self.scoring.tanh_scale
+            runtime_fields["flow_neutral_threshold"] = self.scoring.neutral_threshold
+            runtime_fields["flow_zscore_window_bins"] = self.scoring.zscore_window_bins
+            runtime_fields["flow_zscore_min_periods"] = self.scoring.zscore_min_periods
 
         if self.signal is not None:
             signal_name = self.signal.name.strip().lower()
@@ -257,26 +285,28 @@ class ServingSpec(BaseModel):
                 unknown_params = sorted(
                     key
                     for key in self.signal.params.keys()
-                    if key not in _DERIVATIVE_PARAM_TO_RUNTIME_KEY
+                    if key not in DERIVATIVE_PARAM_KEYS
                 )
                 if unknown_params:
                     raise ValueError(
-                        f"Unknown derivative signal params for runtime mapping: {unknown_params}"
+                        f"Unknown derivative signal params for runtime mapping: {unknown_params}. "
+                        f"Valid keys: {list(DERIVATIVE_PARAM_KEYS)}"
                     )
                 unknown_weights = sorted(
                     key
                     for key in self.signal.weights.keys()
-                    if key not in _DERIVATIVE_WEIGHT_TO_RUNTIME_KEY
+                    if key not in DERIVATIVE_WEIGHT_KEYS
                 )
                 if unknown_weights:
                     raise ValueError(
-                        f"Unknown derivative signal weights for runtime mapping: {unknown_weights}"
+                        f"Unknown derivative signal weights for runtime mapping: {unknown_weights}. "
+                        f"Valid keys: {list(DERIVATIVE_WEIGHT_KEYS)}"
                     )
 
-                for key, runtime_key in _DERIVATIVE_PARAM_TO_RUNTIME_KEY.items():
+                for key, runtime_key in DERIVATIVE_PARAM_KEYS.items():
                     if key in self.signal.params:
                         runtime_fields[runtime_key] = self.signal.params[key]
-                for key, runtime_key in _DERIVATIVE_WEIGHT_TO_RUNTIME_KEY.items():
+                for key, runtime_key in DERIVATIVE_WEIGHT_KEYS.items():
                     if key in self.signal.weights:
                         runtime_fields[runtime_key] = self.signal.weights[key]
 

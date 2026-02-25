@@ -13,8 +13,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from src.qmachina.config import RuntimeConfig
+from src.qmachina.async_stream_wrapper import ProducerLatencyConfig
 from src.models.vacuum_pressure.stream_pipeline import (
-    ProducerLatencyConfig,
     async_stream_events,
     stream_events,
 )

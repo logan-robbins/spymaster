@@ -51,11 +51,9 @@ def main() -> None:
     lake_root = backend_root / "lake"
 
     from src.qmachina.config import resolve_config
-    from src.models.vacuum_pressure.stream_pipeline import (
-        _compute_time_boundaries,
-        _create_engine,
-        ensure_book_cache,
-    )
+    from src.qmachina.stream_time_utils import compute_time_boundaries
+    from src.qmachina.engine_factory import create_absolute_tick_engine
+    from src.qmachina.book_cache import ensure_book_cache
 
     total_start = time.monotonic()
     logger.info(
@@ -65,7 +63,7 @@ def main() -> None:
 
     base_config = resolve_config(args.product_type, args.symbol)
 
-    warmup_start_ns, _emit_after_ns = _compute_time_boundaries(
+    warmup_start_ns, _emit_after_ns = compute_time_boundaries(
         args.product_type, args.dt, args.start_time,
     )
     if warmup_start_ns == 0:
@@ -73,7 +71,7 @@ def main() -> None:
             f"No warmup boundary for {args.symbol} (start_time={args.start_time})."
         )
 
-    engine = _create_engine(base_config)
+    engine = create_absolute_tick_engine(base_config)
 
     t_start = time.monotonic()
     cache_path = ensure_book_cache(

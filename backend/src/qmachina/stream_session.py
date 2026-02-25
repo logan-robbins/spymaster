@@ -18,9 +18,16 @@ from .stream_contract import (
     grid_schema,
     grid_to_arrow_ipc,
 )
-from ..models.vacuum_pressure.stream_pipeline import ProducerLatencyConfig, async_stream_events
+from .async_stream_wrapper import ProducerLatencyConfig
+from ..models.registry import get_async_stream_events, get_build_model_config
 
 logger = logging.getLogger(__name__)
+
+
+def _build_model_config(config: RuntimeConfig) -> dict:
+    """Build model_config payload for runtime_config wire message, dispatching by model_id."""
+    build_fn = get_build_model_config(config.model_id)
+    return build_fn(config)
 
 
 def _et_hhmm_to_utc_ns(dt: str, hhmm: str) -> int:
@@ -146,16 +153,16 @@ async def run_stream_session(
         )
 
     try:
-        from ..models.vacuum_pressure.stream_pipeline import build_model_config
         runtime_config_payload = build_runtime_config_payload(
             config,
             schema,
             fields=session.fields,
-            model_config=build_model_config(config),
+            model_config=_build_model_config(config),
             resolved_serving=resolved_serving,
         )
         await websocket.send_text(json.dumps(runtime_config_payload))
 
+        async_stream_events = get_async_stream_events(config.model_id)
         async for grid in async_stream_events(
             lake_root=lake_root,
             config=config,

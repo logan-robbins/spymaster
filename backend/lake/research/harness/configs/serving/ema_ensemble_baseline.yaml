@@ -1,0 +1,47 @@
+name: ema_ensemble_baseline
+model_id: ema_ensemble
+pipeline: mnq_60m_baseline
+
+ema_config:
+  periods: [5, 10, 20, 50]
+  weights: [0.40, 0.30, 0.20, 0.10]
+  sma_periods: [10, 20]
+  signal_tanh_scale: 1.5
+
+projection:
+  horizons_ms: [100, 200, 400, 800]
+  use_cubic: false
+  damping_lambda: 0.0
+
+stream_schema:
+  - { name: k,             dtype: int32,   role: grid_index }
+  - { name: fill_mass,     dtype: float64, role: force }
+  - { name: rest_depth,    dtype: float64, role: force }
+  - { name: last_event_id, dtype: int64,   role: metadata }
+
+visualization:
+  display_mode: candle
+  overlays:
+    - id: spot_trail
+      type: spot_trail
+      z_order: 10
+      enabled: true
+      params: {}
+    - id: bbo_spread
+      type: bbo_spread
+      z_order: 15
+      enabled: true
+      params: {}
+    - id: ema_lines
+      type: ema_lines
+      z_order: 20
+      enabled: true
+      params:
+        line_width: 1.5
+    - id: projection_bands
+      type: projection_bands
+      z_order: 30
+      enabled: true
+      params:
+        signal_field: ema_signal
+        composite_scale: 6.0
