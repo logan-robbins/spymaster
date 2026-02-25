@@ -110,11 +110,26 @@ def build_runtime_config_payload(
     gold_cfg = GoldFeatureConfig.from_runtime_config(config)
     payload["gold_config"] = gold_cfg.model_dump()
 
-    # Visualization config — enables configurable rendering
-    if resolved_serving is not None and hasattr(resolved_serving.spec, "visualization"):
-        payload["visualization"] = resolved_serving.spec.visualization.model_dump()
-    else:
-        payload["visualization"] = VisualizationConfig.default_heatmap().model_dump()
+    # EMA ensemble config and visualization — prefer runtime_snapshot dict (registered serving);
+    # fall back to direct attribute access for test mocks.
+    ema_config_raw = None
+    viz_raw = None
+    if resolved_serving is not None:
+        snapshot = resolved_serving.spec.runtime_snapshot
+        if isinstance(snapshot, dict):
+            ema_config_raw = snapshot.get("ema_config")
+            viz_raw = snapshot.get("visualization")
+        if viz_raw is None:
+            viz_attr = getattr(resolved_serving.spec, "visualization", None)
+            if viz_attr is not None:
+                viz_raw = viz_attr.model_dump()
+        if ema_config_raw is None:
+            ema_attr = getattr(resolved_serving.spec, "ema_config", None)
+            if ema_attr is not None:
+                ema_config_raw = ema_attr.model_dump()
+
+    payload["ema_config"] = ema_config_raw
+    payload["visualization"] = viz_raw if viz_raw is not None else VisualizationConfig.default_heatmap().model_dump()
 
     return payload
 

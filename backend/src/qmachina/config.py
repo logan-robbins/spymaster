@@ -142,6 +142,7 @@ class RuntimeConfig:
     state_model_bear_pressure_weight: float = DEFAULT_STATE_MODEL_BEAR_PRESSURE_WEIGHT
     state_model_bear_vacuum_weight: float = DEFAULT_STATE_MODEL_BEAR_VACUUM_WEIGHT
     state_model_mixed_weight: float = DEFAULT_STATE_MODEL_MIXED_WEIGHT
+    model_id: str = "vacuum_pressure"
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict for wire protocol."""
@@ -192,6 +193,7 @@ class RuntimeConfig:
             "state_model_bear_pressure_weight": self.state_model_bear_pressure_weight,
             "state_model_bear_vacuum_weight": self.state_model_bear_vacuum_weight,
             "state_model_mixed_weight": self.state_model_mixed_weight,
+            "model_id": self.model_id,
             "config_version": self.config_version,
         }
 
@@ -355,6 +357,7 @@ def _normalize_runtime_fields(raw: Mapping[str, Any], *, source: str) -> Dict[st
             )
         ),
         "state_model_mixed_weight": float(raw.get("state_model_mixed_weight", DEFAULT_STATE_MODEL_MIXED_WEIGHT)),
+        "model_id": str(raw.get("model_id", "vacuum_pressure")),
     }
 
     if fields["product_type"] not in VALID_PRODUCT_TYPES:

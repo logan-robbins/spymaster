@@ -4,6 +4,14 @@ qMachina research platform. Replays Databento MBO .dbn files through an order-bo
 
 ---
 
+## Implementation Roadmap
+
+Comprehensive execution plan and AI-agent task breakdown:
+
+- `IMPLEMENT.md` (root)
+
+---
+
 ## System Diagrams
 
 ```
