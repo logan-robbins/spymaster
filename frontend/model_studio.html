@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>qMachina Model Studio</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      color: #ccc;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* -- Top bar -- */
+    #top-bar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: rgba(15, 15, 25, 0.95);
+      border-bottom: 1px solid rgba(100, 100, 150, 0.25);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    #top-bar .title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #00ffaa;
+      white-space: nowrap;
+    }
+    #top-bar .session-id {
+      color: #666;
+      font-size: 9px;
+      margin-left: 12px;
+    }
+    #status-text {
+      margin-left: auto;
+      color: #888;
+      font-size: 10px;
+    }
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toggle-group label {
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 36px;
+      height: 18px;
+      background: #1a1a24;
+      border: 1px solid rgba(100, 100, 150, 0.3);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-switch.active {
+      background: rgba(0, 255, 170, 0.3);
+      border-color: #00ffaa;
+    }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      background: #666;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-switch.active::after {
+      transform: translateX(18px);
+      background: #00ffaa;
+    }
+
+    /* -- Main layout -- */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* -- Sidebar stepper -- */
+    #sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: rgba(12, 12, 20, 0.95);
+      border-right: 1px solid rgba(100, 100, 150, 0.25);
+      padding: 16px 0;
+      overflow-y: auto;
+    }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: background 0.1s;
+      font-size: 11px;
+      border-left: 3px solid transparent;
+    }
+    .step-item:hover {
+      background: rgba(0, 255, 170, 0.05);
+    }
+    .step-item.active {
+      background: rgba(0, 255, 170, 0.1);
+      border-left-color: #00ffaa;
+    }
+    .step-item.locked {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .step-icon {
+      width: 20px;
+      text-align: center;
+      font-size: 12px;
+    }
+    .step-icon.pending { color: #555; }
+    .step-icon.active { color: #00ffaa; }
+    .step-icon.committed { color: #00cc88; }
+    .step-icon.locked { color: #333; }
+    .step-label { color: #ccc; }
+    .step-item.locked .step-label { color: #555; }
+
+    /* -- Content panel -- */
+    #content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #00ffaa;
+      margin-bottom: 16px;
+    }
+
+    /* -- Form elements -- */
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      background: #1a1a24;
+      color: #ccc;
+      border: 1px solid rgba(100, 100, 150, 0.3);
+      border-radius: 3px;
+      padding: 6px 10px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+      width: 100%;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      border-color: #00ffaa;
+    }
+    .form-group textarea {
+      min-height: 200px;
+      resize: vertical;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .form-row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* -- Buttons -- */
+    .btn {
+      display: inline-block;
+      padding: 8px 20px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 12px;
+      margin-right: 8px;
+    }
+    .btn-primary {
+      background: #00cc88;
+      color: #000;
+    }
+    .btn-primary:hover { background: #00ffaa; }
+    .btn-primary:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #2a2a34;
+      color: #aaa;
+      border: 1px solid rgba(100, 100, 150, 0.3);
+    }
+    .btn-secondary:hover { background: #3a3a44; }
+    .btn-danger {
+      background: #cc3333;
+      color: #fff;
+    }
+    .btn-danger:hover { background: #ff4444; }
+
+    /* -- Summary cards -- */
+    .summary-card {
+      background: #12121c;
+      border: 1px solid rgba(100, 100, 150, 0.2);
+      border-radius: 4px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+    }
+    .summary-card h4 {
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .summary-kv {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 2px 12px;
+      font-size: 11px;
+    }
+    .summary-kv .key { color: #888; }
+    .summary-kv .val { color: #ddd; }
+
+    /* -- Validation errors -- */
+    .validation-errors {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: rgba(255, 50, 50, 0.1);
+      border: 1px solid rgba(255, 50, 50, 0.3);
+      border-radius: 3px;
+      font-size: 10px;
+      color: #ff6666;
+      white-space: pre-wrap;
+    }
+
+    /* -- Preview stats -- */
+    .preview-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .stat-box {
+      background: #12121c;
+      border: 1px solid rgba(100, 100, 150, 0.2);
+      border-radius: 4px;
+      padding: 10px 14px;
+      text-align: center;
+    }
+    .stat-box .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #00ffaa;
+    }
+    .stat-box .stat-label {
+      font-size: 9px;
+      color: #888;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    /* -- YAML editor -- */
+    .yaml-editor textarea {
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      tab-size: 2;
+    }
+
+    /* -- Empty state -- */
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: #555;
+      font-size: 12px;
+    }
+
+    /* -- Experiment log -- */
+    .exp-log {
+      background: #0a0a0f;
+      border: 1px solid rgba(100, 100, 150, 0.2);
+      border-radius: 3px;
+      height: 200px;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-size: 9px;
+      color: #888;
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      margin-top: 8px;
+    }
+    .log-line { padding: 1px 0; line-height: 1.4; }
+    .log-line:last-child { color: #00ffaa; }
+
+    /* -- Sensitivity table -- */
+    .sens-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 10px;
+    }
+    .sens-table th {
+      color: #888;
+      font-weight: normal;
+      text-align: left;
+      padding: 4px 8px;
+    }
+    .sens-table td {
+      color: #ccc;
+      padding: 3px 8px;
+      border-top: 1px solid rgba(100, 100, 150, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="top-bar">
+      <span class="title">qMACHINA MODEL STUDIO</span>
+      <span id="session-info" class="session-id"></span>
+      <div class="toggle-group">
+        <label>Manual Mode</label>
+        <div id="manual-toggle" class="toggle-switch"></div>
+      </div>
+      <span id="status-text">Initializing...</span>
+    </div>
+
+    <div id="main">
+      <div id="sidebar"></div>
+      <div id="content">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/model_studio.ts"></script>
+</body>
+</html>

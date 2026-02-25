@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .serving_config import PublishedServingSpec
+from .serving_config import PublishedServingSpec, ServingSpec
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,61 @@ class ResolvedServing:
     serving_id: str
     alias: str | None
     spec: PublishedServingSpec
+
+
+def validate_serving_spec_preflight(spec: ServingSpec) -> None:
+    """Validate a ServingSpec before promotion or registration.
+
+    Runs the full Pydantic model validation by round-tripping through
+    model_dump/model_validate. This catches schema violations that would
+    otherwise only surface at stream-time.
+
+    Args:
+        spec: The ServingSpec to validate.
+
+    Raises:
+        ValueError: If validation fails, with a descriptive message
+            including the spec name and the underlying error.
+    """
+    try:
+        data = spec.model_dump(mode="json")
+        ServingSpec.model_validate(data)
+    except Exception as exc:
+        raise ValueError(
+            f"Serving spec '{spec.name}' failed preflight validation: {exc}"
+        ) from exc
+
+
+def _validate_published_spec_preflight(spec: PublishedServingSpec) -> None:
+    """Validate stream_schema roles in a PublishedServingSpec runtime snapshot.
+
+    Checks that any stream_schema entries in the runtime_snapshot use valid
+    StreamFieldRole enum values. This prevents invalid roles from being
+    persisted into the immutable serving registry.
+
+    Args:
+        spec: The PublishedServingSpec to validate.
+
+    Raises:
+        ValueError: If any stream_schema role is not a valid StreamFieldRole.
+    """
+    from .serving_config import StreamFieldRole
+
+    snapshot: dict = spec.runtime_snapshot
+    schema_entries: list[dict] | None = snapshot.get("stream_schema")
+    if not schema_entries:
+        return
+
+    valid_roles: set[str | None] = {r.value for r in StreamFieldRole} | {None}
+
+    for entry in schema_entries:
+        role: str | None = entry.get("role")
+        if role not in valid_roles:
+            raise ValueError(
+                f"Published spec '{spec.serving_id}' has stream_schema field "
+                f"'{entry.get('name', '?')}' with invalid role '{role}'. "
+                f"Valid roles: {sorted(r.value for r in StreamFieldRole)}"
+            )
 
 
 class ServingRegistry:
@@ -86,6 +141,9 @@ class ServingRegistry:
         """
         alias = _validate_name(alias, kind="alias")
         serving_id = _validate_name(spec.serving_id, kind="serving_id")
+
+        # Preflight: validate stream_schema roles before any DB writes.
+        _validate_published_spec_preflight(spec)
 
         with self._connect() as conn:
             existing = conn.execute(

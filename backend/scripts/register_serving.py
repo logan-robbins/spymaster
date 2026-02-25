@@ -47,9 +47,12 @@ def main() -> None:
         PublishedServingSpec,
         ServingSpec,
     )
-    from src.qmachina.serving_registry import ServingRegistry
+    from src.qmachina.serving_registry import ServingRegistry, validate_serving_spec_preflight
 
     spec = ServingSpec.load_by_name(args.name.strip(), lake_root)
+
+    # Preflight validation: fail fast before any pipeline resolution or DB writes.
+    validate_serving_spec_preflight(spec)
     pipeline_spec = spec.resolve_pipeline(lake_root)
     runtime_base = pipeline_spec.resolve_runtime_config()
     serving_runtime_fields = spec.to_runtime_fields(cell_width_ms=runtime_base.cell_width_ms)

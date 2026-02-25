@@ -185,6 +185,8 @@ class ServingSpec(BaseModel):
     ema_config: EmaConfig | None = None
     stream_schema: list[StreamFieldSpec] = Field(default_factory=list)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig.default_heatmap)
+    gold_dsl_spec_id: str | None = None
+    gold_dsl_hash: str | None = None
 
     @field_validator("stream_schema")
     @classmethod

@@ -131,6 +131,25 @@ def build_runtime_config_payload(
     payload["ema_config"] = ema_config_raw
     payload["visualization"] = viz_raw if viz_raw is not None else VisualizationConfig.default_heatmap().model_dump()
 
+    # Gold DSL lineage fields (optional, present when serving spec has DSL binding)
+    gold_dsl_spec_id = None
+    gold_dsl_hash = None
+    if resolved_serving is not None:
+        snapshot = resolved_serving.spec.runtime_snapshot
+        if isinstance(snapshot, dict):
+            gold_dsl_spec_id = snapshot.get("gold_dsl_spec_id")
+            gold_dsl_hash = snapshot.get("gold_dsl_hash")
+        # Fall back to direct attribute access for ServingSpec (non-published)
+        if gold_dsl_spec_id is None:
+            gold_dsl_spec_id = getattr(resolved_serving.spec, "gold_dsl_spec_id", None)
+        if gold_dsl_hash is None:
+            gold_dsl_hash = getattr(resolved_serving.spec, "gold_dsl_hash", None)
+
+    if gold_dsl_spec_id is not None:
+        payload["gold_dsl_spec_id"] = gold_dsl_spec_id
+    if gold_dsl_hash is not None:
+        payload["gold_dsl_hash"] = gold_dsl_hash
+
     return payload
 
 

@@ -186,6 +186,10 @@ class ExperimentSpec(BaseModel):
         default_factory=ExperimentTrackingConfig
     )
     feature_store: FeatureStoreConfig = Field(default_factory=FeatureStoreConfig)
+    inline_datasets: list[str] | None = Field(
+        default=None,
+        description="Direct dataset IDs; bypasses PipelineSpec resolution. Used by wizard synthesis.",
+    )
 
     @field_validator("name")
     @classmethod
@@ -242,7 +246,12 @@ class ExperimentSpec(BaseModel):
             ``experiment_harness.config_schema``.
         """
         serving_spec = self.resolve_serving(lake_root)
-        pipeline_spec = serving_spec.resolve_pipeline(lake_root)
+
+        if self.inline_datasets is not None:
+            dataset_ids = self.inline_datasets
+        else:
+            pipeline_spec = serving_spec.resolve_pipeline(lake_root)
+            dataset_ids = [pipeline_spec.dataset_id()]
 
         signal_names: list[str] = (
             [serving_spec.signal.name]
@@ -253,7 +262,7 @@ class ExperimentSpec(BaseModel):
         return {
             "name": self.name,
             "description": self.description,
-            "datasets": [pipeline_spec.dataset_id()],
+            "datasets": dataset_ids,
             "signals": signal_names,
             "eval": {
                 "tp_ticks": self.eval.tp_ticks,

@@ -41,18 +41,26 @@ dependencies = [
     "wandb>=0.23.1",
     "websockets>=15.0.1",
     "xgboost>=3.2.0",
+    "asyncpg>=0.31.0",
+    "sqlalchemy[asyncio]>=2.0.45",
+    "alembic>=1.17.2",
+    "greenlet>=3.3.0",
+    "redis>=7.2.0",
+    "sse-starlette>=3.2.0",
 ]
 
 [tool.uv]
 environments = ["sys_platform == 'darwin' and python_version >= '3.12'"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 markers = [
     "real_data: requires real .dbn files in lake (may be slow)",
 ]
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.22.1",
     "delta-spark>=4.0.1",
     "maturin>=1.7",
     "pyspark>=4.1.1",

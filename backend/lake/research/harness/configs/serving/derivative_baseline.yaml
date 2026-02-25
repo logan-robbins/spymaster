@@ -29,37 +29,37 @@ projection:
   damping_lambda: 0.0
 
 stream_schema:
-  - { name: k, dtype: int32, role: index }
-  - { name: pressure_variant, dtype: float64, role: feature }
-  - { name: vacuum_variant, dtype: float64, role: feature }
-  - { name: add_mass, dtype: float64, role: feature }
-  - { name: pull_mass, dtype: float64, role: feature }
-  - { name: fill_mass, dtype: float64, role: feature }
-  - { name: rest_depth, dtype: float64, role: feature }
-  - { name: bid_depth, dtype: float64, role: feature }
-  - { name: ask_depth, dtype: float64, role: feature }
-  - { name: v_add, dtype: float64, role: feature }
-  - { name: v_pull, dtype: float64, role: feature }
-  - { name: v_fill, dtype: float64, role: feature }
-  - { name: v_rest_depth, dtype: float64, role: feature }
-  - { name: v_bid_depth, dtype: float64, role: feature }
-  - { name: v_ask_depth, dtype: float64, role: feature }
-  - { name: a_add, dtype: float64, role: feature }
-  - { name: a_pull, dtype: float64, role: feature }
-  - { name: a_fill, dtype: float64, role: feature }
-  - { name: a_rest_depth, dtype: float64, role: feature }
-  - { name: a_bid_depth, dtype: float64, role: feature }
-  - { name: a_ask_depth, dtype: float64, role: feature }
-  - { name: j_add, dtype: float64, role: feature }
-  - { name: j_pull, dtype: float64, role: feature }
-  - { name: j_fill, dtype: float64, role: feature }
-  - { name: j_rest_depth, dtype: float64, role: feature }
-  - { name: j_bid_depth, dtype: float64, role: feature }
-  - { name: j_ask_depth, dtype: float64, role: feature }
-  - { name: composite, dtype: float64, role: score }
-  - { name: composite_d1, dtype: float64, role: score }
-  - { name: composite_d2, dtype: float64, role: score }
-  - { name: composite_d3, dtype: float64, role: score }
+  - { name: k, dtype: int32, role: grid_index }
+  - { name: pressure_variant, dtype: float64, role: force }
+  - { name: vacuum_variant, dtype: float64, role: force }
+  - { name: add_mass, dtype: float64, role: force }
+  - { name: pull_mass, dtype: float64, role: force }
+  - { name: fill_mass, dtype: float64, role: force }
+  - { name: rest_depth, dtype: float64, role: force }
+  - { name: bid_depth, dtype: float64, role: force }
+  - { name: ask_depth, dtype: float64, role: force }
+  - { name: v_add, dtype: float64, role: velocity }
+  - { name: v_pull, dtype: float64, role: velocity }
+  - { name: v_fill, dtype: float64, role: velocity }
+  - { name: v_rest_depth, dtype: float64, role: velocity }
+  - { name: v_bid_depth, dtype: float64, role: velocity }
+  - { name: v_ask_depth, dtype: float64, role: velocity }
+  - { name: a_add, dtype: float64, role: acceleration }
+  - { name: a_pull, dtype: float64, role: acceleration }
+  - { name: a_fill, dtype: float64, role: acceleration }
+  - { name: a_rest_depth, dtype: float64, role: acceleration }
+  - { name: a_bid_depth, dtype: float64, role: acceleration }
+  - { name: a_ask_depth, dtype: float64, role: acceleration }
+  - { name: j_add, dtype: float64, role: jerk }
+  - { name: j_pull, dtype: float64, role: jerk }
+  - { name: j_fill, dtype: float64, role: jerk }
+  - { name: j_rest_depth, dtype: float64, role: jerk }
+  - { name: j_bid_depth, dtype: float64, role: jerk }
+  - { name: j_ask_depth, dtype: float64, role: jerk }
+  - { name: composite, dtype: float64, role: signal }
+  - { name: composite_d1, dtype: float64, role: signal }
+  - { name: composite_d2, dtype: float64, role: signal }
+  - { name: composite_d3, dtype: float64, role: signal }
   - { name: best_ask_move_ticks, dtype: int32, role: metadata }
   - { name: best_bid_move_ticks, dtype: int32, role: metadata }
   - { name: ask_reprice_sign, dtype: int8, role: metadata }

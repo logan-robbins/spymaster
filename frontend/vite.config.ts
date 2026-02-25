@@ -9,6 +9,9 @@ export default defineConfig({
       input: {
         'vp-stream': 'vp-stream.html',
         'experiments': 'experiments.html',
+        'jobs': 'jobs.html',
+        'model_studio': 'model_studio.html',
+        'serving_registry': 'serving_registry.html',
       },
     },
   },
