@@ -209,6 +209,7 @@ backend/src/
 | `backend/src/experiment_harness/cli.py` | Click CLI (generate / run / promote / compare) |
 | `backend/src/experiment_harness/runner.py` | ExperimentRunner — compute core, never modified by orchestration layer |
 | `backend/scripts/register_serving.py` | Register ServingSpec directly (no experiment run) |
+| `backend/scripts/validate_e2e.py` | Full offline E2E pipeline validator (config → dataset → gold → experiment → serving) |
 | `backend/scripts/analyze_signals.py` | Offline regime analysis |
 | `backend/scripts/warm_cache.py` | Pre-build book state pkl cache |
 | `backend/scripts/batch_download_futures.py` | Databento 3-phase batch download daemon |

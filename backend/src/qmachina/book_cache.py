@@ -20,7 +20,7 @@ def _resolve_book_cache_path(
     from qm_engine import resolve_dbn_path as _resolve_dbn_path
 
     try:
-        dbn_path = _resolve_dbn_path(lake_root, product_type, symbol, dt)
+        dbn_path = Path(_resolve_dbn_path(str(lake_root), product_type, symbol, dt))
     except FileNotFoundError:
         return None
 
@@ -69,7 +69,7 @@ def ensure_book_cache(
         return cache_path
 
     book_only_count = 0
-    for event in iter_mbo_events(lake_root, product_type, symbol, dt):
+    for event in iter_mbo_events(str(lake_root), product_type, symbol, dt):
         ts_ns, action, side, price, size, order_id, flags = event
 
         if ts_ns >= warmup_start_ns:
@@ -96,7 +96,7 @@ def ensure_book_cache(
             )
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_bytes(engine.export_book_state())
+    cache_path.write_bytes(bytes(engine.export_book_state()))
     engine.reanchor_to_bbo()
     engine.sync_rest_depth_from_book()
 

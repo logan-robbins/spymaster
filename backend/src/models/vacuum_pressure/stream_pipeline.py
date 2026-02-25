@@ -231,7 +231,7 @@ def stream_events(
         cache_loaded = cache_path is not None
 
     for event in iter_mbo_events(
-        lake_root,
+        str(lake_root),
         config.product_type,
         config.symbol,
         dt,

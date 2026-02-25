@@ -24,7 +24,7 @@ signal:
     bear_vacuum: 1.0
 
 projection:
-  horizons_ms: [250, 500, 1000, 2500]
+  horizons_ms: [200, 500, 1000, 2500]
   use_cubic: false
   damping_lambda: 0.0
 
