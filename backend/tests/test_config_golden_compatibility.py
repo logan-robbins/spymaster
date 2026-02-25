@@ -83,14 +83,27 @@ def test_derivative_baseline_stream_roles_are_valid(serving_dir: Path) -> None:
 
 
 def test_ema_ensemble_baseline_parses(serving_dir: Path) -> None:
-    """ema_ensemble_baseline.yaml must load as a valid ServingSpec."""
+    """ema_ensemble_baseline.yaml must load as a valid ServingSpec.
+
+    EMA parameters are now declared in the ema_lines overlay params,
+    not as a top-level ema_config field.
+    """
     from src.qmachina.serving_config import ServingSpec
 
     spec = ServingSpec.from_yaml(serving_dir / "ema_ensemble_baseline.yaml")
     assert spec.name == "ema_ensemble_baseline"
     assert spec.model_id == "ema_ensemble"
-    assert spec.ema_config is not None
     assert len(spec.stream_schema) == 4
+    # EMA params live in the ema_lines overlay
+    ema_overlay = next(
+        (o for o in spec.visualization.overlays if o.type == "ema_lines" and o.enabled),
+        None,
+    )
+    assert ema_overlay is not None, "ema_lines overlay must be present and enabled"
+    assert "periods" in ema_overlay.params
+    assert "weights" in ema_overlay.params
+    assert "sma_periods" in ema_overlay.params
+    assert "signal_tanh_scale" in ema_overlay.params
 
 
 # ---------------------------------------------------------------------------

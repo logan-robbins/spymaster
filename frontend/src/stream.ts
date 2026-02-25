@@ -129,6 +129,7 @@ interface CellShaderConfig {
 interface OverlaySpec {
   id: string;
   type: string;
+  label: string;
   enabled: boolean;
   z_order: number;
   params: Record<string, unknown>;
@@ -162,7 +163,7 @@ interface ModelRuntime {
 interface ProjectionBandsParams { signal_field: string; composite_scale?: number; }
 interface EmaLinesParams { line_width?: number; }
 
-// ------------------------------------------------- EmaEnsembleRuntime
+// ------------------------------------------------- EmaLinesRuntime
 
 /**
  * In-browser EMA/SMA ensemble computation.
@@ -170,7 +171,7 @@ interface EmaLinesParams { line_width?: number; }
  * SMA: circular buffer mean per period.
  * Signal: tanh(weighted crossover blend) ∈ [-1, 1].
  */
-class EmaEnsembleRuntime implements ModelRuntime {
+class EmaLinesRuntime implements ModelRuntime {
   private readonly periods: number[];
   private readonly weights: number[];
   private readonly smaPeriods: number[];
@@ -586,12 +587,14 @@ const lastRenderedEventIdByRow: Map<number, number> = new Map();
 /** Running max for |flow_score| adaptive normalization. */
 let runningMaxSpectrum = 10;
 let vizConfig: VisualizationConfig | null = null;
+/** Schema field names received from runtime_config — drives generic grid parsing. */
+let gridSchemaFieldNames: string[] = [];
 let candleTrail: (CandleBar | null)[] = new Array(HMAP_HISTORY).fill(null);
 let prevMidPrice = 0;
 
-// EMA ensemble model state
-let currentModelId = 'vacuum_pressure';
-let emaRuntime: EmaEnsembleRuntime | null = null;
+// ema_lines overlay runtime state
+let emaRuntime: EmaLinesRuntime | null = null;
+let emaLinesLabel: string = '';  // populated from overlay.label on config receipt
 // Per-period EMA/SMA trail ring buffers (initialized when emaRuntime is set)
 let emaTrailMap = new Map<number, (number | null)[]>();
 let smaTrailMap = new Map<number, (number | null)[]>();
@@ -957,6 +960,7 @@ function parseVisualizationConfig(
     return {
       id: requireStringField(`${surface}.overlays[${i}]`, ov, 'id'),
       type: requireStringField(`${surface}.overlays[${i}]`, ov, 'type'),
+      label: typeof ov.label === 'string' ? ov.label : '',
       enabled: typeof ov.enabled === 'boolean' ? ov.enabled : true,
       z_order: typeof ov.z_order === 'number' ? ov.z_order : 0,
       params: (typeof ov.params === 'object' && ov.params !== null && !Array.isArray(ov.params))
@@ -966,6 +970,15 @@ function parseVisualizationConfig(
   });
 
   return { display_mode: displayMode, cell_shader: cellShader, overlays };
+}
+
+function parseEmaConfigFromOverlay(surface: string, params: Record<string, unknown>): EmaConfig {
+  return {
+    periods: requireNumberArrayField(surface, params, 'periods') as number[],
+    weights: requireNumberArrayField(surface, params, 'weights') as number[],
+    sma_periods: requireNumberArrayField(surface, params, 'sma_periods') as number[],
+    signal_tanh_scale: requireNumberField(surface, params, 'signal_tanh_scale'),
+  };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -1073,15 +1086,16 @@ function cellShade(
 }
 
 function getCompositeSignal(goldGrid: Map<number, GoldBucketRow>): number | null {
-  // In candle/EMA mode, return the latest EMA signal from the trail
-  if (vizConfig?.display_mode === 'candle' && emaRuntime?.ready) {
-    return emaSignalTrail[HMAP_HISTORY - 1];
-  }
   if (!vizConfig) return null;
   const pbOverlay = vizConfig.overlays.find(o => o.type === 'projection_bands' && o.enabled);
   if (!pbOverlay) return null;
   const sf = pbOverlay.params.signal_field as string | undefined;
   if (!sf) return null;
+  // ema_signal is a pseudo-field: use EMA runtime's computed signal trail
+  if (sf === 'ema_signal' && emaRuntime?.ready) {
+    return emaSignalTrail[HMAP_HISTORY - 1];
+  }
+  // All other signal fields: look up in goldGrid (e.g. flow_score from VP)
   const row = goldGrid.get(0) as Record<string, number> | undefined;
   return row?.[sf] ?? null;
 }
@@ -1158,6 +1172,39 @@ function shiftGrid(shiftRows: number): void {
 
   vpY += shiftRows;
   clampViewport();
+}
+
+// ------------------------------------------ Schema-driven grid row parsing
+
+/**
+ * Parse a grid row from an Arrow IPC record using only the fields declared in
+ * the serving config's stream_schema.  Fields absent from the schema default to
+ * 0 so GoldFeatureRuntime still functions when only a subset of silver fields
+ * are emitted (e.g. EMA ensemble emits 4 fields; VP emits the full silver set).
+ */
+function parseGridRowFromSchema(
+  j: Record<string, unknown>,
+  schema: string[],
+): GridBucketRow {
+  const has = (name: string): boolean => schema.includes(name);
+  const get = (name: string): number =>
+    has(name) ? requireNumberField('grid', j, name) : 0;
+  const k = requireNumberField('grid', j, 'k');
+  return {
+    k,
+    add_mass: get('add_mass'), pull_mass: get('pull_mass'), fill_mass: get('fill_mass'),
+    rest_depth: get('rest_depth'), bid_depth: get('bid_depth'), ask_depth: get('ask_depth'),
+    v_add: get('v_add'), v_pull: get('v_pull'), v_fill: get('v_fill'),
+    v_rest_depth: get('v_rest_depth'), v_bid_depth: get('v_bid_depth'), v_ask_depth: get('v_ask_depth'),
+    a_add: get('a_add'), a_pull: get('a_pull'), a_fill: get('a_fill'),
+    a_rest_depth: get('a_rest_depth'), a_bid_depth: get('a_bid_depth'), a_ask_depth: get('a_ask_depth'),
+    j_add: get('j_add'), j_pull: get('j_pull'), j_fill: get('j_fill'),
+    j_rest_depth: get('j_rest_depth'), j_bid_depth: get('j_bid_depth'), j_ask_depth: get('j_ask_depth'),
+    best_ask_move_ticks: get('best_ask_move_ticks'), best_bid_move_ticks: get('best_bid_move_ticks'),
+    ask_reprice_sign: get('ask_reprice_sign'), bid_reprice_sign: get('bid_reprice_sign'),
+    microstate_id: get('microstate_id'), chase_up_flag: get('chase_up_flag'), chase_down_flag: get('chase_down_flag'),
+    last_event_id: requireNumberField('grid', j, 'last_event_id'),
+  };
 }
 
 // ------------------------------------------------ Event-mode heatmap column
@@ -1262,9 +1309,11 @@ function pushHeatmapColumnFromGrid(
   let maxRestD = 0;
   for (const [k_ref, bucket_row] of grid) {
     const goldRow = goldGrid.get(k_ref) as Record<string, number> | undefined;
-    const spectrumAbs = Math.abs(goldRow?.[signalField] ?? 0);
+    const silverRef = bucket_row as unknown as Record<string, number>;
+    // Signal field may live in gold (VP flow_score) or directly in silver (other models)
+    const spectrumAbs = Math.abs(goldRow?.[signalField] ?? silverRef[signalField] ?? 0);
     if (spectrumAbs > maxSpectrumAbs) maxSpectrumAbs = spectrumAbs;
-    const depthVal = (bucket_row as unknown as Record<string, number>)[depthField] ?? 0;
+    const depthVal = silverRef[depthField] ?? 0;
     if (depthVal > maxRestD) maxRestD = depthVal;
   }
   runningMaxSpectrum = Math.max(
@@ -1290,8 +1339,10 @@ function pushHeatmapColumnFromGrid(
     lastRenderedEventIdByRow.set(row, bucketData.last_event_id);
 
     const goldRow = goldGrid.get(k) as Record<string, number> | undefined;
-    const signalVal = goldRow?.[signalField] ?? 0;
-    const depthVal = (bucketData as unknown as Record<string, number>)[depthField] ?? 0;
+    const silverRow = bucketData as unknown as Record<string, number>;
+    // Signal may be in gold (e.g. flow_score from VP) or directly in silver (other models)
+    const signalVal = goldRow?.[signalField] ?? silverRow[signalField] ?? 0;
+    const depthVal = silverRow[depthField] ?? 0;
     const [r, g, b] = activeCellShader
       ? cellShade(depthVal, signalVal, runningMaxDepth, runningMaxSpectrum, activeCellShader)
       : heatmapRGB(depthVal, signalVal, runningMaxDepth);
@@ -1302,7 +1353,7 @@ function pushHeatmapColumnFromGrid(
   if (goldRuntime !== null && goldGrid.size > 0) {
     compositeTrail[HMAP_HISTORY - 1] = getCompositeSignal(goldGrid);
     warmupTrail[HMAP_HISTORY - 1] = goldRuntime.ready ? 1 : 0;
-  } else if (emaRuntime !== null && vizConfig?.display_mode === 'candle') {
+  } else if (emaRuntime !== null) {
     compositeTrail[HMAP_HISTORY - 1] = getCompositeSignal(new Map());
     warmupTrail[HMAP_HISTORY - 1] = emaRuntime.ready ? 1 : 0;
   } else {
@@ -1553,6 +1604,63 @@ function updateRuntimeModelPanel(): void {
     ? `d1=${spotGold.composite_d1.toFixed(3)} composite=${spotGold.composite.toFixed(3)}`
     : 'awaiting data';
   detailEl.style.color = '#888';
+}
+
+function updateEmaSignalPanel(): void {
+  const signalEl = document.getElementById('sig-ema-signal');
+  const statusEl = document.getElementById('sig-ema-status');
+  const noteEl = document.getElementById('sig-ema-note');
+  const linesContainer = document.getElementById('sig-ema-lines-container');
+  const smaContainer = document.getElementById('sig-sma-lines-container');
+  if (!signalEl || !statusEl || !noteEl) return;
+
+  if (!emaRuntime) {
+    signalEl.textContent = '0.000';
+    statusEl.textContent = 'DISABLED';
+    statusEl.style.color = '#888';
+    noteEl.textContent = (emaLinesLabel || 'Overlay') + ' runtime not initialized.';
+    return;
+  }
+
+  const sig = emaRuntime.signal;
+  signalEl.textContent = sig.toFixed(3);
+  signalEl.style.color = sig > 0.1 ? '#22cc66' : sig < -0.1 ? '#cc2255' : '#888';
+
+  const isReady = emaRuntime.ready;
+  statusEl.textContent = isReady ? 'LIVE' : 'WARM';
+  statusEl.style.color = isReady ? '#22cc66' : '#ccaa22';
+  statusEl.style.background = isReady ? '#163124' : '#332a1a';
+  noteEl.textContent = isReady
+    ? `Signal: ${sig > 0.1 ? 'bullish' : sig < -0.1 ? 'bearish' : 'neutral'} (tanh blend)`
+    : `Accumulating ${emaLinesLabel || 'overlay'} warmup periods…`;
+
+  // EMA line values
+  if (linesContainer) {
+    linesContainer.innerHTML = '';
+    for (const p of emaRuntime.allPeriods) {
+      const val = emaRuntime.getEma(p);
+      const row = document.createElement('div');
+      row.className = 'sig-row';
+      row.style.marginBottom = '2px';
+      row.innerHTML = `<span class="sig-label">EMA(${p})</span>`
+        + `<span class="sig-value" style="color:#aaa">${val !== null ? val.toFixed(2) : '—'}</span>`;
+      linesContainer.appendChild(row);
+    }
+  }
+
+  // SMA line values
+  if (smaContainer) {
+    smaContainer.innerHTML = '';
+    for (const p of emaRuntime.allSmaPeriods) {
+      const val = emaRuntime.getSma(p);
+      const row = document.createElement('div');
+      row.className = 'sig-row';
+      row.style.marginBottom = '2px';
+      row.innerHTML = `<span class="sig-label">SMA(${p})</span>`
+        + `<span class="sig-value" style="color:#ccaa22">${val !== null ? val.toFixed(2) : '—'}</span>`;
+      smaContainer.appendChild(row);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- Rendering
@@ -2595,7 +2703,8 @@ function applyRuntimeConfig(
   goldCfg: GoldConfig,
   viz: VisualizationConfig,
   modelId: string = 'vacuum_pressure',
-  emaCfg: EmaConfig | null = null,
+  displayName: string = '',
+  schemaFieldNames: string[] = [],
 ): void {
   if (cfg.grid_radius_ticks < 1) {
     streamContractError(
@@ -2618,10 +2727,12 @@ function applyRuntimeConfig(
   goldRuntime = hasVpGold ? new GoldFeatureRuntime(goldCfg, normalizedCfg.cell_width_ms) : null;
   currentGoldGrid = new Map();
 
-  // EMA ensemble initialization
-  currentModelId = modelId;
-  if (modelId === 'ema_ensemble' && emaCfg !== null) {
-    emaRuntime = new EmaEnsembleRuntime(emaCfg);
+  // ema_lines overlay initialization — fully driven by overlay presence and params
+  const emaOverlay = viz.overlays.find(o => o.type === 'ema_lines' && o.enabled);
+  if (emaOverlay) {
+    const emaCfg = parseEmaConfigFromOverlay('ema_lines', emaOverlay.params);
+    emaRuntime = new EmaLinesRuntime(emaCfg);
+    emaLinesLabel = emaOverlay.label;
     emaTrailMap.clear();
     smaTrailMap.clear();
     for (const p of emaCfg.periods) {
@@ -2631,12 +2742,34 @@ function applyRuntimeConfig(
       smaTrailMap.set(p, new Array(HMAP_HISTORY).fill(null));
     }
     emaSignalTrail = new Array(HMAP_HISTORY).fill(null);
+    // Populate signal panel section titles from overlay label and params
+    const sigTitleEl = document.getElementById('sig-ema-panel-title');
+    const linesTitleEl = document.getElementById('sig-ema-lines-title');
+    const smaTitleEl = document.getElementById('sig-sma-lines-title');
+    if (sigTitleEl) sigTitleEl.textContent = emaOverlay.label || 'Signal';
+    if (linesTitleEl) linesTitleEl.textContent = String(emaOverlay.params['lines_label'] ?? emaOverlay.label ?? 'Lines');
+    if (smaTitleEl) smaTitleEl.textContent = String(emaOverlay.params['sma_label'] ?? 'SMA');
   } else {
     emaRuntime = null;
+    emaLinesLabel = '';
   }
 
   runtimeConfig = normalizedCfg;
   configReceived = true;
+  gridSchemaFieldNames = schemaFieldNames;
+
+  // Model badge: use display_name from serving config (falls back to formatting model_id)
+  const $streamTitle = document.getElementById('stream-title');
+  const $modelBadge = document.getElementById('model-id-badge');
+  if ($streamTitle) $streamTitle.textContent = 'qMACHINA';
+  if ($modelBadge) $modelBadge.textContent = (displayName || modelId.replace(/_/g, ' ')).toUpperCase();
+
+  const showVpPanel = viz.display_mode === 'heatmap' && viz.overlays.some(o => o.type === 'vp_gold' && o.enabled);
+  const showEmaPanel = viz.overlays.some(o => (o.type === 'ema_lines' || o.type === 'sma_lines') && o.enabled);
+  const vpPanel = document.getElementById('vp-signal-panel');
+  const emaPanel = document.getElementById('ema-signal-panel');
+  if (vpPanel) vpPanel.style.display = showVpPanel ? '' : 'none';
+  if (emaPanel) emaPanel.style.display = showEmaPanel ? '' : 'none';
 
   // Update metadata display
   $metaProduct.textContent = normalizedCfg.product_type;
@@ -2732,7 +2865,14 @@ function resetStreamState(): void {
   lastRenderedEventIdByRow.clear();
   runningMaxSpectrum = 10;
   vizConfig = null;
-  currentModelId = 'vacuum_pressure';
+  gridSchemaFieldNames = [];
+  // Reset panels to VP-default visibility (before next config arrives)
+  const vpPanel = document.getElementById('vp-signal-panel');
+  const emaPanel = document.getElementById('ema-signal-panel');
+  if (vpPanel) vpPanel.style.display = '';
+  if (emaPanel) emaPanel.style.display = 'none';
+  const $modelBadge = document.getElementById('model-id-badge');
+  if ($modelBadge) $modelBadge.textContent = '--';
   emaRuntime?.reset();
   emaRuntime = null;
   emaTrailMap.clear();
@@ -2895,15 +3035,10 @@ function connectWS(): void {
             const vizRaw = requireObjectField('runtime_config', msg, 'visualization');
             const viz = parseVisualizationConfig('visualization', vizRaw);
             const parsedModelId = optionalString(msg.model_id) ?? 'vacuum_pressure';
-            const emaCfgRaw = (msg.ema_config && typeof msg.ema_config === 'object')
-              ? msg.ema_config as Record<string, unknown>
-              : null;
-            const parsedEmaCfg: EmaConfig | null = emaCfgRaw ? {
-              periods: requireNumberArrayField('ema_config', emaCfgRaw, 'periods') as number[],
-              weights: requireNumberArrayField('ema_config', emaCfgRaw, 'weights') as number[],
-              sma_periods: requireNumberArrayField('ema_config', emaCfgRaw, 'sma_periods') as number[],
-              signal_tanh_scale: requireNumberField('ema_config', emaCfgRaw, 'signal_tanh_scale'),
-            } : null;
+            const parsedDisplayName = optionalString(msg.display_name) ?? '';
+            const schemaFields = Array.isArray(msg.grid_schema_fields)
+              ? (msg.grid_schema_fields as Array<{name: string}>).map(f => f.name)
+              : [];
             applyRuntimeConfig({
               product_type: requireStringField('runtime_config', msg, 'product_type'),
               symbol: requireStringField('runtime_config', msg, 'symbol'),
@@ -2920,7 +3055,7 @@ function connectWS(): void {
               qty_unit: optionalString(msg.qty_unit) ?? 'shares',
               price_decimals: requireNumberField('runtime_config', msg, 'price_decimals'),
               config_version: optionalString(msg.config_version) ?? '',
-            }, goldCfg, viz, parsedModelId, parsedEmaCfg);
+            }, goldCfg, viz, parsedModelId, parsedDisplayName, schemaFields);
             const cfgMode = optionalString(msg.mode);
             const cfgStage = optionalString(msg.deployment_stage);
             const cfgFormat = optionalString(msg.stream_format);
@@ -2930,11 +3065,10 @@ function connectWS(): void {
               cfgMode === 'pre_prod' ||
               cfgFormat === 'dense_grid'
             ) {
-              const schemaFieldNames = (msg.grid_schema_fields as Array<{name: string}>).map(f => f.name);
               console.log(
                 `[stream] Dense-grid stream detected, stage=${String(cfgStage ?? cfgMode ?? 'unknown')}, ` +
                 `grid_rows=${msg.grid_rows}, ` +
-                `grid_schema_fields=${JSON.stringify(schemaFieldNames)}`
+                `grid_schema_fields=${JSON.stringify(schemaFields)}`
               );
             } else {
               streamContractError(
@@ -2985,63 +3119,16 @@ function connectWS(): void {
 
           const buffer = await event.data.arrayBuffer();
           const table = tableFromIPC(buffer);
-          let gridMap: Map<number, GridBucketRow>;
 
-          if (currentModelId === 'ema_ensemble') {
-            // EMA model: 1-row frame with 4 fields only (k, fill_mass, rest_depth, last_event_id)
-            gridMap = new Map();
-            // (We don't need to populate gridMap for EMA candle rendering)
-          } else {
-            // VP model: full silver row parse
-            gridMap = new Map<number, GridBucketRow>();
-            for (let i = 0; i < table.numRows; i++) {
-              const row = table.get(i);
-              if (!row) continue;
-              const j = row.toJSON() as Record<string, unknown>;
-              const k = requireNumberField('grid', j, 'k');
-              const parsed: GridBucketRow = {
-                k,
-                // Mass fields
-                add_mass: requireNumberField('grid', j, 'add_mass'),
-                pull_mass: requireNumberField('grid', j, 'pull_mass'),
-                fill_mass: requireNumberField('grid', j, 'fill_mass'),
-                rest_depth: requireNumberField('grid', j, 'rest_depth'),
-                bid_depth: requireNumberField('grid', j, 'bid_depth'),
-                ask_depth: requireNumberField('grid', j, 'ask_depth'),
-                // Velocity
-                v_add: requireNumberField('grid', j, 'v_add'),
-                v_pull: requireNumberField('grid', j, 'v_pull'),
-                v_fill: requireNumberField('grid', j, 'v_fill'),
-                v_rest_depth: requireNumberField('grid', j, 'v_rest_depth'),
-                v_bid_depth: requireNumberField('grid', j, 'v_bid_depth'),
-                v_ask_depth: requireNumberField('grid', j, 'v_ask_depth'),
-                // Acceleration
-                a_add: requireNumberField('grid', j, 'a_add'),
-                a_pull: requireNumberField('grid', j, 'a_pull'),
-                a_fill: requireNumberField('grid', j, 'a_fill'),
-                a_rest_depth: requireNumberField('grid', j, 'a_rest_depth'),
-                a_bid_depth: requireNumberField('grid', j, 'a_bid_depth'),
-                a_ask_depth: requireNumberField('grid', j, 'a_ask_depth'),
-                // Jerk
-                j_add: requireNumberField('grid', j, 'j_add'),
-                j_pull: requireNumberField('grid', j, 'j_pull'),
-                j_fill: requireNumberField('grid', j, 'j_fill'),
-                j_rest_depth: requireNumberField('grid', j, 'j_rest_depth'),
-                j_bid_depth: requireNumberField('grid', j, 'j_bid_depth'),
-                j_ask_depth: requireNumberField('grid', j, 'j_ask_depth'),
-                // BBO permutation labels
-                best_ask_move_ticks: requireNumberField('grid', j, 'best_ask_move_ticks'),
-                best_bid_move_ticks: requireNumberField('grid', j, 'best_bid_move_ticks'),
-                ask_reprice_sign: requireNumberField('grid', j, 'ask_reprice_sign'),
-                bid_reprice_sign: requireNumberField('grid', j, 'bid_reprice_sign'),
-                microstate_id: requireNumberField('grid', j, 'microstate_id'),
-                chase_up_flag: requireNumberField('grid', j, 'chase_up_flag'),
-                chase_down_flag: requireNumberField('grid', j, 'chase_down_flag'),
-                // Metadata
-                last_event_id: requireNumberField('grid', j, 'last_event_id'),
-              };
-              gridMap.set(k, parsed);
-            }
+          // Schema-driven: parse only fields declared in the serving config stream_schema.
+          // Fields absent from the schema default to 0 — GoldFeatureRuntime handles sparse silver.
+          const gridMap = new Map<number, GridBucketRow>();
+          for (let i = 0; i < table.numRows; i++) {
+            const row = table.get(i);
+            if (!row) continue;
+            const j = row.toJSON() as Record<string, unknown>;
+            const parsed = parseGridRowFromSchema(j, gridSchemaFieldNames);
+            gridMap.set(parsed.k, parsed);
           }
 
           currentGrid = gridMap;
@@ -3079,8 +3166,14 @@ function connectWS(): void {
           prevMidPrice = currentSpotDollars;
           pushHeatmapColumnFromGrid(gridMap, currentGoldGrid, currentSpotDollars);
           needsRedraw = true;
-          updateSignalPanelFromGrid(gridMap, currentGoldGrid);
-          updateRuntimeModelPanel();
+          const hasEmaOverlays = vizConfig?.overlays.some(o =>
+            (o.type === 'ema_lines' || o.type === 'sma_lines') && o.enabled);
+          if (hasEmaOverlays) {
+            updateEmaSignalPanel();
+          } else if (vizConfig?.overlays.some(o => o.type === 'vp_gold' && o.enabled)) {
+            updateSignalPanelFromGrid(gridMap, currentGoldGrid);
+            updateRuntimeModelPanel();
+          }
         }
       } catch (e) {
         console.error('[stream] Message processing error:', e);

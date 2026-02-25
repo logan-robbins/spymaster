@@ -107,6 +107,7 @@ class OverlaySpec(BaseModel):
 
     id: str
     type: str
+    label: str = ""
     enabled: bool = True
     z_order: int = 0
     params: dict[str, Any] = Field(default_factory=dict)
@@ -134,6 +135,17 @@ class VisualizationConfig(BaseModel):
                 raise ValueError(
                     f"overlay '{o.id}' of type 'projection_bands' requires params.signal_field"
                 )
+        for o in self.overlays:
+            if o.type == "ema_lines" and o.enabled:
+                missing = [
+                    f for f in ("periods", "weights", "sma_periods", "signal_tanh_scale")
+                    if f not in o.params
+                ]
+                if missing:
+                    raise ValueError(
+                        f"overlay '{o.id}' of type 'ema_lines' is enabled and requires "
+                        f"params: {missing}"
+                    )
         return self
 
     @classmethod
@@ -177,12 +189,12 @@ class ServingSpec(BaseModel):
 
     name: str
     description: str = ""
+    display_name: str = ""
     model_id: str = "vacuum_pressure"
     pipeline: str
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     signal: SignalConfig | None = None
     projection: ProjectionConfig = Field(default_factory=ProjectionConfig)
-    ema_config: EmaConfig | None = None
     stream_schema: list[StreamFieldSpec] = Field(default_factory=list)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig.default_heatmap)
     gold_dsl_spec_id: str | None = None

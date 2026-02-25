@@ -1,4 +1,5 @@
 name: derivative_baseline
+display_name: "Vacuum Pressure"
 description: Baseline serving config for derivative signal on MNQ
 pipeline: mnq_60m_baseline
 

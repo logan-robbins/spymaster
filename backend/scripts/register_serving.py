@@ -111,7 +111,7 @@ def main() -> None:
     print(f"  model_id:   {spec.model_id}")
     print(f"  reused:     {result.reused_existing}")
     print(f"\nStream URL: ws://localhost:8002/v1/stream?serving={alias}")
-    print(f"Frontend:   http://localhost:5174/vp-stream.html?serving={alias}")
+    print(f"Frontend:   http://localhost:5174/stream.html?serving={alias}")
 
 
 if __name__ == "__main__":

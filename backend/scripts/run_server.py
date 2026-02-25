@@ -90,7 +90,7 @@ def main() -> None:
         )
         print(
             "  Frontend:  "
-            f"http://localhost:5174/vp-stream.html?serving={serving}"
+            f"http://localhost:5174/stream.html?serving={serving}"
         )
     else:
         print(
@@ -99,7 +99,7 @@ def main() -> None:
         )
         print(
             "  Frontend:  "
-            "http://localhost:5174/vp-stream.html?serving=<alias_or_id>"
+            "http://localhost:5174/stream.html?serving=<alias_or_id>"
         )
     print("=" * 64)
     print()

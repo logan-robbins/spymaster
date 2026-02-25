@@ -102,7 +102,7 @@ ExperimentSpec  ──►  ServingSpec  ──►  PipelineSpec
 
 Models:
 - `backend/src/qmachina/experiment_config.py` — ExperimentSpec
-- `backend/src/qmachina/serving_config.py` — ServingSpec, PublishedServingSpec, StreamFieldSpec, StreamFieldRole, VisualizationConfig, EmaConfig
+- `backend/src/qmachina/serving_config.py` — ServingSpec (`display_name`, `model_id`, `visualization`), OverlaySpec (`label`, `type`, `params`), VisualizationConfig, EmaConfig (overlay param validation only)
 - `backend/src/qmachina/pipeline_config.py` — PipelineSpec
 - `backend/src/qmachina/config.py` — RuntimeConfig, `resolve_config()`, `build_config_with_overrides()`
 
@@ -213,7 +213,7 @@ backend/src/
 | `backend/scripts/analyze_signals.py` | Offline regime analysis |
 | `backend/scripts/warm_cache.py` | Pre-build book state pkl cache |
 | `backend/scripts/batch_download_futures.py` | Databento 3-phase batch download daemon |
-| `frontend/src/vp-stream.ts` | Live heatmap + gauges |
+| `frontend/src/stream.ts` | Live stream viewer — heatmap (VP/grid models) + candle (EMA/indicator models) |
 | `frontend/src/experiments.ts` | Experiment browser |
 | `frontend/src/jobs.ts` | Job queue monitor (SSE progress) |
 | `frontend/src/model_studio.ts` | Model Studio wizard (7-step) |

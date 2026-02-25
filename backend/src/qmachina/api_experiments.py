@@ -34,7 +34,7 @@ def _safe_int(v: Any) -> int | None:
         return None
 
 
-_STREAM_HTML_PATH = "/vp-stream.html"
+_STREAM_HTML_PATH = "/stream.html"
 
 
 def register_experiment_routes(

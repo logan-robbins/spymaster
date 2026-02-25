@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vacuum & Pressure Detector</title>
+  <title>qMachina Stream</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -295,7 +295,8 @@
 
     <!-- Top bar -->
     <div id="top-bar">
-      <span class="title">VP DETECTOR</span>
+      <span class="title" id="stream-title">qMACHINA</span>
+      <span id="model-id-badge" style="font-size:9px;letter-spacing:0.8px;text-transform:uppercase;color:#00ffaa;background:rgba(0,255,170,0.08);border:1px solid rgba(0,255,170,0.2);border-radius:3px;padding:2px 6px;">--</span>
       <div class="sep"></div>
       <span class="info">Spot</span>
       <span id="spot-val">--</span>
@@ -348,105 +349,139 @@
 
       <!-- Signal panel -->
       <div id="signal-panel">
-        <!-- Net Edge -->
-        <div class="sig-section">
-          <div class="sig-title">Net Edge</div>
-          <div class="sig-row">
-            <span class="sig-label">Value</span>
-            <span id="sig-net-edge" class="sig-value">0.0</span>
-          </div>
-          <div id="lift-bar">
-            <div id="lift-marker" style="left: 50%"></div>
-          </div>
-          <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Bull Edge</span>
-            <span id="sig-bull-edge" class="sig-value">0.0</span>
-          </div>
-          <div class="sig-row">
-            <span class="sig-label">Bear Edge</span>
-            <span id="sig-bear-edge" class="sig-value">0.0</span>
-          </div>
-        </div>
 
-        <!-- Force Balance -->
-        <div class="sig-section">
-          <div class="sig-title">Force Balance</div>
-          <div class="sig-row">
-            <span class="sig-label">Vac Above (up path)</span>
-            <span id="sig-vac-above" class="sig-value">0.0</span>
+        <!-- VP model panels (heatmap mode) -->
+        <div id="vp-signal-panel">
+          <!-- Net Edge -->
+          <div class="sig-section">
+            <div class="sig-title">Net Edge</div>
+            <div class="sig-row">
+              <span class="sig-label">Value</span>
+              <span id="sig-net-edge" class="sig-value">0.0</span>
+            </div>
+            <div id="lift-bar">
+              <div id="lift-marker" style="left: 50%"></div>
+            </div>
+            <div class="sig-row" style="margin-top: 8px;">
+              <span class="sig-label">Bull Edge</span>
+              <span id="sig-bull-edge" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row">
+              <span class="sig-label">Bear Edge</span>
+              <span id="sig-bear-edge" class="sig-value">0.0</span>
+            </div>
           </div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label">Press Above (resist)</span>
-            <span id="sig-press-above" class="sig-value">0.0</span>
-          </div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label">Press Below (support)</span>
-            <span id="sig-press-below" class="sig-value">0.0</span>
-          </div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label">Vac Below (down risk)</span>
-            <span id="sig-vac-below" class="sig-value">0.0</span>
-          </div>
-        </div>
 
-        <!-- State -->
-        <div class="sig-section">
-          <div class="sig-title">State</div>
-          <div class="sig-row">
-            <span class="sig-label">VP State</span>
-            <span id="sig-vp-state" class="sig-badge">CHOP</span>
+          <!-- Force Balance -->
+          <div class="sig-section">
+            <div class="sig-title">Force Balance</div>
+            <div class="sig-row">
+              <span class="sig-label">Vac Above (up path)</span>
+              <span id="sig-vac-above" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row" style="margin-top: 6px;">
+              <span class="sig-label">Press Above (resist)</span>
+              <span id="sig-press-above" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row" style="margin-top: 6px;">
+              <span class="sig-label">Press Below (support)</span>
+              <span id="sig-press-below" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row" style="margin-top: 6px;">
+              <span class="sig-label">Vac Below (down risk)</span>
+              <span id="sig-vac-below" class="sig-value">0.0</span>
+            </div>
           </div>
-          <div class="sig-row" style="margin-top: 6px;">
-            <span class="sig-label">Conviction</span>
-            <span id="sig-conviction" class="sig-value">0%</span>
-          </div>
-          <div id="sig-state-note" class="sig-note">Waiting for directional imbalance.</div>
-        </div>
 
-        <!-- Trade Guidance -->
-        <div class="sig-section">
-          <div class="sig-title">Trade Guidance</div>
-          <div class="sig-row">
-            <span class="sig-label">Long</span>
-            <span id="sig-long-action" class="sig-badge">WAIT</span>
+          <!-- State -->
+          <div class="sig-section">
+            <div class="sig-title">State</div>
+            <div class="sig-row">
+              <span class="sig-label">VP State</span>
+              <span id="sig-vp-state" class="sig-badge">CHOP</span>
+            </div>
+            <div class="sig-row" style="margin-top: 6px;">
+              <span class="sig-label">Conviction</span>
+              <span id="sig-conviction" class="sig-value">0%</span>
+            </div>
+            <div id="sig-state-note" class="sig-note">Waiting for directional imbalance.</div>
           </div>
-          <div id="sig-long-note" class="sig-note">No clear continuation edge.</div>
-          <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Short</span>
-            <span id="sig-short-action" class="sig-badge">WAIT</span>
-          </div>
-          <div id="sig-short-note" class="sig-note">No clear continuation edge.</div>
-          <div class="sig-row" style="margin-top: 8px;">
-            <span class="sig-label">Risk Flag</span>
-            <span id="sig-risk-flag" class="sig-value">BALANCED</span>
-          </div>
-        </div>
 
-        <!-- Depth Context -->
-        <div class="sig-section">
-          <div class="sig-title">Depth Context</div>
-          <div class="sig-row">
-            <span class="sig-label">Rest Depth Tilt</span>
-            <span id="sig-depth" class="sig-value">0.0</span>
+          <!-- Trade Guidance -->
+          <div class="sig-section">
+            <div class="sig-title">Trade Guidance</div>
+            <div class="sig-row">
+              <span class="sig-label">Long</span>
+              <span id="sig-long-action" class="sig-badge">WAIT</span>
+            </div>
+            <div id="sig-long-note" class="sig-note">No clear continuation edge.</div>
+            <div class="sig-row" style="margin-top: 8px;">
+              <span class="sig-label">Short</span>
+              <span id="sig-short-action" class="sig-badge">WAIT</span>
+            </div>
+            <div id="sig-short-note" class="sig-note">No clear continuation edge.</div>
+            <div class="sig-row" style="margin-top: 8px;">
+              <span class="sig-label">Risk Flag</span>
+              <span id="sig-risk-flag" class="sig-value">BALANCED</span>
+            </div>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Rest Depth Total</span>
-            <span id="sig-rest-depth" class="sig-value">0.0</span>
+
+          <!-- Depth Context -->
+          <div class="sig-section">
+            <div class="sig-title">Depth Context</div>
+            <div class="sig-row">
+              <span class="sig-label">Rest Depth Tilt</span>
+              <span id="sig-depth" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row">
+              <span class="sig-label">Rest Depth Total</span>
+              <span id="sig-rest-depth" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row">
+              <span class="sig-label">Force Total</span>
+              <span id="sig-force-total" class="sig-value">0.0</span>
+            </div>
+            <div class="sig-row">
+              <span class="sig-label">Runtime Model</span>
+              <span id="sig-model-status" class="sig-value">DISABLED</span>
+            </div>
+            <div class="sig-row">
+              <span class="sig-label">Model Score</span>
+              <span id="sig-model-score" class="sig-value">0.0</span>
+            </div>
+            <div id="sig-model-detail" class="sig-note">runtime model not initialized</div>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Force Total</span>
-            <span id="sig-force-total" class="sig-value">0.0</span>
+        </div><!-- #vp-signal-panel -->
+
+        <!-- Overlay signal panel (candle mode) — hidden until serving config is received -->
+        <div id="ema-signal-panel" style="display: none;">
+          <!-- Composite signal section — title populated from overlay label -->
+          <div class="sig-section">
+            <div class="sig-title" id="sig-ema-panel-title"></div>
+            <div class="sig-row">
+              <span class="sig-label">Signal</span>
+              <span id="sig-ema-signal" class="sig-value">0.000</span>
+            </div>
+            <div class="sig-row" style="margin-top: 4px;">
+              <span class="sig-label">Status</span>
+              <span id="sig-ema-status" class="sig-badge">WARM</span>
+            </div>
+            <div id="sig-ema-note" class="sig-note"></div>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Runtime Model</span>
-            <span id="sig-model-status" class="sig-value">DISABLED</span>
+
+          <!-- EMA line values — title populated from overlay params.lines_label -->
+          <div class="sig-section">
+            <div class="sig-title" id="sig-ema-lines-title"></div>
+            <div id="sig-ema-lines-container"></div>
           </div>
-          <div class="sig-row">
-            <span class="sig-label">Model Score</span>
-            <span id="sig-model-score" class="sig-value">0.0</span>
+
+          <!-- SMA line values — title populated from overlay params.sma_label -->
+          <div class="sig-section">
+            <div class="sig-title" id="sig-sma-lines-title"></div>
+            <div id="sig-sma-lines-container"></div>
           </div>
-          <div id="sig-model-detail" class="sig-note">runtime model not initialized</div>
-        </div>
+        </div><!-- #ema-signal-panel -->
+
       </div>
     </div>
 
@@ -481,6 +516,6 @@
     </div>
   </div>
 
-  <script type="module" src="/src/vp-stream.ts"></script>
+  <script type="module" src="/src/stream.ts"></script>
 </body>
 </html>

@@ -1,12 +1,7 @@
 name: ema_ensemble_baseline
+display_name: "EMA Ensemble"
 model_id: ema_ensemble
 pipeline: mnq_60m_baseline
-
-ema_config:
-  periods: [5, 10, 20, 50]
-  weights: [0.40, 0.30, 0.20, 0.10]
-  sma_periods: [10, 20]
-  signal_tanh_scale: 1.5
 
 projection:
   horizons_ms: [100, 200, 400, 800]
@@ -24,22 +19,32 @@ visualization:
   overlays:
     - id: spot_trail
       type: spot_trail
+      label: "Spot Trail"
       z_order: 10
       enabled: true
       params: {}
     - id: bbo_spread
       type: bbo_spread
+      label: "BBO Spread"
       z_order: 15
       enabled: true
       params: {}
     - id: ema_lines
       type: ema_lines
+      label: "Ensemble Signal"
       z_order: 20
       enabled: true
       params:
+        lines_label: "EMA Lines"
+        sma_label: "SMA Lines"
         line_width: 1.5
+        periods: [5, 10, 20, 50]
+        weights: [0.40, 0.30, 0.20, 0.10]
+        sma_periods: [10, 20]
+        signal_tanh_scale: 1.5
     - id: projection_bands
       type: projection_bands
+      label: "Projection Bands"
       z_order: 30
       enabled: true
       params:

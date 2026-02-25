@@ -7,7 +7,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        'vp-stream': 'vp-stream.html',
+        'stream': 'stream.html',
         'experiments': 'experiments.html',
         'jobs': 'jobs.html',
         'model_studio': 'model_studio.html',

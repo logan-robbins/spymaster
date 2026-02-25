@@ -663,7 +663,7 @@ def promote(
     )
     click.echo(
         "Frontend URL:  "
-        f"http://localhost:5174/vp-stream.html?serving={result.alias}"
+        f"http://localhost:5174/stream.html?serving={result.alias}"
     )
 
 
