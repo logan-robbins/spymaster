@@ -176,7 +176,11 @@ class EmaEnsembleRuntime implements ModelRuntime {
   private readonly smaPeriods: number[];
   private readonly tanhScale: number;
   private readonly emaState = new Map<number, number | null>();
-  private readonly smaBuffers = new Map<number, number[]>();
+  // SMA: circular buffer per period + O(1) running sum
+  private readonly smaBuffers = new Map<number, Float64Array>();
+  private readonly smaWriteIdx = new Map<number, number>();
+  private readonly smaCount = new Map<number, number>();
+  private readonly smaSums = new Map<number, number>();
 
   constructor(cfg: EmaConfig) {
     this.periods = cfg.periods;
@@ -184,12 +188,22 @@ class EmaEnsembleRuntime implements ModelRuntime {
     this.smaPeriods = cfg.sma_periods;
     this.tanhScale = cfg.signal_tanh_scale;
     for (const p of this.periods) this.emaState.set(p, null);
-    for (const p of this.smaPeriods) this.smaBuffers.set(p, []);
+    for (const p of this.smaPeriods) {
+      this.smaBuffers.set(p, new Float64Array(p));
+      this.smaWriteIdx.set(p, 0);
+      this.smaCount.set(p, 0);
+      this.smaSums.set(p, 0);
+    }
   }
 
   reset(): void {
     for (const p of this.periods) this.emaState.set(p, null);
-    for (const p of this.smaPeriods) this.smaBuffers.set(p, []);
+    for (const p of this.smaPeriods) {
+      this.smaBuffers.get(p)!.fill(0);
+      this.smaWriteIdx.set(p, 0);
+      this.smaCount.set(p, 0);
+      this.smaSums.set(p, 0);
+    }
   }
 
   update(close: number): void {
@@ -200,8 +214,15 @@ class EmaEnsembleRuntime implements ModelRuntime {
     }
     for (const p of this.smaPeriods) {
       const buf = this.smaBuffers.get(p)!;
-      buf.push(close);
-      if (buf.length > p) buf.shift();
+      const idx = this.smaWriteIdx.get(p)!;
+      const count = this.smaCount.get(p)!;
+      const runSum = this.smaSums.get(p)!;
+      // Evict the oldest value only when the buffer is full
+      const evicted = count >= p ? buf[idx] : 0;
+      buf[idx] = close;
+      this.smaWriteIdx.set(p, (idx + 1) % p);
+      this.smaCount.set(p, Math.min(count + 1, p));
+      this.smaSums.set(p, runSum - evicted + close);
     }
   }
 
@@ -210,22 +231,30 @@ class EmaEnsembleRuntime implements ModelRuntime {
   }
 
   getSma(period: number): number | null {
-    const buf = this.smaBuffers.get(period);
-    if (!buf || buf.length === 0) return null;
-    return buf.reduce((a, b) => a + b, 0) / buf.length;
+    const count = this.smaCount.get(period);
+    if (!count) return null;
+    return this.smaSums.get(period)! / count;
   }
 
-  /** Weighted tanh blend of adjacent EMA crossover signs. */
+  /** Weighted tanh blend of adjacent EMA crossover signs.
+   *  Weights are normalized over the N-1 pairs actually used, so signal
+   *  magnitude is correct regardless of how many weight entries the server
+   *  sends (e.g. 4 weights for 3 crossover pairs). */
   get signal(): number {
+    const nPairs = this.periods.length - 1;
     let sum = 0;
-    for (let i = 0; i < this.periods.length - 1; i++) {
+    let weightSum = 0;
+    for (let i = 0; i < nPairs; i++) {
       const fast = this.emaState.get(this.periods[i]);
       const slow = this.emaState.get(this.periods[i + 1]);
       if (fast == null || slow == null) return 0;
       const diff = fast - slow;
-      sum += this.weights[i] * (diff > 0 ? 1 : diff < 0 ? -1 : 0);
+      const w = this.weights[i] ?? 0;
+      sum += w * (diff > 0 ? 1 : diff < 0 ? -1 : 0);
+      weightSum += w;
     }
-    return Math.tanh(sum * this.tanhScale);
+    const normalizedSum = weightSum > 0 ? sum / weightSum : sum;
+    return Math.tanh(normalizedSum * this.tanhScale);
   }
 
   get ready(): boolean {
@@ -242,6 +271,19 @@ interface StreamParams {
 }
 
 // --------------------------------------------------- GoldFeatureRuntime
+
+// State5 lookup tables — keys are `${askSign},${bidSign}`.
+// Allocated once at module level to avoid per-tick object literals in _state5().
+const STATE5_ABOVE: Readonly<Record<string, number>> = Object.freeze({
+  '1,1': 2,  '1,0': -1,  '1,-1': -1,
+  '0,1': 2,  '0,0': 0,   '0,-1': -1,
+  '-1,1': 0, '-1,0': -1, '-1,-1': -1,
+});
+const STATE5_BELOW: Readonly<Record<string, number>> = Object.freeze({
+  '1,1': 1,  '1,0': -2,  '1,-1': -2,
+  '0,1': 1,  '0,0': 0,   '0,-1': -2,
+  '-1,1': 0, '-1,0': -2, '-1,-1': -2,
+});
 
 /**
  * In-browser gold feature computation. Replicates the Python gold_builder
@@ -284,6 +326,9 @@ class GoldFeatureRuntime implements ModelRuntime {
   private readonly prevD2: Map<number, number> = new Map();
 
   private readonly maxCompHist: number;
+  // Pre-allocated scratch buffers for z-score median computation (avoids per-tick heap alloc)
+  private readonly medianScratch: Float64Array;
+  private readonly madScratch: Float64Array;
 
   constructor(goldCfg: GoldConfig, cellWidthMs: number) {
     this.c1 = goldCfg.c1_v_add;
@@ -304,6 +349,8 @@ class GoldFeatureRuntime implements ModelRuntime {
     this.zMinPeriods = goldCfg.flow_zscore_min_periods;
     this.cellWidthS = cellWidthMs / 1000.0;
     this.maxCompHist = Math.max(...goldCfg.flow_windows, 10) + 5;
+    this.medianScratch = new Float64Array(this.zWindow);
+    this.madScratch = new Float64Array(this.zWindow);
   }
 
   reset(): void {
@@ -408,14 +455,8 @@ class GoldFeatureRuntime implements ModelRuntime {
         const n = newZcount;
         for (let ch = 0; ch < 3; ch++) {
           const buf = zbufs[ch];
-          // Extract valid history
-          const hist: number[] = [];
-          for (let j = 0; j < n; j++) {
-            hist.push(buf[(zidx - j + this.zWindow) % this.zWindow]);
-          }
-          const med = this._median(hist);
-          const absDevs = hist.map(v => Math.abs(v - med));
-          const mad = this._median(absDevs);
+          const med = this._medianFromCirc(buf, zidx, n);
+          const mad = this._madFromCirc(buf, zidx, n, med);
           const scale = this.MAD_SIGMA * mad;
           zScores[ch] = scale > this.SCALE_EPS ? (derivs[ch] - med) / scale : 0;
         }
@@ -442,27 +483,30 @@ class GoldFeatureRuntime implements ModelRuntime {
 
   private _state5(k: number, askSign: number, bidSign: number): number {
     if (k === 0) return 0;
-    const above: Record<string, number> = {
-      '1,1': 2, '1,0': -1, '1,-1': -1,
-      '0,1': 2, '0,0': 0, '0,-1': -1,
-      '-1,1': 0, '-1,0': -1, '-1,-1': -1,
-    };
-    const below: Record<string, number> = {
-      '1,1': 1, '1,0': -2, '1,-1': -2,
-      '0,1': 1, '0,0': 0, '0,-1': -2,
-      '-1,1': 0, '-1,0': -2, '-1,-1': -2,
-    };
     const key = `${askSign},${bidSign}`;
-    return (k > 0 ? above[key] : below[key]) ?? 0;
+    return (k > 0 ? STATE5_ABOVE[key] : STATE5_BELOW[key]) ?? 0;
   }
 
-  private _median(arr: number[]): number {
-    if (arr.length === 0) return 0;
-    const sorted = arr.slice().sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 === 0
-      ? (sorted[mid - 1] + sorted[mid]) / 2
-      : sorted[mid];
+  /** Median of n values read from a circular Float64Array — no heap allocation. */
+  private _medianFromCirc(src: Float64Array, headIdx: number, n: number): number {
+    for (let j = 0; j < n; j++) {
+      this.medianScratch[j] = src[(headIdx - j + this.zWindow) % this.zWindow];
+    }
+    const sub = this.medianScratch.subarray(0, n);
+    sub.sort();
+    const mid = n >> 1;
+    return n % 2 === 0 ? (sub[mid - 1] + sub[mid]) / 2 : sub[mid];
+  }
+
+  /** MAD of n values from a circular Float64Array given a pre-computed median — no heap allocation. */
+  private _madFromCirc(src: Float64Array, headIdx: number, n: number, median: number): number {
+    for (let j = 0; j < n; j++) {
+      this.madScratch[j] = Math.abs(src[(headIdx - j + this.zWindow) % this.zWindow] - median);
+    }
+    const sub = this.madScratch.subarray(0, n);
+    sub.sort();
+    const mid = n >> 1;
+    return n % 2 === 0 ? (sub[mid - 1] + sub[mid]) / 2 : sub[mid];
   }
 }
 
@@ -518,6 +562,7 @@ function priceDecimals(): number {
 // ----------------------------------------------------------- Stream state
 
 let windowCount = 0;
+let needsRedraw = true; // set true on new data, zoom, or pan; cleared after each render
 
 // Price-anchored grid
 let anchorPriceDollars = 0;
@@ -717,18 +762,17 @@ function nicePriceInterval(visDollars: number, target: number): number {
 
 // ---------------------------------------------------------- General helpers
 
-/** Format nanosecond timestamp as "h:MM:SS AM/PM EST". */
+/** Format nanosecond timestamp as "h:MM:SS AM/PM ET" (DST-aware via Intl API). */
 function formatTs(ns: bigint): string {
-  const ms = Number(ns / 1_000_000n);
-  const d = new Date(ms);
-  // Fixed EST offset (UTC-5). Covers regular + extended trading hours.
-  const et = new Date(d.getTime() - 5 * 3600_000);
-  let h = et.getUTCHours();
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  const mm = String(et.getUTCMinutes()).padStart(2, '0');
-  const ss = String(et.getUTCSeconds()).padStart(2, '0');
-  return `${h}:${mm}:${ss} ${ampm} EST`;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date(Number(ns / 1_000_000n)));
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '??';
+  return `${get('hour')}:${get('minute')}:${get('second')} ${get('dayPeriod')} ET`;
 }
 
 /** Colour a value: positive -> green, negative -> red, zero -> grey. */
@@ -2475,13 +2519,18 @@ function renderTimeAxis(canvas: HTMLCanvasElement): void {
     const x = colToX(col + 0.5);
     if (x < -20 || x > cw + 20) continue;
 
-    // Format as HH:MM:SS ET (fixed UTC-5)
-    const ms = Number(ts / 1_000_000n);
-    const d = new Date(ms);
-    const et = new Date(d.getTime() - 5 * 3600_000);
-    const hh = String(et.getUTCHours()).padStart(2, '0');
-    const mm = String(et.getUTCMinutes()).padStart(2, '0');
-    const ss = String(et.getUTCSeconds()).padStart(2, '0');
+    // Format as HH:MM:SS ET (DST-aware via Intl API)
+    const axParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(Number(ts / 1_000_000n)));
+    const axGet = (t: string) => axParts.find(p => p.type === t)?.value ?? '00';
+    const hh = axGet('hour');
+    const mm = axGet('minute');
+    const ss = axGet('second');
 
     // Tick mark
     ctx.strokeStyle = 'rgba(100, 100, 150, 0.4)';
@@ -3029,6 +3078,7 @@ function connectWS(): void {
           candleTrail.push(bar);
           prevMidPrice = currentSpotDollars;
           pushHeatmapColumnFromGrid(gridMap, currentGoldGrid, currentSpotDollars);
+          needsRedraw = true;
           updateSignalPanelFromGrid(gridMap, currentGoldGrid);
           updateRuntimeModelPanel();
         }
@@ -3097,6 +3147,7 @@ function startRenderLoop(): void {
     } else {
       applyZoom(1, factor, mx, my, drawWidth, rect.height);
     }
+    needsRedraw = true;
   }, { passive: false });
 
   // Pan (pointer drag on heatmap)
@@ -3124,6 +3175,7 @@ function startRenderLoop(): void {
     vpX = panStartVpX - (dxPx / drawWidth) * srcW;
     vpY = panStartVpY - (dyPx / rect.height) * srcH;
     clampViewport();
+    needsRedraw = true;
 
     if (Math.abs(dxPx) > 3 || Math.abs(dyPx) > 3) {
       userPanned = true;
@@ -3151,19 +3203,23 @@ function startRenderLoop(): void {
     zoomX = 1;
     zoomY = 1;
     resetViewport();
+    needsRedraw = true;
   });
 
   hmapCanvas.style.cursor = 'grab';
 
   function frame() {
-    if (vizConfig?.display_mode === 'candle') {
-      renderCandleBase(hmapCanvas);
-    } else {
-      renderHeatmap(hmapCanvas);
+    if (needsRedraw) {
+      if (vizConfig?.display_mode === 'candle') {
+        renderCandleBase(hmapCanvas);
+      } else {
+        renderHeatmap(hmapCanvas);
+      }
+      renderProfile(profCanvas);
+      renderPriceAxis(axisCanvas);
+      renderTimeAxis(timeCanvas);
+      needsRedraw = false;
     }
-    renderProfile(profCanvas);
-    renderPriceAxis(axisCanvas);
-    renderTimeAxis(timeCanvas);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

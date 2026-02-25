@@ -533,8 +533,9 @@ function renderRunExperimentProgress(jobId: string): void {
   });
 
   evtSource.onerror = () => {
-    appendLog('[SSE connection closed]');
-    evtSource.close();
+    // EventSource auto-retries per the SSE spec. Closing here would permanently
+    // break progress tracking on a transient network blip, so we let it reconnect.
+    appendLog('[SSE reconnecting...]');
   };
 
   document.getElementById('exp-cancel')!.addEventListener('click', async () => {

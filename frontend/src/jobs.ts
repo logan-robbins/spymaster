@@ -58,7 +58,6 @@ const API_BASE = `http://localhost:${API_PORT}`;
 let currentJobs: JobSummary[] = [];
 let selectedJobId: string | null = null;
 let activeSSE: EventSource | null = null;
-let refreshTimer: number | null = null;
 
 // ---------- Helpers ----------
 
@@ -338,7 +337,7 @@ async function init(): Promise<void> {
   await refreshAll();
 
   // Auto-refresh every 5s
-  refreshTimer = window.setInterval(refreshAll, 5000);
+  window.setInterval(refreshAll, 5000);
 }
 
 init();
